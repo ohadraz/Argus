@@ -57,6 +57,7 @@ from argus_core.models import (
     ServiceDependency,
     Verdict,
 )
+from argus_incidents import IsStillWanted
 from argus_testkit import (
     Assertion,
     Kept,
@@ -552,6 +553,73 @@ def test_a_disproved_alarm_reads_no_channel_and_searches_no_memory(
             _no_channel_was_read(fetch_flag_changes, fetch_dependencies),
             _the_disproof_published_names(A_DISPROOF, published)
         ))
+
+
+@pytest.mark.unit
+def test_a_stopped_investigation_records_nothing_and_reads_nothing(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Stopped because the incident is no longer wanted. Every read and every
+    # record below would be work on an incident nobody wants, so the node hands
+    # back nothing at all and the walk's own check routes it out.
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_was_stopped(
+                investigate,
+                an_undetermined_hypothesis(an_investigating_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(all_of(
+            the_result_is(StateDelta()),
+            _nothing_was_reached_after_the_stop(
+                record_hypothesis, fetch_flag_changes, fetch_dependencies
+            )
+        ))
+
+
+@pytest.mark.unit
+def test_the_investigation_asks_whether_this_incident_is_still_wanted(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The agent asks without knowing which incident it is working on, so the
+    # node binds it: a question handed down about any other incident would
+    # stop the wrong walk, or none.
+    an_investigating_incident = _an_investigating_incident()
+    asked: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      still_wanted=_a_question_recording_who_it_asks_about(asked))
+        ) \
+        .then(
+            _the_question_handed_down_asks_about(
+                investigate, asked, an_investigating_incident.incident_id
+            )
+        )
 
 
 @pytest.mark.unit
@@ -1921,6 +1989,67 @@ def _the_disproof_published_names(expected: Disproof,
             raise AssertionError(
                 f"Expected the disproof to have been published on the grounds "
                 f"{wanted}, and it was published on {grounds}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_investigation_was_stopped(investigate: MagicMock,
+                                   *candidates: Hypothesis) -> None:
+    """An investigation that ended because its incident is no longer wanted.
+
+    The candidates are still handed back, because findings always carry at
+    least one - the point of the cases below is that this node does nothing
+    with them.
+    """
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates), already_read=[], stopped=True
+    )
+
+
+def _a_question_recording_who_it_asks_about(asked: list[str]) -> IsStillWanted:
+    def still_wanted(incident_id: str, /) -> bool:
+        asked.append(incident_id)
+        return True
+
+    return still_wanted
+
+
+def _nothing_was_reached_after_the_stop(*collaborators: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        reached = [collaborator for collaborator in collaborators if collaborator.called]
+
+        if reached:
+            raise AssertionError(
+                f"Expected nothing to be read or recorded once the investigation "
+                f"stopped, and {len(reached)} of {len(collaborators)} were reached."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_question_handed_down_asks_about(investigate: MagicMock,
+                                         asked: list[str],
+                                         incident_id: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        handed_down = investigate.call_args.kwargs.get("still_wanted")
+
+        if handed_down is None:
+            raise AssertionError(
+                "Expected the investigation to be handed a way to ask whether it "
+                "is still wanted, and it was handed none."
+            )
+
+        handed_down()
+
+        if asked != [incident_id]:
+            raise AssertionError(
+                f"Expected the question handed down to ask about incident "
+                f"[{incident_id}], and it asked about {asked}."
             )
 
         return True

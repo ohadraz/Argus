@@ -24,6 +24,7 @@ from agent_codefix.prompting import SubmittedFix
 from agent_codefix.proposing import (
     FixDeclined,
     FixNotAnswered,
+    FixStopped,
     fixes_over,
     propose_fix,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "FixDeclined",
     "FixNotAnswered",
     "FixSettings",
+    "FixStopped",
     "SubmittedFix",
     "fixes_over",
     "propose_fix"

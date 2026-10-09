@@ -278,6 +278,85 @@ def test_a_node_that_finished_after_a_withdrawal_stops_the_walk(
         )
 
 
+@pytest.mark.unit
+def test_a_node_that_moved_nothing_while_it_was_withdrawn_stops_the_walk(
+    transition_incident: MagicMock
+) -> None:
+    # A step that stopped because nobody wants the incident hands back nothing,
+    # so there is no move for the row to refuse and nothing for the router to
+    # read as a stop. Asked once more after the node, the walk hears the
+    # withdrawal anyway - and writes nothing, because the row already says it.
+    Scenario() \
+        .given(
+            a_node_that_stopped := _a_node_returning({}),
+            an_incident_being_investigated := _an_incident_being_investigated()
+        ) \
+        .when(lambda: with_status(
+            a_node_that_stopped,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            still_wanted=_withdrawn_while_the_node_ran())(an_incident_being_investigated)
+        ) \
+        .then(all_of(
+            the_updates_carry("status", IncidentStatus.WITHDRAWN),
+            _the_incident_was_not_moved(transition_incident)
+        ))
+
+
+@pytest.mark.unit
+def test_a_withdrawal_heard_after_a_step_is_logged(
+    transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing is written for it - the row already says withdrawn - so this line
+    # is the walk's only account of where it was when it heard.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            a_node_that_stopped := _a_node_returning({}),
+            an_incident_being_investigated := _an_incident_being_investigated()
+        ) \
+        .when(lambda: with_status(
+            a_node_that_stopped,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            still_wanted=_withdrawn_while_the_node_ran())(an_incident_being_investigated)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
+                                  "withdrawn while a step ran",
+                                  values={"from_status": IncidentStatus.INVESTIGATING})
+        )
+
+
+@pytest.mark.unit
+def test_a_move_the_row_refused_is_logged(
+    transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The other way the walk hears it: the step moved the incident and the row
+    # refused, because a person had withdrawn it in the meantime.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            calling(lambda: transition_incident.configure_mock(return_value=False)),
+            an_investigation_that_found_something := _a_node_returning(
+                {"candidates": [a_candidate()], "candidate_index": 0}
+            ),
+            an_incident_being_investigated := _an_incident_being_investigated()
+        ) \
+        .when(lambda: with_status(
+            an_investigation_that_found_something,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            still_wanted=the_incident_is_still_wanted())(an_incident_being_investigated)
+        ) \
+        .then(
+            one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
+                                  "withdrawn while a step ran",
+                                  values={"from_status": IncidentStatus.INVESTIGATING,
+                                          "to_status": IncidentStatus.MITIGATING})
+        )
+
+
 def _there_is_no_such_incident() -> IsStillWanted:
     """The same answer, for the different reason that there is no row at all.
 
@@ -286,6 +365,17 @@ def _there_is_no_such_incident() -> IsStillWanted:
     """
     def still_wanted(dont_care_incident_id: str) -> bool:
         return False
+
+    return still_wanted
+
+
+def _withdrawn_while_the_node_ran() -> IsStillWanted:
+    """Wanted when the node began, and withdrawn by the time it returned."""
+    asked: list[str] = []
+
+    def still_wanted(incident_id: str, /) -> bool:
+        asked.append(incident_id)
+        return len(asked) == 1
 
     return still_wanted
 

@@ -18,9 +18,11 @@ import logging
 from typing import Any
 
 import pytest
-from agent_codefix.proposing import FixDeclined, FixNotAnswered
+from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixStopped
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import Alert, FixOutcome, Hypothesis, IncidentStatus, OpenedPullRequest
+from argus_incidents import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
@@ -28,7 +30,11 @@ from orchestrator.walk.ports import ProposeFix
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
-from orchestrator_test.framework.assertions import the_route_is, the_updates_carry
+from orchestrator_test.framework.assertions import (
+    the_result_is,
+    the_route_is,
+    the_updates_carry,
+)
 from orchestrator_test.framework.builders import a_determined_hypothesis
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
@@ -294,6 +300,54 @@ def test_a_model_that_declined_is_not_reported_as_a_repository_that_refused() ->
 
 
 @pytest.mark.unit
+def test_a_fix_stopped_because_nobody_wants_it_any_more_says_nothing() -> None:
+    # Not an attempt that ended in any of its outcomes - somebody said stop.
+    # Announcing one would put a line on the timeline about a fix nobody asked
+    # to have finished, and `fix_found` would route an incident nobody wants
+    # onwards. The node hands back nothing and the walk's own check routes out.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            an_agent_that_was_stopped := _an_agent_raising(
+                FixStopped("the incident is no longer wanted")
+            )
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_was_stopped,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            the_result_is(StateDelta()),
+            _no_attempt_was_announced(published)
+        ))
+
+
+@pytest.mark.unit
+def test_the_agent_asks_whether_this_incident_is_still_wanted() -> None:
+    # The agent asks without knowing which incident it is fixing, so the node
+    # binds it: a question handed down about any other incident would stop the
+    # wrong walk, or none.
+    asked: list[str] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 the_agent.propose,
+                                 still_wanted=_a_question_recording_who_it_asks_about(asked))
+        ) \
+        .then(
+            _the_question_handed_down_asks_about(the_agent, asked, DONT_CARE_INCIDENT_ID)
+        )
+
+
+@pytest.mark.unit
 def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
     # Publishing is an account, never a participant (spec §4 principle 6). A
     # node that behaved differently with no subscriber would make every test
@@ -449,12 +503,16 @@ class _AnAgentRememberingWhatItWasAsked:
     def __init__(self) -> None:
         self.hypothesis: Hypothesis | None = None
         self.incident_id: str | None = None
+        self.still_wanted: StillWanted | None = None
 
     def propose(self,
                 hypothesis: Hypothesis | None,
-                incident_id: str) -> OpenedPullRequest | None:
+                incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout) -> OpenedPullRequest | None:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
+        self.still_wanted = still_wanted
 
         return None
 
@@ -462,7 +520,9 @@ class _AnAgentRememberingWhatItWasAsked:
 def _an_agent_offering(proposal: OpenedPullRequest | None) -> ProposeFix:
     """Code-Fix, answering the same thing however it is asked."""
     def propose(dont_care_hypothesis: Hypothesis | None,
-                dont_care_incident_id: str) -> OpenedPullRequest | None:
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout) -> OpenedPullRequest | None:
         return proposal
 
     return propose
@@ -477,7 +537,9 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
     class would let every other way that call fails take the walk down.
     """
     def propose(dont_care_hypothesis: Hypothesis | None,
-                dont_care_incident_id: str) -> OpenedPullRequest | None:
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout) -> OpenedPullRequest | None:
         raise failure
 
     return propose
@@ -569,7 +631,10 @@ def _the_narration_mentions(said: str) -> Assertion[StateDelta]:
 
 def _an_agent_raising(error: Exception) -> ProposeFix:
     """A repository that refused, said as the agent raising what it raised."""
-    def refuse(dont_care_hypothesis: Hypothesis | None, dont_care_incident_id: str) -> Any:
+    def refuse(dont_care_hypothesis: Hypothesis | None,
+               dont_care_incident_id: str,
+               *,
+               still_wanted: StillWanted = wanted_throughout) -> Any:
         raise error
 
     return refuse
@@ -612,6 +677,52 @@ def _the_attempt_says_why(reason: str,
         if not any(reason in detail for detail in said):
             raise AssertionError(
                 f"Expected an attempt mentioning [{reason}], got {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_attempt_was_announced(published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        attempts = [event for event in published if isinstance(event, FixAttempted)]
+
+        if attempts:
+            raise AssertionError(
+                f"Expected no fix attempt announced for a fix somebody stopped, "
+                f"got {[attempt.outcome for attempt in attempts]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_question_recording_who_it_asks_about(asked: list[str]) -> IsStillWanted:
+    def still_wanted(incident_id: str, /) -> bool:
+        asked.append(incident_id)
+        return True
+
+    return still_wanted
+
+
+def _the_question_handed_down_asks_about(agent: _AnAgentRememberingWhatItWasAsked,
+                                         asked: list[str],
+                                         incident_id: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if agent.still_wanted is None:
+            raise AssertionError(
+                "Expected Code-Fix to be handed a way to ask whether it is still "
+                "wanted, and it was handed none."
+            )
+
+        agent.still_wanted()
+
+        if asked != [incident_id]:
+            raise AssertionError(
+                f"Expected the question handed down to ask about incident "
+                f"[{incident_id}], and it asked about {asked}."
             )
 
         return True

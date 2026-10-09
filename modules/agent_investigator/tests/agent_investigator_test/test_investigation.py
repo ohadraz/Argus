@@ -578,6 +578,30 @@ def test_a_turn_cut_short_ends_the_investigation_rather_than_being_asked_again()
 
 
 @pytest.mark.unit
+def test_an_investigation_nobody_wants_any_more_stops_before_its_next_turn() -> None:
+    # Withdrawn while the model was answering. The turn that was in flight came
+    # back and was paid for; the next one is not asked for, because every turn
+    # after a person said stop is tokens spent on an incident nobody wants.
+    once_and_never_asked_again = 1
+    investigation = an_investigation(a_model_that_never_stops_reading())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(still_wanted=_wanted_for_one_turn())
+        ) \
+        .then(
+            all_of(
+                _it_stopped(),
+                _no_cause_was_determined(),
+                _the_model_was_asked(investigation.model, times=once_and_never_asked_again)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_refusal_ends_the_investigation_however_much_budget_is_left() -> None:
     # The one outcome a retry cannot fix: the same question over the same
     # evidence is declined again, so asking twice buys nothing and costs a
@@ -2206,6 +2230,32 @@ def _nothing_was_disproven() -> Assertion[Findings]:
     return assertion
 
 
+def _wanted_for_one_turn() -> Callable[[], bool]:
+    """A walk somebody stopped while its first turn was being answered."""
+    asked: list[bool] = []
+
+    def still_wanted() -> bool:
+        wanted = not asked
+        asked.append(wanted)
+        return wanted
+
+    return still_wanted
+
+
+def _it_stopped() -> Assertion[Findings]:
+    """Reported as stopped, rather than as an investigation that found nothing."""
+    def assertion(findings: Findings) -> bool:
+        if not findings.stopped:
+            raise AssertionError(
+                "Expected an investigation nobody wanted any more to say it "
+                "stopped, and it did not."
+            )
+
+        return True
+
+    return assertion
+
+
 def _no_cause_was_determined() -> Assertion[Findings]:
     """The honest outcome: one candidate, carrying no cause and no confidence."""
     def assertion(findings: Findings) -> bool:
@@ -3356,6 +3406,28 @@ def test_metrics_that_could_not_be_read_are_logged_as_a_warning(
         .then(
             one_record_was_logged(caplog, THE_INVESTIGATION, logging.WARNING,
                                   "metrics could not be read", failure=McpToolError)
+        )
+
+
+@pytest.mark.unit
+def test_an_investigation_stopped_between_turns_is_logged(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The line that says why an investigation ended with nothing and spent no
+    # more - otherwise indistinguishable in the log from one that never began.
+    investigation = an_investigation(a_model_that_never_stops_reading())
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(still_wanted=_wanted_for_one_turn())
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_INVESTIGATION, logging.INFO,
+                                  "investigation stopped, incident no longer wanted")
         )
 
 

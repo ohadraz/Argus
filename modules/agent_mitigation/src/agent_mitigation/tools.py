@@ -367,11 +367,6 @@ class PerformingWrites:
 
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
-# Whether the walk waiting on an action is still one anybody wants. Takes
-# nothing: which incident this is belongs to the caller, and an agent that had
-# to be told would be an agent that could look it up - which is a database this
-# module has no business holding an opinion about.
-StillWanted = Callable[[], bool]
 # Whether somebody other than Argus changed a flag since a given moment, or
 # `None` where nobody can say. What an undo consults before it writes: a change
 # made after Argus's own is somebody's deliberate decision, and putting the flag

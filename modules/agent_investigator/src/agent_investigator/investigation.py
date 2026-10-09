@@ -28,6 +28,7 @@ from argus_core.anomaly import (
     has_a_reading_since,
     signals_judged_in,
 )
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import (
     ChannelsUnread,
     HypothesisFormed,
@@ -270,7 +271,8 @@ def investigate(
     already_read: Sequence[Reading] | None = None,
     already_refuted: Sequence[Attempt] | None = None,
     publisher: Publisher = nobody,
-    recorder: Recorder = records_nothing
+    recorder: Recorder = records_nothing,
+    still_wanted: StillWanted = wanted_throughout
 ) -> Findings:
     """Investigates one incident as a tool-use conversation (spec §9),
     returning what it concluded - including that it concluded nothing.
@@ -303,6 +305,10 @@ def investigate(
     from this incident and this recorder, which are not known until here - so
     what a caller omitting it gets is constructed below, and a caller injecting
     a scripted one never reaches the construction or the SDK behind it.
+
+    `still_wanted` is asked before every turn, which is the one place a
+    withdrawn incident can be noticed without discarding an answer already paid
+    for. A turn in flight comes back and is recorded; the next is not asked for.
     """
     alert_time = to_iso(alert.started_at) if alert.started_at is not None else None
     narrator = Narrator(incident_id, publisher)
@@ -513,6 +519,11 @@ def investigate(
     ]
 
     while True:
+        if not still_wanted():
+            logger.info("investigation stopped, incident no longer wanted")
+
+            return _stopped(alert, incident_id, dispatcher)
+
         try:
             turn = speak(transcript, tools)
         except AnswerTruncated as cut_short:
@@ -755,6 +766,26 @@ def _ran_out(alert: Alert,
     narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
 
     return Findings(candidates=[undetermined], already_read=dispatcher.readings)
+
+
+def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings:
+    """The outcome when the incident stopped being wanted mid-investigation.
+
+    Says nothing to the timeline - no hypothesis formed, no channels left
+    unread. Whoever stopped the incident has recorded that themselves, and a
+    line about a conclusion here would be an account of work nobody asked to
+    have finished. What was read still comes back, as from every ending.
+    """
+    return Findings(
+        candidates=[_undetermined(
+            alert,
+            incident_id,
+            "the investigation was stopped because the incident is no longer wanted",
+            []
+        )],
+        already_read=dispatcher.readings,
+        stopped=True
+    )
 
 
 def _cut_short(alert: Alert,

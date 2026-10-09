@@ -25,6 +25,7 @@ from agent_investigator.retrieval import (
     RolloutFetcher,
 )
 from argus_core import new_id
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.llm import Conversations, a_conversation_recorded_for
 from argus_core.models import (
@@ -65,7 +66,8 @@ class Investigation(NamedTuple):
                     already_read: list[Reading] | None = None,
                     publisher: Publisher = nobody,
                     settings: InvestigationSettings | None = None,
-                    conversations: Conversations | None = None) -> Findings:
+                    conversations: Conversations | None = None,
+                    still_wanted: StillWanted = wanted_throughout) -> Findings:
         """The loop, run with whatever this investigation was built around.
 
         `conversations` is the one argument here that changes which seam is
@@ -93,7 +95,8 @@ class Investigation(NamedTuple):
             budget=self.budget,
             already_refuted=already_refuted,
             already_read=already_read,
-            publisher=publisher
+            publisher=publisher,
+            still_wanted=still_wanted
         )
 
     def metrics_showed(self, buckets: list[MetricBucket]) -> Callable[[], None]:

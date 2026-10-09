@@ -12,7 +12,8 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from agent_mitigation import Action, Outcome, StillWanted, Verdict
+from agent_mitigation import Action, Outcome, Verdict
+from argus_core.budget import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models import (
     ActionType,
@@ -53,7 +54,8 @@ class Investigate(Protocol):
         already_read: Sequence[Reading] | None = None,
         already_refuted: Sequence[Attempt] | None = None,
         publisher: Publisher = nobody,
-        recorder: Recorder = records_nothing
+        recorder: Recorder = records_nothing,
+        still_wanted: StillWanted = ...
     ) -> Findings: ...
 
 
@@ -328,7 +330,9 @@ class ProposeFix(Protocol):
 
     def __call__(self,
                  hypothesis: Hypothesis | None,
-                 incident_id: str, /) -> OpenedPullRequest | None: ...
+                 incident_id: str, /,
+                 *,
+                 still_wanted: StillWanted = ...) -> OpenedPullRequest | None: ...
 
 
 class WritePostmortem(Protocol):

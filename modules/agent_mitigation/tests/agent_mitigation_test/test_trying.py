@@ -55,6 +55,7 @@ from argus_testkit import (
     Assertion,
     Scenario,
     all_of,
+    calling,
     dont_care_sleep,
     one_record_was_logged,
 )
@@ -92,6 +93,7 @@ from agent_mitigation_test.framework.builders import (
     metrics_reading,
     nobody_can_say,
     nobody_changed_it,
+    nobody_wanted_it_before_it_was_taken,
     nobody_wants_it_any_more,
     somebody_changed_it,
     the_writes,
@@ -301,6 +303,36 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
         .then(
             the_verdict_is(Verdict.WITHDRAWN)
         )
+
+
+@pytest.mark.unit
+def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
+    # Withdrawn between the walk choosing the action and applying it. Applying
+    # it anyway would be Argus changing the world after a person said stop, and
+    # leaving behind a change the withdrawal would then have to put back.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            set_state := _a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=some_old_state)
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=nobody_wanted_it_before_it_was_taken(),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.WITHDRAWN),
+            _the_flag_was_never_set(set_state),
+            _it_carries_nothing_to_put_back()
+        ))
 
 
 @pytest.mark.unit
@@ -3282,6 +3314,32 @@ def _it_carries_a_way_back() -> Assertion[Outcome]:
     return assertion
 
 
+def _it_carries_nothing_to_put_back() -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undo_descriptor is not None:
+            raise AssertionError(
+                f"Expected an action that was never taken to leave nothing to put "
+                f"back, and it carried [{outcome.undo_descriptor}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_flag_was_never_set(set_state: MagicMock) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        if set_state.called:
+            raise AssertionError(
+                f"Expected no flag to be set for an incident nobody wanted any "
+                f"more, got {set_state.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_pin_of(application: str) -> PinAutoscaler:
     return PinAutoscaler(application=application)
 
@@ -4160,6 +4218,38 @@ def _the_rule_was_never_read(read_rule: RuleReader) -> Assertion[Outcome]:
 # Where taking an action logs from. The verdict is the Orchestrator's line; these
 # are the things that went wrong on the way to one.
 THE_TRYING = "agent_mitigation.trying"
+
+
+@pytest.mark.unit
+def test_an_action_withheld_because_nobody_wanted_it_is_logged(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The one stop that changes nothing anywhere, so the only trace that the
+    # walk chose an action and did not take it is this line.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=_a_flag_setter_changing_from(
+                    DONT_CARE_FLAG, was_enabled=some_old_state
+                )),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=nobody_wanted_it_before_it_was_taken(),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, THE_TRYING, logging.INFO,
+                                  "action not taken, incident no longer wanted")
+        )
 
 
 @pytest.mark.unit

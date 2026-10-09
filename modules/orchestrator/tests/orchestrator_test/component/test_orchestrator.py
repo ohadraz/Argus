@@ -25,6 +25,7 @@ import pytest
 from agent_investigator import Findings
 from agent_mitigation import Action, Outcome, Verdict
 from argus_core import get_settings
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.models import (
     Alert,
@@ -41,6 +42,7 @@ from argus_core.models import (
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
+from argus_incidents import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of
 from langgraph.checkpoint.memory import MemorySaver
 from orchestrator.walk import ports
@@ -103,7 +105,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
-        propose_fix=lambda dont_care_hypothesis, dont_care_incident_id: None,
+        propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: None,
         actions_taken=lambda dont_care_incident: [],
         recall_similar=lambda dont_care_description, dont_care_service: [],
         remember_incident=lambda dont_care_record: None,
@@ -243,6 +245,49 @@ def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
         .then(all_of(_the_walk_went(INVESTIGATOR_NODE),
                      _the_incident_ended(IncidentStatus.WITHDRAWN),
                      _nothing_was_written(transition_incident)))
+
+
+@pytest.mark.component
+def test_the_investigation_is_handed_the_walks_own_question(
+    collaborators: Collaborators
+) -> None:
+    # The investigator stops between turns only if the question it holds is the
+    # walk's. Any other - the default nobody can answer "no" to - would leave it
+    # reading for minutes after a person said stop.
+    asked: list[str] = []
+    reached: list[bool] = []
+
+    Scenario() \
+        .given(
+            a_traced_walk := replace(
+                collaborators,
+                investigate=_an_investigation_whose_question_is_traced(asked, reached),
+                still_wanted=_a_question_counting_its_asks(asked)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
+        .then(_the_question_reached_the_walk(reached))
+
+
+@pytest.mark.component
+def test_code_fix_is_handed_the_walks_own_question(
+    collaborators: Collaborators
+) -> None:
+    # The same wiring at the other loop that reads for minutes, and the one that
+    # ends in a write: a branch and a pull request nobody wants any more.
+    asked: list[str] = []
+    reached: list[bool] = []
+
+    Scenario() \
+        .given(
+            a_traced_walk := replace(
+                collaborators,
+                propose_fix=_a_fix_channel_whose_question_is_traced(asked, reached),
+                still_wanted=_a_question_counting_its_asks(asked)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
+        .then(_the_question_reached_the_walk(reached))
 
 
 @pytest.mark.component
@@ -439,7 +484,8 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
                     already_read: Sequence[Reading] | None = None,
                     already_refuted: Sequence[Attempt] | None = None,
                     publisher: Publisher = nobody,
-                    recorder: Recorder = records_nothing) -> Findings:
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout) -> Findings:
         return Findings(
             candidates=[candidate.model_copy(update={"incident_id": incident_id})
                         for candidate in candidates],
@@ -601,6 +647,72 @@ def _the_action_recommended_was(flag: str) -> Assertion[Walked]:
             raise AssertionError(
                 f"Expected the recommendation to name [{flag}], it names "
                 f"[{final.recommended_action.flag}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_question_counting_its_asks(asked: list[str]) -> IsStillWanted:
+    """The walk's own question, always answered yes, keeping who it was asked about."""
+    def still_wanted(incident_id: str, /) -> bool:
+        asked.append(incident_id)
+        return True
+
+    return still_wanted
+
+
+def _an_investigation_whose_question_is_traced(asked: list[str],
+                                               reached: list[bool]) -> ports.Investigate:
+    """An investigation that asks the question it was handed, and notes whether
+    asking it reached the walk's own."""
+    def investigate(alert: Alert,
+                    incident_id: str,
+                    *,
+                    already_read: Sequence[Reading] | None = None,
+                    already_refuted: Sequence[Attempt] | None = None,
+                    publisher: Publisher = nobody,
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout) -> Findings:
+        before = len(asked)
+        still_wanted()
+        reached.append(len(asked) > before)
+
+        return Findings(
+            candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
+                update={"incident_id": incident_id}
+            )],
+            already_read=[]
+        )
+
+    return investigate
+
+
+def _a_fix_channel_whose_question_is_traced(asked: list[str],
+                                            reached: list[bool]) -> ports.ProposeFix:
+    """Code-Fix that asks the question it was handed, and notes whether asking
+    it reached the walk's own."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout) -> None:
+        before = len(asked)
+        still_wanted()
+        reached.append(len(asked) > before)
+
+        return None
+
+    return propose
+
+
+def _the_question_reached_the_walk(reached: list[bool]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if reached != [True]:
+            raise AssertionError(
+                f"Expected the agent's question to be the walk's own, asked once, "
+                f"and what it reached was {reached} - so a person saying stop "
+                f"would not be heard until the step ended."
             )
 
         return True

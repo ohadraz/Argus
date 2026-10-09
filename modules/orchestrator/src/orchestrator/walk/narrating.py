@@ -92,6 +92,16 @@ def with_status(
 
         delta = node(state)
         updates = delta.as_updates()
+
+        # Asked again now the node has returned. A step that stopped because
+        # nobody wants the incident hands back nothing, so it implies no move
+        # for the row to refuse below - and without this the routers would read
+        # an unchanged status and carry on. Nothing is written: the row already
+        # says why the walk is over.
+        if not still_wanted(state.incident_id):
+            logger.info("withdrawn while a step ran",
+                        extra={"from_status": state.status})
+            return {**updates, "status": IncidentStatus.WITHDRAWN}
         narration = delta.narration
         next_status = status_after(state.model_copy(update=updates), max_rounds)
 

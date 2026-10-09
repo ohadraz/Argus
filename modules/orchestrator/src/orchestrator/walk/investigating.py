@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from functools import partial
 
 from argus_core.events import (
     AgentInvoked,
@@ -39,6 +40,7 @@ from argus_core.models import (
 # holds both.
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
+from argus_incidents import IsStillWanted
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
 
@@ -62,6 +64,12 @@ from orchestrator.walk.state import IncidentState
 _logger = logging.getLogger(__name__)
 
 
+def _nobody_stops_it(incident_id: str, /) -> bool:
+    """The answer for a caller with no walk to stop - a test about something
+    else - whose investigation runs to its own end as it always did."""
+    return True
+
+
 def investigator_node(
     state: IncidentState,
     record_hypothesis: RecordHypothesis,
@@ -72,6 +80,7 @@ def investigator_node(
     fetch_deployments: FetchDeployments | None = None,
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
+    still_wanted: IsStillWanted = _nobody_stops_it,
 ) -> StateDelta:
     """Forms a hypothesis, records every candidate it considered, and reports
     whether any of them is worth acting on (spec §7.2, §10).
@@ -90,7 +99,12 @@ def investigator_node(
     means the history was never read rather than that nothing was deployed: it
     is carried as `None`, which is what an unreadable history is carried as. One
     mode reads it, so a walk without it loses that mode's rollback and nothing
-    else."""
+    else.
+
+    `still_wanted` is handed to the agent bound to this incident, so it can stop
+    between turns; findings it reports as stopped are not acted on at all -
+    nothing recorded, nothing read, no memory searched. The empty delta leaves
+    the walk's own check to route out."""
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.INVESTIGATOR), publisher)
 
     findings = investigate(
@@ -109,7 +123,11 @@ def investigator_node(
         # already been tried and did not help.
         already_read=state.already_read,
         already_refuted=state.attempts,
+        still_wanted=partial(still_wanted, state.incident_id),
     )
+    if findings.stopped:
+        return StateDelta()
+
     if findings.disproof is not None:
         # The window contradicted what the alarm claimed, so there is no incident
         # for the rest of this round to be about. Returned here rather than

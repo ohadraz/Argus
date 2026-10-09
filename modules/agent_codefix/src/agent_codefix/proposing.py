@@ -29,6 +29,7 @@ from collections.abc import Mapping
 from functools import partial
 from typing import Final, Protocol
 
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.llm import (
     AnswerTruncated,
     Conversation,
@@ -125,6 +126,17 @@ class FixDeclined(Exception):
     """
 
 
+class FixStopped(Exception):
+    """The incident stopped being wanted while a fix was being worked out.
+
+    Not a fix the model never answered, and not one it declined: nothing was
+    too expensive and nobody said no to the code - somebody said stop. Its own
+    exception because the walk's move is its own: report nothing attempted,
+    and go no further. Raised rather than returned, because `None` already
+    means "the fault is not in the code", which is a conclusion this is not.
+    """
+
+
 # What the proposal half asks of the write tier, and what the walk asks of this
 # module - said as shapes for the reason the read channels are, in `retrieval`.
 
@@ -158,7 +170,9 @@ class Fixer(Protocol):
 
     def __call__(self,
                  hypothesis: Hypothesis | None,
-                 incident_id: str, /) -> OpenedPullRequest | None: ...
+                 incident_id: str, /,
+                 *,
+                 still_wanted: StillWanted = ...) -> OpenedPullRequest | None: ...
 
 
 # What the model is told when one call is all that is left, ridden in on the
@@ -218,7 +232,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                 open_pull_request: PullRequestOpener,
                 converse: Conversation | None = None,
                 recorder: Recorder = records_nothing,
-                conversations: Conversations = a_conversation_recorded_for
+                conversations: Conversations = a_conversation_recorded_for,
+                still_wanted: StillWanted = wanted_throughout
                 ) -> OpenedPullRequest | None:
     """Proposes a fix for `hypothesis` as a draft pull request, or nothing.
 
@@ -247,6 +262,10 @@ def propose_fix(hypothesis: Hypothesis | None,
     said afterwards. Code-Fix spends more than any other agent here and is the
     hardest to second-guess from outside: a patch it declined to write leaves
     nothing behind at all.
+
+    `still_wanted` is asked before every turn and once more before the branch
+    is written, and `FixStopped` is raised on "no". A turn in flight comes back
+    and is recorded; nothing after it is asked for, and nothing is written.
     """
     submitted = _what_the_model_submitted(
         hypothesis,
@@ -265,13 +284,20 @@ def propose_fix(hypothesis: Hypothesis | None,
                 max_output_tokens=settings.codefix_max_output_tokens,
                 brief=STANDING_BRIEF
             )
-        )
+        ),
+        still_wanted=still_wanted
     )
 
     patch = submitted.patch()
 
     if not patch:
         return None
+
+    # The branch and the pull request are changes to the world, and the turn
+    # that produced this patch may have been answered after somebody said stop.
+    if not still_wanted():
+        logger.info("fix not proposed, incident no longer wanted")
+        raise FixStopped("the incident is no longer wanted; the fix was not proposed")
 
     branch = _a_branch_for(incident_id)
     title = submitted.summary or f"fix for incident {incident_id}"
@@ -299,7 +325,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               index_notice: IndexNotice,
                               list_files: FileLister,
                               read_file: FileReader,
-                              converse: Conversation) -> SubmittedFix:
+                              converse: Conversation,
+                              still_wanted: StillWanted) -> SubmittedFix:
     """The conversation, until the model submits or runs out of budget.
 
     Every turn that is not a submission is answered and put back, including the
@@ -322,6 +349,10 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     spend = a_budget_for(settings)
 
     while not spend.bounds_reached():
+        if not still_wanted():
+            logger.info("fix stopped, incident no longer wanted")
+            raise FixStopped("the incident is no longer wanted")
+
         try:
             turn = converse(transcript, tools)
         except ModelRefused as declined:

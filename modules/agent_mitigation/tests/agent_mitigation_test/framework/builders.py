@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from unittest.mock import MagicMock, create_autospec
 
-from agent_mitigation import Action, Outcome, RevertFeatureFlag, UndoAttempt, Verdict
+from agent_mitigation import Action, Outcome, RevertFeatureFlag, StillWanted, UndoAttempt, Verdict
 from agent_mitigation.tools import (
     AcceleratorPinner,
     AcceleratorPinRestorer,
@@ -21,7 +21,6 @@ from agent_mitigation.tools import (
     MetricsFetcher,
     PerformingWrites,
     ServiceRestarter,
-    StillWanted,
 )
 from agent_mitigation.trying import UndoChange
 from agent_mitigation.undoing import undo_change
@@ -393,7 +392,20 @@ def a_window_whose_readings_return_at(rate: float) -> list[MetricBucket]:
 
 
 def nobody_wants_it_any_more() -> StillWanted:
-    """A walk somebody stopped while it was waiting."""
+    """A walk somebody stopped while it was waiting - wanted when its action
+    was taken, and withdrawn from the first look at the service onwards."""
+    asked: list[bool] = []
+
+    def still_wanted() -> bool:
+        wanted = not asked
+        asked.append(wanted)
+        return wanted
+
+    return still_wanted
+
+
+def nobody_wanted_it_before_it_was_taken() -> StillWanted:
+    """A walk somebody stopped between choosing its action and taking it."""
     def still_wanted() -> bool:
         return False
 

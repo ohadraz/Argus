@@ -73,3 +73,12 @@ class Findings:
     # had an onset, or a platform that would not say. Never an empty placement in
     # its place, which would claim the service runs on no pod at all.
     placement: RecordedPlacement | None = None
+    # That the investigation was stopped from outside - its incident was no
+    # longer wanted - rather than ending on anything it found or ran out of.
+    #
+    # A field rather than one more undetermined candidate, because the walk does
+    # something different with it: an investigation that found nothing is acted
+    # on (escalated, or another round), and one somebody stopped is not acted on
+    # at all. The candidate list still holds one undetermined entry, so a reader
+    # that only knows `candidates` is never handed an empty list.
+    stopped: bool = False

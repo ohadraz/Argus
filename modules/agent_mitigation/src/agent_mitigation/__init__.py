@@ -24,6 +24,8 @@ answers or where that server is.
 
 from __future__ import annotations
 
+from argus_core.budget import StillWanted
+
 from agent_mitigation.actions import (
     REVERT_FEATURE_FLAG,
     Action,
@@ -56,7 +58,6 @@ from agent_mitigation.tools import (
     MitigationSettings,
     PerformingWrites,
     ServiceRestarter,
-    StillWanted,
     argus_changed_flag_since,
     deployment_restorer_over,
     deployment_roller_over,

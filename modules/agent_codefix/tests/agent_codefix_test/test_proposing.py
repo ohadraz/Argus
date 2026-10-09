@@ -24,6 +24,7 @@ from agent_codefix.proposing import (
     BranchWriter,
     FixDeclined,
     FixNotAnswered,
+    FixStopped,
     PullRequestOpener,
     propose_fix,
 )
@@ -35,6 +36,7 @@ from agent_codefix.retrieval import (
     SourceSearcher,
 )
 from agent_codefix.tools import READ_FILE_TOOL
+from argus_core.budget import StillWanted
 from argus_core.llm import (
     AnswerTruncated,
     Conversation,
@@ -60,7 +62,7 @@ from argus_core.models import (
 from argus_core.replay import Recorder
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
-from argus_testkit.scenario import Scenario, attempting
+from argus_testkit.scenario import Scenario, attempting, calling
 
 DONT_CARE_INCIDENT = "incident-41"
 
@@ -1129,6 +1131,123 @@ def test_a_model_that_never_submits_says_so_rather_than_proposing_nothing() -> N
 
 
 @pytest.mark.unit
+def test_a_fix_nobody_wants_any_more_stops_before_its_next_turn() -> None:
+    # Withdrawn while the model was reading. One turn is scripted, so a loop
+    # that asked for a second would fail here on the stub running out - and a
+    # stop is its own outcome, not a fix the model never answered: nothing was
+    # too expensive, somebody said stop.
+    repository = a_repository()
+    model = a_model_that(asks_to_list_files())
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    still_wanted=_wanted_for_one_turn(),
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixStopped),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_submitted_after_the_withdrawal_is_never_proposed() -> None:
+    # The model answered in the turn that was in flight when the incident was
+    # withdrawn. Writing the branch and opening the pull request are changes to
+    # the world, and nobody wants them any more.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    still_wanted=_wanted_for_one_turn(),
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixStopped),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_stopped_between_turns_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    repository = a_repository()
+    model = a_model_that(asks_to_list_files())
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO))
+        ) \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    still_wanted=_wanted_for_one_turn(),
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.INFO,
+                                  "fix stopped, incident no longer wanted")
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_withheld_before_it_was_written_is_logged(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Its own line, because a fix the model finished and nobody proposed is the
+    # one stop that leaves a patch behind in the transcript and none in GitHub.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO))
+        ) \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    still_wanted=_wanted_for_one_turn(),
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.INFO,
+                                  "fix not proposed, incident no longer wanted")
+        )
+
+
+@pytest.mark.unit
 def test_a_model_that_declines_says_so_rather_than_looking_like_a_broken_repository() -> None:
     # A refusal is a complete answer that says no, and it is the one outcome
     # more turns cannot fix: the same question over the same code is declined
@@ -1725,6 +1844,18 @@ def _a_pull_request_was_opened(repository: _Repository) -> Assertion[Any]:
         return True
 
     return assertion
+
+
+def _wanted_for_one_turn() -> StillWanted:
+    """A walk somebody stopped while Code-Fix's first turn was being answered."""
+    asked: list[bool] = []
+
+    def still_wanted() -> bool:
+        wanted = not asked
+        asked.append(wanted)
+        return wanted
+
+    return still_wanted
 
 
 def _no_branch_was_written(repository: _Repository) -> Assertion[Any]:

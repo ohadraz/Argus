@@ -38,6 +38,23 @@ class Bound(StrEnum):
     TIME = "time"
 
 
+# Whether anybody still wants the loop's incident worked on - the one thing
+# that stops a loop from outside it. Asked between turns and before any change
+# to the world; a loop that hears "no" stops where it is and says it stopped.
+#
+# A bare callable already bound to its incident, because the agent asking must
+# not know which incident it is working on or who decides: the walk binds both.
+# Here rather than in any one agent, because three agents ask it and none may
+# know another.
+StillWanted = Callable[[], bool]
+
+
+def wanted_throughout() -> bool:
+    """The answer for a loop nobody can stop - a script, the eval, a test about
+    something else - which runs to its own bounds as it always did."""
+    return True
+
+
 class Budget:
     """What stops an agent loop the model would happily continue.
 

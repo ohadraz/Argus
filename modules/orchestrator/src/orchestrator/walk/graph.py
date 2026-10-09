@@ -125,7 +125,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     fetch_dependencies=collaborators.fetch_dependencies,
                     fetch_deployments=collaborators.fetch_deployments,
                     publisher=collaborators.publisher,
-                    recorder=collaborators.recorder)
+                    recorder=collaborators.recorder,
+                    still_wanted=collaborators.still_wanted)
         )
     )
     step(
@@ -169,7 +170,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         deciding_status(
             partial(codefix_node,
                     propose_fix=collaborators.propose_fix,
-                    publisher=collaborators.publisher)
+                    publisher=collaborators.publisher,
+                    still_wanted=collaborators.still_wanted)
         )
     )
     # Not wrapped in `deciding_status`, unlike every node above it. Filing what

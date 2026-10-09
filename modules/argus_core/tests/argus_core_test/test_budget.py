@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from argus_core.budget import Bound, Budget
+from argus_core.budget import Bound, Budget, wanted_throughout
 from argus_core.models import ToolCall, Turn
 from argus_testkit import Assertion, Scenario, calling
 
@@ -301,6 +301,32 @@ def test_a_budget_with_tokens_to_spare_is_not_on_its_last_turn() -> None:
         .then(
             _it_is_not_the_last_turn_available()
         )
+
+
+@pytest.mark.unit
+def test_a_loop_nobody_stops_is_wanted_throughout() -> None:
+    # The default every loop starts with, so a caller that has no way of
+    # stopping one - a script, the eval, a test about something else - gets a
+    # loop that runs to its own bounds, as it did before anything could ask.
+    Scenario() \
+        .when(
+            lambda: wanted_throughout()
+        ) \
+        .then(
+            _it_answered_wanted()
+        )
+
+
+def _it_answered_wanted() -> Assertion[bool]:
+    def assertion(wanted: bool) -> bool:
+        if wanted is not True:
+            raise AssertionError(
+                f"Expected a loop nobody stops to be wanted, got [{wanted!r}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _no_bound_was_reached() -> Assertion[Budget]:

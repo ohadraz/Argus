@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 
-from agent_codefix import FixDeclined, FixNotAnswered
+from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
 from argus_core.models import FixOutcome, OpenedPullRequest
+from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import ProposeFix
@@ -16,9 +18,16 @@ from orchestrator.walk.state import IncidentState
 logger = logging.getLogger(__name__)
 
 
+def _nobody_stops_it(incident_id: str, /) -> bool:
+    """The answer for a caller with no walk to stop - a test about something
+    else - whose Code-Fix runs to its own end as it always did."""
+    return True
+
+
 def codefix_node(state: IncidentState,
                  propose_fix: ProposeFix,
-                 publisher: Publisher = nobody) -> StateDelta:
+                 publisher: Publisher = nobody,
+                 still_wanted: IsStillWanted = _nobody_stops_it) -> StateDelta:
     """Looks for a permanent fix, once mitigation has done what it can (spec §7.4).
 
     What the agent answered is what this reports, and where the proposal can be
@@ -43,11 +52,25 @@ def codefix_node(state: IncidentState,
     the narration handed up is discarded unwritten (see `narrating.with_status`)
     and the only step that ends with somebody else's turn would leave no trace
     at all. It did, and finding out why took the checkpoint tables.
+
+    A fix stopped because the incident is no longer wanted is none of the
+    three. Nothing is said and nothing is reported found: an attempt announced
+    for work somebody asked to stop is an account of nothing, and `fix_found`
+    would route an incident nobody wants onwards. The empty delta leaves the
+    walk's own check to route out.
     """
     narrator = Narrator(state.incident_id, publisher)
 
     try:
-        proposed = propose_fix(state.hypothesis, state.incident_id)
+        proposed = propose_fix(
+            state.hypothesis,
+            state.incident_id,
+            still_wanted=partial(still_wanted, state.incident_id)
+        )
+    except FixStopped:
+        # Logged by the agent where it stopped, which is the one place that
+        # knows whether it was between turns or before the write.
+        return StateDelta()
     except FixNotAnswered as error:
         # Caught above the broad clause below, because it is the one failure
         # here that says nothing about the service. The agent read until its

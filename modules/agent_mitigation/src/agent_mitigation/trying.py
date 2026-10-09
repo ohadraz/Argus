@@ -22,6 +22,7 @@ from argus_core.anomaly import (
     has_recovered_since,
     minutes_a_recovery_must_hold,
 )
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import (
     AwaitingRecovery,
     Publisher,
@@ -76,7 +77,6 @@ from agent_mitigation.tools import (
     PerformingWrites,
     RuleReader,
     Sleeper,
-    StillWanted,
     nothing_to_wait_for,
 )
 
@@ -134,24 +134,13 @@ class UndoChange(Protocol):
     # two different things again.
 
 
-def _nobody_stopped_this_walk() -> bool:
-    """The default answer to "is this still wanted", for a caller with no walk.
-
-    True rather than a caller being made to supply one: an `Action` is not
-    incident-scoped and neither is `take_action`, so a caller with nothing to be
-    withdrawn from is the ordinary case. The Orchestrator, which does have a
-    walk, passes one that reads the incident.
-    """
-    return True
-
-
 def take_action(action: Action,
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
                 fetch_metrics: MetricsFetcher,
                 now: Clock = utc_now,
                 sleep: Sleeper = sleep_on_the_clock,
-                still_wanted: StillWanted = _nobody_stopped_this_walk,
+                still_wanted: StillWanted = wanted_throughout,
                 arrivals: ArrivalFor = nothing_to_wait_for,
                 incident_id: str | None = None,
                 publisher: Publisher = nobody,
@@ -215,7 +204,23 @@ def take_action(action: Action,
     the default bought was three parameters on this signature that production
     never read, and a second assembly of an undo for a test to exercise instead
     of the one that runs.
+
+    Asked once more whether anybody still wants it, immediately before the
+    write. The walk asked before its step began, and between that and here sit
+    a claim, two publishes and on a resumed run a provider read - long enough
+    for a person to have said stop. Applying it anyway would change the world
+    after they did, and leave behind something for the withdrawal to put back.
     """
+    if not still_wanted():
+        logger.info("action not taken, incident no longer wanted")
+
+        return Outcome(
+            verdict=Verdict.WITHDRAWN,
+            detail="the incident was withdrawn before the action was taken",
+            undo_descriptor=None,
+            measured=False
+        )
+
     try:
         performed = _perform(action, writes)
     except ActionExhausted as exhausted:
