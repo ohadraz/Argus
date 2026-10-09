@@ -426,18 +426,24 @@ class Settings(BaseSettings):
     pagerduty_api_key: str = Field(default="")
 
     # Where the PagerDuty SDK sends its requests. Empty means the real API.
-    # Pointing this at the Target Service's PagerDuty-shaped endpoints is the
-    # only thing that selects them: the seam sits below the SDK, so the
-    # vendor's request building and error vocabulary still run.
+    # Pointing this at `pagerduty_double` is the only thing that selects it:
+    # the seam sits below the SDK, so the vendor's request building and error
+    # vocabulary still run.
     pagerduty_base_url: str = Field(default="")
 
     # Whether the on-call provider's certificate is checked. True everywhere
-    # that matters: PagerDuty's own certificate is real, and so is the one a
-    # platform issues a deployed stand-in. False only against the demo running
-    # on this machine, whose TLS listener mints itself a certificate nobody has
-    # any reason to trust - and which exists at all because the vendor's SDK
+    # that matters: PagerDuty's own certificate is real. False only against
+    # the double on this machine, which mints itself a certificate nobody has
+    # any reason to trust - and answers TLS at all because the vendor's SDK
     # refuses a base URL that is not `https://`.
     pagerduty_verify_tls: bool = Field(default=True)
+
+    # The secret PagerDuty signs its webhook deliveries with, returned once when
+    # the subscription is created. A person resolving an incident there is
+    # delivered under it, and a delivery that can end an incident must be
+    # PagerDuty's. Empty accepts nothing, for the reason the GitHub secret's
+    # empty does - and only the process receiving deliveries reads it.
+    pagerduty_webhook_secret: str = Field(default="")
 
     # The credential the HR system's pay bands are read with. Empty by default,
     # for the reason the on-call credential is: a cost nobody can vouch for is

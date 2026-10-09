@@ -481,6 +481,23 @@ def test_a_status_change_a_person_reported_is_said_in_their_name(ending: Inciden
 
 
 @pytest.mark.unit
+def test_a_resolution_from_the_paging_tool_names_that_tool() -> None:
+    # Whoever reads the account and wants a word with the resolver goes to the
+    # tool they resolved it in - so the line names that tool, as the place it
+    # happened.
+    some_report = StatusChanged(
+        incident_id=new_id(),
+        to_status=IncidentStatus.RESOLVED,
+        reported=Report(by="some person", channel=ReportChannel.PAGERDUTY)
+    )
+
+    Scenario() \
+        .given(some_report) \
+        .when(lambda: build_narration([some_report])) \
+        .then(_the_only_line_says("from PagerDuty"))
+
+
+@pytest.mark.unit
 def test_a_report_without_a_note_says_nothing_in_its_place() -> None:
     # Most people press the button and type nothing. A line that printed the
     # absence, or left a dash hanging where the note would go, would read as

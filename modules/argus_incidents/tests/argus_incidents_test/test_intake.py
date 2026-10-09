@@ -16,10 +16,10 @@ import logging
 
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert
+from argus_core.models import Alert, Reference
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import events_into_connection, start_incident
-from argus_incidents.repository import incidents
+from argus_incidents.repository import incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 
 # Two carriers as a W3C propagator writes them: what the alert arrived in, and
@@ -148,6 +148,52 @@ def test_an_alert_joining_an_open_incident_leaves_its_trace_as_it_was() -> None:
 
 
 @pytest.mark.component
+def test_an_incident_is_found_by_the_names_its_alert_gave_it() -> None:
+    # The alert is the only moment Argus hears what the monitor will call this
+    # incident to the paging tool. A name not written down here is one no
+    # later word from that tool can be matched by.
+    Scenario() \
+        .given(
+            some_name := Reference(source="some-monitor", kind="some-kind", value="k-1"),
+            some_alert := Alert(
+                service="kuki-service", alert_name="HighErrorRate", references=(some_name,)
+            )
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(
+            _it_is_found_by(some_name)
+        )
+
+
+@pytest.mark.component
+def test_an_alert_joining_an_open_incident_gives_it_its_names_too() -> None:
+    # A rule firing again can come from a new alert group, which the monitor
+    # pages for under a new key. That page is about this incident, so its key
+    # has to find this incident as well.
+    some_rule = "some-rule"
+    the_later_name = Reference(source="some-monitor", kind="some-kind", value="k-2")
+
+    Scenario() \
+        .given(
+            _started(Alert(
+                service="kuki-service", alert_name="HighErrorRate", rule=some_rule,
+                references=(Reference(source="some-monitor", kind="some-kind", value="k-1"),)
+            ))
+        ) \
+        .when(
+            lambda: _started(Alert(
+                service="kuki-service", alert_name="HighErrorRate", rule=some_rule,
+                references=(the_later_name,)
+            ))
+        ) \
+        .then(
+            _it_is_found_by(the_later_name)
+        )
+
+
+@pytest.mark.component
 def test_an_incident_started_outside_any_trace_keeps_none() -> None:
     # Started by something that traces nothing - a test, a script. Its walks
     # are then traced from the run that walks it.
@@ -200,6 +246,25 @@ def test_an_alert_joining_an_open_incident_is_logged(caplog: pytest.LogCaptureFi
         .then(
             _it_was_logged_naming_it(caplog, "alert joined open incident", rule=some_rule)
         )
+
+
+def _it_is_found_by(reference: Reference) -> Assertion[str]:
+    """That a tool using this name for the incident would reach it."""
+    def assertion(incident_id: str) -> bool:
+        with connect_from_env() as conn:
+            found = references.get_incident_by_values(
+                conn, reference.kind, [reference.value]
+            )
+
+        if found != incident_id:
+            raise AssertionError(
+                f"Expected the name {reference} to find the incident "
+                f"[{incident_id}], and it found [{found}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _started(alert: Alert, trace_context: dict[str, str] | None = None) -> str:

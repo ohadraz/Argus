@@ -25,6 +25,11 @@ class ReportChannel(StrEnum):
     """
 
     ARGUS_UI = "argus-ui"
+    # The on-call platform that paged the person, resolved there. Named for the
+    # vendor because the channel is where a reader goes to find the person, and
+    # that place has a name; which platform it was stays a fact about the
+    # report, not a word anything branches on.
+    PAGERDUTY = "pagerduty"
 
 
 class Report(BaseModel):

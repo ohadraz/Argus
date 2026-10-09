@@ -86,6 +86,7 @@ from argus_core.models.postmortem import Postmortem, PostmortemDocument
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_core.models.reading import Reading, RetrievalChannel
+from argus_core.models.reference import NOTIFICATION_KEY, ON_CALL_INCIDENT, Reference
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutProgress
@@ -188,6 +189,9 @@ __all__ = [
     "PublishedRates",
     "RatesUnavailable",
     "Reading",
+    "NOTIFICATION_KEY",
+    "ON_CALL_INCIDENT",
+    "Reference",
     "Refusal",
     "Report",
     "ReportChannel",

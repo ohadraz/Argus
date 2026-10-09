@@ -9,6 +9,7 @@ from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from pagerduty_double.server import DEFAULT_BASE_URL as PAGERDUTY_DOUBLE_BASE_URL
 from psycopg import sql
 from qdrant_client import QdrantClient
 
@@ -91,6 +92,9 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
       commits a case staged to give a comparison two ends. A case reading "was
       a fix proposed" would otherwise be answered by every earlier case's
       proposals as well as its own;
+    - the on-call double forgets every incident a case staged. Two cases
+      paging for the same alert group stage the same key, and the one found
+      first would answer for both;
     - both boot flags are put back where the stack starts them. Healthy is not
       the same state for the two of them, so this restores each to its own -
       switching everything off would leave the kill switch withdrawn and the
@@ -116,6 +120,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     _long_term_memory_was_forgotten()
     _the_target_service_scenario_was_reset()
     _the_repository_double_was_put_back()
+    _the_on_call_double_was_put_back()
 
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
@@ -283,6 +288,14 @@ def _the_repository_double_was_put_back() -> None:
     httpx2.post(
         f"{GITHUB_DOUBLE_BASE_URL}/double-control/reset",
         timeout=REQUEST_TIMEOUT_SECONDS
+    )
+
+
+def _the_on_call_double_was_put_back() -> None:
+    httpx2.post(
+        f"{PAGERDUTY_DOUBLE_BASE_URL}/double-control/reset",
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        verify=False
     )
 
 

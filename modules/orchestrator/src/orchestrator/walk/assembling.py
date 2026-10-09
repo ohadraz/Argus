@@ -62,6 +62,8 @@ from argus_incidents import (
     events_into_connection,
 )
 from incident_memory.records import RememberedIncident
+from oncall_source import OnCallSettings
+from oncall_source.pagerduty_adapter import pagerduty_from
 
 from orchestrator.gathering import write_postmortem_for
 from orchestrator.records import Records
@@ -252,7 +254,13 @@ def against(connections: Connections,
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
-    sources = the_real_sources(settings, connections, read, thresholds)
+    sources = the_real_sources(
+        settings, connections, read, thresholds,
+        # The worker reads the platform and never hears from it, so it holds
+        # no webhook secret - an empty one refuses every delivery, and none
+        # ever reaches this process to refuse.
+        oncall=pagerduty_from(OnCallSettings.of(settings), webhook_secret="")
+    )
 
     return Collaborators(
         # Bound here because this is where a deployment's configuration meets

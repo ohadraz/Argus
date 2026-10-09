@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, model_validator
 
+from argus_core.models.reference import Reference
+
 
 class AlarmClaim(StrEnum):
     """What a rule looked at to decide it had something to say.
@@ -108,6 +110,15 @@ class Alert(BaseModel):
     # named none, and never guessed from `alert_name`, which is a title several
     # rules can share.
     rule: str | None = None
+    # What other tools call the incident this alert opens, as the sender knows
+    # them - for Grafana, the key it stamps on every notification it also sends a
+    # paging tool. Carried so that a tool's later word about the incident (a
+    # person resolving it in that tool) can find it here.
+    #
+    # Empty rather than `None` where the sender gave none: "no other names" is
+    # the whole of what that silence means, with no second reading for a
+    # consumer to choose between. A tuple, so an alert stays a value.
+    references: tuple[Reference, ...] = ()
 
     @model_validator(mode="after")
     def _the_keys_account_for_the_count(self) -> Alert:

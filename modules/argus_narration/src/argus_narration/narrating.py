@@ -148,7 +148,8 @@ _CHANNELS = {
 # Where a person's report reached Argus, said as the place a reader would go to
 # find whoever made it.
 _REPORT_CHANNELS = {
-    ReportChannel.ARGUS_UI: "the Argus UI"
+    ReportChannel.ARGUS_UI: "the Argus UI",
+    ReportChannel.PAGERDUTY: "PagerDuty"
 }
 
 _HYPOTHESIS_FORMED = "hypothesis-formed"

@@ -14,7 +14,8 @@ def a_grafana_payload(service: str = "kukibuki",
                       stale_entry_keys: tuple[str, ...] | None = None,
                       rule_uid: str | None = None,
                       generator_url: str | None = None,
-                      status: str = "firing") -> dict[str, Any]:
+                      status: str = "firing",
+                      group_key: str | None = None) -> dict[str, Any]:
     """One alert, firing unless `status` says otherwise, nested the way Grafana nests it.
 
     The whole envelope rather than the fields Argus wants, because the nesting
@@ -43,6 +44,9 @@ def a_grafana_payload(service: str = "kukibuki",
 
     `status` is `firing` or `resolved`, and Grafana says it twice - on the
     envelope and on the alert - so both say it here.
+
+    `group_key` is the alert group's key, on the envelope where Grafana puts it.
+    Absent unless asked for, since the parser must take an alert without one.
     """
     annotations = {"summary": f"Error rate above threshold on {service}"}
 
@@ -74,8 +78,13 @@ def a_grafana_payload(service: str = "kukibuki",
     if generator_url is not None:
         alert["generatorURL"] = generator_url
 
-    return {
+    payload: dict[str, Any] = {
         "receiver": "argus-webhook",
         "status": status,
         "alerts": [alert]
     }
+
+    if group_key is not None:
+        payload["groupKey"] = group_key
+
+    return payload

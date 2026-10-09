@@ -5,6 +5,10 @@ the user, so an acknowledgement in Argus's terms is composed from both. That
 composition is this module's whole job, and it is what this suite is about;
 the arithmetic on top of it belongs to `test_engagement`.
 
+It also answers what a person's resolution needs: which keys the incident
+carries, which incident carries a key, and what the person wrote when they
+resolved it - the last of which PagerDuty keeps only as a note among notes.
+
 What is injected is the client factory, so the SDK's request path stays real
 and only its answers are written. Whether that path reaches PagerDuty correctly
 is proven in the e2e stack.
@@ -12,6 +16,9 @@ is proven in the e2e stack.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -19,6 +26,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from argus_core.models import ReportChannel
 from argus_testkit import (
     Assertion,
     Kept,
@@ -31,7 +39,31 @@ from argus_testkit import (
 )
 from oncall_source import OnCallUnavailable
 from oncall_source.engagement import OnCallSettings
-from oncall_source.pagerduty_adapter import reported_incident
+from oncall_source.pagerduty_adapter import (
+    ALERT_KEY,
+    ALERTS_OF_AN_INCIDENT,
+    CONTENT,
+    INCIDENT_KEY,
+    INCIDENT_LIST,
+    NOTES_ON_AN_INCIDENT,
+    RESOLUTION_NOTE_PREFIX,
+    PagerDuty,
+    incident_for,
+    keys_of,
+    pagerduty_from,
+    reported_incident,
+    resolution_note,
+)
+from oncall_source.pagerduty_webhooks import (
+    AGENT,
+    DATA,
+    EVENT,
+    EVENT_TYPE,
+    RESOLVED_EVENT,
+    SIGNATURE_HEADER,
+    SIGNATURE_VERSION,
+)
+from oncall_source.platform import ResolvedWithoutAPerson
 from pagerduty import Error as PagerDutyError
 
 SOME_INCIDENT = "incident-1"
@@ -183,6 +215,266 @@ def test_a_user_the_provider_will_not_answer_for_is_logged_as_a_warning(
         )
 
 
+@pytest.mark.unit
+def test_the_keys_an_incident_carries_are_its_alerts_keys() -> None:
+    # Every alert on a PagerDuty incident carries the key its sender stamped
+    # on it - several, once incidents were merged into it, because their alerts
+    # moved with them. Any one of them may be Argus's.
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({
+                _the_alerts_of(SOME_INCIDENT): [{ALERT_KEY: "k-1"}, {ALERT_KEY: "k-2"}]
+            })
+        ) \
+        .when(
+            lambda: keys_of(SOME_INCIDENT, settings=_settings_with(api_key="dont care"),
+                            client_of=a_provider)
+        ) \
+        .then(
+            _it_answers(["k-1", "k-2"])
+        )
+
+
+@pytest.mark.unit
+def test_keys_the_provider_will_not_give_are_reported_unreadable() -> None:
+    # "Unreadable" and "no keys" are different answers: the first is retried,
+    # the second is a platform incident Argus never had.
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({})
+        ) \
+        .when(
+            attempting(lambda: keys_of(SOME_INCIDENT,
+                                       settings=_settings_with(api_key="dont care"),
+                                       client_of=a_provider))
+        ) \
+        .then(
+            _the_source_said_it_could_not_be_read()
+        )
+
+
+@pytest.mark.unit
+def test_the_incident_carrying_any_one_of_the_keys_is_found() -> None:
+    # PagerDuty finds an incident by any of its alerts' keys, resolved or not
+    # (checked against a real account).
+    some_key = "k-1"
+
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({}, by_incident_key={
+                some_key: [{ID: SOME_INCIDENT}]
+            })
+        ) \
+        .when(
+            lambda: incident_for(["some-unknown-key", some_key],
+                                 settings=_settings_with(api_key="dont care"),
+                                 client_of=a_provider)
+        ) \
+        .then(
+            _it_answers(SOME_INCIDENT)
+        )
+
+
+@pytest.mark.unit
+def test_keys_no_incident_carries_find_none() -> None:
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({})
+        ) \
+        .when(
+            lambda: incident_for(["some-unknown-key"],
+                                 settings=_settings_with(api_key="dont care"),
+                                 client_of=a_provider)
+        ) \
+        .then(
+            _it_answers(None)
+        )
+
+
+@pytest.mark.unit
+def test_the_resolution_note_is_the_note_pagerduty_marked_as_one() -> None:
+    # PagerDuty keeps no field linking a resolution to what the person wrote:
+    # the note is a note among the incident's notes, marked only by the prefix
+    # PagerDuty writes into it. The prefix is PagerDuty's, not the person's, so
+    # it is not part of what they said.
+    some_note = "rolled the flag back by hand"
+
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({
+                _the_notes_on(SOME_INCIDENT): [
+                    {CONTENT: "some note added while it was going on"},
+                    {CONTENT: f"{RESOLUTION_NOTE_PREFIX}{some_note}"}
+                ]
+            })
+        ) \
+        .when(
+            lambda: resolution_note(SOME_INCIDENT,
+                                    settings=_settings_with(api_key="dont care"),
+                                    client_of=a_provider)
+        ) \
+        .then(
+            _it_answers(some_note)
+        )
+
+
+@pytest.mark.unit
+def test_a_resolution_without_a_note_has_none_though_other_notes_exist() -> None:
+    # Why "the latest note" - the workaround PagerDuty's own forum accepted -
+    # is not used: resolved without a note, it would present something written
+    # mid-incident as what the person said when they ended it.
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({
+                _the_notes_on(SOME_INCIDENT): [
+                    {CONTENT: "some note added while it was going on"}
+                ]
+            })
+        ) \
+        .when(
+            lambda: resolution_note(SOME_INCIDENT,
+                                    settings=_settings_with(api_key="dont care"),
+                                    client_of=a_provider)
+        ) \
+        .then(
+            _it_answers(None)
+        )
+
+
+@pytest.mark.unit
+def test_without_a_credential_there_is_no_platform() -> None:
+    # PagerDuty is optional. A deployment that holds no key has no on-call
+    # platform at all - which is how "no platform" reaches every caller - and
+    # builds no client on the way to saying so.
+    a_client_was_asked_for: Kept[bool] = Kept()
+
+    Scenario() \
+        .when(
+            lambda: pagerduty_from(_settings_with(api_key=""),
+                                   webhook_secret="dont care",
+                                   client_of=a_factory_that_must_not_be_called(
+                                       a_client_was_asked_for))
+        ) \
+        .then(
+            all_of(
+                _it_answers(None),
+                nothing_was_collected(a_client_was_asked_for)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_report_through_pagerduty_reached_argus_through_pagerduty() -> None:
+    Scenario() \
+        .when(
+            lambda: pagerduty_from(_settings_with(api_key="dont care"),
+                                   webhook_secret="dont care")
+        ) \
+        .then(
+            _its_channel_is(ReportChannel.PAGERDUTY)
+        )
+
+
+@pytest.mark.unit
+def test_the_platform_reads_a_delivery_under_the_secret_it_was_given() -> None:
+    some_secret = "some-signing-secret"
+    some_delivery = json.dumps({EVENT: {
+        EVENT_TYPE: RESOLVED_EVENT,
+        AGENT: None,
+        DATA: {ID: SOME_INCIDENT}
+    }}).encode()
+
+    Scenario() \
+        .given(
+            platform := _a_platform(webhook_secret=some_secret)
+        ) \
+        .when(
+            lambda: platform.read_delivery(some_delivery,
+                                           _signed_by(some_secret, some_delivery))
+        ) \
+        .then(
+            _it_answers(ResolvedWithoutAPerson(platform_incident=SOME_INCIDENT,
+                                               resolved_by=None))
+        )
+
+
+def _a_platform(webhook_secret: str) -> PagerDuty:
+    platform = pagerduty_from(_settings_with(api_key="dont care"), webhook_secret=webhook_secret)
+
+    if platform is None:
+        raise AssertionError("Expected a platform to be built for a deployment holding a key.")
+
+    return platform
+
+
+def _signed_by(secret: str, body: bytes) -> dict[str, str]:
+    """PagerDuty's signature: an HMAC-SHA256 of the raw body, in hex, versioned."""
+    digest = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    return {SIGNATURE_HEADER: f"{SIGNATURE_VERSION}{digest}"}
+
+
+def _the_alerts_of(incident_id: str) -> str:
+    return ALERTS_OF_AN_INCIDENT.format(incident_id=incident_id)
+
+
+def _the_notes_on(incident_id: str) -> str:
+    return NOTES_ON_AN_INCIDENT.format(incident_id=incident_id)
+
+
+def _a_provider_answering(by_path: Mapping[str, Any],
+                          by_incident_key: Mapping[str, Any] | None = None) -> Any:
+    """A client factory answering these paths, and the incident list by key.
+
+    A path it holds no answer for raises the vendor's own error, which is what
+    a real 404 does through this SDK; a key no incident carries lists none,
+    which is what the real list does.
+    """
+    incidents_by_key = by_incident_key or {}
+
+    def rget(path: str, *dont_care_args: Any,
+             params: Mapping[str, Any] | None = None, **dont_care_kwargs: Any) -> Any:
+        if path == INCIDENT_LIST and params is not None:
+            return incidents_by_key.get(params[INCIDENT_KEY], [])
+
+        if path not in by_path:
+            raise _NotFound(f"nothing at {path}")
+
+        return by_path[path]
+
+    client = Mock(rget=Mock(side_effect=rget))
+
+    return lambda *dont_care_args, **dont_care_kwargs: client
+
+
+def _it_answers(expected: object) -> Assertion[object]:
+    def assertion(answer: object) -> bool:
+        if answer != expected:
+            raise AssertionError(f"Expected [{expected!r}], got [{answer!r}].")
+
+        return True
+
+    return assertion
+
+
+def _its_channel_is(expected: ReportChannel) -> Assertion[PagerDuty | None]:
+    def assertion(platform: PagerDuty | None) -> bool:
+        if platform is None:
+            raise AssertionError(
+                "Expected a platform for a deployment holding a key, got none."
+            )
+
+        if platform.channel is not expected:
+            raise AssertionError(
+                f"Expected reports through it to have come through [{expected}], "
+                f"got [{platform.channel}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _settings_with(api_key: str) -> OnCallSettings:
     """The slice this reader runs under.
 
@@ -214,7 +506,7 @@ def _a_reported_incident(began_at: datetime,
     }
 
 
-class _NoSuchUser(PagerDutyError):
+class _NotFound(PagerDutyError):
     """The vendor's own error, raised without its untyped constructor.
 
     The SDK's `Error.__init__` carries no annotations, so calling it from typed
@@ -246,7 +538,7 @@ def _a_provider_holding(incident: Mapping[str, Any],
         responder = path.removeprefix(USERS)
 
         if responder not in users:
-            raise _NoSuchUser(f"no such user: {responder}")
+            raise _NotFound(f"no such user: {responder}")
 
         return users[responder]
 

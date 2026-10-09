@@ -28,6 +28,7 @@ import pytest
 from agent_postmortem import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,
+    NOT_PAGED_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
@@ -36,7 +37,7 @@ from agent_postmortem import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.prompting import ROOT_CAUSE_FIELD
-from agent_postmortem.sources import EngagedResponder, PayBand, Revenue
+from agent_postmortem.sources import EngagedResponder, NotPaged, PayBand, Revenue
 from argus_testkit import Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (
@@ -283,6 +284,31 @@ def test_an_incident_nobody_responded_to_apologises_for_nothing() -> None:
             all_of(
                 reports_engineer_minutes(nobody),
                 discloses_no_assumption_about(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
+            )
+        )
+
+
+@pytest.mark.component
+def test_an_incident_nobody_was_paged_for_says_so_on_the_page() -> None:
+    # The third answer, between the two above. Not "nobody engaged" - nobody
+    # was asked to - and not "could not say" - the platform answered, and no
+    # incident of its own was this one. A blank where the minutes go, and the
+    # sentence beside it saying which blank it is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: a_postmortem_written_with(
+                evidence,
+                llm=a_model_answering(),
+                sources=some_sources(engagement=lambda dont_care_incident_id: NotPaged()))
+        ) \
+        .then(
+            all_of(
+                discloses_the_assumption(NOT_PAGED_ASSUMPTION),
+                discloses_no_assumption_about(ENGAGEMENT_UNAVAILABLE_ASSUMPTION),
+                reports_no_responder_cost()
             )
         )
 

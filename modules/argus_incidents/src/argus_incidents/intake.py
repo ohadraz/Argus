@@ -22,7 +22,7 @@ from argus_core.models import Alert
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 
 from argus_incidents.publishing import PublisherFor, acknowledge_alert
-from argus_incidents.repository import incidents, runs
+from argus_incidents.repository import incidents, references, runs
 
 logger = logging.getLogger(__name__)
 
@@ -64,17 +64,26 @@ def start_incident(alert: Alert,
             )
 
         if already_open is not None:
+            # A rule firing again can come from a new alert group, which the
+            # monitor pages for under a key of its own. That page is about this
+            # incident, so its names are this incident's too.
+            with connections() as conn:
+                references.add(conn, str(already_open.id), alert.references)
+                conn.commit()
+
             logger.info("alert joined open incident", extra={
                 ARGUS_INCIDENT_ID: str(already_open.id), "rule": alert.rule
             })
             return str(already_open.id)
 
-    # The row and the story's first line, in one transaction. Published from
-    # here because by the time a node runs the alert has already been received;
-    # published before the commit because an incident whose account begins
-    # nowhere is the failure `publish_beside` exists to prevent.
+    # The row, the names other tools know it by, and the story's first line, in
+    # one transaction. Published from here because by the time a node runs the
+    # alert has already been received; published before the commit because an
+    # incident whose account begins nowhere is the failure `publish_beside`
+    # exists to prevent.
     with connections() as conn:
         incident_id = incidents.create(conn, alert, trace_context)
+        references.add(conn, incident_id, alert.references)
         acknowledge_alert(conn, incident_id, alert, publisher_for)
         conn.commit()
 

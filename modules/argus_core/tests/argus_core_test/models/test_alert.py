@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core.models.alert import AlarmClaim, Alert
+from argus_core.models.reference import Reference
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from pydantic import ValidationError
 
@@ -141,6 +142,70 @@ def test_an_alert_carrying_stale_keys_keeps_every_one_of_them_in_order() -> None
         .then(
             _the_keys_came_back(the_keys)
         )
+
+
+@pytest.mark.unit
+def test_an_alert_whose_sender_gave_the_incident_no_other_names_carries_none() -> None:
+    # What other tools call the incident is the sender's to say, and most
+    # senders say nothing. Empty rather than `None`, because "no other names"
+    # is the whole of what that silence means - there is no second reading of
+    # it for a consumer to choose between.
+    Scenario() \
+        .given(
+            some_service := "checkout",
+            some_alert_name := "HighErrorRate"
+        ) \
+        .when(
+            lambda: Alert(service=some_service, alert_name=some_alert_name)
+        ) \
+        .then(
+            _the_references_were(())
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_keeps_every_name_its_sender_gave_the_incident() -> None:
+    # Each is how one other tool will refer to this incident later - a paging
+    # tool's resolution is matched by one - so a name dropped here is a
+    # resolution that can never find its incident.
+    Scenario() \
+        .given(
+            some_service := "checkout",
+            some_alert_name := "HighErrorRate",
+            some_references := (
+                Reference(source="some-monitor", kind="some-kind", value="k-1"),
+                Reference(source="some-monitor", kind="some-other-kind", value="k-2")
+            )
+        ) \
+        .when(
+            lambda: Alert(
+                service=some_service,
+                alert_name=some_alert_name,
+                references=some_references
+            )
+        ) \
+        .then(
+            _the_references_were(some_references)
+        )
+
+
+def _the_references_were(expected: tuple[Reference, ...]) -> Assertion[Alert]:
+    """That the alert carries exactly these names for its incident.
+
+    All of them and nothing else: a name missing is a tool whose word about
+    this incident can never reach it, and a name invented is one whose word
+    reaches the wrong incident.
+    """
+    def assertion(alert: Alert) -> bool:
+        if alert.references != expected:
+            raise AssertionError(
+                f"Expected the alert to carry the references {expected}, got "
+                f"{alert.references}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_claim_was(expected: AlarmClaim) -> Assertion[Alert]:

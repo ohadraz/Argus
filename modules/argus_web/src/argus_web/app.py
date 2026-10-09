@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,7 +10,7 @@ from typing import Annotated, Any, Final
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.events import Publisher
-from argus_core.models import IncidentStatus, Report, ReportChannel
+from argus_core.models import IncidentStatus, Reference, Report, ReportChannel
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
@@ -21,16 +21,21 @@ from argus_incidents import (
     start_incident,
     withdraw_incident,
 )
+from argus_incidents.repository import references
 from code_index.records import record_pushed
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from oncall_source import OnCallSettings, OnCallUnavailable
+from oncall_source.pagerduty_adapter import pagerduty_from
+from oncall_source.platform import DeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
 
 from argus_web import reads
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
+from argus_web.oncall import OnCallDeliverySettings, receive_delivery
 from argus_web.pushes import (
     SIGNATURE_HEADER,
     PushSettings,
@@ -76,6 +81,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.connections = pool.connection
         app.state.publisher = events_into(pool.connection)
         app.state.push_settings = PushSettings.of(get_settings())
+        # `None` where the deployment has no on-call platform, which is how
+        # its webhook comes to answer as though it did not exist.
+        app.state.oncall_platform = pagerduty_from(
+            OnCallSettings.of(get_settings()),
+            webhook_secret=OnCallDeliverySettings.of(get_settings()).pagerduty_webhook_secret
+        )
 
         with pool.connection() as conn:
             require_schema(conn)
@@ -117,6 +128,18 @@ def push_settings_of(request: Request) -> PushSettings:
     return settings
 
 
+def oncall_platform_of(request: Request) -> OnCallPlatform | None:
+    """The on-call platform deliveries come from, or `None` where there is none.
+
+    A dependency for the reason the push settings are one: the route says in
+    its signature what it reads from, and a test stands a platform in without
+    anybody's API.
+    """
+    platform: OnCallPlatform | None = request.app.state.oncall_platform
+
+    return platform
+
+
 def tracer_of() -> Tracer:
     """What a route makes its spans with: the process's own tracer.
 
@@ -130,6 +153,7 @@ def tracer_of() -> Tracer:
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type Publishing = Annotated[Publisher, Depends(publisher_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
+type UsingOnCallPlatform = Annotated[OnCallPlatform | None, Depends(oncall_platform_of)]
 type Tracing = Annotated[Tracer, Depends(tracer_of)]
 
 # Argus's own mark and the one script the page needs, both shipped with the
@@ -250,6 +274,82 @@ async def receive_github_push(request: Request,
         raise HTTPException(status_code=401, detail=str(refused)) from refused
 
     return {"recorded": recorded}
+
+
+@app.post("/webhooks/oncall", status_code=202)
+async def receive_oncall_delivery(request: Request,
+                                  platform: UsingOnCallPlatform,
+                                  connections: UsingConnections,
+                                  publisher: Publishing,
+                                  tracer: Tracing) -> dict[str, str]:
+    """Where the on-call platform tells Argus what happened to its incidents.
+
+    One delivery is acted on - a person resolving an incident Argus has - and
+    what that does lives in `oncall.receive_delivery`; this is registration
+    and the answer the platform acts on. Async for the reason the push webhook
+    is: the signature is over the bytes that arrived.
+
+    `404` where the deployment has no on-call platform, which is optional.
+    `401` for a delivery it did not sign, which the platform drops. `503` when
+    its API cannot be read mid-match, which the platform sends again, so a
+    blip never loses a person's word. `202` for everything else it sends,
+    acted on or not: received intact is received.
+
+    Needs a public URL to be reached at all - an ingress, or a tunnel for a
+    demo - which is the deployment's to give it.
+    """
+    if platform is None:
+        raise HTTPException(status_code=404, detail="no on-call platform is configured")
+
+    try:
+        receive_delivery(
+            await request.body(),
+            request.headers,
+            platform=platform,
+            record=_TheIncidentRecord(connections, publisher, tracer)
+        )
+    except DeliveryUnverified as refused:
+        # Most often the deployment holding a different secret from the
+        # subscription's, and the platform drops a refusal without retrying -
+        # so this line is the only trace that a person's word was turned away.
+        logger.warning("on-call delivery refused", extra={"reason": str(refused)})
+        raise HTTPException(status_code=401, detail=str(refused)) from refused
+    except OnCallUnavailable as unavailable:
+        logger.warning("on-call platform unreadable", exc_info=True)
+        raise HTTPException(status_code=503, detail=str(unavailable)) from unavailable
+
+    return {"received": "true"}
+
+
+class _TheIncidentRecord:
+    """The incident record, as a delivery from the on-call platform reaches it.
+
+    A resolution here is resolved inside the incident's own trace, as one from
+    the page is: a person reporting it over is part of the incident's story,
+    wherever they said it.
+    """
+
+    def __init__(self, connections: Connections, publisher: Publisher, tracer: Tracer) -> None:
+        self._connections = connections
+        self._publisher = publisher
+        self._tracer = tracer
+
+    def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
+        with self._connections() as conn:
+            return references.get_incident_by_values(conn, kind, values)
+
+    def know_it_as(self, incident_id: str, reference: Reference) -> None:
+        with self._connections() as conn:
+            references.add(conn, incident_id, [reference])
+            conn.commit()
+
+    def resolve(self, incident_id: str, reported: Report) -> bool:
+        with self._connections() as conn:
+            kept = reads.read_trace_context(conn, incident_id) or {}
+
+        with inside_the_incidents_trace(incident_id, kept, RESOLVE_SPAN,
+                                        kind=SpanKind.SERVER, tracer=self._tracer):
+            return resolve_incident(incident_id, reported, self._connections, self._publisher)
 
 
 def _the_watermark_kept_by(connections: Connections) -> Watermark:

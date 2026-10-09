@@ -60,6 +60,7 @@ from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.responder_cost import ResponderCost, responder_cost
 from agent_postmortem.sources import (
     EngagementAnswer,
+    NotPaged,
     PayBand,
     RateTable,
     Sources,
@@ -111,7 +112,7 @@ class Measurements(BaseModel):
     rates: RateTable | None
     currencies_left_out: list[str]
     onset_at: datetime | None
-    engaged: EngagementAnswer | None
+    engaged: EngagementAnswer | NotPaged | None
     cost: ResponderCost | None
     bands: Mapping[str, PayBand] | None
     # The instant from which the metrics carry no minute at all, where the read
@@ -310,18 +311,19 @@ def _when_the_service_came_back(recorded: datetime | None,
     return parse_iso(recovered) if recovered is not None else None
 
 
-def _what_the_response_cost(engaged: EngagementAnswer | None,
+def _what_the_response_cost(engaged: EngagementAnswer | NotPaged | None,
                             bands: Mapping[str, PayBand] | None,
                             working_hours_a_year: float) -> ResponderCost | None:
     """What the people on the incident cost, or nothing where either half is
     missing.
 
-    Both halves have to be there: minutes nobody could measure and bands nobody
-    could read are different failures with the same consequence, and each is
-    disclosed separately. The pricing itself declines any response it cannot
-    price in full, so nothing here inspects the responders.
+    Both halves have to be there: minutes nobody could measure, minutes nobody
+    was paged to spend, and bands nobody could read are different absences with
+    the same consequence, and each is disclosed separately. The pricing itself
+    declines any response it cannot price in full, so nothing here inspects the
+    responders.
     """
-    if engaged is None or bands is None:
+    if not isinstance(engaged, EngagementAnswer) or bands is None:
         return None
 
     return responder_cost(engaged.engaged, bands, working_hours_a_year)

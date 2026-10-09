@@ -76,7 +76,8 @@ INDEPENDENCE_CONTRACT = "an agent knows the kernel and its own sources, never an
 # rather than read from `noxfile.py`, because that list is about test discovery
 # and the two happening to agree today is not a reason to couple them.
 NOT_LAYERED = frozenset({
-    "argus_testkit", "anthropic_double", "slack_double", "github_double"
+    "argus_testkit", "anthropic_double", "slack_double", "github_double",
+    "pagerduty_double"
 })
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests

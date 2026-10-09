@@ -17,9 +17,9 @@ import logging
 
 import pytest
 from argus_core import to_iso
-from argus_core.models import AlarmClaim, Alert
+from argus_core.models import NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 from argus_testkit import Assertion, Scenario, one_record_was_logged
-from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
+from argus_web.grafana import GRAFANA_SOURCE, parse_grafana_alert, reports_only_resolutions
 
 from argus_web_test.framework.builders import a_grafana_payload
 
@@ -315,6 +315,48 @@ def test_parse_grafana_alert_names_no_rule_when_the_alert_names_none() -> None:
 
 
 @pytest.mark.unit
+def test_parse_grafana_alert_names_the_incident_by_the_key_grafana_pages_with() -> None:
+    # Grafana stamps everything it sends a paging tool with a key of its own
+    # making, and that key is what the paging tool hands back when a person
+    # resolves the incident there. Both values were read off a real Grafana
+    # (13.2.3): the group key from its webhook, and the key PagerDuty recorded
+    # for the incident Grafana opened from the same notification.
+    grafanas_group_key = '{}:{alertname="SpikeAlwaysFiring"}'
+    the_key_pagerduty_recorded = (
+        "61118811129051d2ae8f1e4a0e1ba2b37f38f44a73bf44cb0b29ce81df1f57d3"
+    )
+
+    Scenario() \
+        .given(
+            payload := a_grafana_payload(group_key=grafanas_group_key)
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_incident_by(Reference(
+                source=GRAFANA_SOURCE, kind=NOTIFICATION_KEY, value=the_key_pagerduty_recorded
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_parse_grafana_alert_names_the_incident_no_other_way_without_a_group_key() -> None:
+    # A sender that is Grafana-shaped without being Grafana - a test, a script -
+    # sends no group key, and pages no tool with one either.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload()
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_the_incident_by()
+        )
+
+
+@pytest.mark.unit
 def test_a_notification_of_resolved_alerts_alone_reports_only_resolutions() -> None:
     some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
     some_other_resolved = a_grafana_payload(rule_uid="some-other-rule", status="resolved")
@@ -530,6 +572,19 @@ def _it_names_the_rule(expected: str | None) -> Assertion[Alert]:
         if alert.rule != expected:
             raise AssertionError(
                 f"Expected the alert to name the rule [{expected}], got [{alert.rule}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_names_the_incident_by(*expected: Reference) -> Assertion[Alert]:
+    def assertion(alert: Alert) -> bool:
+        if alert.references != expected:
+            raise AssertionError(
+                f"Expected the alert to name its incident by {expected}, got "
+                f"{alert.references}."
             )
 
         return True

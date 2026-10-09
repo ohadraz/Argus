@@ -8,24 +8,23 @@ bands do not carry, an endpoint answering a shape the adapter cannot read - and
 each of those is a legitimate answer on its own, which is why only a run of the
 whole stack tells them apart from a figure that was priced.
 
-The figure is bounded rather than named. How many minutes the response took
-depends on how fast Argus happened to walk the incident, so an exact
-expectation would be an assertion about wall-clock. What is not free to vary is
-the rate: whatever the minutes were, they were spent by people on one of two
-known bands, so the cost has to sit between those minutes at the cheaper band
-and the same minutes at the dearer one. A figure outside that is a rate nobody
+The figure is bounded rather than named. What is not free to vary is the rate:
+whatever the minutes were, they were spent by people on one of two known
+bands, so the cost has to sit between those minutes at the cheaper band and the
+same minutes at the dearer one. A figure outside that is a rate nobody
 published.
 """
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 import httpx2
 import psycopg
 import pytest
 from agent_postmortem import PAY_BAND_ASSUMPTION_LABEL, WORKING_YEAR_ASSUMPTION_LABEL
-from argus_core import get_settings
+from argus_core import get_settings, utc_now
 from argus_core.models import Postmortem
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -42,16 +41,20 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.oncall import the_on_call_platform_holds
 from tests.e2e.framework.world import a_scenario_was_seeded
 
-# The bands the Target Service's HR endpoint publishes for the two titles it
-# pages.
+# Two titles the Target Service's HR endpoint publishes, on two different
+# levels, and those levels' midpoints.
 # MIRRORED FROM THE DEMO APP - NOT ARBITRARY VALUES!!!
 # A fixture that moves fails here saying the cost left the band it was priced
 # from, which is the failure worth having.
+THE_CHEAPER_TITLE = "Site Reliability Engineer"
+THE_DEARER_TITLE = "Senior Software Engineer"
 THE_CHEAPEST_MIDPOINT = Decimal(175_000)
 THE_DEAREST_MIDPOINT = Decimal(220_000)
 
+A_MINUTE = timedelta(minutes=1)
 MINUTES_AN_HOUR = Decimal(60)
 
 
@@ -63,10 +66,28 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
                                             alert_name=some_alert_name,
                                             severity=some_severity)
 
+    some_on_call_incident = "PSOMEINCIDENT"
+    some_responder = "PSOMEONE"
+    some_other_responder = "PSOMEONEELSE"
+
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("feature-flag-toggle")),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
+            calling(the_on_call_platform_holds(
+                some_on_call_incident,
+                paged_for=some_alert,
+                paged_at=utc_now(),
+                resolved_after=10 * A_MINUTE,
+                acknowledged_after={
+                    some_responder: 1 * A_MINUTE,
+                    some_other_responder: 2 * A_MINUTE
+                },
+                titles={
+                    some_responder: THE_DEARER_TITLE,
+                    some_other_responder: THE_CHEAPER_TITLE
+                }
+            ))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -89,11 +110,9 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
 def _the_postmortem_prices_the_response() -> Assertion[httpx2.Response]:
     """A cost, over the minutes the same document reports.
 
-    Bounded by the two bands rather than named exactly: the minutes depend on
-    how long the walk took, and asserting a figure would be asserting Argus's
-    own speed. The bounds still fail every wrong rate - a year divided by the
-    wrong divisor, a salary read where a band was meant, one responder priced
-    and the other dropped.
+    Bounded by the two bands rather than named exactly, which still fails
+    every wrong rate - a year divided by the wrong divisor, a salary read where
+    a band was meant, one responder priced and the other dropped.
     """
     def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)

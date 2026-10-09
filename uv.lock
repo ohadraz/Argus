@@ -28,6 +28,7 @@ members = [
     "argus-metrics-source",
     "argus-oncall-source",
     "argus-orchestrator",
+    "argus-pagerduty-double",
     "argus-read-mcp-client",
     "argus-read-mcp-server",
     "argus-repository-source",
@@ -412,6 +413,7 @@ dependencies = [
     { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-code-index" },
+    { name = "argus-oncall-source" },
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "psycopg", extra = ["binary"] },
@@ -431,6 +433,7 @@ requires-dist = [
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-code-index", editable = "modules/code_index" },
+    { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
@@ -683,6 +686,23 @@ dev = [
     { name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
+]
+
+[[package]]
+name = "argus-pagerduty-double"
+version = "0.1.0"
+source = { editable = "modules/pagerduty_double" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 
 [[package]]

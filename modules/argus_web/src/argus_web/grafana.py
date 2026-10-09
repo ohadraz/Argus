@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, Final
 from urllib.parse import urlsplit
 
-from argus_core.models import AlarmClaim, Alert
+from argus_core.models import NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 
 logger = logging.getLogger(__name__)
+
+# Whose names for an incident this parser records.
+GRAFANA_SOURCE: Final = "grafana"
+
+# Where Grafana puts the key of the alert group a notification is about: on the
+# envelope, not on any one alert.
+_GROUP_KEY: Final = "groupKey"
 
 # How a list of cache keys is written into a single annotation. Grafana carries
 # annotations as text, so a check reporting many entries renders them as one
@@ -85,6 +93,7 @@ def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
         # The link to the rule, which is the only place the webhook names it:
         # Grafana's payload has no field for the rule that fired.
         rule=_the_rule_linked_from(alert.get("generatorURL")),
+        references=_the_names_grafana_pages_with(raw_payload.get(_GROUP_KEY))
     )
 
 
@@ -124,6 +133,28 @@ def _the_rule_linked_from(generator_url: str | None) -> str | None:
         segments = segments[1:]
 
     return segments[0] if found and segments else None
+
+
+def _the_names_grafana_pages_with(group_key: str | None) -> tuple[Reference, ...]:
+    """What Grafana will call this incident to a paging tool, or nothing.
+
+    The SHA-256 of the group's key, in hex - Grafana's own `Key.Hash()`, which
+    every integration it pages through is sent "as integrations may have
+    maximum length requirements". Recorded as the hash rather than the key
+    because the hash is what a paging tool hands back: observed against a real
+    Grafana, whose PagerDuty incident carried exactly this as its alert key.
+
+    Nothing without a group key: a sender shaped like Grafana without being it
+    pages no tool with one.
+    """
+    if not group_key:
+        return ()
+
+    return (Reference(
+        source=GRAFANA_SOURCE,
+        kind=NOTIFICATION_KEY,
+        value=hashlib.sha256(group_key.encode()).hexdigest()
+    ),)
 
 
 def _the_claim_in(stated: str | None) -> AlarmClaim:

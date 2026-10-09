@@ -27,7 +27,7 @@ from __future__ import annotations
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import unpriced_titles
-from agent_postmortem.sources import EngagementAnswer
+from agent_postmortem.sources import EngagementAnswer, NotPaged
 
 # How a conversion announces itself in the assumptions. A constant rather than
 # a phrase written at each end, because the document and anything reading it
@@ -64,6 +64,12 @@ ONSET_UNKNOWN_ASSUMPTION = (
 )
 ENGAGEMENT_UNAVAILABLE_ASSUMPTION = (
     "no engineer minutes: no source could say when a person engaged"
+)
+# Said when nobody was paged at all, which is neither of the absences above or
+# below: the on-call source answered, and no incident of its own was this one.
+NOT_PAGED_ASSUMPTION = (
+    "no engineer minutes: no on-call incident was linked to this one, so nobody "
+    "was paged to respond"
 )
 PAY_BANDS_UNAVAILABLE_ASSUMPTION = (
     "no responder cost: the pay band source could not be read"
@@ -115,7 +121,9 @@ def assumptions_of(answer: SubmittedPostmortem,
         assumptions.append(REVENUE_UNAVAILABLE_ASSUMPTION)
     if measured.engaged is None:
         assumptions.append(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
-    if measured.engaged is not None and measured.bands is None:
+    if isinstance(measured.engaged, NotPaged):
+        assumptions.append(NOT_PAGED_ASSUMPTION)
+    if isinstance(measured.engaged, EngagementAnswer) and measured.bands is None:
         assumptions.append(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
 
     return assumptions
@@ -154,7 +162,7 @@ def _the_pricing_behind(measured: Measurements,
     caller, since there are no titles to blame for it.
     """
     engaged, bands = measured.engaged, measured.bands
-    if bands is None or engaged is None:
+    if bands is None or not isinstance(engaged, EngagementAnswer):
         return []
 
     if measured.cost is None:

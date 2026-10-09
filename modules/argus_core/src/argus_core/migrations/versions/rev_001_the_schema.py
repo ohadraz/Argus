@@ -367,6 +367,32 @@ CREATE TABLE IF NOT EXISTS slack_thread (
     PRIMARY KEY (incident_id, channel)
 );
 
+-- What other tools call an incident. A tool's later word about the incident -
+-- a person resolving it in the paging tool that woke them - arrives carrying
+-- that tool's names for it and none of Argus's, and this is where those names
+-- are matched.
+--
+-- Rows rather than columns on `incident`, for the reason `slack_thread` is a
+-- table: an incident knows nothing about the tools around it, and a new tool
+-- is one more `source` here rather than one more column on the table every
+-- part of this system reads. Written and read by `argus_incidents`.
+CREATE TABLE IF NOT EXISTS incident_reference (
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    -- The tool, which of its names this is, and the name as that tool spells
+    -- it - never normalised, because it is matched against what the tool
+    -- says later, to the character.
+    source TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- One name, one incident: the tool's word about it must reach exactly
+    -- one. A second claim on a name writes nothing, and the incident that had
+    -- it keeps it.
+    PRIMARY KEY (source, kind, value)
+);
+CREATE INDEX IF NOT EXISTS incident_reference_incident_idx
+    ON incident_reference (incident_id);
+
 CREATE TABLE IF NOT EXISTS event_cursor (
     reader TEXT PRIMARY KEY,
     -- A place in `incident_event.seq`, not a foreign key to it: the row a

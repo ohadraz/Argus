@@ -28,7 +28,7 @@ from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import SubmittedPostmortem
-from agent_postmortem.sources import Sources
+from agent_postmortem.sources import EngagementAnswer, Sources
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,10 @@ def write_postmortem(evidence: IncidentEvidence,
     if faults:
         logger.warning("postmortem written incomplete", extra={"faults": faults})
 
+    # Minutes only where somebody measured them. Nobody paged and nobody able
+    # to say both leave the figures blank, and the assumptions say which.
+    engaged = measured.engaged if isinstance(measured.engaged, EngagementAnswer) else None
+
     return PostmortemDocument(
         # Absent rather than empty where the model never answered: a blank on a
         # page reads as a root cause somebody wrote and left empty, and this
@@ -89,9 +93,9 @@ def write_postmortem(evidence: IncidentEvidence,
         # Not multiplied by the count: the source answers person-minutes, so
         # each responder's own engagement is already in the figure, and
         # scaling it again would charge every minute to everybody.
-        engineer_minutes=measured.engaged.minutes if measured.engaged else None,
-        responders=measured.engaged.responders if measured.engaged else None,
-        responder_titles=measured.engaged.titles if measured.engaged else [],
+        engineer_minutes=engaged.minutes if engaged else None,
+        responders=engaged.responders if engaged else None,
+        responder_titles=engaged.titles if engaged else [],
         responder_cost_estimate=measured.cost.midpoint if measured.cost else None,
         responder_cost_minimum=measured.cost.minimum if measured.cost else None,
         responder_cost_maximum=measured.cost.maximum if measured.cost else None,

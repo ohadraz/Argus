@@ -137,9 +137,20 @@ class EngagementAnswer(BaseModel):
     engaged: list[EngagedResponder] = []
 
 
-# Who responded to one incident and for how long, or `None` if nobody could
-# say.
-type Engagement = Callable[[str], EngagementAnswer | None]
+class NotPaged(BaseModel):
+    """Nobody was asked to respond: no on-call incident was linked to this one.
+
+    The third answer, distinct from both of the others. Not an incident nobody
+    engaged with - zero minutes is a measurement of people who were paged and
+    did not come - and not a source that could not be read: the source
+    answered, and none of its incidents was this one. A document that said
+    either would be wrong about which blank it is leaving.
+    """
+
+
+# Who responded to one incident and for how long; `NotPaged` where nobody was
+# asked to; or `None` if nobody could say.
+type Engagement = Callable[[str], EngagementAnswer | NotPaged | None]
 
 
 @dataclass(frozen=True)

@@ -26,7 +26,7 @@ from math import isclose
 import pytest
 from agent_postmortem.estimate import RuleSeriesLevels
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.sources import EngagedResponder, PayBand
+from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
 from argus_testkit import Assertion, Kept, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
@@ -893,7 +893,7 @@ def _the_time_to_close_was(expected: float) -> Assertion[Measurements]:
 
 def _the_response_took(expected: int) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.engaged is None:
+        if not isinstance(measured.engaged, EngagementAnswer):
             raise AssertionError(
                 f"Expected a response of [{expected}] minutes, and none was measured.")
 

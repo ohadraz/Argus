@@ -32,6 +32,7 @@ from functools import partial
 from agent_postmortem import (
     EngagedResponder,
     EngagementAnswer,
+    NotPaged,
     PayBand,
     RateTable,
     Sources,
@@ -39,14 +40,14 @@ from agent_postmortem import (
 from argus_core import Connections, Settings, to_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient
-from argus_core.models import MetricBucket
-from argus_incidents.repository import exchange_rates
+from argus_core.models import NOTIFICATION_KEY, ON_CALL_INCIDENT, MetricBucket, Reference
+from argus_incidents.repository import exchange_rates, references
 from exchange_rate_source.frankfurter import (
     ExchangeRateSettings,
     rates_published_for,
 )
-from oncall_source import OnCallSettings, engagement_with
-from oncall_source.pagerduty_adapter import reported_incident
+from oncall_source import OnCallUnavailable, engagement_with
+from oncall_source.platform import OnCallPlatform
 from read_mcp_client import get_metrics_summary
 from responder_rate_source import (
     PayBandsUnavailable,
@@ -64,7 +65,9 @@ logger = logging.getLogger(__name__)
 def the_real_sources(settings: Settings,
                      connections: Connections,
                      read: McpClient,
-                     thresholds: AnomalyThresholds) -> Sources:
+                     thresholds: AnomalyThresholds,
+                     *,
+                     oncall: OnCallPlatform | None) -> Sources:
     """Every port answered by the provider this deployment is configured for.
 
     The configuration is sliced once, here, and each source is handed only its
@@ -93,6 +96,11 @@ def the_real_sources(settings: Settings,
     them. The same value went to the Investigator and to Mitigation, and the
     postmortem dating recovery on lines of its own is how it would come to
     report a recovery at a minute Mitigation had refused to confirm on.
+
+    `oncall` is the on-call platform, already built - or `None`, since a
+    deployment need not have one. Handed in because which vendor it is, is the
+    composition root's to decide, and a source that held the port alone would
+    be one no test has to stand a vendor in for.
     """
     return Sources(
         thresholds=thresholds,
@@ -102,7 +110,7 @@ def the_real_sources(settings: Settings,
                       connections,
                       base=settings.reporting_currency,
                       settings=ExchangeRateSettings.of(settings)),
-        engagement=partial(_who_responded, settings=OnCallSettings.of(settings)),
+        engagement=partial(_who_responded, platform=oncall, connections=connections),
         bands=partial(_what_a_title_is_worth,
                       settings=ResponderRateSettings.of(settings)),
         metrics=partial(_metrics_between, client=read),
@@ -152,21 +160,40 @@ def _todays_rates(connections: Connections,
 
 def _who_responded(incident_id: str,
                    *,
-                   settings: OnCallSettings) -> EngagementAnswer | None:
-    """What human attention the incident took, read from the on-call provider.
+                   platform: OnCallPlatform | None,
+                   connections: Connections) -> EngagementAnswer | NotPaged | None:
+    """What human attention the incident took, read from the on-call platform.
 
-    A provider that cannot be read - or a deployment holding no credential -
-    answers `None` rather than zero. An incident nobody acknowledged answers
-    zero, which is a different thing and is the source's to say.
+    Read on the platform's own incident, never on Argus's id: they are two
+    incidents opened by one alert. A platform that cannot be read - or a
+    deployment with no platform at all - answers `None` rather than zero. An
+    incident nobody acknowledged answers zero, and one no platform incident
+    is linked to answers `NotPaged`; both are measurements, and different ones.
 
     The minutes are person-minutes, already summed across the people who
     responded, and the titles say what those people were rather than who. Both
     cross as the source answered them; nothing here reinterprets either.
     """
-    engaged = engagement_with(
-        incident_id,
-        reported=partial(reported_incident, settings=settings)
-    )
+    if platform is None:
+        # Still "could not say": nobody looked. Said as information, because
+        # the platform is optional and a deployment without one chose that.
+        logger.info("no on-call platform configured")
+
+        return None
+
+    try:
+        platform_incident = _the_platform_incident_of(incident_id, platform, connections)
+    except OnCallUnavailable:
+        logger.warning("engagement could not be read", exc_info=True)
+
+        return None
+
+    if platform_incident is None:
+        logger.info("no on-call incident linked")
+
+        return NotPaged()
+
+    engaged = engagement_with(platform_incident, reported=platform.reported_incident)
 
     if engaged is None:
         logger.warning("engagement could not be read")
@@ -179,6 +206,34 @@ def _who_responded(incident_id: str,
                             engaged=[EngagedResponder(minutes=responder.minutes,
                                                       job_title=responder.job_title)
                                      for responder in engaged.engaged])
+
+
+def _the_platform_incident_of(incident_id: str,
+                              platform: OnCallPlatform,
+                              connections: Connections) -> str | None:
+    """The platform's incident this one is, or `None` where none is.
+
+    The platform's id where a person's resolution there already linked the
+    two; otherwise whichever platform incident carries a key the monitor paged
+    under, recorded once found so the next question goes straight to it.
+    """
+    with connections() as conn:
+        linked = references.get_values_for(conn, incident_id, ON_CALL_INCIDENT)
+        keys = references.get_values_for(conn, incident_id, NOTIFICATION_KEY)
+
+    if linked:
+        return linked[0]
+
+    found = platform.incident_for(keys) if keys else None
+
+    if found is not None:
+        with connections() as conn:
+            references.add(conn, incident_id, [
+                Reference(source=platform.channel, kind=ON_CALL_INCIDENT, value=found)
+            ])
+            conn.commit()
+
+    return found
 
 
 def _what_a_title_is_worth(*,

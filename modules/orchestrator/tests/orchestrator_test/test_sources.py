@@ -59,21 +59,6 @@ def test_the_postmortems_metrics_are_read_for_the_rule_that_paged() -> None:
 
 
 @pytest.mark.unit
-def test_an_on_call_provider_that_cannot_be_read_is_logged_as_a_warning(
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    # The document publishes no cost and says so on its own page. This is the
-    # line an operator reads, and it names which source left the gap.
-    Scenario() \
-        .given(sources := _the_sources_holding_no_credential()) \
-        .when(lambda: sources.engagement(DONT_CARE_INCIDENT_ID)) \
-        .then(
-            one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
-                                  "engagement could not be read")
-        )
-
-
-@pytest.mark.unit
 def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -89,7 +74,8 @@ def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
 
 def _the_sources_over(read: McpClient) -> Sources:
     return the_real_sources(
-        get_settings(), _connections_that_must_not_be_opened(), read, DONT_CARE_THRESHOLDS
+        get_settings(), _connections_that_must_not_be_opened(), read, DONT_CARE_THRESHOLDS,
+        oncall=None
     )
 
 
@@ -97,10 +83,11 @@ def _the_sources_holding_no_credential() -> Sources:
     """Every source configured with nothing to authenticate with, which each one
     refuses before reaching anybody."""
     return the_real_sources(
-        get_settings().model_copy(update={"pagerduty_api_key": "", "hr_api_key": ""}),
+        get_settings().model_copy(update={"hr_api_key": ""}),
         _connections_that_must_not_be_opened(),
         _a_session_that_remembers_what_it_was_asked(),
-        DONT_CARE_THRESHOLDS
+        DONT_CARE_THRESHOLDS,
+        oncall=None
     )
 
 

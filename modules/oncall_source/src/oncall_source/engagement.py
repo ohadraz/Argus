@@ -37,8 +37,8 @@ class OnCallSettings(SettingsSlice):
     the document says it could not obtain, and a default credential would be
     one nobody chose.
 
-    `pagerduty_verify_tls` is here because the demo's stand-in mints itself a
-    certificate nobody has reason to trust - and exists at all because the
+    `pagerduty_verify_tls` is here because `pagerduty_double` mints itself a
+    certificate nobody has reason to trust - and answers TLS at all because the
     vendor's SDK refuses a base URL that is not `https://`.
 
     Here rather than beside the adapter that uses it, because naming what a

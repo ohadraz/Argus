@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 PreToolUse hook: blocks Write/Edit/NotebookEdit against Argus's own tests/
-directories, and against the argus_testkit, anthropic_double and slack_double
-modules.
+directories, and against the argus_testkit, anthropic_double, slack_double and
+pagerduty_double modules.
 
 argus_testkit is not test cases but the machinery every assertion runs
 through — an edit there could neuter every suite in the repo at once
@@ -18,6 +18,9 @@ slack_double stands where Slack does, and is what the relay's own suite and
 the e2e stack post against. Same hazard, same door: an agent free to loosen
 what the double accepts could make its adapter pass against a Slack that
 never existed.
+
+pagerduty_double stands where PagerDuty does, and is what the e2e stack reads
+on-call incidents from. Same hazard, same door.
 
 The tests/ rule is scoped to this repository. It exists to enforce the TDD
 policy in AGENTS.md — the human writes the test, the agent writes the code —
@@ -43,7 +46,8 @@ TESTS_ANYWHERE = r"(^|[/\\])tests[/\\]"
 OFF_LIMITS_EVERYWHERE = (
     r"(^|[/\\])argus_testkit([/\\]|$)",
     r"(^|[/\\])anthropic_double([/\\]|$)",
-    r"(^|[/\\])slack_double([/\\]|$)"
+    r"(^|[/\\])slack_double([/\\]|$)",
+    r"(^|[/\\])pagerduty_double([/\\]|$)"
 )
 
 
@@ -69,8 +73,9 @@ def main() -> None:
 
     if any(re.search(pattern, file_path) for pattern in OFF_LIMITS_EVERYWHERE):
         print(
-            "Blocked: modules/argus_testkit/, modules/anthropic_double/ and "
-            "modules/slack_double/ are off-limits for Claude. Propose the "
+            "Blocked: modules/argus_testkit/, modules/anthropic_double/, "
+            "modules/slack_double/ and modules/pagerduty_double/ are "
+            "off-limits for Claude. Propose the "
             "change in chat/console instead - the user applies it by hand.",
             file=sys.stderr
         )

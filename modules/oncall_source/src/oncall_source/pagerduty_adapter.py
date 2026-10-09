@@ -1,31 +1,31 @@
 """The one place PagerDuty is known by name.
 
 The provider is read through its own SDK rather than a hand-built request, so
-what the demo exercises is what a real account would: the library's request
+what a suite exercises is what a real account would: the library's request
 building, its authentication header, its error vocabulary. Aiming it is one
 setting - the seam sits *below* the SDK, exactly as it does for the Anthropic
-and Stripe clients - which is what makes the Target Service's endpoints a
-stand-in rather than a second implementation.
+and Stripe clients - which is what makes `pagerduty_double` a stand-in rather
+than a second implementation.
 
 Nothing above this module imports `pagerduty`, and nothing above it sees a
 PagerDuty error: a provider that cannot be read leaves here as
 `OnCallUnavailable`, which is the vocabulary the rest of Argus answers in.
 
 One thing the SDK will not do is speak plain HTTP - it refuses any base URL
-that is not `https://`. That is right for a real account and is why the stand-in
-answers TLS on a port of its own, with a certificate it mints at startup;
-whether that certificate is checked is a setting, true everywhere but against
-the demo on this machine.
+that is not `https://`. That is right for a real account and is why the double
+answers TLS, with a certificate it mints at startup; whether that certificate
+is checked is a setting, true everywhere but against the double.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from typing import Any, Final
 
 from argus_core import parse_iso
+from argus_core.models import ReportChannel
 from pagerduty import Error as PagerDutyError
 from pagerduty import RestApiV2Client
 
@@ -35,6 +35,8 @@ from oncall_source.engagement import (
     OnCallUnavailable,
     ReportedIncident,
 )
+from oncall_source.pagerduty_webhooks import read_delivery
+from oncall_source.platform import Delivery
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ type ClientOf = Callable[..., RestApiV2Client]
 
 # The resources this reads. Paths rather than URLs: the client joins them to
 # whichever base address it was built with, which is the whole point of aiming
-# that address at the demo. Two of them, because a title is held on the person
+# that address at the double. Two of them, because a title is held on the person
 # and not on the acknowledgement they made.
 _AN_INCIDENT: Final = "/incidents/{incident_id}"
 _A_USER: Final = "/users/{responder_id}"
@@ -71,6 +73,163 @@ _CREATED_AT: Final = "created_at"
 _RESOLVED_AT: Final = "resolved_at"
 _LAST_STATUS_CHANGE_AT: Final = "last_status_change_at"
 
+# What a person's resolution needs. The keys an incident carries are its alerts'
+# - one per alert, several once incidents were merged into it, since their
+# alerts move with them. The incident list is asked by key, which PagerDuty
+# matches against those same alert keys, resolved incidents included.
+ALERTS_OF_AN_INCIDENT: Final = "/incidents/{incident_id}/alerts"
+ALERT_KEY: Final = "alert_key"
+INCIDENT_LIST: Final = "/incidents"
+INCIDENT_KEY: Final = "incident_key"
+
+# Where what a person wrote when they resolved the incident is kept: among the
+# incident's notes, as one more note, marked only by the prefix PagerDuty writes
+# into it. See `resolution_note` for why that prefix is relied on.
+NOTES_ON_AN_INCIDENT: Final = "/incidents/{incident_id}/notes"
+CONTENT: Final = "content"
+RESOLUTION_NOTE_PREFIX: Final = "Resolution Note: "
+
+
+class PagerDuty:
+    """The on-call platform, when it is PagerDuty.
+
+    Holds what each question needs and asks it through the functions below,
+    which are where PagerDuty's API is known. Built only for a deployment that
+    holds a key - see `pagerduty_from`.
+
+    The webhook secret is given separately from the reading credential because
+    only the process receiving deliveries holds it: the worker reads PagerDuty
+    and never hears from it.
+    """
+
+    def __init__(self,
+                 settings: OnCallSettings,
+                 webhook_secret: str,
+                 client_of: ClientOf = RestApiV2Client) -> None:
+        self._settings = settings
+        self._webhook_secret = webhook_secret
+        self._client_of = client_of
+
+    @property
+    def channel(self) -> ReportChannel:
+        return ReportChannel.PAGERDUTY
+
+    def read_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
+        return read_delivery(body, headers, self._webhook_secret)
+
+    def keys_of(self, platform_incident: str) -> list[str]:
+        return keys_of(platform_incident, self._settings, self._client_of)
+
+    def incident_for(self, keys: Iterable[str]) -> str | None:
+        return incident_for(keys, self._settings, self._client_of)
+
+    def resolution_note(self, platform_incident: str) -> str | None:
+        return resolution_note(platform_incident, self._settings, self._client_of)
+
+    def reported_incident(self, platform_incident: str) -> ReportedIncident:
+        return reported_incident(platform_incident, self._settings, self._client_of)
+
+
+def pagerduty_from(settings: OnCallSettings,
+                   webhook_secret: str,
+                   client_of: ClientOf = RestApiV2Client) -> PagerDuty | None:
+    """PagerDuty as the on-call platform, or `None` where the deployment has none.
+
+    PagerDuty is optional - Grafana alone is enough to run Argus - and a
+    deployment holding no key has no on-call platform at all. `None` is how that
+    reaches every caller, and nothing is built on the way to saying it.
+    """
+    if not settings.pagerduty_api_key:
+        return None
+
+    return PagerDuty(settings, webhook_secret, client_of)
+
+
+def keys_of(incident_id: str,
+            settings: OnCallSettings,
+            client_of: ClientOf = RestApiV2Client) -> list[str]:
+    """The keys the incident's senders stamped on it: each alert's key.
+
+    Raises `OnCallUnavailable` when the alerts cannot be read, which is a
+    different answer from an incident carrying none.
+    """
+    alerts = _read(_the_client(settings, client_of),
+                   ALERTS_OF_AN_INCIDENT.format(incident_id=incident_id))
+
+    return [str(alert[ALERT_KEY]) for alert in alerts if alert.get(ALERT_KEY)]
+
+
+def incident_for(keys: Iterable[str],
+                 settings: OnCallSettings,
+                 client_of: ClientOf = RestApiV2Client) -> str | None:
+    """The incident carrying any of these keys, or `None` where none does.
+
+    One request per key, in order, until one finds an incident: Argus holds one
+    or two keys for an incident, and the list endpoint takes one at a time.
+    """
+    client = _the_client(settings, client_of)
+
+    for key in keys:
+        found = _read(client, INCIDENT_LIST, params={INCIDENT_KEY: key})
+
+        if found:
+            return str(found[0][_ID])
+
+    return None
+
+
+def resolution_note(incident_id: str,
+                    settings: OnCallSettings,
+                    client_of: ClientOf = RestApiV2Client) -> str | None:
+    """What the person wrote when they resolved the incident, or `None`.
+
+    PagerDuty has no field linking a resolution to its note. The resolve log
+    entry carries no note; the note is a separate note on the incident, like
+    any written while it was going on; and the webhook carries neither. What
+    marks it is the prefix PagerDuty writes into it, and that is what this
+    relies on - as PagerDuty's own community manager recommends (May 2025),
+    calling the missing field a logged bug with no timeline (Feb 2026):
+    https://community.pagerduty.com/ask-a-product-question-2/i-am-interested-in-a-report-or-list-of-all-of-my-incident-resolution-notes-624
+    https://community.pagerduty.com/ask-a-product-question-2/unable-to-retrieve-resolution-note-for-an-automated-incident-workflow-step-842
+
+    Not "the latest note", the workaround that second thread accepted: resolved
+    without a note, it would present something written mid-incident as what the
+    person said when they ended it. The prefix is undocumented wording, and if
+    PagerDuty changes it this finds no note - never a wrong one.
+
+    The prefix is PagerDuty's, not the person's, so it is not part of what they
+    said.
+    """
+    notes = _read(_the_client(settings, client_of),
+                  NOTES_ON_AN_INCIDENT.format(incident_id=incident_id))
+
+    for note in notes:
+        content = str(note.get(CONTENT) or "")
+
+        if content.startswith(RESOLUTION_NOTE_PREFIX):
+            return content.removeprefix(RESOLUTION_NOTE_PREFIX).strip() or None
+
+    return None
+
+
+def _the_client(settings: OnCallSettings, client_of: ClientOf) -> RestApiV2Client:
+    """A client aimed where the settings say, holding their credential."""
+    return client_of(
+        settings.pagerduty_api_key,
+        verify=settings.pagerduty_verify_tls,
+        **({"base_url": settings.pagerduty_base_url}
+           if settings.pagerduty_base_url
+           else {})
+    )
+
+
+def _read(client: RestApiV2Client, path: str, **request: Any) -> Any:
+    """One resource, or `OnCallUnavailable` in Argus's words."""
+    try:
+        return client.rget(path, **request)
+    except PagerDutyError as error:
+        raise OnCallUnavailable(f"the on-call provider could not be read: {error}") from error
+
 
 def reported_incident(incident_id: str,
                       settings: OnCallSettings,
@@ -89,20 +248,8 @@ def reported_incident(incident_id: str,
             "read"
         )
 
-    client = client_of(
-        settings.pagerduty_api_key,
-        verify=settings.pagerduty_verify_tls,
-        **({"base_url": settings.pagerduty_base_url}
-           if settings.pagerduty_base_url
-           else {})
-    )
-
-    try:
-        reported = client.rget(_AN_INCIDENT.format(incident_id=incident_id))
-    except PagerDutyError as error:
-        raise OnCallUnavailable(
-            f"the on-call provider could not be read: {error}"
-        ) from error
+    client = _the_client(settings, client_of)
+    reported = _read(client, _AN_INCIDENT.format(incident_id=incident_id))
 
     return _as_an_incident(reported, client)
 

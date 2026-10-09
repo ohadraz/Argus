@@ -3,6 +3,7 @@ import ctypes
 import os
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -25,7 +26,8 @@ nox.options.default_venv_backend = "none"
 
 
 EXCLUDED_FROM_TESTS: set[str] = {
-    "argus_testkit", "anthropic_double", "slack_double", "github_double"
+    "argus_testkit", "anthropic_double", "slack_double", "github_double",
+    "pagerduty_double"
 }
 
 
@@ -1226,11 +1228,19 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
     Any HTTP response counts as ready, including an error one - `read_mcp`'s
     `/mcp` rejects a bare GET, and that rejection is itself proof the server is
     listening. Only a connection-level failure means "not up yet".
+
+    A certificate is not checked. The one service answering TLS is the
+    PagerDuty double, whose certificate is minted at startup and trusted by
+    nothing - and a check here would read every attempt as "not up yet" until
+    the timeout said the double never started.
     """
+    unverified = ssl.create_default_context()
+    unverified.check_hostname = False
+    unverified.verify_mode = ssl.CERT_NONE
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            urllib.request.urlopen(url, timeout=1.0)
+            urllib.request.urlopen(url, timeout=1.0, context=unverified)
             return
         except urllib.error.HTTPError:
             return
@@ -1253,6 +1263,8 @@ def _wait_for_http(name: str, url: str, timeout: float = 30.0) -> None:
 _ANTHROPIC_DOUBLE_BASE_URL = "http://localhost:8091"
 _SLACK_DOUBLE_BASE_URL = "http://localhost:8094"
 _GITHUB_DOUBLE_BASE_URL = "http://localhost:8096"
+# HTTPS, the one double that is: PagerDuty's SDK refuses any other scheme.
+_PAGERDUTY_DOUBLE_BASE_URL = "https://localhost:8097"
 
 # Where the sessions that can run beside an e2e stack put the things that would
 # otherwise collide with it. Every collision is a port or a database: a second
@@ -1447,18 +1459,8 @@ _E2E_SETTINGS = {
     # rather than by measurement.
     "STRIPE_API_KEY": "sk_test_argus_demo",
     "STRIPE_BASE_URL": "http://localhost:8080/stripe",
-    # Who responded, read from the Target Service's own PagerDuty-shaped
-    # endpoints on the same terms: a fixture token that only has to be set, and
-    # one address below the vendor's SDK.
-    "PAGERDUTY_API_KEY": "pd_test_argus_demo",
-    # HTTPS, and unverified, because the SDK will not accept anything else: it
-    # refuses a plain-HTTP base URL outright. The Target Service answers TLS on
-    # a second port of the same process for exactly this, with a certificate it
-    # mints at startup - so the certificate is worth nothing and is not checked.
-    "PAGERDUTY_BASE_URL": "https://localhost:8443/pagerduty",
-    "PAGERDUTY_VERIFY_TLS": "false",
-    # What those responders' titles are worth, read from the Target Service's
-    # own HR-shaped endpoint on the same terms again. A fixture token that only
+    # What a responder's title is worth, read from the Target Service's own
+    # HR-shaped endpoint on the same terms as Stripe's. A fixture token that only
     # has to be set: an empty credential makes the source report that it could
     # not answer, and the response cost would then be absent by configuration
     # rather than because a title had no band.
@@ -1550,6 +1552,28 @@ _GITHUB_AT_THE_DOUBLE = {
     "GITHUB_WEBHOOK_SECRET": "the-suite-signs-its-pushes-with-this"
 }
 
+# Where both `argus_web` and the worker find "PagerDuty" when a suite is
+# running. Not for the reason GitHub's double exists - Argus never writes to
+# PagerDuty - but because a suite has no account to read, and what an incident
+# there holds is something each case has to say for itself.
+#
+# Not shared with `stack`, for the reason Slack is not: a demo of a person
+# resolving an incident in PagerDuty is not a demo if PagerDuty is a fixture.
+_PAGERDUTY_AT_THE_DOUBLE = {
+    # A placeholder the double never reads. Set rather than left empty, because
+    # an empty key builds no on-call platform at all - the webhook answers 404
+    # and every postmortem says nobody was paged, by configuration.
+    "PAGERDUTY_API_KEY": "the-double-never-reads-this",
+    "PAGERDUTY_BASE_URL": _PAGERDUTY_DOUBLE_BASE_URL,
+    # Unverified, and only here: the double's certificate is minted at startup
+    # and nothing has any reason to trust it.
+    "PAGERDUTY_VERIFY_TLS": "false",
+    # What a delivery must be signed with to be believed. A fixture secret the
+    # suite signs with, for the reason GitHub's is: the endpoint is open to the
+    # internet, and a resolution nobody signed ends nothing.
+    "PAGERDUTY_WEBHOOK_SECRET": "the-suite-signs-its-resolutions-with-this"
+}
+
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",
     ["-m", "anthropic_double.server"],
@@ -1566,6 +1590,12 @@ _GITHUB_DOUBLE: tuple[str, list[str], str] = (
     "github_double",
     ["-m", "github_double.server"],
     f"{_GITHUB_DOUBLE_BASE_URL}/health"
+)
+
+_PAGERDUTY_DOUBLE: tuple[str, list[str], str] = (
+    "pagerduty_double",
+    ["-m", "pagerduty_double.server"],
+    f"{_PAGERDUTY_DOUBLE_BASE_URL}/health"
 )
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
@@ -1585,6 +1615,9 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     # offline suite opened a real draft pull request on every run, and a pull
     # request number, once spent, is spent for good.
     _GITHUB_DOUBLE,
+    # PagerDuty, for a stack that has no account. Up before `argus_web`, which
+    # reads it the moment a resolution is delivered.
+    _PAGERDUTY_DOUBLE,
     (
         # Bound to every interface, not just loopback: the Target Environment's
         # monitoring posts its alerts from inside a container, and a server
@@ -1642,15 +1675,18 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
 
 def _the_services_for(slack_stands_in: bool,
                       github_stands_in: bool,
+                      pagerduty_stands_in: bool,
                       model_stands_in: bool) -> list[tuple[str, list[str], str | None]]:
     """The local services to start, minus the ones this run has no use for.
 
-    Two doubles, and they no longer move together. Slack's answers one
+    Three doubles of services Argus calls, and they do not move together. Slack's answers one
     question - is there a workspace to clutter - and every run but a demo says
     no. GitHub's answers a different one, and the answer turns on whether the
     model is real: a replayed walk proposes whatever it was recorded proposing,
     so the repository it proposes to may as well be a fixture, and `e2e_replay`
     runs on every push against a pull-request counter that never goes back.
+    PagerDuty's answers the first question again, about an account: every run
+    but a demo stages its incidents there, and none can stage a real one.
 
     A run that reaches the real model is the opposite case. What Code-Fix does
     there is decided by the source in front of it, and a four-file stand-in was
@@ -1668,10 +1704,11 @@ def _the_services_for(slack_stands_in: bool,
     unwanted = [
         *([] if slack_stands_in else [_SLACK_DOUBLE]),
         *([] if github_stands_in else [_GITHUB_DOUBLE]),
+        *([] if pagerduty_stands_in else [_PAGERDUTY_DOUBLE]),
         # The model's double is wanted by whoever points the worker at it, and
         # by nobody else. A run that reaches the real API started it, never
         # addressed it, and left it listening - which is the leftover this
-        # function exists to avoid, and the most misleading one of the three:
+        # function exists to avoid, and the most misleading one of the four:
         # a process answering `/v1/messages` on a port, beside a suite whose
         # whole claim is that it spent real tokens.
         *([] if model_stands_in else [_ANTHROPIC_DOUBLE])
@@ -1683,7 +1720,9 @@ def _the_services_for(slack_stands_in: bool,
 # The processes that stand in for somebody else's service. They come up before
 # anything of Argus's does, and before the index is built: what they stand in
 # for is exactly what the rest of the stack reads.
-_THE_STAND_INS: Final = (_ANTHROPIC_DOUBLE, _SLACK_DOUBLE, _GITHUB_DOUBLE)
+_THE_STAND_INS: Final = (
+    _ANTHROPIC_DOUBLE, _SLACK_DOUBLE, _GITHUB_DOUBLE, _PAGERDUTY_DOUBLE
+)
 
 
 def _start_each_of(services: list[tuple[str, list[str], str | None]],
@@ -1710,6 +1749,7 @@ def _run_against_the_stack(
     command: list[str] | None = None,
     slack_stands_in: bool = True,
     github_stands_in: bool = True,
+    pagerduty_stands_in: bool = True,
     model_stands_in: bool = False,
     on_a_simulated_clock: bool = False
 ) -> None:
@@ -1766,6 +1806,8 @@ def _run_against_the_stack(
         os.environ.update(_SLACK_AT_THE_DOUBLE)
     if github_stands_in:
         os.environ.update(_GITHUB_AT_THE_DOUBLE)
+    if pagerduty_stands_in:
+        os.environ.update(_PAGERDUTY_AT_THE_DOUBLE)
     # Before docker, because the clock writer reads both as it starts, and on the
     # session's environment for the reason the settings above are: a process that
     # was not handed them runs on the real clock, minutes adrift of the rest.
@@ -1790,7 +1832,9 @@ def _run_against_the_stack(
         session.run(
             "uv", "run", "python", "-m", "argus_core.schema", external=True
         )
-        services = _the_services_for(slack_stands_in, github_stands_in, model_stands_in)
+        services = _the_services_for(
+            slack_stands_in, github_stands_in, pagerduty_stands_in, model_stands_in
+        )
         # The stand-ins before the index, because the index reads a repository
         # and for a suite the repository is the GitHub double. A pass made
         # before it answers fails on a refused connection - the stack's own
@@ -1973,6 +2017,8 @@ def e2e(session: nox.Session) -> None:
         # the whole thing working against the real world, and an incident that
         # reached a person is half of what it has to show - a message posted at
         # a double reaches nobody, and proves only that the relay can post.
+        # PagerDuty stays at its double: what an incident there holds is
+        # something each case stages, and no case can stage a real account.
         slack_stands_in=False,
         github_stands_in=False
     )
@@ -2283,10 +2329,11 @@ def stack(session: nox.Session) -> None:
         session,
         test_paths=[],
         command=["uv", "run", "python", "scripts/hold_the_stack.py"],
-        # Slack and GitHub as configured, which for a demo means the real
-        # workspace and the real repository: the thing being demonstrated is an
-        # incident reaching a person and a fix that person can open, and
-        # neither reaches anybody at a double.
+        # Slack, GitHub and PagerDuty as configured, which for a demo means the
+        # real workspace, repository and account: the thing being demonstrated
+        # is an incident reaching a person, a fix that person can open, and that
+        # person ending it - and none of that reaches anybody at a double.
         slack_stands_in=False,
-        github_stands_in=False
+        github_stands_in=False,
+        pagerduty_stands_in=False
     )

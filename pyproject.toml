@@ -311,6 +311,13 @@ ignore_imports = [
     # somebody reaches for the other half, the contract says so instead of
     # this process quietly growing an embedding model to serve a page.
     "argus_web.** -> code_index.records",
+    # The on-call platform's port, which a person's resolution there arrives
+    # through - and its PagerDuty adapter, built in the app's lifespan and
+    # nowhere else, so every other module holds the port and none knows the
+    # vendor.
+    "argus_web.** -> oncall_source",
+    "argus_web.** -> oncall_source.platform",
+    "argus_web.app -> oncall_source.pagerduty_adapter",
     # The process's `main`, and only it, installs the telemetry SDK.
     "argus_web.serving -> argus_telemetry",
 ]
