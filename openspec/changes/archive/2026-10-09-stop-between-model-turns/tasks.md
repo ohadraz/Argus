@@ -57,4 +57,4 @@ then the walk.
 - [x] 7.1 Module suites green: argus_core, agent_mitigation, agent_investigator,
       agent_codefix, orchestrator; typecheck, lint, guard_layering
 - [x] 7.2 `e2e_replay(mode='both')` withdrawal cases green (background)
-- [ ] 7.3 Spec `incident-withdrawal` synced on archive
+- [x] 7.3 Spec `incident-withdrawal` synced on archive
