@@ -133,15 +133,30 @@ to Slack.
 - **WHEN** a person writes in the thread and Argus classifies their message
 - **THEN** nothing is posted to Slack for either
 
-### Requirement: An offer is retired once the incident can no longer be resolved
+### Requirement: An expired offer loses its button
+
+The system SHALL, when an offer expires, replace it with a line saying it was
+not confirmed in time and that Argus carried on, without the button. A refused
+update SHALL be recorded as a communication failure and SHALL NOT change the
+incident.
+
+#### Scenario: Not confirmed in time
+
+- **GIVEN** an open offer
+- **WHEN** it expires
+- **THEN** the offer says it was not confirmed in time and Argus carried on,
+  and carries no button
+
+### Requirement: An offer is retired once the incident no longer accepts what it offers
 
 The system SHALL replace each offer's button, when the incident reaches a
-status that no longer accepts a resolution (`resolved`, `withdrawn`,
-`disproven`) by any channel, with who ended it and through which channel, or
-with the status it ended in. An incident that is `mitigated`, `escalated` or
-`recommended` still accepts one, so its offers SHALL keep their button. A
-refused update SHALL be recorded as a communication failure and SHALL NOT
-change the incident.
+status that no longer accepts what the offer offers, with who ended it and
+through which channel, or with the status it ended in. An offer to resolve is
+retired at a status that no longer accepts a resolution (`resolved`,
+`withdrawn`, `disproven`); one that is `mitigated`, `escalated` or
+`recommended` still accepts one, so those offers SHALL keep their button. An
+offer to withdraw is retired at every terminal status. A refused update SHALL
+be recorded as a communication failure and SHALL NOT change the incident.
 
 #### Scenario: Resolved through the offer
 
@@ -158,21 +173,31 @@ change the incident.
 
 #### Scenario: Mitigated
 
-- **GIVEN** an open offer
+- **GIVEN** an open offer to resolve
 - **WHEN** the incident is mitigated
 - **THEN** the offer keeps its button
 
-### Requirement: An expired offer loses its button
+#### Scenario: A withdrawal offer on a mitigated incident
 
-The system SHALL, when an offer expires, replace it with a line saying it was
-not confirmed in time and that Argus carried on, without the button. A refused
-update SHALL be recorded as a communication failure and SHALL NOT change the
-incident.
+- **GIVEN** an open offer to withdraw
+- **WHEN** the incident is mitigated
+- **THEN** the offer says the incident was mitigated, and carries no button
 
-#### Scenario: Not confirmed in time
+#### Scenario: Withdrawn through the offer
 
-- **GIVEN** an open offer
-- **WHEN** it expires
-- **THEN** the offer says it was not confirmed in time and Argus carried on,
-  and carries no button
+- **GIVEN** an offer to withdraw a person confirmed
+- **WHEN** the incident's withdrawal is relayed
+- **THEN** the offer says who withdrew it, and carries no button
+
+### Requirement: A withdrawal offer is posted with a button
+
+The system SHALL post an offer to withdraw as a reply in the incident's
+thread, naming the person it is made to, saying that confirming stops Argus
+and puts back what it changed, and carrying one button that confirms it.
+
+#### Scenario: The withdrawal offer carries a button
+
+- **WHEN** a withdrawal is offered to a person
+- **THEN** a reply in the incident's thread names that person, says what
+  confirming does, and carries a confirming button
 

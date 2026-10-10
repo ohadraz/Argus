@@ -72,4 +72,4 @@ incident record, the port, the web, the intent agent, the relay, e2e.
       test missing, redundant or weak; design and specs match what was built
 - [x] 9.4 Module suites, typecheck, lint, guard_layering green
 - [x] 9.5 `e2e_replay(mode='both')` green, in the background
-- [ ] 9.6 Specs synced on archive
+- [x] 9.6 Specs synced on archive
