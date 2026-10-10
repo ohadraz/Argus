@@ -140,7 +140,7 @@ incident record, the port, the web, the intent agent, the relay, the double, e2e
 - [x] 10.4 Module suites, typecheck, lint, guard_layering green
 - [x] 10.5 `e2e_replay(mode='both')` green, in the background: 50 of 50 at
       17:42 on 2026-10-10, once section 11 made the Slack case ordered
-- [ ] 10.6 Specs synced on archive
+- [x] 10.6 Specs synced on archive
 
 ## 11. Argus waits for the press
 

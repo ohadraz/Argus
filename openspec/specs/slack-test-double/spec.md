@@ -6,9 +6,7 @@ Covers the stand-in for the Slack Web API that lets the real Slack adapter be
 tested with no workspace and no token, the control seam that empties its
 recording and decides what it answers next, and the nightly contract test that
 keeps its answers the answers Slack gives.
-
 ## Requirements
-
 ### Requirement: A test double serves the Slack API Argus writes to
 The system SHALL provide a server accepting the Slack Web API methods the
 Communicator calls, in Slack's request shape, answering in Slack's response
@@ -95,3 +93,38 @@ contract nobody is checking, reported as one that holds.
 - **WHEN** the post is made against Slack and against the double seeded to
   refuse it
 - **THEN** both refuse in the same shape, and the adapter treats them alike
+
+### Requirement: The double names a person the test staged
+
+The double SHALL answer `users.info` in Slack's shape for a person a test staged
+through its control interface, and with Slack's `user_not_found` refusal for
+anyone else. A reset SHALL forget every staged person.
+
+#### Scenario: A staged person
+
+- **GIVEN** a person staged with a real name
+- **WHEN** `users.info` is called for their id
+- **THEN** the double answers with that person, in Slack's shape
+
+#### Scenario: An unstaged person
+
+- **WHEN** `users.info` is called for an id nobody staged
+- **THEN** the double refuses with `user_not_found`
+
+### Requirement: The double keeps blocks and updates
+
+The double SHALL keep the `blocks` of every posted message, and SHALL accept
+`chat.update` for a message it holds, recording the update so that a test can
+read what a message says now.
+
+#### Scenario: A button can be read back
+
+- **WHEN** a message carrying a button is posted
+- **THEN** its blocks, and the button in them, are readable from the double
+
+#### Scenario: An update is readable
+
+- **GIVEN** a posted message
+- **WHEN** it is updated
+- **THEN** the double reports the message's new text and blocks
+
