@@ -6,7 +6,8 @@ Two surfaces, deliberately separate:
   serves what the test seeded, or what was recorded from the real API, and
   fails loudly when it has neither.
 - `POST /double-control/*` - what the *test* talks to, to say what should
-  happen next. Same shape as the Target Service's own scenario control, so
+  happen next - including, with `hold`, *when*: a call held waits for the
+  test's seed. Same shape as the Target Service's own scenario control, so
   there is one idea to learn rather than two.
 
 Selecting the double is a one-line change on the caller's side
@@ -16,6 +17,7 @@ this file exists.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections import deque
@@ -51,6 +53,11 @@ _ERROR_TYPES: dict[int, str] = {
     500: "api_error",
     529: "overloaded_error",
 }
+
+# How often a held call looks again for a seed or a release. Short, because the
+# test that released it is waiting on the answer, and polling an in-process
+# flag costs nothing.
+_A_HELD_CALL_LOOKS_EVERY = 0.05
 
 # Headers worth carrying upstream while recording. Everything else - `host`,
 # `content-length`, the connection headers - is either wrong for the new
@@ -110,11 +117,13 @@ class _State:
         self.seeds: deque[Seed] = deque()
         self.record_as: str | None = None
         self.recorded: int = 0
+        self.holding: bool = False
 
     def reset(self) -> None:
         self.seeds.clear()
         self.record_as = None
         self.recorded = 0
+        self.holding = False
 
     def take_next_seed(self) -> Seed:
         """The seed answering this call, consuming one of its repeats.
@@ -171,7 +180,33 @@ def seed(seed: Seed) -> dict[str, int]:
     before the loop starts.
     """
     _state.seeds.append(seed)
+    # A seed is what a hold was waiting for, so it ends one: the call held
+    # takes this answer, and a later call with nothing queued is refused at
+    # once, as it always was, rather than held with nothing coming.
+    _state.holding = False
     return {"queued": len(_state.seeds)}
+
+
+@app.post("/double-control/hold")
+def hold() -> dict[str, bool]:
+    """Holds the next call that arrives with nothing queued, until a seed
+    answers it or a release refuses it.
+
+    For a test whose order is the point: it fires what makes the call, does
+    what has to happen before the answer, and only then seeds it - so the
+    caller cannot get ahead of the test however fast it runs. Without a hold,
+    an empty double refuses at once, as it always has.
+    """
+    _state.holding = True
+    return {"holding": True}
+
+
+@app.post("/double-control/release")
+def release() -> dict[str, bool]:
+    """Ends a hold without an answer: a call held is refused as a call with
+    nothing queued is."""
+    _state.holding = False
+    return {"holding": False}
 
 
 @app.post("/double-control/record")
@@ -190,7 +225,8 @@ def record(request: RecordRequest) -> dict[str, str]:
 
 @app.post("/double-control/reset")
 def reset() -> dict[str, str]:
-    """Clears the queue and leaves record mode."""
+    """Clears the queue, leaves record mode, and ends a hold - a call held is
+    refused, so no case leaves one hanging into the next."""
     _state.reset()
     return {"status": "reset"}
 
@@ -202,6 +238,7 @@ def state() -> dict[str, Any]:
         "queued": len(_state.seeds),
         "recording_as": _state.record_as,
         "recorded": _state.recorded,
+        "holding": _state.holding,
         "available_recordings": recordings.available(),
     }
 
@@ -300,6 +337,8 @@ async def messages(request: Request) -> Response:
     There is no default response. A test that forgot to seed gets an error
     naming what it forgot, not a plausible hypothesis - a double that guesses
     is a double that can make a broken investigation look like a working one.
+    A test that asked for a hold gets the call held until it seeds or
+    releases, and the same error after a release.
 
     Whether the caller asked to be streamed changes only how the answer is
     said, never which answer it is. Code-Fix streams because its answers are
@@ -315,6 +354,11 @@ async def messages(request: Request) -> Response:
     """
     asked: dict[str, Any] = json.loads(await request.body())
     streaming = bool(asked.get("stream"))
+
+    # Held: wait for the test to seed or release. Never while recording, where
+    # an empty queue means "ask the real API".
+    while _state.holding and not _state.seeds and _state.record_as is None:
+        await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
 
     if _state.seeds:
         return _serve(_state.take_next_seed(), streaming)

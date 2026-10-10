@@ -28,6 +28,7 @@ import pytest
 from argus_core.events import StatusChanged
 from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
 from argus_incidents.ending import EndedByAPerson
+from argus_incidents.waiting import WaitForPeople
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.narrating import with_status
@@ -342,6 +343,95 @@ def test_the_node_that_runs_after_a_resolution_still_stops_for_a_withdrawal(
 
 
 @pytest.mark.unit
+def test_the_walk_waits_for_people_once_a_step_is_done(
+    transition_incident: MagicMock
+) -> None:
+    # After the step and not before the next, so the press the wait is for is
+    # heard before the next step is chosen - and that step is never entered.
+    # Here because every node passes through here: no step follows another
+    # while a person is being asked to confirm.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(an_incident_being_investigated := _an_incident_being_investigated()) \
+        .when(lambda: with_status(
+            _a_node_noting(happened),
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=nobody_ended_the_incident(),
+            wait_for_people=_a_wait_noting(happened))(an_incident_being_investigated)
+        ) \
+        .then(_it_happened_in_order(happened, ["ran", "waited"]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_an_incident_a_person_ended_while_the_walk_waited_goes_where_the_ending_sends_it(
+    ending: IncidentStatus, transition_incident: MagicMock
+) -> None:
+    # The press is what the wait was for, so it decides where the walk goes
+    # next - as an ending heard while the step ran does.
+    ended: list[IncidentStatus] = []
+
+    Scenario() \
+        .given(an_incident_being_investigated := _an_incident_being_investigated()) \
+        .when(lambda: with_status(
+            _a_node_noting([]),
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=_ended_as_noted(ended),
+            wait_for_people=_a_wait_ending_it(ended, ending)
+        )(an_incident_being_investigated)) \
+        .then(the_updates_carry("status", ending))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_a_step_a_person_already_ended_waits_for_nobody(
+    ending: IncidentStatus, transition_incident: MagicMock
+) -> None:
+    # The ending is the answer the wait would have been for.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(an_incident_being_investigated := _an_incident_being_investigated()) \
+        .when(lambda: with_status(
+            _a_node_noting(happened),
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=a_person_ended_the_incident(ending),
+            wait_for_people=_a_wait_noting(happened))(an_incident_being_investigated)
+        ) \
+        .then(_it_happened_in_order(happened, []))
+
+
+@pytest.mark.unit
+def test_an_ending_heard_while_the_walk_waited_is_logged(
+    transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The one ending that arrives between steps rather than inside one, said
+    # apart from those so an operator can tell a press that was waited for
+    # from one that cut a step short.
+    ended: list[IncidentStatus] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_incident_being_investigated := _an_incident_being_investigated()
+        ) \
+        .when(lambda: with_status(
+            _a_node_noting([]),
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=_ended_as_noted(ended),
+            wait_for_people=_a_wait_ending_it(ended, IncidentStatus.RESOLVED)
+        )(an_incident_being_investigated)) \
+        .then(one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
+                                    "ended by a person while the walk waited",
+                                    values={"ending": IncidentStatus.RESOLVED}))
+
+
+@pytest.mark.unit
 def test_an_ending_heard_after_a_step_is_logged(
     transition_incident: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -447,6 +537,51 @@ def _a_node_that_records_being_run(ran: list[str]) -> Node:
         return StateDelta(proposed_action=None, narration=DONT_CARE_NARRATION)
 
     return node
+
+
+def _a_wait_noting(happened: list[str]) -> WaitForPeople:
+    def wait(dont_care_incident_id: str, /) -> bool:
+        happened.append("waited")
+
+        return True
+
+    return wait
+
+
+def _a_wait_ending_it(ended: list[IncidentStatus], ending: IncidentStatus) -> WaitForPeople:
+    """A wait the person's press arrives during."""
+    def wait(dont_care_incident_id: str, /) -> bool:
+        ended.append(ending)
+
+        return True
+
+    return wait
+
+
+def _ended_as_noted(ended: list[IncidentStatus]) -> EndedByAPerson:
+    def ended_by_a_person(dont_care_incident_id: str, /) -> IncidentStatus | None:
+        return ended[0] if ended else None
+
+    return ended_by_a_person
+
+
+def _a_node_noting(happened: list[str]) -> Node:
+    def node(dont_care_state: IncidentState) -> StateDelta:
+        happened.append("ran")
+
+        return StateDelta(proposed_action=None, narration=DONT_CARE_NARRATION)
+
+    return node
+
+
+def _it_happened_in_order(happened: list[str], expected: list[str]) -> Assertion[NodeResult]:
+    def assertion(dont_care_result: NodeResult) -> bool:
+        if happened != expected:
+            raise AssertionError(f"Expected {expected}, in that order, got {happened}.")
+
+        return True
+
+    return assertion
 
 
 def _an_incident_being_investigated() -> IncidentState:

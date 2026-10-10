@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from oncall_source.engagement import ReportedIncident
 
 
-class DeliveryUnverified(Exception):
+class OnCallDeliveryUnverified(Exception):
     """A delivery whose signature does not prove the platform sent it.
 
     Raised before anything in it is read, because what a delivery can say -
@@ -96,7 +96,7 @@ class OnCallPlatform(Protocol):
         """Where a person's report through this platform reached Argus."""
         ...
 
-    def read_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
+    def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
         """What one delivery says, once its signature proves who sent it."""
         ...
 

@@ -40,14 +40,18 @@ from argus_core.events import (
     HypothesisFormed,
     IncidentEvent,
     IncidentRemembered,
+    MessageUnderstood,
     MetricsRetrieved,
     MitigationResumed,
+    OfferExpired,
     OnsetDetected,
+    PersonWrote,
     PlacementRecorded,
     PlatformUnavailable,
     PostmortemWritten,
     RecoveryChecked,
     RememberingFailed,
+    ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
     SimilarIncidentsRecalled,
@@ -74,10 +78,12 @@ from argus_core.models import (
     FixOutcome,
     FlagChange,
     IncidentStatus,
+    Meaning,
     MetricBucket,
     OpenedPullRequest,
     PodPlacement,
     RecordedPlacement,
+    Reference,
     Refusal,
     Report,
     ReportChannel,
@@ -498,6 +504,22 @@ def test_a_resolution_from_the_paging_tool_names_that_tool() -> None:
 
 
 @pytest.mark.unit
+def test_a_resolution_from_the_slack_thread_names_slack() -> None:
+    # The thread is where the person said it, and where a reader goes to ask
+    # them what they meant.
+    some_report = StatusChanged(
+        incident_id=new_id(),
+        to_status=IncidentStatus.RESOLVED,
+        reported=Report(by="some person", channel=ReportChannel.SLACK)
+    )
+
+    Scenario() \
+        .given(some_report) \
+        .when(lambda: build_narration([some_report])) \
+        .then(_the_only_line_says("from Slack"))
+
+
+@pytest.mark.unit
 def test_a_report_without_a_note_says_nothing_in_its_place() -> None:
     # Most people press the button and type nothing. A line that printed the
     # absence, or left a dash hanging where the note would go, would read as
@@ -861,6 +883,199 @@ def test_a_line_that_never_reached_a_channel_says_which_one_and_why() -> None:
         .then(all_of(_the_only_line_mentions(a_channel_that_is_not_there),
                      _the_only_line_marks(some_refusal),
                      _the_lines_are_credited_to(["Communicator Agent"])))
+
+
+@pytest.mark.unit
+def test_what_a_person_wrote_is_said_in_their_own_words() -> None:
+    # The one line on the page Argus did not write. Their words are the marked
+    # part, untouched: a paraphrase would be Argus putting its reading of them
+    # where the reader expects the person - and the reading has a line of its
+    # own.
+    the_words = "rolled the flag back by hand, we're fine"
+    some_message = PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text=the_words
+    )
+
+    Scenario() \
+        .given(some_message) \
+        .when(lambda: build_narration([some_message])) \
+        .then(all_of(_the_only_line_marks(the_words),
+                     _the_lines_are_credited_to(["A person"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("meaning", "said_as"), [
+    (Meaning.RESOLVE, "a resolution"),
+    (Meaning.QUESTION, "a question"),
+    (Meaning.INFORMATION, "new information"),
+    (Meaning.WITHDRAW, "a request to stand down"),
+    (Meaning.OTHER, "nothing to act on")
+])
+def test_what_a_message_was_classified_as_is_said_by_the_intent_agent(meaning: Meaning,
+                                                                      said_as: str) -> None:
+    # Every message gets a line saying what Argus made of it, including that it
+    # made nothing of it - the person who wrote "thanks" can see it was understood.
+    some_reading = MessageUnderstood(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        meaning=meaning
+    )
+
+    Scenario() \
+        .given(some_reading) \
+        .when(lambda: build_narration([some_reading])) \
+        .then(all_of(_the_only_line_marks(said_as),
+                     _the_lines_are_credited_to(["Intent Agent"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("person_name", "asked"), [
+    ("some person", "some person"),
+    (None, "whoever wrote it")
+])
+def test_an_offer_to_resolve_names_who_was_asked(person_name: str | None,
+                                                 asked: str) -> None:
+    # The offer is addressed to one person and only their press counts, so the
+    # line says who - and a person the chat platform could not name is still
+    # somebody who was asked, not nobody.
+    some_offer = ResolutionOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name=person_name,
+        said="rolled the flag back by hand, we're fine"
+    )
+
+    Scenario() \
+        .given(some_offer) \
+        .when(lambda: build_narration([some_offer])) \
+        .then(all_of(_the_only_line_marks(asked),
+                     _the_lines_are_credited_to(["Intent Agent"])))
+
+
+@pytest.mark.unit
+def test_an_offer_carries_the_message_it_asks_to_confirm() -> None:
+    # The line a destination turns into a button, so it says which message the
+    # button answers: only the person who wrote that message may press it, and
+    # the press is matched to the offer by it.
+    some_message = Reference(source="some-chat", kind="some-kind", value="some-message")
+    some_offer = ResolutionOffered(
+        incident_id=new_id(),
+        message=some_message,
+        person_id="some-person-id",
+        person_name="some person",
+        said="rolled the flag back by hand, we're fine"
+    )
+
+    Scenario() \
+        .given(some_offer) \
+        .when(lambda: build_narration([some_offer])) \
+        .then(_the_only_line_asks_to_confirm(some_message))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("about_a_message", [
+    PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="rolled the flag back by hand, we're fine"
+    ),
+    MessageUnderstood(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        meaning=Meaning.RESOLVE
+    )
+], ids=["person-wrote", "message-understood"])
+def test_a_line_about_a_message_asks_nothing_of_its_writer(
+        about_a_message: IncidentEvent) -> None:
+    # About the same message as the offer, and asking nothing. A destination
+    # that put a button on these would offer to resolve before Argus had
+    # decided there was anything to offer.
+    Scenario() \
+        .given(about_a_message) \
+        .when(lambda: build_narration([about_a_message])) \
+        .then(_the_only_line_asks_to_confirm(None))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.RESOLVED,
+                                    IncidentStatus.WITHDRAWN,
+                                    IncidentStatus.DISPROVEN])
+def test_a_move_past_any_resolution_says_so(ending: IncidentStatus) -> None:
+    # Resolved, taken back, or found to be no incident: whatever was still
+    # asking whether it is resolved has its answer. A destination holding an
+    # offer to resolve closes it with this line.
+    the_incident_ending = StatusChanged(incident_id=new_id(), to_status=ending)
+
+    Scenario() \
+        .given(the_incident_ending) \
+        .when(lambda: build_narration([the_incident_ending])) \
+        .then(_the_only_line_leaves_nothing_to_resolve(True))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("move", [IncidentStatus.MITIGATED,
+                                  IncidentStatus.ESCALATED,
+                                  IncidentStatus.RECOMMENDED,
+                                  IncidentStatus.FIXING,
+                                  IncidentStatus.INVESTIGATING])
+def test_a_move_that_still_takes_a_resolution_does_not(move: IncidentStatus) -> None:
+    # Three of these end Argus's part and none ends the incident: something is
+    # still owed, and a person who goes on to finish the job resolves it from
+    # here. An offer closed by one of them is a button taken away from the
+    # person it was for while it could still do what it says.
+    the_incident_moving = StatusChanged(incident_id=new_id(), to_status=move)
+
+    Scenario() \
+        .given(the_incident_moving) \
+        .when(lambda: build_narration([the_incident_moving])) \
+        .then(_the_only_line_leaves_nothing_to_resolve(False))
+
+
+@pytest.mark.unit
+def test_an_offer_not_confirmed_in_time_is_said_by_argus() -> None:
+    # The walk waited on a person and went on without them. Argus's own line,
+    # because it was Argus that decided to carry on - and it says why, so a
+    # reader does not take the next step for one taken over a person's head.
+    some_expiry = OfferExpired(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message")
+    )
+
+    Scenario() \
+        .given(some_expiry) \
+        .when(lambda: build_narration([some_expiry])) \
+        .then(all_of(_the_only_line_marks("not confirmed in time"),
+                     _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("event", "expires"), [
+    (OfferExpired(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message")
+    ), True),
+    (ResolutionOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="rolled the flag back by hand, we're fine"
+    ), False),
+    (StatusChanged(incident_id=new_id(), to_status=IncidentStatus.RESOLVED), False)
+], ids=["offer-expired", "resolution-offered", "resolved"])
+def test_only_an_expiry_expires_the_offers(event: IncidentEvent, expires: bool) -> None:
+    # A destination holding an offer takes its button away with this line, and
+    # the incident can still be resolved afterwards - so it is not the same
+    # thing as leaving nothing to resolve, which is the incident's ending.
+    Scenario() \
+        .given(event) \
+        .when(lambda: build_narration([event])) \
+        .then(_the_only_line_expires_the_offers(expires))
 
 
 @pytest.mark.unit
@@ -1906,6 +2121,57 @@ def _the_only_line_names_the_address(expected: str) -> Assertion[list[NarrationL
         if line.names_url != expected:
             raise AssertionError(
                 f"Expected the line to name [{expected}], got [{line.names_url}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_asks_to_confirm(expected: Reference | None) -> Assertion[list[NarrationLine]]:
+    """The message a line asks its writer to confirm, or that it asks nothing.
+
+    Carried as the reference it is rather than as words, because what a
+    destination does with it is make a button, and the button has to name the
+    one message whose writer may press it.
+    """
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.asks_to_confirm != expected:
+            raise AssertionError(
+                f"Expected the line to ask to confirm [{expected}], "
+                f"got [{line.asks_to_confirm}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_leaves_nothing_to_resolve(expected: bool) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.leaves_nothing_to_resolve != expected:
+            raise AssertionError(
+                f"Expected the line {'' if expected else 'not '}to leave nothing to "
+                f"resolve, it says [{line.leaves_nothing_to_resolve}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_expires_the_offers(expected: bool) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.expires_the_offers != expected:
+            raise AssertionError(
+                f"Expected the line {'' if expected else 'not '}to expire the "
+                f"incident's offers, it says [{line.expires_the_offers}]."
             )
 
         return True

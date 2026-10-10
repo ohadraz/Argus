@@ -24,10 +24,14 @@ from argus_core.events import (
     FixAttempted,
     IncidentEvent,
     LogsRetrieved,
+    MessageUnderstood,
     MitigationResumed,
+    OfferExpired,
+    PersonWrote,
     PlacementRecorded,
     PlatformUnavailable,
     Publisher,
+    ResolutionOffered,
     RetrievalRequested,
     SimilarIncidentsRecalled,
     StatusChanged,
@@ -44,8 +48,10 @@ from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     IncidentStatus,
+    Meaning,
     PodPlacement,
     RecordedPlacement,
+    Reference,
     Report,
     ReportChannel,
     the_actions_through,
@@ -389,6 +395,54 @@ def test_a_status_change_a_person_reported_reads_back_with_who_how_and_what_they
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(all_of(_it_is(published), _it_was_reported_as(the_report)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("published", [
+    PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="rolled the flag back by hand, we're fine"
+    ),
+    MessageUnderstood(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        meaning=Meaning.RESOLVE
+    ),
+    ResolutionOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="rolled the flag back by hand, we're fine"
+    ),
+    ResolutionOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name=None,
+        said="rolled the flag back by hand, we're fine"
+    ),
+    OfferExpired(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message")
+    )
+], ids=["person-wrote", "message-understood", "resolution-offered", "offered-to-nobody-named",
+        "offer-expired"])
+
+
+def test_what_a_person_wrote_and_what_argus_made_of_it_read_back_as_published(
+        published: IncidentEvent) -> None:
+    # A person's words are the one input to an incident Argus did not produce,
+    # so they travel whole - who, where, and exactly what - as does what Argus
+    # took them to mean and what it offered to do about it. The offer is read
+    # back by whoever presses its button, and a field lost on the way is a
+    # press checked against nobody.
+    Scenario() \
+        .given(published) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
 
 
 @pytest.mark.unit

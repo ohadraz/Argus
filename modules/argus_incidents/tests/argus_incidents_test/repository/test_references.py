@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, Reference
+from argus_core.models import CHAT_THREAD, Alert, Reference, a_chat_thread
 from argus_incidents.repository import references
 from argus_testkit import Assertion, Scenario, calling
 
@@ -122,6 +122,85 @@ def test_an_incidents_names_of_one_kind_are_read_back() -> None:
             ]))) \
             .when(lambda: references.get_values_for(conn, some_incident, SOME_KIND)) \
             .then(_the_values_are(some_values))
+
+
+@pytest.mark.integration
+def test_a_first_claim_on_a_name_says_it_wrote() -> None:
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .when(lambda: references.claim(
+                conn, some_incident, _a_reference(SOME_KIND, "k-1")
+            )) \
+            .then(_it_wrote(True))
+
+
+@pytest.mark.integration
+def test_a_name_claimed_again_says_it_wrote_nothing() -> None:
+    # A message the chat platform delivers twice is one message, and the second
+    # delivery must know it is the second - or a person's words are read, and
+    # offered back to them, twice.
+    some_name = _a_reference(SOME_KIND, "k-1")
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(calling(lambda: references.claim(conn, some_incident, some_name))) \
+            .when(lambda: references.claim(conn, some_incident, some_name)) \
+            .then(_it_wrote(False))
+
+
+@pytest.mark.integration
+def test_an_incident_keeps_the_first_thread_it_was_told_in_a_channel() -> None:
+    # Two relays at once, or a pass repeated after a crash, each open a thread.
+    # The people already reading the first one are where the rest of the
+    # incident has to go, so the second is never recorded - though it is a
+    # different name, and nothing else stops it.
+    the_first_thread = a_chat_thread("some-chat", "C-some-channel", "1.000100")
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, some_incident, [the_first_thread])),
+                calling(lambda: references.add(conn, some_incident, [
+                    a_chat_thread("some-chat", "C-some-channel", "2.000200")
+                ]))
+            ) \
+            .when(lambda: references.get_values_for(conn, some_incident, CHAT_THREAD)) \
+            .then(_the_values_are([the_first_thread.value]))
+
+
+@pytest.mark.integration
+def test_an_incident_is_told_in_a_thread_of_its_own_in_each_channel() -> None:
+    some_threads = [
+        a_chat_thread("some-chat", "C-some-channel", "1.000100"),
+        a_chat_thread("some-chat", "C-some-other-channel", "2.000200")
+    ]
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(calling(lambda: references.add(conn, some_incident, some_threads))) \
+            .when(lambda: references.get_values_for(conn, some_incident, CHAT_THREAD)) \
+            .then(_the_values_are([thread.value for thread in some_threads]))
+
+
+def _it_wrote(expected: bool) -> Assertion[bool]:
+    def assertion(wrote: bool) -> bool:
+        if wrote != expected:
+            raise AssertionError(
+                f"Expected the claim to report that it {'wrote' if expected else 'wrote nothing'}, "
+                f"got {wrote}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_values_are(expected: list[str]) -> Assertion[list[str]]:

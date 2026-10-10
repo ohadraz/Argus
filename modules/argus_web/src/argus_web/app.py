@@ -9,19 +9,22 @@ from typing import Annotated, Any, Final
 
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
-from argus_core.events import Publisher
+from argus_core.events import OfferExpired, Publisher, ResolutionOffered
 from argus_core.models import IncidentStatus, Reference, Report, ReportChannel
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
     events_into,
     events_into_connection,
+    ingest_a_message,
     inside_the_incidents_trace,
     resolve_incident,
     start_incident,
     withdraw_incident,
 )
-from argus_incidents.repository import references
+from argus_incidents.repository import events, references
+from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
+from chat_platform.slack import ChatSettings, slack_from
 from code_index.records import record_pushed
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
@@ -29,11 +32,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from oncall_source import OnCallSettings, OnCallUnavailable
 from oncall_source.pagerduty_adapter import pagerduty_from
-from oncall_source.platform import DeliveryUnverified, OnCallPlatform
+from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
 
 from argus_web import reads
+from argus_web.chat import receive_chat_delivery
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 from argus_web.oncall import OnCallDeliverySettings, receive_delivery
 from argus_web.pushes import (
@@ -87,6 +91,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             OnCallSettings.of(get_settings()),
             webhook_secret=OnCallDeliverySettings.of(get_settings()).pagerduty_webhook_secret
         )
+        # `None` where the deployment has no chat workspace, for the same reason.
+        app.state.chat_platform = slack_from(ChatSettings.of(get_settings()))
 
         with pool.connection() as conn:
             require_schema(conn)
@@ -140,6 +146,16 @@ def oncall_platform_of(request: Request) -> OnCallPlatform | None:
     return platform
 
 
+def chat_platform_of(request: Request) -> ChatPlatformReads | None:
+    """The chat platform deliveries come from, or `None` where there is none.
+
+    A dependency for the reason the on-call platform is one.
+    """
+    platform: ChatPlatformReads | None = request.app.state.chat_platform
+
+    return platform
+
+
 def tracer_of() -> Tracer:
     """What a route makes its spans with: the process's own tracer.
 
@@ -154,6 +170,7 @@ type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type Publishing = Annotated[Publisher, Depends(publisher_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
 type UsingOnCallPlatform = Annotated[OnCallPlatform | None, Depends(oncall_platform_of)]
+type UsingChatPlatform = Annotated[ChatPlatformReads | None, Depends(chat_platform_of)]
 type Tracing = Annotated[Tracer, Depends(tracer_of)]
 
 # Argus's own mark and the one script the page needs, both shipped with the
@@ -308,7 +325,7 @@ async def receive_oncall_delivery(request: Request,
             platform=platform,
             record=_TheIncidentRecord(connections, publisher, tracer)
         )
-    except DeliveryUnverified as refused:
+    except OnCallDeliveryUnverified as refused:
         # Most often the deployment holding a different secret from the
         # subscription's, and the platform drops a refusal without retrying -
         # so this line is the only trace that a person's word was turned away.
@@ -319,6 +336,114 @@ async def receive_oncall_delivery(request: Request,
         raise HTTPException(status_code=503, detail=str(unavailable)) from unavailable
 
     return {"received": "true"}
+
+
+@app.post("/webhooks/slack/events")
+async def receive_chat_event(request: Request,
+                             platform: UsingChatPlatform,
+                             connections: UsingConnections,
+                             publisher: Publishing,
+                             tracer: Tracing) -> dict[str, str]:
+    """Where the chat platform tells Argus what was posted where it can see.
+
+    One thing is acted on - a person replying in an incident's thread, which is
+    ingested on that incident - and what that does lives in
+    `chat.receive_chat_delivery`; this is registration and the answer the
+    platform acts on.
+    """
+    return await _a_chat_delivery(request, platform, connections, publisher, tracer)
+
+
+@app.post("/webhooks/slack/interactions")
+async def receive_chat_interaction(request: Request,
+                                   platform: UsingChatPlatform,
+                                   connections: UsingConnections,
+                                   publisher: Publishing,
+                                   tracer: Tracing) -> dict[str, str]:
+    """Where the chat platform tells Argus a button on one of its messages was
+    pressed.
+
+    A door of its own only because Slack is configured with a separate address
+    for interactions; what is behind it is the same handling as the events'.
+    """
+    return await _a_chat_delivery(request, platform, connections, publisher, tracer)
+
+
+async def _a_chat_delivery(request: Request,
+                           platform: ChatPlatformReads | None,
+                           connections: Connections,
+                           publisher: Publisher,
+                           tracer: Tracer) -> dict[str, str]:
+    """Both chat doors' handling, and the answer the platform acts on.
+
+    Async for the reason the push webhook is: the signature is over the bytes
+    that arrived.
+
+    `404` where the deployment has no chat workspace, which is optional. `401`
+    for a delivery it did not sign. `200` for everything else, acted on or not,
+    and inside the platform's three seconds: received intact is received, and a
+    delivery answered late is one the platform sends again. The challenge is
+    the answer where the platform is checking the address.
+
+    Needs a public URL to be reached at all - an ingress, or a tunnel for a
+    demo - which is the deployment's to give it.
+    """
+    if platform is None:
+        raise HTTPException(status_code=404, detail="no chat platform is configured")
+
+    try:
+        challenge = receive_chat_delivery(
+            await request.body(),
+            request.headers,
+            platform=platform,
+            record=_TheChatRecord(_TheIncidentRecord(connections, publisher, tracer),
+                                  connections)
+        )
+    except ChatDeliveryUnverified as refused:
+        # Most often the deployment holding a different signing secret from the
+        # app's, and nothing else would show that a person's words were turned
+        # away.
+        logger.warning("chat delivery refused", extra={"reason": str(refused)})
+        raise HTTPException(status_code=401, detail=str(refused)) from refused
+
+    return {"challenge": challenge} if challenge is not None else {"received": "true"}
+
+
+class _TheChatRecord:
+    """The incident record, as a delivery from the chat platform reaches it.
+
+    Finding and resolving are the on-call platform's, unchanged - a person
+    resolving from a thread is resolved inside the incident's trace, as from
+    anywhere else. Ingesting and finding an offer are the chat's own.
+    """
+
+    def __init__(self, incidents: _TheIncidentRecord, connections: Connections) -> None:
+        self._incidents = incidents
+        self._connections = connections
+
+    def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
+        return self._incidents.incident_known_as(kind, values)
+
+    def ingest(self, incident_id: str, message: Reference, person_id: str, text: str) -> bool:
+        return ingest_a_message(incident_id, message, person_id, text, self._connections)
+
+    def offer_about(self, incident_id: str, message: Reference) -> ResolutionOffered | None:
+        with self._connections() as conn:
+            recorded = events.get_by_incident(conn, incident_id)
+
+        return next((event for event in recorded
+                     if isinstance(event, ResolutionOffered) and event.message == message),
+                    None)
+
+    def offer_expired(self, incident_id: str, message: Reference) -> bool:
+        with self._connections() as conn:
+            recorded = events.get_by_incident(conn, incident_id)
+
+        return any(isinstance(event, OfferExpired) and event.message == message
+                   for event in recorded)
+
+    def resolve(self, incident_id: str, reported: Report) -> bool:
+        return self._incidents.resolve(incident_id, reported)
 
 
 class _TheIncidentRecord:

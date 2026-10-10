@@ -36,10 +36,12 @@ from argus_core.models.failure_mode import FailureMode
 from argus_core.models.fix import FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.meaning import Meaning
 from argus_core.models.metrics import MetricBucket
 from argus_core.models.placement import RecordedPlacement
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
+from argus_core.models.reference import Reference
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import Report
 from argus_core.models.undone import Undone
@@ -737,6 +739,69 @@ class CommunicationFailed(_Event):
     about_kind: str
 
 
+class PersonWrote(_Event):
+    """A person wrote about the incident, where the incident is talked about.
+
+    The one input to an incident that Argus did not produce, so it is kept
+    whole: who wrote it, which message it was, and exactly what it said. Who is
+    the chat platform's id for them rather than their name, because the id is
+    what a later press of a button is checked against and the name is looked up
+    only when something is offered to them.
+
+    Recorded as ingested, before anything has been made of it. What it meant
+    is a separate line, written by whoever classified it, so that a message
+    nobody has classified yet is visibly so rather than missing.
+    """
+
+    kind: Literal["person-wrote"] = "person-wrote"
+    message: Reference
+    person_id: str
+    text: str
+
+
+class MessageUnderstood(_Event):
+    """What a person's message was classified as.
+
+    Every message gets one, whatever it was classified as, so that the timeline
+    says Argus understood it and what it made of it - including that it made nothing of
+    it, which is an answer a person who wrote "thanks" is owed as much as one
+    who wrote "it's fixed".
+    """
+
+    kind: Literal["message-understood"] = "message-understood"
+    message: Reference
+    meaning: Meaning
+
+
+class ResolutionOffered(_Event):
+    """Argus asked the person who said the incident was over to confirm it.
+
+    Carries everything the confirmation needs, so that the press of a button
+    resolves the incident from this event alone: whose press counts, the name
+    the resolution will be credited to, and the words that become its note.
+    The name is read once, here, when the offer is made; `None` is a person the
+    chat platform could not name, and the offer stands all the same.
+    """
+
+    kind: Literal["resolution-offered"] = "resolution-offered"
+    message: Reference
+    person_id: str
+    person_name: str | None
+    said: str
+
+
+class OfferExpired(_Event):
+    """An offer to resolve was not confirmed in time, and the walk carried on.
+
+    Published by the walk that was waiting on it, so that the timeline says why
+    Argus went on after a person said the incident was over. Names the message
+    the offer was about, which is how the offer is found again.
+    """
+
+    kind: Literal["offer-expired"] = "offer-expired"
+    message: Reference
+
+
 type IncidentEvent = Annotated[
     (
         AlertAcknowledged
@@ -770,6 +835,10 @@ type IncidentEvent = Annotated[
         | IncidentRemembered
         | RememberingFailed
         | CommunicationFailed
+        | PersonWrote
+        | MessageUnderstood
+        | ResolutionOffered
+        | OfferExpired
     ),
     Field(discriminator="kind")
 ]

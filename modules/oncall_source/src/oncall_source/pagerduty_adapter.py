@@ -35,7 +35,7 @@ from oncall_source.engagement import (
     OnCallUnavailable,
     ReportedIncident,
 )
-from oncall_source.pagerduty_webhooks import read_delivery
+from oncall_source.pagerduty_webhooks import parse_delivery
 from oncall_source.platform import Delivery
 
 logger = logging.getLogger(__name__)
@@ -114,8 +114,8 @@ class PagerDuty:
     def channel(self) -> ReportChannel:
         return ReportChannel.PAGERDUTY
 
-    def read_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
-        return read_delivery(body, headers, self._webhook_secret)
+    def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
+        return parse_delivery(body, headers, self._webhook_secret)
 
     def keys_of(self, platform_incident: str) -> list[str]:
         return keys_of(platform_incident, self._settings, self._client_of)

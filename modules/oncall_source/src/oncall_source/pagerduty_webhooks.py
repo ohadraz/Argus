@@ -1,4 +1,5 @@
-"""What PagerDuty tells Argus, read only once PagerDuty is proven to have said it.
+"""What PagerDuty delivers to Argus, parsed only once PagerDuty is proven to have
+sent it.
 
 PagerDuty's V3 webhooks: a JSON body whose `event` names what happened, signed
 with an HMAC-SHA256 of the raw body under the subscription's secret. Nothing
@@ -20,9 +21,9 @@ from typing import Any, Final
 
 from oncall_source.platform import (
     Delivery,
-    DeliveryUnverified,
     Irrelevant,
     Merged,
+    OnCallDeliveryUnverified,
     Reopened,
     ResolvedByAPerson,
     ResolvedWithoutAPerson,
@@ -61,11 +62,11 @@ USER_AGENT: Final = "user_reference"
 MERGE_RESOLVE_REASON: Final = "merge_resolve_reason"
 
 
-def read_delivery(body: bytes, headers: Mapping[str, str], secret: str) -> Delivery:
+def parse_delivery(body: bytes, headers: Mapping[str, str], secret: str) -> Delivery:
     """What one webhook delivery says, in Argus's words.
 
-    Raises `DeliveryUnverified` unless the body is signed with `secret`, before
-    any of it is read.
+    Raises `OnCallDeliveryUnverified` unless the body is signed with `secret`,
+    before any of it is parsed.
     """
     _verify(body, headers, secret)
 
@@ -121,14 +122,16 @@ def _verify(body: bytes, headers: Mapping[str, str], secret: str) -> None:
     so how long a refusal takes says nothing about how close a guess was.
     """
     if not secret:
-        raise DeliveryUnverified("no webhook secret is configured, so no delivery can be trusted")
+        raise OnCallDeliveryUnverified(
+            "no webhook secret is configured, so no delivery can be trusted"
+        )
 
     expected = SIGNATURE_VERSION + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     stated = _the_header(headers, SIGNATURE_HEADER)
     signatures = stated.split(_SIGNATURES_ARE_SEPARATED_BY) if stated else []
 
     if not any(hmac.compare_digest(expected, signature.strip()) for signature in signatures):
-        raise DeliveryUnverified("the delivery's signature does not match its body")
+        raise OnCallDeliveryUnverified("the delivery's signature does not match its body")
 
 
 def _the_header(headers: Mapping[str, str], name: str) -> str | None:

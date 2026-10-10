@@ -121,6 +121,7 @@ markers = [
 root_packages = [
     "agent_codefix",
     "agent_communicator",
+    "agent_intent",
     "agent_investigator",
     "agent_mitigation",
     "agent_postmortem",
@@ -129,6 +130,7 @@ root_packages = [
     "argus_narration",
     "argus_telemetry",
     "argus_web",
+    "chat_platform",
     "code_index",
     "deployment_platform",
     "exchange_rate_source",
@@ -164,6 +166,42 @@ ignore_imports = [
 # failure, and an allowance is written for a package rather than for whichever
 # of its modules happens to be reached today - so an exception that matches
 # nothing says so and does not stop the build.
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "chat_platform is the chat platform's port and adapter and knows only the kernel"
+type = "forbidden"
+source_modules = ["chat_platform"]
+forbidden_modules = ["*"]
+# `argus_web` serves the endpoints the platform delivers to, so whatever this
+# imports the web process installs. A port that reached into the incident
+# record or an agent would be a port that decided something, where its job is
+# to say what the platform said.
+ignore_imports = [
+    "chat_platform.** -> argus_core",
+    "chat_platform.** -> argus_core.**",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "the chat platform is known by its port, and only each process's wiring knows the vendor"
+type = "forbidden"
+source_modules = ["agent_communicator", "agent_intent", "argus_web"]
+forbidden_modules = [
+    "chat_platform.slack",
+    "chat_platform.slack_deliveries",
+    "chat_platform.slack_posting",
+]
+# Where the adapter is built and handed out, typed as the port that process
+# uses. Everything else reaches Slack through what it was handed - which is how
+# a button the Communicator posts and the press the web application reads come
+# to be spelled once, in the adapter, rather than in two modules that each knew
+# Slack.
+ignore_imports = [
+    "agent_communicator.watching -> chat_platform.slack",
+    "agent_intent.watching -> chat_platform.slack",
+    "argus_web.app -> chat_platform.slack",
+]
 unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
@@ -244,6 +282,7 @@ ignore_imports = [
     "code_index.** -> argus_core.vector_store",
     "incident_memory.** -> argus_core.vector_store",
     "agent_codefix.** -> argus_core.llm",
+    "agent_intent.** -> argus_core.llm",
     "agent_investigator.** -> argus_core.llm",
     "agent_postmortem.** -> argus_core.llm",
     "orchestrator.** -> argus_core.llm",
@@ -318,6 +357,11 @@ ignore_imports = [
     "argus_web.** -> oncall_source",
     "argus_web.** -> oncall_source.platform",
     "argus_web.app -> oncall_source.pagerduty_adapter",
+    # The chat platform's port, which a person's words in an incident's thread
+    # and their press of an offer arrive through - and its Slack adapter, built
+    # in the app's lifespan and nowhere else, for the on-call platform's reason.
+    "argus_web.** -> chat_platform",
+    "argus_web.app -> chat_platform.slack",
     # The process's `main`, and only it, installs the telemetry SDK.
     "argus_web.serving -> argus_telemetry",
 ]
@@ -341,10 +385,12 @@ unmatched_ignore_imports_alerting = "warn"
 [[tool.importlinter.contracts]]
 name = "an agent knows the kernel and its own sources, never another agent"
 type = "independence"
-# The five delegates of the multi-agent system. What they share is the kernel,
-# and anything two of them both need belongs there - which is the rule
-# `CLAUDE.md` has stated all along and nothing enforced, so the first
-# agent-to-agent edge arrived and no build failed. A human found it in review.
+# The five delegates of the multi-agent system, and the Intent Agent, which no walk
+# delegates to but which is an agent all the same. What they share is the
+# kernel and the incident record, and anything two of them both need belongs
+# there - which is the rule `CLAUDE.md` has stated all along and nothing
+# enforced, so the first agent-to-agent edge arrived and no build failed. A
+# human found it in review.
 #
 # `orchestrator` is deliberately absent rather than exempted. It is the thing
 # that delegates: importing all five is its whole job, and a contract naming it
@@ -353,6 +399,7 @@ type = "independence"
 modules = [
     "agent_codefix",
     "agent_communicator",
+    "agent_intent",
     "agent_investigator",
     "agent_mitigation",
     "agent_postmortem",

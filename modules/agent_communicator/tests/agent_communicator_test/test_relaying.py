@@ -1,15 +1,15 @@
 """Slack as a projection of the event log, rather than calls inside the walk.
 
 The relay follows what was published and says it somewhere a human is: it reads
-from the place it got to last time, delivers what it finds in the order it
+from the place it got to last time, says what it finds in the order it
 happened, and moves its place on behind itself. Nothing in the walk calls it,
 which is exactly the point - a step is reported because it was published, not
 because somebody remembered to report it.
 
 The log and the place are seams, not a database: what is decided here is what
 gets said and in what order, and a test about that has no business waiting for
-a container. Where those seams reach postgres is `following`, and its own test
-is what says the wiring is real.
+a container. Where those seams reach postgres is `argus_incidents`', and the component
+test of this module is what says the wiring is real.
 
 Delivery is at-least-once. A line said twice is a nuisance; a line nobody ever
 says is the failure this exists to prevent, so the place only ever moves past a
@@ -22,7 +22,7 @@ import logging
 
 import pytest
 from agent_communicator.policy import Register
-from agent_communicator.relaying import Outcome, relay_once
+from agent_communicator.relaying import relay_once
 from argus_core import new_id
 from argus_core.events import (
     IncidentEvent,
@@ -30,7 +30,7 @@ from argus_core.events import (
 )
 from argus_core.models import RetrievalChannel
 from argus_incidents.repository import events
-from argus_narration import NarrationLine, a_narration_line
+from argus_narration import a_narration_line
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -39,30 +39,36 @@ from argus_testkit import (
     one_record_was_logged,
 )
 
-from agent_communicator_test.framework.assertions import it_delivered
-from agent_communicator_test.framework.builders import three_steps_of
+from agent_communicator_test.framework.assertions import it_said, the_lines_said_were
+from agent_communicator_test.framework.builders import (
+    ADestination,
+    a_destination_that_cannot_say_more_now,
+    a_destination_that_takes_everything,
+    a_destination_that_will_never_say_more,
+    three_steps_of,
+)
 
 AN_INCIDENT = new_id()
 
 
 @pytest.mark.unit
-def test_everything_since_the_place_is_delivered_in_order() -> None:
+def test_everything_since_the_place_is_said_in_order() -> None:
     # The order is the account: an incident whose mitigation is read before the
     # onset that prompted it is a different story from the one that happened.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(all_of(
-            it_delivered(3),
-            _the_lines_delivered_were(a_relay, ["onset-detected",
+            it_said(3),
+            the_lines_said_were(a_destination, ["onset-detected",
                                                 "action-taken",
                                                 "status-changed"]),
-            _they_were_all_about(a_relay, AN_INCIDENT)
+            _they_were_all_about(a_destination, AN_INCIDENT)
         ))
 
 
@@ -71,7 +77,7 @@ def test_a_line_already_behind_the_place_is_not_said_again() -> None:
     # The place is the whole of the relay's memory. Reading from the beginning
     # every time would say an incident over from the top on every pass, which
     # is the failure that makes people mute a channel.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
     the_first_two = 2
 
     Scenario() \
@@ -79,10 +85,10 @@ def test_a_line_already_behind_the_place_is_not_said_again() -> None:
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(the_first_two)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(all_of(
-            it_delivered(1),
-            _the_lines_delivered_were(a_relay, ["status-changed"])
+            it_said(1),
+            the_lines_said_were(a_destination, ["status-changed"])
         ))
 
 
@@ -90,14 +96,14 @@ def test_a_line_already_behind_the_place_is_not_said_again() -> None:
 def test_the_place_moves_to_the_last_line_that_landed() -> None:
     # Behind each line rather than after the batch: a relay killed mid-pass
     # carries on from the last thing anybody actually saw.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(_the_place_is_now(the_place, 3))
 
 
@@ -105,19 +111,19 @@ def test_the_place_moves_to_the_last_line_that_landed() -> None:
 def test_a_line_that_could_not_be_said_now_stops_the_batch_where_it_is() -> None:
     # Slack throttled it, or was not there at all. Neither says anything about
     # the line, so the place must not move past it - and the lines behind it
-    # wait, because delivering them now would tell the story with its middle
+    # wait, because saying them now would tell the story with its middle
     # missing and never fill the gap in.
-    a_relay = _a_relay_that_cannot_say_more_now(1)
+    a_destination = a_destination_that_cannot_say_more_now(1)
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(all_of(
-            it_delivered(1),
-            _the_lines_delivered_were(a_relay, ["onset-detected"]),
+            it_said(1),
+            the_lines_said_were(a_destination, ["onset-detected"]),
             _the_place_is_now(the_place, 1)
         ))
 
@@ -128,17 +134,17 @@ def test_a_line_that_will_never_be_said_is_passed_over_rather_than_waited_on() -
     # one. The line is lost and the destination writes that down where it will
     # be seen; holding the place for it would lose every line behind it too,
     # for as long as the workspace stays the way it is.
-    a_relay = _a_relay_that_will_never_say_more(1)
+    a_destination = a_destination_that_will_never_say_more(1)
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(all_of(
-            it_delivered(1),
-            _the_lines_delivered_were(a_relay, ["onset-detected"]),
+            it_said(1),
+            the_lines_said_were(a_destination, ["onset-detected"]),
             _the_place_is_now(the_place, 3)
         ))
 
@@ -147,7 +153,7 @@ def test_a_line_that_will_never_be_said_is_passed_over_rather_than_waited_on() -
 def test_a_look_with_nothing_new_says_nothing_and_stays_where_it_is() -> None:
     # The state the relay is in almost all the time: caught up, with nothing to
     # add. Nothing is not an error and not a reason to start again.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
     the_end_of_the_log = 3
 
     Scenario() \
@@ -155,30 +161,30 @@ def test_a_look_with_nothing_new_says_nothing_and_stays_where_it_is() -> None:
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(the_end_of_the_log)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(all_of(
-            it_delivered(0),
-            _the_lines_delivered_were(a_relay, []),
+            it_said(0),
+            the_lines_said_were(a_destination, []),
             _the_place_is_now(the_place, the_end_of_the_log)
         ))
 
 
 @pytest.mark.unit
-def test_a_line_nobody_needs_to_hear_is_not_delivered() -> None:
+def test_a_line_nobody_needs_to_hear_is_not_said() -> None:
     # The policy's decision, honoured here. Everything is published and
     # everything is on the dashboard; what reaches a person is what it found,
     # changed or concluded, not the reading it did to get there.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
 
     Scenario() \
         .given(
             the_log := _a_log_holding(_three_steps_with_a_look_between(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(all_of(
-            it_delivered(3),
-            _the_lines_delivered_were(a_relay, ["onset-detected",
+            it_said(3),
+            the_lines_said_were(a_destination, ["onset-detected",
                                                 "action-taken",
                                                 "status-changed"])
         ))
@@ -189,7 +195,7 @@ def test_the_place_moves_past_a_line_nobody_needs_to_hear() -> None:
     # Skipped, not held. A relay whose place stopped at the first retrieval
     # would sit there forever, re-reading a line it is never going to say and
     # never reaching the ones it would.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
     the_whole_log = 4
 
     Scenario() \
@@ -197,7 +203,7 @@ def test_the_place_moves_past_a_line_nobody_needs_to_hear() -> None:
             the_log := _a_log_holding(_three_steps_with_a_look_between(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(_the_place_is_now(the_place, the_whole_log))
 
 
@@ -207,25 +213,25 @@ def test_how_loudly_each_line_is_said_travels_with_it() -> None:
     # it - a thread reply or a channel message in Slack. A relay that decided
     # that itself would have put Slack's furniture in the one place that is
     # meant to outlast the choice of destination.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
-        .then(_they_were_said(a_relay, [Register.FOLLOWED,
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
+        .then(_they_were_said(a_destination, [Register.FOLLOWED,
                                         Register.FOLLOWED,
                                         Register.ANNOUNCED]))
 
 
 @pytest.mark.unit
-def test_the_words_delivered_are_the_ones_the_dashboard_shows() -> None:
+def test_the_words_said_are_the_ones_the_dashboard_shows() -> None:
     # One account, rendered once. A relay that wrote its own sentences would be
     # a second narrator, and the day the two disagreed there would be no way to
     # tell which of them had it right.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
     the_steps = three_steps_of(AN_INCIDENT)
 
     Scenario() \
@@ -233,8 +239,8 @@ def test_the_words_delivered_are_the_ones_the_dashboard_shows() -> None:
             the_log := _a_log_holding(the_steps),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
-        .then(_they_read_as_the_narration_of(a_relay, the_steps))
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
+        .then(_they_read_as_the_narration_of(a_destination, the_steps))
 
 
 @pytest.mark.unit
@@ -242,14 +248,14 @@ def test_the_log_is_asked_for_no_more_than_one_batch() -> None:
     # A relay an hour behind catches up a batch at a time rather than reading
     # an hour of events into memory, and what it does not reach this time it
     # reaches next time.
-    a_relay = _a_relay_that_takes_everything()
+    a_destination = a_destination_that_takes_everything()
     room_for_two = 2
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0),
-            calling(lambda: relay_once(the_log, the_place, a_relay, batch=room_for_two))
+            calling(lambda: relay_once(the_log, the_place, a_destination, batch=room_for_two))
         ) \
         .when(lambda: the_log.asked_for) \
         .then(_it_asked_for(room_for_two))
@@ -261,14 +267,14 @@ def test_a_relay_held_where_it_is_is_logged_as_a_warning(
 ) -> None:
     # Nothing is lost, but nothing more is said either until Slack answers, so
     # an account that went quiet mid-incident has this line to explain it.
-    a_relay = _a_relay_that_cannot_say_more_now(1)
+    a_destination = a_destination_that_cannot_say_more_now(1)
 
     Scenario() \
         .given(
             the_log := _a_log_holding(three_steps_of(AN_INCIDENT)),
             the_place := _a_place_at(0)
         ) \
-        .when(lambda: relay_once(the_log, the_place, a_relay)) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
         .then(
             one_record_was_logged(caplog, "agent_communicator.relaying", logging.WARNING,
                                   "relay paused")
@@ -310,52 +316,12 @@ class _APlace:
         self._at = seq
 
 
-class _ARelay:
-    """A destination that remembers what it was told, and can refuse.
-
-    Hand-written rather than a mock because every test here asks the same three
-    questions - what was said, how loudly, and in what order - and a recorder
-    answers them in the language of the subject rather than in call tuples.
-    """
-
-    def __init__(self,
-                 gives_up_after: int | None = None,
-                 gives_up_with: Outcome = Outcome.NOT_NOW) -> None:
-        self.told: list[tuple[str, NarrationLine, Register]] = []
-        self._gives_up_after = gives_up_after
-        self._gives_up_with = gives_up_with
-
-    def __call__(self,
-                 incident_id: str,
-                 line: NarrationLine,
-                 register: Register, /) -> Outcome:
-        if (self._gives_up_after is not None
-                and len(self.told) >= self._gives_up_after):
-            return self._gives_up_with
-
-        self.told.append((incident_id, line, register))
-
-        return Outcome.SAID
-
-
 def _a_log_holding(published: list[IncidentEvent]) -> _ALog:
     return _ALog(published)
 
 
 def _a_place_at(seq: int) -> _APlace:
     return _APlace(seq)
-
-
-def _a_relay_that_takes_everything() -> _ARelay:
-    return _ARelay()
-
-
-def _a_relay_that_cannot_say_more_now(landed: int) -> _ARelay:
-    return _ARelay(gives_up_after=landed, gives_up_with=Outcome.NOT_NOW)
-
-
-def _a_relay_that_will_never_say_more(landed: int) -> _ARelay:
-    return _ARelay(gives_up_after=landed, gives_up_with=Outcome.NEVER)
 
 
 def _three_steps_with_a_look_between(incident_id: str) -> list[IncidentEvent]:
@@ -400,20 +366,9 @@ def _the_place_is_now(place: _APlace, expected: int) -> Assertion[object]:
     return assertion
 
 
-def _the_lines_delivered_were(relay: _ARelay, expected: list[str]) -> Assertion[object]:
+def _they_were_said(destination: ADestination, expected: list[Register]) -> Assertion[object]:
     def assertion(_: object) -> bool:
-        kinds = [line.kind for _, line, _ in relay.told]
-        if kinds != expected:
-            raise AssertionError(f"Expected the lines {expected}, got {kinds}.")
-
-        return True
-
-    return assertion
-
-
-def _they_were_said(relay: _ARelay, expected: list[Register]) -> Assertion[object]:
-    def assertion(_: object) -> bool:
-        registers = [register for _, _, register in relay.told]
+        registers = [register for _, _, register in destination.told]
         if registers != expected:
             raise AssertionError(
                 f"Expected them said {expected}, they were said {registers}."
@@ -424,9 +379,9 @@ def _they_were_said(relay: _ARelay, expected: list[Register]) -> Assertion[objec
     return assertion
 
 
-def _they_were_all_about(relay: _ARelay, expected: str) -> Assertion[object]:
+def _they_were_all_about(destination: ADestination, expected: str) -> Assertion[object]:
     def assertion(_: object) -> bool:
-        about = {incident_id for incident_id, _, _ in relay.told}
+        about = {incident_id for incident_id, _, _ in destination.told}
         if about != {expected}:
             raise AssertionError(
                 f"Expected every line to be about [{expected}], got {about}."
@@ -437,10 +392,10 @@ def _they_were_all_about(relay: _ARelay, expected: str) -> Assertion[object]:
     return assertion
 
 
-def _they_read_as_the_narration_of(relay: _ARelay,
+def _they_read_as_the_narration_of(destination: ADestination,
                                    published: list[IncidentEvent]) -> Assertion[object]:
     def assertion(_: object) -> bool:
-        said = [line.text for _, line, _ in relay.told]
+        said = [line.text for _, line, _ in destination.told]
         the_narration = [a_narration_line(event).text for event in published]
         if said != the_narration:
             raise AssertionError(

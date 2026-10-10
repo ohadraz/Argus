@@ -389,7 +389,7 @@ def test_the_platform_reads_a_delivery_under_the_secret_it_was_given() -> None:
             platform := _a_platform(webhook_secret=some_secret)
         ) \
         .when(
-            lambda: platform.read_delivery(some_delivery,
+            lambda: platform.parse_delivery(some_delivery,
                                            _signed_by(some_secret, some_delivery))
         ) \
         .then(

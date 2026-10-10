@@ -42,12 +42,16 @@ from argus_core.events import (
     IncidentEvent,
     IncidentRemembered,
     LogsRetrieved,
+    MessageUnderstood,
     MetricsRetrieved,
     MitigationResumed,
+    OfferExpired,
     OnsetDetected,
+    PersonWrote,
     PostmortemWritten,
     RecoveryChecked,
     RememberingFailed,
+    ResolutionOffered,
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
@@ -60,15 +64,19 @@ from argus_core.models import (
     FailureMode,
     FixOutcome,
     IncidentStatus,
+    Meaning,
     OpenedPullRequest,
     Refusal,
     RetrievalChannel,
     Undone,
     Verdict,
+    a_chat_message,
 )
 from argus_testkit import Assertion, Scenario
 
 AN_INCIDENT = new_id()
+
+SOME_MESSAGE = a_chat_message("some-chat", "some-channel", "some-message")
 
 
 @pytest.mark.unit
@@ -310,6 +318,74 @@ def test_a_resumed_walk_does_not_re_announce_a_verdict_the_thread_already_has() 
         .given(some_resumption) \
         .when(lambda: how_it_is_said(some_resumption)) \
         .then(_it_is_said(Register.UNSAID))
+
+
+@pytest.mark.unit
+def test_an_offer_to_resolve_is_said_where_the_person_wrote() -> None:
+    # The one line in an incident that waits on a particular person, and it is
+    # the button they press. Unsaid, the policy's default, would be an offer
+    # nobody was shown - an incident a person said was over, sitting open
+    # because Argus asked the question only to its own page.
+    #
+    # Followed rather than announced: it answers somebody who wrote in the
+    # incident's own conversation, and the channel hears the ending their press
+    # brings about, as it hears every other ending.
+    some_offer = ResolutionOffered(
+        incident_id=AN_INCIDENT,
+        message=SOME_MESSAGE,
+        person_id="some-person-id",
+        person_name="some person",
+        said="rolled the flag back by hand, we're fine"
+    )
+
+    Scenario() \
+        .given(some_offer) \
+        .when(lambda: how_it_is_said(some_offer)) \
+        .then(_it_is_said(Register.FOLLOWED))
+
+
+@pytest.mark.unit
+def test_an_offer_not_confirmed_in_time_is_said_where_it_was_made() -> None:
+    # Said, because saying it is what takes the button away: a line the relay
+    # never handles is an offer left asking a question Argus stopped waiting
+    # for. Followed, where the offer was made, because it answers the person
+    # who was asked - nobody else was waiting on it.
+    some_expiry = OfferExpired(incident_id=AN_INCIDENT, message=SOME_MESSAGE)
+
+    Scenario() \
+        .given(some_expiry) \
+        .when(lambda: how_it_is_said(some_expiry)) \
+        .then(_it_is_said(Register.FOLLOWED))
+
+
+@pytest.mark.unit
+def test_what_a_person_wrote_and_what_it_was_read_as_are_not_said_back() -> None:
+    # A person's own message is already in the conversation, and saying it
+    # back to them is an echo. What Argus took it to mean is a fact about how
+    # Argus reads rather than about the incident: when the reading leads
+    # anywhere, the offer it leads to is the line that is said. Both are on
+    # the page, which is where the timeline shows Argus heard.
+    Scenario() \
+        .given(
+            what_was_heard := _what_a_person_wrote_and_how_it_was_read()
+        ) \
+        .when(lambda: [(event.kind, how_it_is_said(event))
+                       for event in what_was_heard]) \
+        .then(_they_are_all(Register.UNSAID))
+
+
+def _what_a_person_wrote_and_how_it_was_read() -> list[IncidentEvent]:
+    """A person's message, and Argus's reading of it as the one meaning that
+    leads to an offer - the reading most tempting to say out loud."""
+    return [
+        PersonWrote(incident_id=AN_INCIDENT,
+                    message=SOME_MESSAGE,
+                    person_id="some-person-id",
+                    text="rolled the flag back by hand, we're fine"),
+        MessageUnderstood(incident_id=AN_INCIDENT,
+                          message=SOME_MESSAGE,
+                          meaning=Meaning.RESOLVE)
+    ]
 
 
 def _everything_argus_read() -> list[IncidentEvent]:

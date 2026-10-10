@@ -21,6 +21,11 @@ _VERIFICATION_TIMEOUT_SECONDS: Final = 180.0
 # an hour.
 _LEASES_PER_LONGEST_WAIT: Final = 4
 
+# How Slack names a channel it can be asked about: a public one's id begins with
+# `C`, a private one's with `G`, and the rest is capitals and digits. Empty is
+# allowed, and means no channel was configured.
+_A_SLACK_CHANNEL_ID: Final = r"^([CG][A-Z0-9]+)?$"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -376,6 +381,15 @@ class Settings(BaseSettings):
     postmortem_model: str = Field(default=DEFAULT_MODEL)
     postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
 
+    # The model that classifies what a person wrote in an incident's thread, and
+    # how often the intent agent looks for something new to understand. One short
+    # question with five answers; the pause is the delay between a person
+    # writing and Argus offering to resolve, paid only when there was nothing
+    # new.
+    intent_model: str = Field(default=DEFAULT_MODEL)
+    intent_effort: Effort = Field(default=DEFAULT_EFFORT)
+    intent_poll_seconds: float = Field(default=2.0, gt=0.0)
+
     # The bot the Communicator posts as. Empty by default, and empty means it
     # says nothing: a workspace nobody configured is not a workspace to guess
     # at, and an incident is reported through a channel somebody chose.
@@ -390,14 +404,27 @@ class Settings(BaseSettings):
     # Where an incident is reported and where its postmortem is delivered. Two
     # channels rather than one: an incident's traffic is for whoever is on, and
     # a postmortem is read afterwards by people who were not.
-    slack_war_room_channel: str = Field(default="")
-    slack_postmortem_channel: str = Field(default="")
+    #
+    # By id (`C…`), never by name. Slack takes a name to post to and for nothing
+    # else: an update needs the id, and every reply and press arrives naming
+    # the id - so a war room configured by name is one whose threads no reply
+    # is ever matched to. The double answers any channel it is given, so only a
+    # real workspace would show it, and only by going quiet.
+    slack_war_room_channel: str = Field(default="", pattern=_A_SLACK_CHANNEL_ID)
+    slack_postmortem_channel: str = Field(default="", pattern=_A_SLACK_CHANNEL_ID)
 
     # How long the relay waits after finding the log unchanged. Short, because
     # it is the delay between something happening and a person hearing about
     # it - and paid only when there is nothing to say, since a pass that
     # delivered anything looks again at once.
     slack_relay_poll_seconds: float = Field(default=2.0, gt=0.0)
+
+    # What a delivery from Slack - a person writing in an incident's thread, a
+    # button pressed - must be signed with to be believed. Empty refuses every
+    # delivery rather than trusting one, as `github_webhook_secret` does: what
+    # a delivery can say ends an incident, and a secret nobody set is one
+    # anybody can sign under.
+    slack_signing_secret: str = Field(default="")
 
     # Where Argus answers, as somebody outside it reaches it - what a message
     # in a channel links back to. Configured rather than observed, as it is for

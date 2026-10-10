@@ -36,13 +36,13 @@ from oncall_source.pagerduty_webhooks import (
     SUMMARY,
     TYPE,
     USER_AGENT,
-    read_delivery,
+    parse_delivery,
 )
 from oncall_source.platform import (
     Delivery,
-    DeliveryUnverified,
     Irrelevant,
     Merged,
+    OnCallDeliveryUnverified,
     Reopened,
     ResolvedByAPerson,
     ResolvedWithoutAPerson,
@@ -62,7 +62,7 @@ def test_a_delivery_signed_with_the_secret_is_read() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
         .then(_it_reads_as(ResolvedByAPerson(platform_incident=SOME_INCIDENT,
                                              by="some person")))
 
@@ -75,10 +75,10 @@ def test_a_delivery_signed_with_another_secret_is_refused() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(attempting(lambda: read_delivery(
+        .when(attempting(lambda: parse_delivery(
             some_delivery, _signed(some_delivery, secret="some-other-secret"), SOME_SECRET
         ))) \
-        .then(an_error_was_raised(DeliveryUnverified))
+        .then(an_error_was_raised(OnCallDeliveryUnverified))
 
 
 @pytest.mark.unit
@@ -87,8 +87,8 @@ def test_a_delivery_with_no_signature_is_refused() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(attempting(lambda: read_delivery(some_delivery, {}, SOME_SECRET))) \
-        .then(an_error_was_raised(DeliveryUnverified))
+        .when(attempting(lambda: parse_delivery(some_delivery, {}, SOME_SECRET))) \
+        .then(an_error_was_raised(OnCallDeliveryUnverified))
 
 
 @pytest.mark.unit
@@ -100,10 +100,10 @@ def test_with_no_secret_configured_every_delivery_is_refused() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(attempting(lambda: read_delivery(
+        .when(attempting(lambda: parse_delivery(
             some_delivery, _signed(some_delivery, secret=no_secret), no_secret
         ))) \
-        .then(an_error_was_raised(DeliveryUnverified))
+        .then(an_error_was_raised(OnCallDeliveryUnverified))
 
 
 @pytest.mark.unit
@@ -118,7 +118,7 @@ def test_a_delivery_signed_during_a_secret_rotation_is_read() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, signed_with_both, SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, signed_with_both, SOME_SECRET)) \
         .then(_it_reads_as(ResolvedByAPerson(platform_incident=SOME_INCIDENT,
                                              by="some person")))
 
@@ -133,7 +133,7 @@ def test_a_resolution_by_the_monitors_integration_is_not_a_persons() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
         .then(_it_reads_as(ResolvedWithoutAPerson(platform_incident=SOME_INCIDENT,
                                                   resolved_by=some_integration)))
 
@@ -146,7 +146,7 @@ def test_a_resolution_naming_nobody_is_not_a_persons() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
         .then(_it_reads_as(ResolvedWithoutAPerson(platform_incident=SOME_INCIDENT,
                                                   resolved_by=None)))
 
@@ -164,7 +164,7 @@ def test_a_merge_is_not_a_resolution_though_a_person_made_it() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
         .then(_it_reads_as(Merged(platform_incident=SOME_INCIDENT, into=some_target)))
 
 
@@ -174,7 +174,7 @@ def test_a_reopened_incident_is_read_as_reopened() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
         .then(_it_reads_as(Reopened(platform_incident=SOME_INCIDENT)))
 
 
@@ -187,7 +187,7 @@ def test_any_other_event_is_irrelevant() -> None:
 
     Scenario() \
         .given(some_delivery) \
-        .when(lambda: read_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery), SOME_SECRET)) \
         .then(_it_reads_as(Irrelevant(event=some_other_event)))
 
 

@@ -1,4 +1,4 @@
-"""The process that watches the event log and keeps Slack up to date.
+"""The process that watches the event log and keeps the chat up to date.
 
 It does one thing in a loop: look at the log, say what is new, move on. Nothing
 calls it and it calls nothing in the walk - the two share a table and no code,
@@ -23,12 +23,12 @@ from argus_core import (
     get_settings,
     open_pool,
 )
+from argus_incidents import Backlog, Place, events_since, place_for
 from argus_telemetry import start_telemetry
+from chat_platform.slack import ChatSettings, slack_from
 
-from agent_communicator.delivering import a_destination_per_register, a_slack_delivery
-from agent_communicator.following import events_since, place_for
-from agent_communicator.relaying import SLACK_RELAY, Backlog, Delivery, Place, relay_once
-from agent_communicator.slack import SlackSettings, a_slack_client
+from agent_communicator.relaying import CHAT_RELAY, Destination, relay_once
+from agent_communicator.saying import a_chat_destination, a_destination_per_register
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ _SERVICE: Final = "argus-relay"
 
 def watch_forever(backlog: Backlog,
                   place: Place,
-                  deliver: Delivery,
+                  say: Destination,
                   pause: float) -> None:
     """Says what is new for as long as the process lives.
 
@@ -54,7 +54,7 @@ def watch_forever(backlog: Backlog,
     line twice.
     """
     while True:
-        if not relay_once(backlog, place, deliver):
+        if not relay_once(backlog, place, say):
             time.sleep(pause)
 
 
@@ -65,10 +65,10 @@ def main() -> None:
     a pool exists. A `main` rather than bare module-level code, so that
     importing this module starts nothing and opens nothing.
 
-    A relay with nowhere to post is not started at all. Posting to a channel
-    nobody named would be refused by Slack on every pass for as long as the
-    process ran, which is a log full of failures saying only that the stack was
-    never configured.
+    A relay with nowhere to post is not started at all - no channel, or no
+    workspace to post it in. Posting where nobody configured would be refused
+    on every pass for as long as the process ran, which is a log full of
+    failures saying only that the stack was never configured.
 
     Telemetry is started before that is decided, so the warning saying so is in
     this run's logs as well as on the console.
@@ -78,6 +78,15 @@ def main() -> None:
     with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
         if not settings.slack_war_room_channel:
             logger.warning("no war-room channel configured")
+            return
+
+        # The chat platform's adapter, built here and nowhere else in this
+        # module: one client for the whole relay, built where the process
+        # starts, and everything below it holds only the port.
+        chat = slack_from(ChatSettings.of(settings))
+
+        if chat is None:
+            logger.warning("no chat platform configured")
             return
 
         with open_pool(DatabaseSettings.of(settings)) as pool:
@@ -92,15 +101,13 @@ def main() -> None:
             # to say nothing.
             war_room = settings.slack_war_room_channel
             archive = settings.slack_postmortem_channel or war_room
-            # One client for the whole relay, built where the process starts.
-            posting = a_slack_client(settings=SlackSettings.of(settings))
 
             watch_forever(
                 events_since(connections),
-                place_for(connections, SLACK_RELAY),
+                place_for(connections, CHAT_RELAY),
                 a_destination_per_register(
-                    a_slack_delivery(connections, channel=war_room, slack=posting),
-                    a_slack_delivery(connections, channel=archive, slack=posting),
+                    a_chat_destination(connections, channel=war_room, chat=chat),
+                    a_chat_destination(connections, channel=archive, chat=chat),
                     argus_at=settings.argus_base_url,
                     # Named only where it is somewhere else. Where the two are
                     # the same channel the write-up is simply the next message,

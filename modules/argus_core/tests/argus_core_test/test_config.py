@@ -8,6 +8,8 @@ the question there is not what it holds but what it cannot name.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 from argus_core.config import (
     DatabaseSettings,
@@ -373,6 +375,93 @@ def test_telemetry_is_written_under_telemetry_and_sent_nowhere_by_default() -> N
                 langfuse_secret_key="",
                 log_level="INFO"
             ))
+        )
+
+
+@pytest.mark.unit
+def test_a_fresh_checkout_believes_no_delivery_from_slack() -> None:
+    # What a delivery can say ends an incident, so a secret nobody set is not
+    # one to verify against - it is one anybody can sign under. Read off the
+    # declared defaults, for the telemetry test's reason: a `Settings()` would
+    # read the developer's own `.env`, which may well hold a real one.
+    Scenario() \
+        .given(
+            the_declared_defaults := Settings.model_construct()
+        ) \
+        .when(
+            lambda: the_declared_defaults
+        ) \
+        .then(
+            _it_kept("slack_signing_secret", "")
+        )
+
+
+@pytest.mark.unit
+def test_a_non_positive_intent_agent_pause_is_rejected() -> None:
+    # A pause of nothing is an intent agent asking the log for new messages as fast
+    # as the database will answer, for as long as nobody writes anything.
+    Scenario() \
+        .given(
+            a_pause_that_never_pauses := 0.0
+        ) \
+        .when(
+            attempting(
+                lambda: Settings(intent_poll_seconds=a_pause_that_never_pauses)
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValidationError),
+                _it_complained_about("intent_poll_seconds")
+            )
+        )
+
+
+# Both channels Argus posts to, each with the one keyword that configures it.
+for_each_slack_channel = pytest.mark.parametrize(("field", "configured_with"), [
+    ("slack_war_room_channel", lambda channel: Settings(slack_war_room_channel=channel)),
+    ("slack_postmortem_channel", lambda channel: Settings(slack_postmortem_channel=channel))
+], ids=["war-room", "postmortem"])
+
+
+@pytest.mark.unit
+@for_each_slack_channel
+def test_a_slack_channel_given_by_name_is_rejected(
+        field: str, configured_with: Callable[[str], Settings]) -> None:
+    # Slack takes a name to post to and nothing else: an update needs the id,
+    # and every reply and press arrives naming the id. A war room configured by
+    # name is one whose threads no reply is ever matched to - and it fails only
+    # against a real workspace, since the double answers any channel it is given.
+    Scenario() \
+        .given(
+            a_channel_by_name := "#war_room"
+        ) \
+        .when(
+            attempting(lambda: configured_with(a_channel_by_name))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValidationError),
+                _it_complained_about(field)
+            )
+        )
+
+
+@pytest.mark.unit
+@for_each_slack_channel
+def test_a_slack_channel_given_by_id_is_kept(
+        field: str, configured_with: Callable[[str], Settings]) -> None:
+    # The boundary the rejection is drawn at, and the one shape Slack itself
+    # uses for a channel everywhere it names one.
+    Scenario() \
+        .given(
+            some_channel_id := "C0C29KYB388"
+        ) \
+        .when(
+            lambda: configured_with(some_channel_id)
+        ) \
+        .then(
+            _it_kept(field, some_channel_id)
         )
 
 

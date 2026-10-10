@@ -27,7 +27,7 @@ Argus runs against a self-contained **Target Service and Target Environment** th
 - Root-cause hypothesis generation and testing (ReAct loop)
 - Generic mitigation (flag toggle, service restart, configuration rollback, scaling out, pinning an autoscaler, holding a deployment to one accelerator card)
 - Code-level root cause search + PR generation (agentic search over the Target Service codebase, behind a seam that also admits RAG)
-- Slack integration: reading hints, and reporting an incident as it happens - a thread per incident in a war-room channel
+- Slack integration: understanding what a person writes in an incident's thread, and reporting an incident as it happens - a thread per incident in a war-room channel
 - Persistent memory: per-incident state + cross-incident knowledge base
 - Postmortem + executive summary generation (with cost estimation)
 - Escalation to a human on low confidence or exhausted actions
@@ -91,6 +91,7 @@ flowchart LR
         AGENTS[Sub-agents]
         MCPS[MCP tool servers]
         RELAY[Relay - follows the event log]
+        INTENT[Intent Agent - understands what people write]
         PG[(Postgres)]
         QDRANT[(Qdrant)]
         VAULT[(HashiCorp Vault)]
@@ -105,8 +106,10 @@ flowchart LR
     MCPS <--> FLAGS
     MCPS <--> METRICS
     MCPS <--> GH
-    MCPS -->|reads hints| SLK
+    SLK -->|a reply in a thread, a press| WEB
     RELAY -->|posts what a human hears| SLK
+    INTENT -->|classifies what was written, offers| PG
+    INTENT -->|who a person is| SLK
     RELAY -->|postmortem, exec summary| MAIL
     ORCH -->|what was tried, and what it was worth| QDRANT
     MCPS -->|nearest passages| QDRANT
@@ -142,7 +145,7 @@ Responsibilities:
 
 ### 7.2 Investigator agent
 
-Runs the ReAct loop (§9, §8). Tools: the six retrieval channels of §16 - metrics, logs, change events, the service register, what a deployment changed, and whether a deployment converged - all from `argus-read-mcp` (§12.1). Long-term memory is not among them: what it holds is what was *done* about earlier incidents, which is not a hypothesis and which this agent could not act on (§11.2). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as published `INCIDENT_EVENT` rows (§11.1), written by the Orchestrator from hints the Communicator (§7.5) surfaces - not via direct Slack access.
+Runs the ReAct loop (§9, §8). Tools: the six retrieval channels of §16 - metrics, logs, change events, the service register, what a deployment changed, and whether a deployment converged - all from `argus-read-mcp` (§12.1). Long-term memory is not among them: what it holds is what was *done* about earlier incidents, which is not a hypothesis and which this agent could not act on (§11.2). Nothing from `argus-write-mcp` is bound to this node. Hints reach it as published `INCIDENT_EVENT` rows (§11.1), written from what a person says in the incident's thread as the Intent Agent (§7.5a) reads it - not via direct Slack access.
 
 ### 7.3 Mitigation agent
 
@@ -198,7 +201,21 @@ Which lines reach a person is a policy over event kinds, stated in registers a d
 
 Slack refusing is an ordinary outcome of talking to Slack rather than an error in the walk, and no refusal can fail an incident. A throttle or a workspace that did not answer says nothing about the message, so the line keeps its place and is said on a later pass. Any other refusal - a renamed channel, a revoked token - will say the same thing on every pass, so the line is recorded on the incident's own timeline as one that never arrived, and passed over: a relay waiting for a channel to come back would go silent about everything behind it.
 
-Reading is the other direction, and stays in the read tier: the Communicator is the only agent that reads Slack for human hints (via `argus-read-mcp`), converting one into a structured hint returned to the Orchestrator, which publishes it as an `INCIDENT_EVENT` (§7.1).
+One line the relay says asks for an answer: an offer to resolve the incident, made to the person who wrote in its thread that it was over (§7.5a). Slack carries it as a reply with one button, which only that person's press counts for, and the incident remembers the message so that the button can be found again. Once the incident can no longer be resolved - resolved through any channel, withdrawn, or disproven - each offer is rewritten to the line that ended it, which says who ended it and through what, and carries nothing left to press. An offer that expires (§7.5a) is rewritten the same way, to the line saying Argus carried on. The endings Argus reaches by stopping leave an offer standing, because a person may still report any of them resolved, and a button taken away from them then would be one taken away while it could still do what it says.
+
+Channels are configured by Slack's id, never by name. A name is accepted for posting and for nothing else: a rewrite needs the id, and every reply and press Slack delivers names the id, so a war room configured by name is one whose threads no reply is ever matched to. Argus refuses a name before it starts.
+
+### 7.5a Intent Agent
+
+What people write back. A reply in an incident's thread is the one input to an incident Argus did not produce, so it is kept whole: the Web Application records who wrote it, which message it was and exactly what it said, as a `PersonWrote` event, the moment Slack delivers it (§7.9) - ingested before anything has been made of it, so a message nobody has classified yet is visibly so rather than missing.
+
+The Intent Agent understands it. It follows the event log as the relay does, under a cursor of its own, and asks the model to classify each message - what did the person mean - answered by a tool call naming one of five meanings: the incident is over, a question about it, something Argus may not know, a request to stand down and leave it to them, or nothing to act on. Every message gets a `MessageUnderstood`, whatever it was classified as, so the timeline says Argus understood it and what it made of it - including that it made nothing of it, which a person who wrote "thanks" is owed as much as one who wrote "it's fixed". A classification is recorded once, for all five, so that what a message meant is never asked again when a meaning comes to act. An answer that cannot be used is asked for once more, and after that the message is classified as nothing to act on: messages are understood in order, and one that is never classified holds up every message behind it.
+
+A classification never acts. Where the person said the incident is over and it can still be resolved, the Intent Agent publishes `ResolutionOffered`, carrying everything a confirmation needs: whose press counts, the name the resolution will be credited to - read once from the chat platform, when the offer is made, and the person's Slack id where the platform cannot name them - and their words, which become the resolution's note. The offer reaches the thread through the relay like every other line (§7.5), so the Intent Agent never posts. Only that person's press resolves the incident (§10).
+
+A walk does not go on over a person's head. While a message written in the thread is unanswered, the walk starts no new step: once the step it is in is done, it waits until the message is classified as anything but over, until the offer is pressed, or until five minutes of the stack's clock have passed since the latest such message - a person saying it again is the question asked afresh. A step started while a person is being asked is work they may be about to make pointless, and a change made just as they report the incident over. A step already running finishes, and a press ends the walk wherever it is (§10). At five minutes each offer still standing expires: the walk records `OfferExpired`, narrated as Argus carrying on without an answer, and takes its next step. The person who still means it writes again, and is offered again. A press on an expired offer, or on an incident that has since ended, changes nothing. A walk that is not running waits for nothing, and its offers keep their buttons.
+
+Its own process, as the relay is. The worker walks incidents for minutes at a time and a message is not a walk; the Web Application answers Slack within three seconds, which a model does not.
 
 ### 7.6 Postmortem agent
 
@@ -244,12 +261,13 @@ A minimal admin UI, its own module, for editing `INTEGRATION_CONFIG` (§11.3): S
 
 The single HTTP-facing surface for Argus. No other module listens on a network port or parses HTTP; everything past its boundary is a plain function call.
 
-Exposes five endpoint groups:
+Exposes six endpoint groups:
 - **Alert webhook** - receives an alert POST, validates it, normalizes it into Argus's own `Alert` domain object, then calls the Orchestrator's intake in-process with that object - never the raw payload (§25). It answers as soon as the incident exists, with the incident's id: the investigation is queued for a worker (§7.1) rather than run here, so a caller is never held open for the length of one, and `argus_web` cannot reach the graph at all. The normalized alert carries a vendor-neutral reference to the rule that fired; Grafana's payload has no field for it, so the adapter reads the rule's uid out of the link to the rule every alert carries (`generatorURL`) - the segment after `/alerting/`, past a `grafana/` source segment where there is one. A webhook reporting only resolutions opens nothing: whether a rule has stopped firing is read from the rule (§7.3), never inferred from a notification that can be batched or lost. A firing of a rule whose incident for the same service is still open joins that incident rather than opening a second one; a rule watching several services pages for each, and each is an incident of its own.
 - **Incident view** - the pages of §7.7: the live page and the fragment it polls, the incident history, one incident's walk, and the postmortems, read through the repositories that own the incident tables (§11.1). Those pages are the only reader there is, so no JSON API sits beneath them.
 - **Configuration API** - serves the Backoffice: CRUD over `INTEGRATION_CONFIG` (§11.3).
 - **Push webhook** - receives GitHub's notification that the Target Service's repository has moved, verifies the signature over the bytes that arrived before parsing any of them, and writes down the commit the deployed branch now points at (§11.5). Nothing is indexed here: this process serves HTML without installing an embedding model, for the same reason the alert webhook does not walk an incident.
 - **On-call webhook** - receives the on-call platform's deliveries, verifies the signature over the bytes that arrived, and asks the platform's adapter (§12) what happened, in Argus's words. A person resolving the platform's incident resolves Argus's (§10); nothing else does. The delivery names the platform's incident and not Argus's, so it is matched here: the platform incident's alert keys are read back and looked up among the keys the alert carried in at intake (§11.1), and the link is recorded once found. Matched at the resolution rather than at intake, because the alert source pages the platform and Argus at the same moment and the platform's incident may not exist yet when Argus asks; by the time somebody resolves it, it does. An unverified delivery is refused, and a platform that cannot be read while matching is answered with a retryable failure, so the platform delivers again rather than losing the resolution. Everything else is accepted, an incident Argus never had included, and redelivery is harmless because a resolution moves the row at most once. With no on-call platform configured the endpoint does not exist. The platform reaches it only at a public address, which is the deployment's to provide (§19).
+- **Chat webhooks** - receive what the chat platform delivers: a reply in an incident's thread, and the press of an offer's button (`/webhooks/slack/events`, `/webhooks/slack/interactions`). Each is verified against the app's signing secret over the bytes that arrived, and refused when signed more than five minutes from now in either direction, before anything in it is parsed; the platform's adapter (§12) then parses what it was into Argus's words. A reply is matched to its incident by the thread it is in, and its message is claimed and its `PersonWrote` recorded in one transaction (§7.5a), so a delivery Slack retries is ingested once. Messages in threads Argus did not open, in no thread, edited, or posted by a bot are acknowledged and record nothing. A press resolves the incident (§10) only when it is the offer's own person pressing; anybody else's press, a press with no offer behind it, a press on an offer that expired, and a press on an incident that has ended change nothing, and are logged. With no chat platform configured the endpoints do not exist, and they too are reached only at a public address.
 
 `argus_web` holds no incident-domain logic - only request validation and response shaping. It calls the Orchestrator's intake as an in-process dependency and reads/writes Postgres using schemas defined in `argus_core` (§20.2).
 
@@ -384,7 +402,7 @@ Withdrawal is not a verdict. No postmortem is written for it: there was a respon
 
 **A person reporting the incident resolved is taken as fact (§16), and changes nothing back.** It is accepted from every status but `resolved`, `withdrawn` and `disproven` - the terminal endings Argus reached by stopping included, because somebody carried on from there and is exactly who comes back to report it over, and because a person pressing the button should not lose a race with the walk. It stops the walk at every point a withdrawal does, and there the two part: nothing is put back, since the person has the world as it is and undoing Argus's changes behind them would be second-guessing the one report Argus does not test; Code-Fix does not run, since whatever needed doing was done; and the walk goes on to remember what was tried and to write the postmortem, which lists every change of Argus's still in place. That holds for a run that fails after the report too - a failed run is otherwise unwound, and the worker reads the ending first. An incident resolved before a worker claims it is still walked, straight to the write-up. One whose walk had already ended is only marked, and its end stays where Argus put it.
 
-A resolution reaches Argus from two places: its own incident page, and the on-call platform where the person was paged (§7.9). From the platform, only a person's resolution counts, because only a person is someone this rule takes at their word. The monitoring clearing its own alert is a statement about the metrics, which Argus reads for itself; a resolution nobody made - a timeout, an automation that names no one - decides nothing; a merge moves the incident into another rather than ending it, and is recognised before the person is, since a merged incident's resolution names the person who merged it; and a reopen after Argus marked the incident resolved changes nothing, the ending being the person's report and not the platform's state. What the person wrote is read from the platform as theirs, and where they wrote nothing there is no note - never an earlier note presented as the resolution.
+A resolution reaches Argus from three places: its own incident page, the on-call platform where the person was paged, and the incident's own Slack thread (§7.9). From the thread, words are not enough: what Argus reads in a message is offered back to the person who wrote it (§7.5a), and only their press of that offer resolves the incident, credited to them and with their message, verbatim, as the note - a misread message offers a resolution nobody meant, and nothing changes until its writer confirms it. From the platform, only a person's resolution counts, because only a person is someone this rule takes at their word. The monitoring clearing its own alert is a statement about the metrics, which Argus reads for itself; a resolution nobody made - a timeout, an automation that names no one - decides nothing; a merge moves the incident into another rather than ending it, and is recognised before the person is, since a merged incident's resolution names the person who merged it; and a reopen after Argus marked the incident resolved changes nothing, the ending being the person's report and not the platform's state. What the person wrote is read from the platform as theirs, and where they wrote nothing there is no note - never an earlier note presented as the resolution.
 
 Every transition is published as a paired `StatusChanged` event, written on the same connection as the status itself, per the Orchestrator's single-writer rule (§7.1, §11.1). A status is written only when the incident enters it: the account is read as where the incident has been, so a status set and overwritten by the next node is never recorded at all.
 
@@ -408,7 +426,6 @@ erDiagram
     INCIDENT ||--o| POSTMORTEM : produces
     INCIDENT ||--o{ REPLAY_LOG : logs
     INCIDENT ||--o{ INCIDENT_RUN : is_walked_by
-    INCIDENT ||--o| SLACK_THREAD : is_talked_about_in
     INCIDENT ||--o{ INCIDENT_REFERENCE : is_known_elsewhere_by
 
     INCIDENT {
@@ -469,12 +486,6 @@ erDiagram
         text value UK
         timestamp recorded_at
     }
-    SLACK_THREAD {
-        uuid incident_id PK
-        text channel PK
-        text ts
-        timestamp created_at
-    }
     EVENT_CURSOR {
         text reader PK
         bigint seq
@@ -534,9 +545,9 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 
 `INCIDENT_EVENT` is the account of the work rather than a record of its conclusions (§4 principle 8): one append-only row per thing that happened, in the order it was published, carrying the whole payload it is about - every bucket a metrics read returned, every log line, every recorded flag change. The payload is stored rather than a reference to fetch again, because the log store moves on and a page that re-fetched would show something Argus never saw. `kind` names the event and `payload` is that event's own shape, so a new kind costs a model rather than a migration; `seq` orders two events that share a timestamp. Rows are appended by the single subscriber that listens to the publishers (§4 principle 8) and are never updated, which is what leaves the single-writer rule intact - the four domain tables keep the Orchestrator as their one writer, and this table has one of its own.
 
-`SLACK_THREAD` and `EVENT_CURSOR` belong to the Communicator (§7.5) rather than to the incident record, because their invariants are its own: where an incident's conversation is, and how far the relay has read. Keeping the correlation in a table of its own is what lets `INCIDENT` stay ignorant that Slack exists - a second destination adds a row rather than a column, and a deployment with no workspace configured writes neither table. The module that owns a table is the module whose rules it holds.
+`EVENT_CURSOR` is how far each follower of the log has read: the relay (§7.5) and the Intent Agent (§7.5a), each under a reader of its own, so either keeps its own pace whatever the other is doing. It belongs to the incident record rather than to either of them, because two processes follow the log, and a cursor kept by one would be one the other installs it to read.
 
-`INCIDENT_REFERENCE` is what other tools call an incident: a source, the kind of name it is and the name itself, unique across all three, so one name points at one incident. The alert source's is recorded at intake - for Grafana, the SHA-256 of the alert group's key, which is what it stamps on every notification it sends a paging tool, and so the name a paging tool hands back - and the on-call platform's own incident id once a resolution or an engagement read has found it (§7.9, §21.3). It follows `SLACK_THREAD`'s reasoning: a new tool adds rows rather than columns, and `INCIDENT` stays ignorant of which tools exist.
+`INCIDENT_REFERENCE` is what other tools call an incident: a source, the kind of name it is and the name itself, unique across all three, so one name points at one incident. The alert source's is recorded at intake - for Grafana, the SHA-256 of the alert group's key, which is what it stamps on every notification it sends a paging tool, and so the name a paging tool hands back - and the on-call platform's own incident id once a resolution or an engagement read has found it (§7.9, §21.3). The chat platform's are the thread an incident is talked about in, each message a person wrote there, and each offer Argus posted, all named by Slack's own ids as a channel and a message. A thread is one per incident per channel, so a second opening message writes nothing and the conversation is never split; a message is claimed once, so a delivery Slack retries is ingested once. A new tool adds rows rather than columns, and `INCIDENT` stays ignorant of which tools exist - a deployment with no workspace configured writes none of these.
 
 `EXCHANGE_RATE` belongs to no incident, and is the only table here that does not - which is why it hangs off nothing in the diagram. It is a cache of what a currency was worth on a day, read when an incident's loss is reported in a currency the takings were not measured in. Keyed by the day rather than the moment: a published rate is a fact about a date, so two incidents on the same day are priced identically however far apart they ran, and a rate already fetched is never fetched twice. `fetched_at` records when Argus asked, which is a different question from when the rate was published and the one to ask when a figure looks stale.
 
@@ -640,7 +651,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Alert rules | No - each alerting stack has its own rule definition and state APIs | N/A - Argus never changes a rule | **Grafana**: its provisioning API for a rule's definition (range, evaluation interval, `keep_firing_for`, and the query and evaluator its threshold applies) and its Prometheus-compatible rules API for where the rule stands, via `argus-read-mcp` |
 | Logs | No - format and storage both vary per team, no interop standard | N/A - Argus never writes to Target Service logs | Target Service HTTP log endpoint (`GET /logs`, no params - returns full log), windowing/filtering done in `argus-read-mcp` itself (§16) |
 | Metrics | **De facto - Prometheus-compatible query API** (PromQL); emission standardized via **OTLP**, but OTel isn't a backend itself | N/A - Argus only reads metrics | Target Service → OTel SDK → local **OTel Collector** → **Prometheus**; `argus-read-mcp` queries Prometheus's HTTP API |
-| Chat (Slack) | N/A - one real vendor, no abstraction needed | - | Slack Web API - reads via `argus-read-mcp`; the Communicator posts through its own adapter (§7.5) |
+| Chat (Slack) | No - each platform has its own events, signatures and message shapes | No - each platform has its own message, thread and button shapes | **Slack**, in both directions. The port is `chat_platform`'s, named for the role and split by direction: `ChatPlatformReads` - what a delivery said (a reply in an incident's thread, a press of an offer's button), believed only under the app's signing secret, and what the platform calls a person - and `ChatPlatformWrites` - a message, a reply in a thread, an offer's button, and a rewrite that takes the button away. One adapter, `chat_platform.slack`, answers both, so the button the Communicator posts and the press the Web Application reads are spelled in one place. It is the only code that knows an envelope, a header, a field or a block, and only the composition roots of the Web Application, the Intent Agent (§7.5a) and the Communicator (§7.5) build it |
 | On-call platform | No - each platform has its own incident, alert and webhook shapes | N/A - Argus never pages, acknowledges or resolves on the platform | **PagerDuty**, optional: its REST API for an incident's acknowledgements, alert keys and notes, and its signed webhook for a person's resolution (§7.9). The port is `oncall_source`'s, named for the role, and the adapter is the only code that knows a route, an event type or a field. A deployment without one has no on-call platform at all: no endpoint, and postmortems that cannot say who responded |
 | Email | SMTP is already the standard | - | `argus-write-mcp` via configured SMTP relay |
 | Long-term memory | N/A - internal to Argus | - | Qdrant directly - written by the step that closes a walk and read by the step that fixes candidate order (§11.2), both inside the Orchestrator's own process. No tool, because no model ever asks for it |
@@ -652,7 +663,7 @@ Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - eac
 
 | Server | Exposes |
 |---|---|
-| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window, rule)` - Prometheus range query, plus the series the named rule evaluates, resolved from the rule's definition by the server so that no query language crosses into an agent (§16); `get_alert_rule(rule)` - how the alert rule that paged reads its service and whether it has stopped firing, as of its last evaluation, read by Mitigation's verification and offered to no model (§7.3); `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); `get_placements(service)` - each of the service's pods, the node it runs on, the accelerator card that node carries and when the pod started, read once by the Investigator against the onset and offered to no model (§9); flag evaluation against the flag provider's evaluation API; Slack channel/thread reads; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
+| `argus-read-mcp` | `get_log_lines(window, filters)` - fetches full log via HTTP, windows/filters/caps in the server itself (§16); `get_metrics_summary(window, rule)` - Prometheus range query, plus the series the named rule evaluates, resolved from the rule's definition by the server so that no query language crosses into an agent (§16); `get_alert_rule(rule)` - how the alert rule that paged reads its service and whether it has stopped firing, as of its last evaluation, read by Mitigation's verification and offered to no model (§7.3); `get_change_events(service, window)` - Argo CD revision history, mapped to vendor-neutral change events and filtered to the window (§16); `get_placements(service)` - each of the service's pods, the node it runs on, the accelerator card that node carries and when the pod started, read once by the Investigator against the onset and offered to no model (§9); flag evaluation against the flag provider's evaluation API; `search_repository_by_meaning(description)` - nearest passages of the Target Service's source from the repository index (§11.5), each with its path and line span, prefixed with a notice where the index is behind the deployed commit; `get_repository_index_freshness(ref)` - the same fact before anything has been asked for, so a prompt can carry it rather than a model learning it from a result it has already acted on |
 | `argus-write-mcp` | Unleash admin toggle + revert (Mitigation); `restart_service` (Mitigation), which asks the deployment platform to roll the workload and returns only once a new process is serving; `roll_back_deployment` and `restore_deployment` (Mitigation), which return an application to the revision it was running before and put both of that change's halves back; `scale_out` (Mitigation), which adds replicas to a deployment sized for less traffic than it is getting; `pin_autoscaler` (Mitigation), which holds a flapping deployment still by raising its autoscaler's floor to the ceiling somebody already declared for it, and so is aimed at the controller rather than at the count the controller keeps re-deciding; `discard_cache_entries` (Mitigation), which is the one write that reaches a datastore rather than a control plane - it names the entries it is given, removes them from the store itself, and answers with how many it removed, which is what settles the attempt (§13); `pin_to_accelerator` and `restore_accelerator_pin` (Mitigation), which hold a deployment's pods to the card they are told - suspending the platform's own reconciliation first, so the declared template is not re-applied at the next sync - and put back both the selector the deployment had, including that it had none, and whether the platform was reconciling it; `open_pull_request` (Code-Fix, no test-path writes) - deliberately **no `merge_pull_request` function exists**. An upstream dependency's outage has no entry here and is the one named cause nothing in the declared set answers: every mitigation acts on Argus's own deployment, and another company's outage is reachable by none of them - so that incident is diagnosed exactly and handed to a person |
 
 **Why split by tier, and not one server per integration.** The per-integration split (`logs-mcp`, `flags-mcp`, `git-mcp`, ...) is the convention for *publicly distributed* MCP servers, where each is installed independently by strangers. Argus owns all of its tools, so that reason doesn't apply, and seven processes would mean seven ports, healthchecks, images and startup orderings for a single team. What *does* justify a process boundary is a difference in **blast radius**: a process holding the GitHub PAT and the Unleash admin token is a fundamentally different risk object from one that can only read. That boundary is what makes §13's first guardrail structural rather than conventional - `argus-read-mcp` has no mutating code path and no credential that could authorize one, so no bug, prompt injection, or confused caller can talk it into writing. Splitting `logs` from `metrics` buys none of that: same tier, same failure domain, same (absent) secrets.
@@ -671,7 +682,7 @@ Every action is tiered, and the tier determines how much autonomy the agent has:
 
 | Tier | Examples | Autonomy |
 |---|---|---|
-| Read-only | query logs, read Slack, read code | Fully autonomous |
+| Read-only | query logs, read code, read what a person wrote in an incident's thread | Fully autonomous |
 | Generic mitigation | toggle a flag back, restart a service, return a deployment to the revision it was running before, give a deployment more replicas than it was sized for | Autonomous, but announced in Slack immediately + logged, with whatever it left to put back recorded |
 | Outside the declared set | merge PR, Terraform apply | **Never autonomous.** Agent proposes; a human must approve |
 | Give up / escalate | the investigation's budget binds before it names a cause, no mitigation Argus may take resolves the alert, the cause is named and the declared set answers that kind of failure with nothing, or the platform every remaining action would act through is not answering | Autonomous - pages a human with full context, doesn't keep guessing |
@@ -1096,7 +1107,7 @@ Where nothing recorded a minute the write-up measures its own, and the two cases
 
 **Recovery is read off the metrics rather than off Argus's own timeline** - never from the moment an action was applied, and never from the moment a verdict was reached. Those say when Argus acted and when it concluded, and a service does not recover because somebody acted on it. A window that ends with no minute having fallen back has no recovery to report, which is an answer: the service was still broken when the metrics ran out, and anything measured over that window is a lower bound.
 
-**A person saying the incident is over is not Argus's own timeline, and is not held to that rule.** Where a human reports it resolved, that report is the fact: Argus stops, records when and by whom, and dates recovery from the report rather than from the series - unless Argus had already confirmed a recovery itself, which is an earlier answer to when the service came back rather than a contradiction of the report. It does not look for a level falling to corroborate the claim. A report is not a hypothesis, and testing one would be Argus claiming an authority over the people it works for that it does not have. The rule above governs the incidents nobody reports, which is most of them.
+**A person saying the incident is over is not Argus's own timeline, and is not held to that rule.** Where a human reports it resolved - from the incident page, the on-call platform or the incident's own thread - that report is the fact: Argus stops, records when and by whom, and dates recovery from the report rather than from the series - unless Argus had already confirmed a recovery itself, which is an earlier answer to when the service came back rather than a contradiction of the report. It does not look for a level falling to corroborate the claim. A report is not a hypothesis, and testing one would be Argus claiming an authority over the people it works for that it does not have. The rule above governs the incidents nobody reports, which is most of them.
 
 **Resources are reported on every minute of every incident, not only the ones about memory.** A field that appeared when it mattered would be read as a signal by its presence, and a baseline nobody can see is not a baseline. The limit travels beside the usage because the usage alone says nothing - 1.3GiB is a crisis in one container and a quiet afternoon in another - and the process start time travels with both because it is the only thing that distinguishes a heap that fell because the fault eased from one that fell because the process was replaced.
 
@@ -1248,6 +1259,7 @@ flowchart TB
         WEB[argus_web service<br/>HTTP + Orchestrator + sub-agents, in-process]
         MCPS[argus-read-mcp,<br/>argus-write-mcp]
         RELAY[relay<br/>follows the event log, posts what a human hears]
+        INTENT[intent agent<br/>follows the event log, understands what people write]
         PG[(Postgres)]
         QDRANT[(Qdrant<br/>long-term memory + repository index)]
         INDEXER[index catch-up<br/>keeps the repository index at the deployed commit]
@@ -1273,6 +1285,9 @@ flowchart TB
     MCPS -->|HTTP: fetch log| TS
     RELAY -->|reads the event log| PG
     RELAY -->|Slack Web API| ExternalSlack[Slack]
+    INTENT -->|reads the event log, publishes offers| PG
+    INTENT -->|who a person is| ExternalSlack
+    ExternalSlack -->|replies and presses, at a public address| WEB
     RELAY -->|SMTP| ExternalMail[Email]
     MCPS -->|Git ops| ExternalGH[GitHub]
     INDEXER -->|read the repository at a commit| ExternalGH
@@ -1290,7 +1305,7 @@ Only modules with their own network entrypoint - the Web Application, each MCP s
 
 The index catch-up is the one box here that serves no request. It wakes on its own schedule, compares the commit the index describes with the commit the repository is at, and closes the gap (§11.5) - so the index is built off every incident's path, and a stack brings it to the deployed commit once before the services that read it start.
 
-Two senders reach Argus from outside its network: GitHub's push webhook and the on-call platform's. Both are signed and verified before anything in them is read, and both need `argus_web` reachable at a public address - an ingress in a deployment, a tunnel for a demo - which is the deployment's to provide rather than Argus's. The on-call platform is not polled in place of its webhook: a resolution that never arrives leaves the incident where Argus put it, and the person can still report it from the incident page.
+Three senders reach Argus from outside its network: GitHub's push webhook, the on-call platform's, and Slack's. All three are signed and verified before anything in them is read, and all three need `argus_web` reachable at a public address - an ingress in a deployment, a tunnel for a demo - which is the deployment's to provide rather than Argus's. The on-call platform is not polled in place of its webhook: a resolution that never arrives leaves the incident where Argus put it, and the person can still report it from the incident page.
 
 The Target Environment deploys independently of Argus, reflecting that in a real deployment it would simply be swapped for actual production infrastructure.
 
@@ -1407,13 +1422,15 @@ argus/
 │   ├── incident_memory/              # what earlier incidents were done about: the record, the text it is found by, the store, and the ordering it informs
 │   ├── repository_source/            # reading a repository at a commit: its source, what changed between two, where a branch points
 │   ├── deployment_platform/          # the deployment platform's port, split by tier, and its one adapter (Argo CD)
-│   ├── argus_web/                   # HTTP surface: alert webhook, incident read API, config API
+│   ├── chat_platform/               # the chat platform's port and its one adapter (Slack): deliveries, signatures, names
+│   ├── argus_web/                   # HTTP surface: alert, push, on-call and chat webhooks, incident view, config API
 │   ├── agent_investigator/
 │   ├── agent_mitigation/
 │   ├── agent_codefix/
 │   ├── agent_communicator/          # the relay over the event log, its delivery policy and destination adapters
+│   ├── agent_intent/                # what people write in an incident's thread: one reading each, and the offer to resolve
 │   ├── agent_postmortem/
-│   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval, code-search and Slack-read tools
+│   ├── read_mcp_server/             # argus-read-mcp: log, metrics, flag-eval and code-search tools
 │   ├── read_mcp_client/             # typed client for argus-read-mcp, imported by consuming agents
 │   ├── write_mcp_server/            # argus-write-mcp: flag toggle, git revert/PR
 │   ├── write_mcp_client/            # typed client for argus-write-mcp, imported by consuming agents

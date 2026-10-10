@@ -17,6 +17,12 @@ from collections.abc import Iterable
 import psycopg
 from argus_core.models import Reference
 
+_GIVE_A_NAME = (
+    "INSERT INTO incident_reference (incident_id, source, kind, value) "
+    "VALUES (%s, %s, %s, %s) "
+    "ON CONFLICT DO NOTHING"
+)
+
 
 def add(conn: psycopg.Connection,
         incident_id: str,
@@ -27,17 +33,37 @@ def add(conn: psycopg.Connection,
     No commit: the caller's transaction is the one the names belong to. An
     alert's names are written with the incident they open, and an incident
     whose names arrived without it would be names for nothing.
+
+    A conflict on any of the table's keys writes nothing, not only on the name
+    itself: an incident's second thread in a channel is a name nobody holds,
+    and the first thread still stands.
     """
     with conn.cursor() as cursor:
         cursor.executemany(
-            "INSERT INTO incident_reference (incident_id, source, kind, value) "
-            "VALUES (%s, %s, %s, %s) "
-            "ON CONFLICT (source, kind, value) DO NOTHING",
+            _GIVE_A_NAME,
             [
                 (incident_id, reference.source, reference.kind, reference.value)
                 for reference in references
             ]
         )
+
+
+def claim(conn: psycopg.Connection, incident_id: str, reference: Reference) -> bool:
+    """Gives the incident this name, and says whether this was the write that
+    gave it.
+
+    For a name that arrives once per thing it names - a message a chat
+    platform delivers - where a second delivery must know it is the second and
+    do nothing. No commit, as with `add`: the name and whatever it is claimed
+    for are one transaction, or a crash between them loses the thing for good.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            _GIVE_A_NAME,
+            (incident_id, reference.source, reference.kind, reference.value)
+        )
+
+        return cursor.rowcount == 1
 
 
 def get_values_for(conn: psycopg.Connection, incident_id: str, kind: str) -> list[str]:

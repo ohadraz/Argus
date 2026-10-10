@@ -5,28 +5,22 @@ does it, and `relaying` follows that log and says what is new somewhere a
 person is - so an incident is reported because it happened, not because
 whoever handled it remembered to say so.
 
-Underneath that: `policy` decides which lines a human hears and how loudly,
-`delivering` turns that into a Slack message or a reply in the incident's
-thread, `slack` is the one module that knows Slack exists, and `following`
-plugs the relay into the event log. `watching` is the process that runs it.
+Underneath that: `policy` decides which lines a human hears and how loudly, and
+`saying` turns that into a message in the channel or a reply in the incident's
+thread, through the chat platform's port - which is where the platform itself,
+Slack today, is known. The log is followed through
+`argus_incidents.following`, which every reader of it shares. `watching` is the
+process that runs it.
 """
 
-from agent_communicator.delivering import a_slack_delivery
-from agent_communicator.following import events_since, place_for
 from agent_communicator.policy import Register, how_it_is_said
-from agent_communicator.relaying import Backlog, Delivery, Place, relay_once
-from agent_communicator.slack import a_slack_client, post_message
+from agent_communicator.relaying import Destination, relay_once
+from agent_communicator.saying import a_chat_destination
 
 __all__ = [
-    "Backlog",
-    "Delivery",
-    "Place",
+    "Destination",
     "Register",
-    "a_slack_client",
-    "a_slack_delivery",
-    "events_since",
+    "a_chat_destination",
     "how_it_is_said",
-    "place_for",
-    "post_message",
     "relay_once"
 ]

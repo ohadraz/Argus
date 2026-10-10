@@ -27,6 +27,19 @@ NOTIFICATION_KEY: Final = "notification-key"
 # is the platform's report channel, so two platforms' ids never meet.
 ON_CALL_INCIDENT: Final = "on-call-incident"
 
+# The kinds of name a chat platform gives a place in the conversation about an
+# incident: the thread it is told in, a message a person wrote there, and an
+# offer Argus posted there. The source is the platform's report channel, as an
+# on-call platform's is.
+CHAT_THREAD: Final = "chat-thread"
+CHAT_MESSAGE: Final = "chat-message"
+CHAT_OFFER: Final = "chat-offer"
+
+# Between the channel and the message in a place's value. A character no chat
+# platform puts in a channel id, because the schema finds the channel as
+# everything before it, to keep one thread per incident per channel.
+_PLACE_SEPARATOR: Final = "/"
+
 
 class Reference(BaseModel):
     """One name an external tool knows an incident by.
@@ -45,3 +58,41 @@ class Reference(BaseModel):
     source: str
     kind: str
     value: str
+
+
+def a_chat_thread(platform: str, channel: str, message: str) -> Reference:
+    """The thread an incident is told in: the channel, and the message that
+    opened it."""
+    return _a_place(platform, CHAT_THREAD, channel, message)
+
+
+def a_chat_message(platform: str, channel: str, message: str) -> Reference:
+    """One message a person wrote in a channel."""
+    return _a_place(platform, CHAT_MESSAGE, channel, message)
+
+
+def a_chat_offer(platform: str, channel: str, message: str) -> Reference:
+    """One offer Argus posted in a channel."""
+    return _a_place(platform, CHAT_OFFER, channel, message)
+
+
+def the_place_of(value: str) -> tuple[str, str]:
+    """The channel and the message a place in a chat names, exactly as they
+    were given - from the value of a thread, a message or an offer reference.
+
+    The value rather than the reference, because a place is stored and read
+    back as its value, and a caller holding one should not have to build a
+    reference around it only to have it taken apart again.
+
+    Split at the first separator: a channel id never holds one, and a message
+    id is returned whole whatever it holds.
+    """
+    channel, _, message = value.partition(_PLACE_SEPARATOR)
+
+    return channel, message
+
+
+def _a_place(platform: str, kind: str, channel: str, message: str) -> Reference:
+    return Reference(source=platform,
+                     kind=kind,
+                     value=f"{channel}{_PLACE_SEPARATOR}{message}")

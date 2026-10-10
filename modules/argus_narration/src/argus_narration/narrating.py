@@ -44,14 +44,18 @@ from argus_core.events import (
     IncidentEvent,
     IncidentRemembered,
     LogsRetrieved,
+    MessageUnderstood,
     MetricsRetrieved,
     MitigationResumed,
+    OfferExpired,
     OnsetDetected,
+    PersonWrote,
     PlacementRecorded,
     PlatformUnavailable,
     PostmortemWritten,
     RecoveryChecked,
     RememberingFailed,
+    ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
     SimilarIncidentsRecalled,
@@ -65,8 +69,10 @@ from argus_core.models import (
     FixOutcome,
     FlagChange,
     IncidentStatus,
+    Meaning,
     PodPlacement,
     RecordedPlacement,
+    Reference,
     Refusal,
     ReportChannel,
     RetrievalChannel,
@@ -90,6 +96,11 @@ _MITIGATION = "Mitigation Agent"
 _CODEFIX = "Code-Fix Agent"
 _COMMUNICATOR = "Communicator Agent"
 _POSTMORTEM = "Postmortem Agent"
+_INTENT = "Intent Agent"
+# Whoever wrote in the incident's thread, before anybody has looked their name
+# up. Not their platform id: an id is a lookup key, and a reader handed one has
+# been handed a chore rather than a person.
+_A_PERSON = "A person"
 
 _AGENTS = {
     Actor.ORCHESTRATOR: _ARGUS,
@@ -149,7 +160,18 @@ _CHANNELS = {
 # find whoever made it.
 _REPORT_CHANNELS = {
     ReportChannel.ARGUS_UI: "the Argus UI",
-    ReportChannel.PAGERDUTY: "PagerDuty"
+    ReportChannel.PAGERDUTY: "PagerDuty",
+    ReportChannel.SLACK: "Slack"
+}
+
+# What a person's message was read as, said as what it is rather than as the
+# label. "Other" is said as what it means for the person who wrote it.
+_A_MEANING = {
+    Meaning.RESOLVE: "a resolution",
+    Meaning.QUESTION: "a question",
+    Meaning.INFORMATION: "new information",
+    Meaning.WITHDRAW: "a request to stand down",
+    Meaning.OTHER: "nothing to act on"
 }
 
 _HYPOTHESIS_FORMED = "hypothesis-formed"
@@ -220,6 +242,23 @@ class NarrationLine(BaseModel):
     # attempt the marked word is the refusal, so a destination that linked
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
+    # The message a person wrote that this line asks them to confirm, where it
+    # asks - so far, only an offer to resolve. A reference rather than words,
+    # because a destination that can carry a button makes one of it, and the
+    # button has to name the one message whose writer may press it; one that
+    # cannot simply says the sentence.
+    asks_to_confirm: Reference | None = None
+    # Whether, after this line, the incident can no longer be resolved -
+    # resolved already, taken back, or found to be no incident. Not the same
+    # as an ending: `mitigated` ends Argus's part and still takes a person's
+    # resolution, so a destination closing an offer on every ending would take
+    # a button away while it could still do what it says.
+    leaves_nothing_to_resolve: bool = False
+    # Whether, after this line, the incident's offers are no longer waited on -
+    # Argus carried on without an answer. Not the same as leaving nothing to
+    # resolve: the incident can still be resolved, by a person writing again or
+    # from anywhere else, and only the buttons already posted are done with.
+    expires_the_offers: bool = False
     # How many identical looks this line stands for. The wait polls every few
     # seconds and says the same thing each time; a dozen rows saying it is
     # noise, and none at all is a page that looks stuck.
@@ -564,6 +603,31 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # people, and neither is fixed by knowing that something failed.
             emphasis = event.refusal
             text = f"Could not tell {event.channel} - {emphasis}"
+        case PersonWrote():
+            who = _A_PERSON
+            # Their words, untouched and set apart. What Argus made of them is
+            # the next line, in the intent agent's voice, so that the person and
+            # Argus's classification of them are never one sentence.
+            emphasis = event.text
+            text = f"Wrote in the incident's thread: {emphasis}"
+        case MessageUnderstood():
+            who = _INTENT
+            emphasis = _A_MEANING[event.meaning]
+            text = f"Classified the message as {emphasis}"
+        case ResolutionOffered():
+            who = _INTENT
+            # Named, because only that person's press counts. Somebody the chat
+            # platform could not name was still asked, and is said as such
+            # rather than left out of the sentence.
+            emphasis = event.person_name or "whoever wrote it"
+            text = f"Asked {emphasis} to confirm the incident is resolved"
+        case OfferExpired():
+            who = _ARGUS
+            # Argus's line, not the intent agent's: carrying on is the walk's
+            # decision. It says why the next step came, so it does not read as
+            # one taken over the head of a person who said it was over.
+            emphasis = "not confirmed in time"
+            text = f"The offer to resolve was {emphasis} - carried on"
         case _:
             assert_never(event)
 
@@ -581,6 +645,10 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_to=moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
+        asks_to_confirm=event.message if isinstance(event, ResolutionOffered) else None,
+        leaves_nothing_to_resolve=(isinstance(event, StatusChanged)
+                                   and not event.to_status.accepts_resolution()),
+        expires_the_offers=isinstance(event, OfferExpired),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
             if isinstance(event, MetricsRetrieved)

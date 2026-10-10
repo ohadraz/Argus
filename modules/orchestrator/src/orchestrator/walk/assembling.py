@@ -56,10 +56,12 @@ from argus_core.models import ModelPolicy
 from argus_core.replay import Recorder
 from argus_incidents import (
     EndedByAPerson,
+    WaitForPeople,
     calls_into,
     ended_by_a_person_via,
     events_into,
     events_into_connection,
+    waiting_for_people_via,
 )
 from incident_memory.records import RememberedIncident
 from oncall_source import OnCallSettings
@@ -136,6 +138,9 @@ class Collaborators:
     # every node and by the agents between their steps, and the one thing a
     # walk's own state cannot tell it.
     ended_by_a_person: EndedByAPerson
+    # Holds the walk off its next step while a person Argus asked to confirm
+    # the incident is over has yet to answer (D11). Asked before every node.
+    wait_for_people: WaitForPeople
     # How many times one incident may be investigated. On the record
     # rather than read by the graph, because it is a fact about the
     # deployment and `build_graph` is where a walk is assembled, not
@@ -367,6 +372,7 @@ def against(connections: Connections,
         publisher=events_into(connections),
         recorder=recorder,
         ended_by_a_person=ended_by_a_person_via(connections),
+        wait_for_people=waiting_for_people_via(connections, events_into(connections)),
         max_rounds=settings.investigation_max_rounds
     )
 

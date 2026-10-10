@@ -115,7 +115,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
 
     _every_live_incident_was_withdrawn()
     _every_run_came_to_a_stop()
-    _the_relay_caught_up()
+    _every_reader_caught_up()
     _every_table_was_emptied()
     _long_term_memory_was_forgotten()
     _the_target_service_scenario_was_reset()
@@ -194,17 +194,21 @@ def _the_runs_still_going() -> list[str]:
         return [str(run_id) for (run_id,) in cursor.fetchall()]
 
 
-def _the_relay_caught_up() -> None:
-    """Waits until the Communicator has nothing left to say about this case.
+def _every_reader_caught_up() -> None:
+    """Waits until every reader of the event log - the relay and the
+    intent agent - has nothing left to do about this case.
 
     The wait above covers the worker, which is not the only long-lived process
-    writing here. The relay is a second reader of the same incident, on its own
-    poll loop: a line it has read but not yet delivered is a `slack_thread`
-    insert that lands after the tables are emptied, against an incident that no
-    longer exists. That is a foreign key violation, and `watch_forever` is
-    designed to fail the process on one - so it does not merely lose a message,
-    it takes the relay down for the rest of the run, and every later case waits
-    for messages nobody is left to post.
+    writing here. The relay and the intent agent each read the same incident on
+    a poll loop of their own: a line the relay has read but not yet said is an
+    `incident_reference` insert, and a message the intent agent has read but not
+    yet understood is an event, that lands after the tables are emptied,
+    against an incident that no longer exists. That is a foreign key violation.
+    `watch_forever` is designed to fail the relay on one - so it does not merely
+    lose a message, it takes the relay down for the rest of the run, and every
+    later case waits for messages nobody is left to post - and the intent agent
+    keeps its place in front of one and tries it again on every look, so every
+    later case waits behind a message that can never be understood.
 
     Loudly, for the reason the runs are waited for loudly: the case that pays
     for this is a later one, on evidence it never arranged.
@@ -212,14 +216,14 @@ def _the_relay_caught_up() -> None:
     deadline = time.monotonic() + _SETTLING_TIMEOUT_SECONDS
 
     while True:
-        behind = _the_lines_the_relay_has_not_reached()
+        behind = _the_lines_the_slowest_reader_has_not_reached()
 
         if behind == 0:
             return
 
         if time.monotonic() >= deadline:
             raise AssertionError(
-                f"The relay was still [{behind}] line(s) behind the event log "
+                f"A reader was still [{behind}] line(s) behind the event log "
                 f"[{_SETTLING_TIMEOUT_SECONDS}s] after every run stopped. "
                 f"Emptying the tables now would kill it on a foreign key to an "
                 f"incident this teardown is about to remove."
@@ -228,13 +232,13 @@ def _the_relay_caught_up() -> None:
         time.sleep(_SETTLING_POLL_SECONDS)
 
 
-def _the_lines_the_relay_has_not_reached() -> int:
+def _the_lines_the_slowest_reader_has_not_reached() -> int:
     """How far the slowest reader of the event log still is from its end.
 
     Counted against every cursor rather than the relay's own name, so a second
     reader added tomorrow is waited for without this being edited. A log with
-    events and no cursor at all is fully behind: the relay has not filed
-    anything yet, which is not the same as having nothing to file.
+    events and no cursor at all is fully behind: no reader has looked yet,
+    which is not the same as having nothing to do.
     """
     with connect_from_env() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT COALESCE(MAX(seq), 0) FROM incident_event")

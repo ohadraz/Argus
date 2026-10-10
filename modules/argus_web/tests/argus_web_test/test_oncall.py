@@ -44,9 +44,9 @@ from argus_web.oncall import IncidentRecord, receive_delivery
 from oncall_source import OnCallUnavailable
 from oncall_source.platform import (
     Delivery,
-    DeliveryUnverified,
     Irrelevant,
     Merged,
+    OnCallDeliveryUnverified,
     OnCallPlatform,
     Reopened,
     ResolvedByAPerson,
@@ -184,14 +184,14 @@ def test_an_unverified_delivery_is_refused_and_resolves_nothing() -> None:
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
                                                     by="dont care"),
                            keys=[SOME_KEY])
-    platform.read_delivery.side_effect = DeliveryUnverified("forged")
+    platform.parse_delivery.side_effect = OnCallDeliveryUnverified("forged")
     record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): SOME_ARGUS_INCIDENT})
 
     Scenario() \
         .when(attempting(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                                   platform=platform, record=record))) \
         .then(all_of(
-            an_error_was_raised(DeliveryUnverified),
+            an_error_was_raised(OnCallDeliveryUnverified),
             _nothing_was_resolved(record)
         ))
 
@@ -219,7 +219,7 @@ def test_a_platform_that_cannot_be_read_mid_match_resolves_nothing_and_says_so()
 def _a_platform(saying: Delivery, keys: list[str], note: str | None = None) -> Any:
     platform = create_autospec(OnCallPlatform, instance=True)
     platform.channel = ReportChannel.PAGERDUTY
-    platform.read_delivery.return_value = saying
+    platform.parse_delivery.return_value = saying
     platform.keys_of.return_value = keys
     platform.resolution_note.return_value = note
 

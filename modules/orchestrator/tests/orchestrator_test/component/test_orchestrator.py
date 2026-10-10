@@ -42,7 +42,7 @@ from argus_core.models import (
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
-from argus_incidents import EndedByAPerson
+from argus_incidents import EndedByAPerson, WaitForPeople
 from argus_testkit import Assertion, Scenario, all_of
 from langgraph.checkpoint.memory import MemorySaver
 from orchestrator.walk import ports
@@ -114,7 +114,8 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         transition_incident=transition_incident,
         publisher=nobody,
         recorder=records_nothing,
-        ended_by_a_person=nobody_ended_the_incident()
+        ended_by_a_person=nobody_ended_the_incident(),
+        wait_for_people=lambda dont_care_incident_id, /: False
     )
 
 
@@ -346,6 +347,55 @@ def test_an_incident_resolved_after_an_action_skips_code_fix_and_is_written_up(
                                     POSTMORTEM_NODE),
                      _the_incident_ended(IncidentStatus.RESOLVED),
                      _a_postmortem_was_recorded(recorded)))
+
+
+@pytest.mark.component
+def test_a_person_answering_while_the_walk_waits_ends_it_before_code_fix(
+    collaborators: Collaborators
+) -> None:
+    # A person said it was over, and the walk waited for their answer once its
+    # change was verified. Their press lands during the wait, so Code-Fix is
+    # never entered - however long the press took.
+    acted: list[bool] = []
+    answered: list[bool] = []
+
+    Scenario() \
+        .given(
+            answered_while_waiting := replace(
+                collaborators,
+                take=_an_action_noting_it_landed(acted, Verdict.CONFIRMED),
+                wait_for_people=_a_person_answering_once_it_acted(acted, answered),
+                ended_by_a_person=_resolved_once_it_acted(answered)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), answered_while_waiting)) \
+        .then(all_of(_the_walk_went(INVESTIGATOR_NODE,
+                                    MITIGATION_PROPOSAL_NODE,
+                                    TIER_GATE_NODE,
+                                    MITIGATION_NODE,
+                                    REMEMBERING_NODE,
+                                    POSTMORTEM_NODE),
+                     _the_incident_ended(IncidentStatus.RESOLVED)))
+
+
+@pytest.mark.component
+def test_nothing_is_waited_for_once_the_postmortem_is_written(
+    collaborators: Collaborators
+) -> None:
+    # The last step has no next one to hold off. A walk that waited after it
+    # would leave the incident open for five minutes over nothing.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            noting_what_happened := replace(
+                collaborators,
+                wait_for_people=_a_wait_noting(happened),
+                write_postmortem=_a_postmortem_noting(happened)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), noting_what_happened)) \
+        .then(_the_last_thing_that_happened_was(happened, "written"))
 
 
 @pytest.mark.component
@@ -731,6 +781,36 @@ def _resolved_once_it_acted(acted: list[bool]) -> EndedByAPerson:
     return ended_by_a_person
 
 
+def _a_person_answering_once_it_acted(acted: list[bool], answered: list[bool]) -> WaitForPeople:
+    """A wait that ends with the person's press - once there is something to
+    have waited for, which is after the action."""
+    def wait(dont_care_incident_id: str, /) -> bool:
+        if acted:
+            answered.append(True)
+
+        return bool(acted)
+
+    return wait
+
+
+def _a_wait_noting(happened: list[str]) -> WaitForPeople:
+    def wait(dont_care_incident_id: str, /) -> bool:
+        happened.append("waited")
+
+        return False
+
+    return wait
+
+
+def _a_postmortem_noting(happened: list[str]) -> ports.WritePostmortem:
+    def write(dont_care_incident_id: str) -> PostmortemDocument:
+        happened.append("written")
+
+        return _a_document()
+
+    return write
+
+
 def _an_action_noting_it_landed(acted: list[bool], verdict: Verdict) -> ports.TakeAction:
     """`verdict`, and a note that the action was taken."""
     take = _an_action_that(verdict)
@@ -807,6 +887,16 @@ def _the_question_reached_the_walk(reached: list[bool]) -> Assertion[Walked]:
                 f"and what it reached was {reached} - so a person saying stop "
                 f"would not be heard until the step ended."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_last_thing_that_happened_was(happened: list[str], expected: str) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if not happened or happened[-1] != expected:
+            raise AssertionError(f"Expected [{expected}] to happen last, got {happened}.")
 
         return True
 

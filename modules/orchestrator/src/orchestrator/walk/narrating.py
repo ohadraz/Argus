@@ -14,7 +14,7 @@ from typing import Any, Final
 
 from argus_core.events import StatusChanged
 from argus_core.models import IncidentStatus
-from argus_incidents import EndedByAPerson
+from argus_incidents import EndedByAPerson, WaitForPeople
 
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.ports import TransitionIncident
@@ -30,12 +30,19 @@ EVERY_PERSONS_ENDING: Final = frozenset(
 )
 
 
+def waits_for_nobody(dont_care_incident_id: str, /) -> bool:
+    """The wait a node with no next step is handed: the postmortem's, and every
+    case that is about something else."""
+    return False
+
+
 def with_status(
     node: Callable[[IncidentState], StateDelta],
     max_rounds: int,
     transition_incident: TransitionIncident,
     ended_by_a_person: EndedByAPerson,
     stops_for: frozenset[IncidentStatus] = EVERY_PERSONS_ENDING,
+    wait_for_people: WaitForPeople = waits_for_nobody,
 ) -> Callable[..., dict[str, Any]]:
     """Wraps a node so that the status it implies is derived, written and
     published in one place (spec §7.1, §10).
@@ -93,6 +100,16 @@ def with_status(
     A node that runs on an incident a person already ended moves it nowhere -
     the row says how it ended, and nothing the node did changes that.
 
+    Once a step is done and its status written, the walk waits for anybody
+    Argus has asked to confirm the incident is over (`wait_for_people`) - after
+    the step rather than before the next, so the press the wait was for is
+    heard before the next step is even chosen, and that step is never entered.
+    Here for the reason the ending is asked here: every node passes through, so
+    no step can follow another while a person is being asked. A wait that
+    waited asks the ending again. The default waits for nobody, for the cases
+    about everything else and for the postmortem, after which there is no step
+    to hold off; the graph hands every other node the real one.
+
     The answer is reported into the state rather than swallowed. A node that
     quietly did nothing leaves every field as it was, and the routers decide
     from those fields - so the same route would be chosen again, and again,
@@ -102,6 +119,22 @@ def with_status(
     already says it, and whoever ended the incident recorded that.
     """
     def run(state: IncidentState) -> dict[str, Any]:
+        updates = stepped(state)
+
+        # A step that ended the walk has nobody to wait for: the person's
+        # ending is already its answer.
+        if updates.get("status") in stops_for or not wait_for_people(state.incident_id):
+            return updates
+
+        ending = ended_by_a_person(state.incident_id)
+
+        if ending in stops_for:
+            logger.info("ended by a person while the walk waited", extra={"ending": ending})
+            return {**updates, "status": ending}
+
+        return updates
+
+    def stepped(state: IncidentState) -> dict[str, Any]:
         ending = ended_by_a_person(state.incident_id)
 
         if ending in stops_for:

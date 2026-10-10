@@ -36,8 +36,10 @@ from argus_core.events import (
     FixAttempted,
     HypothesisFormed,
     IncidentEvent,
+    OfferExpired,
     OnsetDetected,
     PostmortemWritten,
+    ResolutionOffered,
     StatusChanged,
     VerdictReached,
 )
@@ -62,7 +64,7 @@ class Register(StrEnum):
     ANNOUNCED = "announced"
     # Kept rather than said: the write-up an incident leaves behind, which
     # belongs where write-ups are looked for rather than in the conversation
-    # about an incident that is already over. Slack reads this as the
+    # about an incident that is already over. A chat reads this as the
     # postmortem channel, email as an attachment.
     FILED = "filed"
 
@@ -77,7 +79,7 @@ def how_it_is_said(event: IncidentEvent) -> Register:
 
     The wildcard at the end is the policy itself, not the place the cases ran
     out. It is why an event kind added next month reaches the page and the
-    postmortem without anybody having to hold an opinion about Slack.
+    postmortem without anybody having to hold an opinion about the chat.
     """
     match event:
         case AlertAcknowledged():
@@ -154,6 +156,20 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # there - and a team that does not has said so by leaving the
             # channel unset, and gets them in the war room.
             return Register.FILED
+        case ResolutionOffered():
+            # The one line that waits on a particular person, and it is the
+            # button they press: unsaid, it is an incident somebody said was
+            # over sitting open because Argus asked only its own page. Followed
+            # rather than announced, because it answers somebody who wrote in
+            # the incident's own conversation - the channel hears the ending
+            # their press brings about, as it hears every other ending.
+            return Register.FOLLOWED
+        case OfferExpired():
+            # Said, because saying it is what takes the button away: unsaid, an
+            # offer goes on asking a question Argus stopped waiting for.
+            # Followed, where the offer was made - it answers the person who
+            # was asked, and nobody else was waiting on it.
+            return Register.FOLLOWED
         case _:
             # Everything else, which today is everything that reports a look
             # rather than a finding. Forty log lines read is a fact about the
@@ -165,9 +181,15 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # and published in one transaction by the walk that reached it, so
             # a follower already has that answer.
             #
+            # What a person wrote, and what Argus took it to mean, are unsaid
+            # too. Their message is already in the conversation, so saying it
+            # back is an echo; the classification is a fact about how Argus
+            # classifies, and when it leads anywhere the offer it leads to is
+            # what is said.
+            #
             # Two of them are unsaid for a stronger reason than volume.
             # `communication-failed` is written because a destination refused a
-            # line: telling Slack that Slack could not be told is either
+            # line: telling the chat that the chat could not be told is either
             # impossible or noise, and a relay that tried would make a new
             # failure out of every failure. `remembering-failed` costs this
             # incident nothing at all, because it is over.

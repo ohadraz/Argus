@@ -27,7 +27,7 @@ from orchestrator.walk.investigating import (
     route_after_investigation,
 )
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
-from orchestrator.walk.narrating import with_status
+from orchestrator.walk.narrating import waits_for_nobody, with_status
 from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.remembering import remembering_node
 from orchestrator.walk.routes import (
@@ -113,7 +113,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         with_status,
         max_rounds=collaborators.max_rounds,
         transition_incident=collaborators.transition_incident,
-        ended_by_a_person=collaborators.ended_by_a_person
+        ended_by_a_person=collaborators.ended_by_a_person,
+        wait_for_people=collaborators.wait_for_people
     )
     # The yes-or-no the nodes hand their agents. Either ending is a reason not
     # to take the next step; where the walk goes after stopping is the routers'.
@@ -199,7 +200,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             partial(postmortem_node,
                     write=collaborators.write_postmortem,
                     record=collaborators.record_postmortem),
-            stops_for=frozenset({IncidentStatus.WITHDRAWN})
+            stops_for=frozenset({IncidentStatus.WITHDRAWN}),
+            # The last step: there is nothing after it to hold off.
+            wait_for_people=waits_for_nobody
         )
     )
 

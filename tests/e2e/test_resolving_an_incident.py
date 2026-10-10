@@ -6,18 +6,28 @@ resolution leaves everything as it is and writes the incident up - because the
 person who reported it over has the world in hand as it stands, and is owed the
 account.
 
-Two places the report comes from, and one ending: Argus's own incident page,
-and the on-call platform where the person was paged. From the platform, the
-incident is matched by the key the alert came in with, never by Argus's id,
-which the platform has never heard of.
+Three places the report comes from, and one ending: Argus's own incident page,
+the on-call platform where the person was paged, and the incident's own Slack
+thread. From the platform, the incident is matched by the key the alert came in
+with, never by Argus's id, which the platform has never heard of. From the
+thread, the person's words are only read: Argus offers the resolution back to
+them, and it is their press that ends the incident.
 
-Resolved once Argus has changed something, and before the change has been
-judged, which is the moment the two endings differ most: there is a flag for a
-withdrawal to put back, and the resolution must not. It is also the one moment
-a replayed walk can be stopped at deterministically. The double answers in
-order and never reads the request, so a stop between two of the investigation's
-turns would leave one of its answers queued for the write-up; by the time the
-flag has moved, the investigation has had every answer it asks for.
+From the page and the platform, resolved once Argus has changed something,
+and before the change has been judged, which is the moment the two endings
+differ most: there is a flag for a withdrawal to put back, and the resolution
+must not. It is also the one moment a replayed walk can be stopped at
+deterministically. The double answers in order and never reads the request, so
+a stop between two of the investigation's turns would leave one of its answers
+queued for the write-up; by the time the flag has moved, the investigation has
+had every answer it asks for.
+
+From the thread, in an order rather than at a moment. The person writes while
+the walk's model is held, so their words are on the incident before Argus has
+investigated anything; Argus then waits after its first step for their answer,
+and their press is the next thing that happens to it. Nothing here races the
+walk, so nothing here can lose to it. That a resolution leaves Argus's changes
+in place is the page's case, and the same for every channel.
 """
 
 from __future__ import annotations
@@ -26,6 +36,7 @@ import time
 from collections.abc import Callable
 from datetime import timedelta
 from http import HTTPStatus as HttpStatus
+from typing import Any
 
 import httpx2
 import psycopg
@@ -48,9 +59,23 @@ from tests.e2e.framework.argus import (
     argus_is_triggered_with_alert,
     argus_wrote_a_postmortem,
     incident_id_from,
+    the_held_model_answers_from,
     the_model_answers_from,
+    the_model_is_held,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.chat import (
+    RECORDED_INTENT_RESOLVE,
+    THE_WORDS_CLASSIFIED_AS_RESOLVED,
+    a_person_writes,
+    posted_to_slack,
+    the_buttons_on,
+    the_chat_platform_knows,
+    the_intent_agent_answers_from,
+    the_offer_made_in,
+    the_person_presses,
+    the_thread_of,
+)
 from tests.e2e.framework.flags import THE_DEMO_FLAG, flags_evaluating_true
 from tests.e2e.framework.oncall import (
     a_resolution_by,
@@ -146,6 +171,48 @@ def test_an_incident_resolved_in_pagerduty_keeps_its_flag_off_and_is_written_up(
         )
 
 
+@pytest.mark.e2e
+def test_an_incident_resolved_from_its_slack_thread_is_written_up_and_nothing_more() -> None:
+    # The person writes that it is over, Argus offers the resolution back to
+    # them, and their press is what ends it - credited to them, with their
+    # words as the note. Argus waits for that answer rather than carrying on,
+    # so no fix is looked for. The offer is then rewritten to say how it ended,
+    # so the thread does not go on asking a question that has been answered.
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
+                                            alert_name="HighErrorRate",
+                                            severity="critical")
+    some_person = "Some Person"
+    some_person_id = "U0SOMEONE"
+    offered: dict[str, dict[str, Any]] = {}
+
+    Scenario() \
+        .given(
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(the_model_is_held()),
+            calling(the_intent_agent_answers_from(RECORDED_INTENT_RESOLVE)),
+            calling(the_chat_platform_knows(some_person_id, some_person))
+        ) \
+        .when(
+            _argus_is_resolved_from_the_slack_thread_before_it_investigates(
+                some_alert, some_person_id, THE_WORDS_CLASSIFIED_AS_RESOLVED, offered)
+        ) \
+        .then(
+            eventually(
+                all_of(
+                    argus_ended_with_status(IncidentStatus.RESOLVED),
+                    argus_wrote_a_postmortem(),
+                    _the_account_says_it_was_resolved(
+                        Report(by=some_person,
+                               channel=ReportChannel.SLACK,
+                               note=THE_WORDS_CLASSIFIED_AS_RESOLVED)),
+                    _no_fix_was_looked_for(),
+                    _the_offer_now_says_who_ended_it(offered, some_person)
+                ),
+                timeout=WALK_TIMEOUT_SECONDS
+            )
+        )
+
+
 def _argus_is_resolved_once_it_has_acted_on(
     alert: dict[str, object],
     resolve: Callable[[str], httpx2.Response]
@@ -203,6 +270,44 @@ def _from_the_on_call_platform(on_call_incident: str,
             a_resolution_by(person, person_id, on_call_incident))
 
     return resolve
+
+
+def _argus_is_resolved_from_the_slack_thread_before_it_investigates(
+    alert: dict[str, object],
+    person_id: str,
+    words: str,
+    offered: dict[str, dict[str, Any]]
+) -> Callable[[], httpx2.Response]:
+    """Fires the alert with the walk's model held, writes in the incident's
+    thread, lets the walk go, and presses what Argus offers.
+
+    Ordered by the hold rather than timed: the person's words are on the
+    incident before the walk has taken a step, so the walk waits after its
+    first one - and the press, whenever it comes, is the next thing that
+    happens to it.
+
+    The offer is kept in `offered`, so that what became of it can be asserted
+    once the incident has ended.
+    """
+    def step() -> httpx2.Response:
+        response = argus_is_triggered_with_alert(alert)()
+        thread = the_thread_of(incident_id_from(response))
+        written = a_person_writes(person_id, words, in_thread=thread)
+
+        the_held_model_answers_from(RECORDED_FLAG_TOGGLE, less_code_fix=True)()
+
+        offered["offer"] = the_offer_made_in(thread)
+        pressed = the_person_presses(person_id, offered["offer"], about=written)
+
+        if pressed.status_code not in (HttpStatus.OK, HttpStatus.ACCEPTED):
+            raise AssertionError(
+                f"The press on the offer answered [{pressed.status_code}]: {pressed.text}. "
+                f"Nothing below is about an incident a person reported over."
+            )
+
+        return response
+
+    return step
 
 
 def _wait_until_argus_turns_the_flag_off() -> None:
@@ -272,6 +377,30 @@ def _no_fix_was_looked_for() -> Assertion[httpx2.Response]:
             raise AssertionError(
                 f"Expected no fix looked for after the incident was resolved, got "
                 f"{len(attempts)} attempt(s)."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_offer_now_says_who_ended_it(offered: dict[str, dict[str, Any]],
+                                     person: str) -> Assertion[httpx2.Response]:
+    """The offer, rewritten to the line that ended the incident, with nothing
+    left to press."""
+    def assertion(_response: httpx2.Response) -> bool:
+        offer = offered["offer"]
+        now = next((message for message in posted_to_slack()
+                    if (message["channel"], message["ts"]) == (offer["channel"], offer["ts"])),
+                   None)
+
+        if now is None:
+            raise AssertionError(f"Expected Slack to still hold the offer {offer}, it does not.")
+
+        if the_buttons_on(now) or person not in now["text"]:
+            raise AssertionError(
+                f"Expected the offer rewritten to name [{person}] with no button, "
+                f"it reads [{now['text']}] with blocks {now.get('blocks')}."
             )
 
         return True

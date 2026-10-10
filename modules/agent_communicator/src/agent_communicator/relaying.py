@@ -1,10 +1,10 @@
-"""Slack as a projection of the event log, fed by a relay.
+"""The chat as a projection of the event log, fed by a relay.
 
 Nothing in the walk calls this, and that is the whole point. A step of an
 incident reaches a human because it was published, not because whoever wrote
 that step remembered to report it - so an agent added tomorrow is heard from on
-the day it publishes its first event, and no investigation has to know that
-Slack exists.
+the day it publishes its first event, and no investigation has to know that a
+chat exists.
 
 The log is already a transactional outbox: every event is written on the
 connection its decision is written on, inside a savepoint, so an event exists
@@ -13,7 +13,7 @@ polling, at-least-once, with a durable place of its own.
 
 What that place is kept in, and where the log is read from, are seams. This
 module decides what gets said and in what order and knows about no database at
-all; `following` is where those seams meet postgres.
+all; `argus_incidents.following` is where those seams meet postgres.
 
 At-least-once rather than exactly-once, deliberately. A line said twice is a
 nuisance a reader forgives; a line nobody ever says is the failure this exists
@@ -26,15 +26,16 @@ import logging
 from enum import StrEnum
 from typing import Final, Protocol
 
-from argus_core.events import RecordedEvent
+from argus_incidents import Backlog, Place
 from argus_narration import NarrationLine, a_narration_line
+from chat_platform import Link
 
 from agent_communicator.policy import Register, how_it_is_said
 
 # Which reader this is, in `event_cursor`. Named for the destination rather
 # than for the process, so a second relay to a second destination is a second
 # row keeping its own pace - not a second deployment fighting over one place.
-SLACK_RELAY: Final = "slack"
+CHAT_RELAY: Final = "chat"
 
 # How much one look at the log reads. Big enough that catching up after a
 # restart takes a few passes rather than hundreds, small enough that a relay an
@@ -42,29 +43,6 @@ SLACK_RELAY: Final = "slack"
 _A_BATCH: Final = 100
 
 logger = logging.getLogger(__name__)
-
-
-class Backlog(Protocol):
-    """What has been published since a place, oldest first and capped.
-
-    The relay's whole view of the log: no incident to ask about, because a
-    relay follows everything rather than watching one thing.
-    """
-
-    def __call__(self, since: int, batch: int, /) -> list[RecordedEvent]: ...
-
-
-class Place(Protocol):
-    """Where this reader got to, kept somewhere that outlives the process.
-
-    Two methods rather than a value passed in and out, because the keeping is
-    the point: a relay that returned its new place and trusted its caller to
-    store it would lose everything the moment a caller forgot.
-    """
-
-    def where(self) -> int: ...
-
-    def move_to(self, seq: int, /) -> None: ...
 
 
 class Outcome(StrEnum):
@@ -87,17 +65,21 @@ class Outcome(StrEnum):
     NEVER = "never"
 
 
-class Delivery(Protocol):
+class Destination(Protocol):
     """Where a line goes, how loudly it is said, and what became of it.
 
-    Answers rather than raises, because "Slack refused" is an ordinary outcome
-    of talking to Slack and not an error in the relay: the adapter already
-    turns a refusal, a throttle and an unreachable workspace into an answer.
+    Answers rather than raises, because "the platform refused" is an ordinary
+    outcome of talking to a chat platform and not an error in the relay: the
+    adapter already turns a refusal, a throttle and an unreachable workspace
+    into an answer.
 
     The register travels with the line rather than being worked out at the far
     end: how loudly something is said is the policy's decision, and what that
     looks like - a thread reply, a channel message, a digest - is the
     destination's.
+
+    `link` is a page that holds more than the line does, where there is one.
+    The relay never has one; a destination that files write-ups adds it.
 
     A Protocol rather than a `Callable` alias so a test can build one against
     the contract itself.
@@ -106,26 +88,27 @@ class Delivery(Protocol):
     def __call__(self,
                  incident_id: str,
                  line: NarrationLine,
-                 register: Register, /) -> Outcome: ...
+                 register: Register,
+                 link: Link | None = None, /) -> Outcome: ...
 
 
 def relay_once(backlog: Backlog,
                place: Place,
-               deliver: Delivery,
+               say: Destination,
                batch: int = _A_BATCH) -> int:
     """One look at the log: says what is new, and moves on behind itself.
 
     One look rather than a loop, so that what schedules it - a process, a test,
     a single call in a walkthrough - is somebody else's decision. Returns how
-    many lines it delivered, which is what a caller logs and what a test asks.
+    many lines it said, which is what a caller logs and what a test asks.
 
-    Each line is delivered before the place moves past it. A relay killed
+    Each line is said before the place moves past it. A relay killed
     between the two says one line twice, which is the direction this is meant
     to fail in.
 
     A line that could not be said *now* stops the batch where it is. The ones
     behind it wait rather than going out in front of it, because an account
-    delivered with its middle missing reads as a different incident - and the
+    said with its middle missing reads as a different incident - and the
     gap would never be filled, the place having moved past it.
 
     A line that will never be said is passed over instead. The destination has
@@ -137,15 +120,15 @@ def relay_once(backlog: Backlog,
     the same: a relay that stopped at the first retrieval would sit there for
     ever, re-reading something it is never going to say.
     """
-    delivered = 0
+    said = 0
 
     for recorded in backlog(place.where(), batch):
         register = how_it_is_said(recorded.event)
 
         if register is not Register.UNSAID:
-            outcome = deliver(recorded.event.incident_id,
-                              a_narration_line(recorded.event),
-                              register)
+            outcome = say(recorded.event.incident_id,
+                          a_narration_line(recorded.event),
+                          register)
 
             if outcome is Outcome.NOT_NOW:
                 logger.warning("relay paused")
@@ -153,8 +136,8 @@ def relay_once(backlog: Backlog,
                 break
 
             if outcome is Outcome.SAID:
-                delivered += 1
+                said += 1
 
         place.move_to(recorded.seq)
 
-    return delivered
+    return said

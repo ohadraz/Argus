@@ -11,8 +11,8 @@ It then gets diagnosed as an agent bug, days later, by somebody with no reason
 to suspect a JSON file. Two such corpora were committed by a single re-record
 and went unnoticed for exactly that reason.
 
-Two rules, both of them properties every recording has whatever incident it is
-of - so a scenario added tomorrow is guarded tonight and nothing here is
+Two rules, both of them properties every recorded walk has whatever incident it
+is of - so a scenario added tomorrow is guarded tonight and nothing here is
 edited for it:
 
 - **Every walk ends with a postmortem.** It is the last thing an incident
@@ -65,6 +65,13 @@ RECORDINGS_DIR: Final = (
 
 TOOL_USE_TYPE: Final = "tool_use"
 
+# What a walk is stored under: the mode it was captured in, in front of its name
+# (`tests.e2e.framework.argus.stored_as`). A reading of one person's message is
+# stored with none (`scripts/record_reading.py`), because it is offered one tool
+# whatever the mode - and it is not a walk, so neither rule here is about it.
+# Spelled rather than imported, for the reason the tool names above are.
+WALK_PREFIXES: Final = ("grep-", "meaning-", "both-")
+
 
 def the_answers_of(corpus: str, stored: list[Path]) -> list[Path]:
     """Every file one walk's answers are stored across, in the order given.
@@ -92,12 +99,14 @@ def every_corpus() -> Iterator[tuple[str, list[Path]]]:
     A corpus is named by its first answer - the one file with no trailing
     number - so the walks are found by looking for those rather than by
     knowing which scenarios exist. A scenario added tomorrow is guarded
-    tonight, and nothing here has to be edited for it.
+    tonight, and nothing here has to be edited for it. Only a walk is one,
+    which is what its mode prefix says.
     """
     stored = sorted(RECORDINGS_DIR.glob("*.json"))
     openings = [
         path.stem for path in stored
-        if not path.stem.rsplit("-", 1)[-1].isdigit()
+        if path.stem.startswith(WALK_PREFIXES)
+        and not path.stem.rsplit("-", 1)[-1].isdigit()
     ]
 
     for corpus in openings:

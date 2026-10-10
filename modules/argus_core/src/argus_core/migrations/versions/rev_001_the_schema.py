@@ -329,53 +329,19 @@ CREATE TABLE IF NOT EXISTS incident_run (
 -- What a worker asks for, every interval, forever: the runs it could take.
 CREATE INDEX IF NOT EXISTS incident_run_state_idx ON incident_run (state);
 
--- How far each reader of `incident_event` has got. A relay delivering an
--- incident's account somewhere else asks the log what has happened since it
--- last looked, and this is the whole of its state: lose it and the relay
--- either repeats an incident from the beginning of time or starts from now
--- and silently drops whatever was published while it was down.
---
--- One row per reader rather than one row, because two destinations fall
--- behind at different rates and a shared place would let the slower of them
--- decide what the faster has already said.
---
--- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
--- Written and read by `agent_communicator` alone - the DDL is here because
--- this file is where the schema is stated, not because the incident record
--- owns the table.
--- Which Slack conversation an incident is being told in. Slack has no thread
--- id: a reply names the timestamp of the message it replies to, so the first
--- message an incident got is its thread, and every later line has to find that
--- timestamp again - in another pass, another process, another day.
---
--- A row rather than a column on `incident`, because an incident knows nothing
--- about Slack and should not learn: a second destination adds a mapping of its
--- own shape here instead of a column on the table every part of this system
--- reads. Written and read by `agent_communicator` alone.
-CREATE TABLE IF NOT EXISTS slack_thread (
-    incident_id UUID NOT NULL REFERENCES incident(id),
-    channel TEXT NOT NULL,
-    -- Slack's own shape for a message's identity - seconds and microseconds -
-    -- kept as text because that is what a reply has to send back, to the
-    -- digit. A number would round it and address nothing.
-    ts TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- One conversation per incident per channel. The key is the guard: a
-    -- second opening message - two relays at once, a pass repeated after a
-    -- crash - writes nothing, and the conversation people are already reading
-    -- stays the one the rest of the incident goes into.
-    PRIMARY KEY (incident_id, channel)
-);
-
 -- What other tools call an incident. A tool's later word about the incident -
--- a person resolving it in the paging tool that woke them - arrives carrying
--- that tool's names for it and none of Argus's, and this is where those names
--- are matched.
+-- a person resolving it in the paging tool that woke them, or replying in the
+-- chat thread it is told in - arrives carrying that tool's names for it and
+-- none of Argus's, and this is where those names are matched. The thread an
+-- incident is told in is one of them: Slack has no thread id, a reply names
+-- the timestamp of the message it replies to, so the first message an incident
+-- got is its thread, found again here in another pass, another process,
+-- another day.
 --
--- Rows rather than columns on `incident`, for the reason `slack_thread` is a
--- table: an incident knows nothing about the tools around it, and a new tool
--- is one more `source` here rather than one more column on the table every
--- part of this system reads. Written and read by `argus_incidents`.
+-- Rows rather than columns on `incident`: an incident knows nothing about the
+-- tools around it, and a new tool is one more `source` here rather than one
+-- more column on the table every part of this system reads. Written and read
+-- by `argus_incidents`.
 CREATE TABLE IF NOT EXISTS incident_reference (
     incident_id UUID NOT NULL REFERENCES incident(id),
     -- The tool, which of its names this is, and the name as that tool spells
@@ -392,7 +358,30 @@ CREATE TABLE IF NOT EXISTS incident_reference (
 );
 CREATE INDEX IF NOT EXISTS incident_reference_incident_idx
     ON incident_reference (incident_id);
+-- One conversation per incident per channel. A thread is a different name each
+-- time one is opened, so the key above cannot stop a second - two relays at
+-- once, a pass repeated after a crash - and this is the guard: the second
+-- writes nothing, and the thread people are already reading stays the one the
+-- rest of the incident goes into. The channel is everything before the first
+-- `/` of the value, which is how `argus_core.models.reference` spells a place
+-- in a chat.
+CREATE UNIQUE INDEX IF NOT EXISTS incident_reference_one_chat_thread_idx
+    ON incident_reference (incident_id, source, split_part(value, '/', 1))
+    WHERE kind = 'chat-thread';
 
+-- How far each reader of `incident_event` has got. A reader - the relay
+-- telling Slack, the intent agent understanding what people wrote - asks the
+-- log what has happened since it last looked, and this is the whole of its state: lose
+-- it and the reader either repeats an incident from the beginning of time or
+-- starts from now and silently drops whatever was published while it was
+-- down.
+--
+-- One row per reader rather than one row, because two readers fall behind at
+-- different rates and a shared place would let the slower of them decide what
+-- the faster has already done.
+--
+-- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
+-- Written and read by `argus_incidents`, beside the log it points into.
 CREATE TABLE IF NOT EXISTS event_cursor (
     reader TEXT PRIMARY KEY,
     -- A place in `incident_event.seq`, not a foreign key to it: the row a

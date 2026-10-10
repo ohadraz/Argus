@@ -1265,6 +1265,12 @@ _SLACK_DOUBLE_BASE_URL = "http://localhost:8094"
 _GITHUB_DOUBLE_BASE_URL = "http://localhost:8096"
 # HTTPS, the one double that is: PagerDuty's SDK refuses any other scheme.
 _PAGERDUTY_DOUBLE_BASE_URL = "https://localhost:8097"
+# The intent agent's own model double, beside the walk's. A second process rather
+# than a second queue in the first: that double answers in the order it was
+# seeded, and a person's message classified between two of a walk's turns would hand
+# the walk the intent agent's answer and the intent agent the walk's.
+_INTENT_ANTHROPIC_DOUBLE_PORT = "8098"
+_INTENT_ANTHROPIC_DOUBLE_BASE_URL = f"http://localhost:{_INTENT_ANTHROPIC_DOUBLE_PORT}"
 
 # Where the sessions that can run beside an e2e stack put the things that would
 # otherwise collide with it. Every collision is a port or a database: a second
@@ -1481,6 +1487,11 @@ _E2E_SETTINGS = {
     # pass costs what it costs, and this only stops the wait being mostly
     # sleep.
     "CODE_INDEX_INTERVAL_SECONDS": "5",
+    # How long the intent agent waits after finding nothing new in the log. Short,
+    # for the relay's reason: a case that writes in a thread waits on the offer
+    # that understanding leads to, and the pause is paid on every look that
+    # found nothing.
+    "INTENT_POLL_SECONDS": "0.5",
     # Where Argus answers, which is what a message in a channel links back to.
     # Set for every stack rather than only the suites: a demo whose postmortem
     # linked nowhere would be a demo of the one thing a reader in a channel
@@ -1509,14 +1520,21 @@ _E2E_SETTINGS = {
 # wherever `.env` says, because a demo of an incident reaching a human is not a
 # demo if the human is a test double.
 _SLACK_AT_THE_DOUBLE = {
-    # The channel is a fixture name the double accepts as it accepts any. What
-    # matters is that it is set: a relay with nowhere to post does not start,
-    # and an empty channel would make the whole stack silent by configuration.
+    # The channel is a fixture id the double accepts as it accepts any. What
+    # matters is that it is set, and shaped as Slack's are: a relay with nowhere
+    # to post does not start, an empty channel would make the whole stack silent
+    # by configuration, and a name is refused before anything starts.
     "SLACK_BASE_URL": _SLACK_DOUBLE_BASE_URL,
-    "SLACK_WAR_ROOM_CHANNEL": "C-argus-incidents",
+    "SLACK_WAR_ROOM_CHANNEL": "C0ARGUSWARROOM",
     # A placeholder the double never reads; the SDK refuses to build a client
     # without one.
     "SLACK_BOT_TOKEN": "xoxb-the-double-never-reads-this",
+    # What a delivery from Slack must be signed with to be believed. A fixture
+    # secret, and the suite signs with this one, for GitHub's reason: the
+    # endpoints are open to the internet, and a press nobody signed resolves
+    # nothing. Here rather than in `_E2E_SETTINGS`, so a demo keeps the secret
+    # its own Slack app signs with.
+    "SLACK_SIGNING_SECRET": "the-suite-signs-its-deliveries-with-this",
     # Short, because an e2e test waits on what a person would see: the pause is
     # paid on every pass that found nothing, and a suite spending two seconds
     # per look is a suite that reports a message as missing before it was sent.
@@ -1580,6 +1598,13 @@ _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     f"{_ANTHROPIC_DOUBLE_BASE_URL}/health"
 )
 
+_INTENT_ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
+    "intent_anthropic_double",
+    ["-m", "uvicorn", "anthropic_double.server:app",
+     "--port", _INTENT_ANTHROPIC_DOUBLE_PORT],
+    f"{_INTENT_ANTHROPIC_DOUBLE_BASE_URL}/health"
+)
+
 _SLACK_DOUBLE: tuple[str, list[str], str] = (
     "slack_double",
     ["-m", "slack_double.server"],
@@ -1606,6 +1631,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
     # them would be testing the convention.
     ("write_mcp", ["-m", "write_mcp_server.server"], "http://localhost:8092/mcp"),
     _ANTHROPIC_DOUBLE,
+    _INTENT_ANTHROPIC_DOUBLE,
     # Slack, for a stack that has no workspace and wants none. Up before the
     # relay, which posts to it from its first pass.
     _SLACK_DOUBLE,
@@ -1669,8 +1695,31 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         "relay",
         ["-m", "agent_communicator.watching"],
         None
+    ),
+    (
+        # What understands what a person wrote in an incident's thread, and
+        # offers to resolve it when that is what they said. Its own process
+        # rather than the worker's: a message is not a run, and understanding
+        # one must not wait behind a walk. `argus_web` has already ingested the
+        # message, so a stack without this takes people's words in and never
+        # answers them.
+        #
+        # No readiness URL, for the relay's reason: what it is ready for shows
+        # up in Slack, as an offer.
+        "intent",
+        ["-m", "agent_intent.watching"],
+        None
     )
 ]
+
+# Where each process that asks a model anything is pointed, when the model is a
+# double: the walk at one, the intent agent at its own. A map rather than two
+# entries written out at each session, so that the sessions which replay and
+# the one that records cannot come to point a process at different places.
+_THE_MODEL_AT_ITS_DOUBLES: Final = {
+    "worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL},
+    "intent": {"ANTHROPIC_BASE_URL": _INTENT_ANTHROPIC_DOUBLE_BASE_URL}
+}
 
 
 def _the_services_for(slack_stands_in: bool,
@@ -1705,13 +1754,13 @@ def _the_services_for(slack_stands_in: bool,
         *([] if slack_stands_in else [_SLACK_DOUBLE]),
         *([] if github_stands_in else [_GITHUB_DOUBLE]),
         *([] if pagerduty_stands_in else [_PAGERDUTY_DOUBLE]),
-        # The model's double is wanted by whoever points the worker at it, and
-        # by nobody else. A run that reaches the real API started it, never
-        # addressed it, and left it listening - which is the leftover this
-        # function exists to avoid, and the most misleading one of the four:
-        # a process answering `/v1/messages` on a port, beside a suite whose
-        # whole claim is that it spent real tokens.
-        *([] if model_stands_in else [_ANTHROPIC_DOUBLE])
+        # The model's doubles are wanted by whoever points the worker and the
+        # intent agent at them, and by nobody else. A run that reaches the real API
+        # started them, never addressed them, and left them listening - which
+        # is the leftover this function exists to avoid, and the most
+        # misleading kind: a process answering `/v1/messages` on a port, beside
+        # a suite whose whole claim is that it spent real tokens.
+        *([] if model_stands_in else [_ANTHROPIC_DOUBLE, _INTENT_ANTHROPIC_DOUBLE])
     ]
 
     return [service for service in _LOCAL_SERVICES if service not in unwanted]
@@ -1721,7 +1770,8 @@ def _the_services_for(slack_stands_in: bool,
 # anything of Argus's does, and before the index is built: what they stand in
 # for is exactly what the rest of the stack reads.
 _THE_STAND_INS: Final = (
-    _ANTHROPIC_DOUBLE, _SLACK_DOUBLE, _GITHUB_DOUBLE, _PAGERDUTY_DOUBLE
+    _ANTHROPIC_DOUBLE, _INTENT_ANTHROPIC_DOUBLE, _SLACK_DOUBLE, _GITHUB_DOUBLE,
+    _PAGERDUTY_DOUBLE
 )
 
 
@@ -2116,10 +2166,12 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     answer takes real seconds, and at this speed those are minutes.
 
     Selecting the double is one setting (`anthropic_base_url`), passed to the
-    **worker** alone - the process that walks the graph, and so the only one
-    that talks to a model at all. `argus_web` receives alerts and makes no
-    model call, so aiming it at the double aims nothing: the walk would reach
-    the real API, spend real tokens, and still report itself as a replayed run.
+    two processes that talk to a model and to nobody else: the **worker**, which
+    walks the graph, and the **intent agent**, which understands what a person wrote -
+    each at a double of its own (`_THE_MODEL_AT_ITS_DOUBLES`), so that neither
+    is handed the other's answers. `argus_web` receives alerts and makes no
+    model call, so aiming it at a double aims nothing: the walk would reach the
+    real API, spend real tokens, and still report itself as a replayed run.
     Nothing in the production path knows this session exists: a pipeline that
     behaves differently when observed is not the pipeline.
     """
@@ -2152,7 +2204,7 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     _run_against_the_stack(
         session,
         [] if named_cases else _the_cases_for(mode),
-        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        service_env=_THE_MODEL_AT_ITS_DOUBLES,
         model_stands_in=True,
         on_a_simulated_clock=True
     )
@@ -2276,7 +2328,9 @@ def record(session: nox.Session, mode: str) -> None:
 
     The worker is pointed at the double exactly as in `e2e_replay` - which is
     what puts the double in the path at all - and the double forwards the call
-    upstream because it was told to record rather than seeded.
+    upstream because it was told to record rather than seeded. The intent agent is
+    pointed at its own, as there, which nothing here records into:
+    `scripts/record_classification.py` is what captures a classification.
 
     Parametrized by mode for the reason `e2e_replay` is: a recording is a queue
     of answers to a walk that was offered a particular set of tools, so a mode
@@ -2290,7 +2344,7 @@ def record(session: nox.Session, mode: str) -> None:
     _run_against_the_stack(
         session,
         test_paths=[],
-        service_env={"worker": {"ANTHROPIC_BASE_URL": _ANTHROPIC_DOUBLE_BASE_URL}},
+        service_env=_THE_MODEL_AT_ITS_DOUBLES,
         # `-m`, not the path: the script reuses the e2e suite's own world-reset
         # rather than keeping a second copy of it, and only the module form puts
         # the repo root on the path for `tests.` to resolve.

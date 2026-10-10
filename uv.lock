@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "argus-agent-codefix",
     "argus-agent-communicator",
+    "argus-agent-intent",
     "argus-agent-investigator",
     "argus-agent-mitigation",
     "argus-agent-postmortem",
@@ -20,6 +21,7 @@ members = [
     "argus-argus-telemetry",
     "argus-argus-testkit",
     "argus-argus-web",
+    "argus-chat-platform",
     "argus-code-index",
     "argus-deployment-platform",
     "argus-exchange-rate-source",
@@ -145,8 +147,8 @@ dependencies = [
     { name = "argus-argus-incidents" },
     { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
+    { name = "argus-chat-platform" },
     { name = "psycopg", extra = ["binary"] },
-    { name = "slack-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -164,8 +166,8 @@ requires-dist = [
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
+    { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
-    { name = "slack-sdk", specifier = ">=3.27" },
 ]
 
 [package.metadata.requires-dev]
@@ -175,6 +177,39 @@ dev = [
     { name = "argus-slack-double", editable = "modules/slack_double" },
     { name = "httpx2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[[package]]
+name = "argus-agent-intent"
+version = "0.1.0"
+source = { editable = "modules/agent_intent" }
+dependencies = [
+    { name = "argus-argus-core", extra = ["llm"] },
+    { name = "argus-argus-incidents" },
+    { name = "argus-argus-telemetry" },
+    { name = "argus-chat-platform" },
+    { name = "psycopg", extra = ["binary"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-core", extra = ["migrations"] },
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
+    { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
+    { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
+    { name = "argus-chat-platform", editable = "modules/chat_platform" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" },
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
 ]
 
 [[package]]
@@ -412,6 +447,7 @@ dependencies = [
     { name = "argus-argus-incidents" },
     { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
+    { name = "argus-chat-platform" },
     { name = "argus-code-index" },
     { name = "argus-oncall-source" },
     { name = "fastapi" },
@@ -432,6 +468,7 @@ requires-dist = [
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
     { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
+    { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "argus-code-index", editable = "modules/code_index" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -443,6 +480,37 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" }]
+
+[[package]]
+name = "argus-chat-platform"
+version = "0.1.0"
+source = { editable = "modules/chat_platform" }
+dependencies = [
+    { name = "argus-argus-core" },
+    { name = "slack-sdk" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+    { name = "argus-slack-double" },
+    { name = "httpx2" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "slack-sdk", specifier = ">=3.27" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "argus-slack-double", editable = "modules/slack_double" },
+    { name = "httpx2" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
 
 [[package]]
 name = "argus-code-index"

@@ -30,6 +30,9 @@ class ReportChannel(StrEnum):
     # that place has a name; which platform it was stays a fact about the
     # report, not a word anything branches on.
     PAGERDUTY = "pagerduty"
+    # The incident's own thread, where the person said it was over and then
+    # confirmed it. Named for the vendor for the reason PagerDuty is.
+    SLACK = "slack"
 
 
 class Report(BaseModel):

@@ -604,25 +604,66 @@ def the_model_answers_from(recording: str, *, less_code_fix: bool = False) -> Ca
     handed to the postmortem.
     """
     def step() -> bool:
-        stored = stored_as(recording)
-        shift = _how_far_the_world_has_moved_since(stored)
-
         with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
-
-            answers = _the_answers_recorded_for(stored, control)
-
-            for answered_once in _less_code_fix(answers) if less_code_fix else answers:
-                control.post(
-                    "/double-control/seed",
-                    json={"recording": answered_once, "repeat": 1}
-                    if shift is None
-                    else {"body": _rebased(load(answered_once), shift), "repeat": 1}
-                ).raise_for_status()
+            _seed_the_answers(control, recording, less_code_fix)
 
         return True
 
     return step
+
+
+def the_model_is_held() -> Callable[[], bool]:
+    """A `given` step: the walk's first call to the model waits at the double
+    until the case answers it with `the_held_model_answers_from`.
+
+    For a case whose order is the point. Seeded up front, the walk runs at its
+    own pace, and anything the case has to do first - a person writing in the
+    thread - races it; held, the walk cannot take a step the case has not let
+    it take, however fast it runs.
+
+    Resets first, for `the_model_answers_from`'s reason.
+    """
+    def step() -> bool:
+        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+            control.post("/double-control/reset").raise_for_status()
+            control.post("/double-control/hold").raise_for_status()
+
+        return True
+
+    return step
+
+
+def the_held_model_answers_from(recording: str, *,
+                                less_code_fix: bool = False) -> Callable[[], bool]:
+    """The answers `the_model_answers_from` would seed, handed to a model that
+    `the_model_is_held` - and the held call is the first to take one.
+
+    Without the reset: a reset ends the hold by refusing the call it holds,
+    which would fail the walk this exists to let go.
+    """
+    def step() -> bool:
+        with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+            _seed_the_answers(control, recording, less_code_fix)
+
+        return True
+
+    return step
+
+
+def _seed_the_answers(control: httpx2.Client, recording: str, less_code_fix: bool) -> None:
+    """Queues every answer recorded for this case, in order, each once."""
+    stored = stored_as(recording)
+    shift = _how_far_the_world_has_moved_since(stored)
+    answers = _the_answers_recorded_for(stored, control)
+
+    for answered_once in _less_code_fix(answers) if less_code_fix else answers:
+        control.post(
+            "/double-control/seed",
+            json={"recording": answered_once, "repeat": 1}
+            if shift is None
+            else {"body": _rebased(load(answered_once), shift), "repeat": 1}
+        ).raise_for_status()
 
 
 def the_anchor_file_for(recording: str) -> Path:

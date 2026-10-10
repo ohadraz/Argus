@@ -70,6 +70,7 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.meaning import Meaning
 from argus_core.models.metrics import (
     RULE_READING_FIELD,
     MetricBucket,
@@ -86,7 +87,18 @@ from argus_core.models.postmortem import Postmortem, PostmortemDocument
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_core.models.reading import Reading, RetrievalChannel
-from argus_core.models.reference import NOTIFICATION_KEY, ON_CALL_INCIDENT, Reference
+from argus_core.models.reference import (
+    CHAT_MESSAGE,
+    CHAT_OFFER,
+    CHAT_THREAD,
+    NOTIFICATION_KEY,
+    ON_CALL_INCIDENT,
+    Reference,
+    a_chat_message,
+    a_chat_offer,
+    a_chat_thread,
+    the_place_of,
+)
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutProgress
@@ -177,6 +189,7 @@ __all__ = [
     "Hypothesis",
     "Incident",
     "IncidentStatus",
+    "Meaning",
     "MetricBucket",
     "LARGEST_UNSTREAMED_ANSWER",
     "Effort",
@@ -191,7 +204,14 @@ __all__ = [
     "Reading",
     "NOTIFICATION_KEY",
     "ON_CALL_INCIDENT",
+    "CHAT_MESSAGE",
+    "CHAT_OFFER",
+    "CHAT_THREAD",
     "Reference",
+    "a_chat_message",
+    "a_chat_offer",
+    "a_chat_thread",
+    "the_place_of",
     "Refusal",
     "Report",
     "ReportChannel",

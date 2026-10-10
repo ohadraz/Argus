@@ -82,13 +82,13 @@ def receive_delivery(body: bytes,
     """Acts on one delivery from the on-call platform, if it is a person's
     resolution of an incident Argus has.
 
-    Raises `DeliveryUnverified` for a delivery the platform did not sign, and
-    `OnCallUnavailable` when the platform cannot be read while matching - the
+    Raises `OnCallDeliveryUnverified` for a delivery the platform did not sign,
+    and `OnCallUnavailable` when the platform cannot be read while matching - the
     second deliberately, so the delivery is answered as a failure and sent
     again rather than lost. Every other outcome returns: a delivery about
     something Argus does not act on was still received.
     """
-    delivery = platform.read_delivery(body, headers)
+    delivery = platform.parse_delivery(body, headers)
 
     match delivery:
         case ResolvedByAPerson(platform_incident=platform_incident, by=by):

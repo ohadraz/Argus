@@ -42,8 +42,8 @@ from fastapi.testclient import TestClient
 from oncall_source import OnCallUnavailable
 from oncall_source.platform import (
     Delivery,
-    DeliveryUnverified,
     Irrelevant,
+    OnCallDeliveryUnverified,
     OnCallPlatform,
     ResolvedByAPerson,
 )
@@ -115,7 +115,7 @@ def test_a_delivery_about_anything_else_is_accepted() -> None:
 def test_a_forged_delivery_is_refused() -> None:
     # A refusal, not a failure: the platform drops it rather than send a
     # forgery again for two days.
-    with _the_platform_refusing(DeliveryUnverified("forged")), TestClient(app) as client:
+    with _the_platform_refusing(OnCallDeliveryUnverified("forged")), TestClient(app) as client:
         Scenario() \
             .when(lambda: client.post(ONCALL_WEBHOOK, content=DONT_CARE_BODY)) \
             .then(the_response_was(HttpStatus.UNAUTHORIZED))
@@ -125,7 +125,7 @@ def test_a_forged_delivery_is_refused() -> None:
 def test_a_forged_delivery_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # The likeliest way to meet a refusal is a deployment holding the wrong
     # secret, and a refusal nobody can see is one nobody can fix.
-    with _the_platform_refusing(DeliveryUnverified("forged")), TestClient(app) as client:
+    with _the_platform_refusing(OnCallDeliveryUnverified("forged")), TestClient(app) as client:
         Scenario() \
             .given(calling(lambda: caplog.set_level(logging.WARNING))) \
             .when(lambda: client.post(ONCALL_WEBHOOK, content=DONT_CARE_BODY)) \
@@ -188,7 +188,7 @@ def _the_platform_saying(delivery: Delivery,
                          note: str | None = None) -> Iterator[None]:
     platform = create_autospec(OnCallPlatform, instance=True)
     platform.channel = ReportChannel.PAGERDUTY
-    platform.read_delivery.return_value = delivery
+    platform.parse_delivery.return_value = delivery
     platform.resolution_note.return_value = note
 
     if isinstance(keys, Exception):
@@ -203,7 +203,7 @@ def _the_platform_saying(delivery: Delivery,
 @contextmanager
 def _the_platform_refusing(refusal: Exception) -> Iterator[None]:
     platform = create_autospec(OnCallPlatform, instance=True)
-    platform.read_delivery.side_effect = refusal
+    platform.parse_delivery.side_effect = refusal
 
     with _the_platform_being(platform):
         yield
