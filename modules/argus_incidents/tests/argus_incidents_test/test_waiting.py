@@ -23,6 +23,7 @@ from argus_core.events import (
     OfferExpired,
     PersonWrote,
     ResolutionOffered,
+    WithdrawalOffered,
 )
 from argus_core.models import Alert, IncidentStatus, Meaning, Reference
 from argus_incidents.ending import EndedByAPerson
@@ -69,9 +70,8 @@ def test_an_incident_nobody_wrote_about_is_not_waited_on() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION,
-                                     Meaning.WITHDRAW, Meaning.OTHER])
-def test_a_message_that_is_not_a_resolution_is_not_waited_on(meaning: Meaning) -> None:
+@pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION, Meaning.OTHER])
+def test_a_message_that_asks_for_no_ending_is_not_waited_on(meaning: Meaning) -> None:
     # Nothing was offered, so there is nothing for anybody to answer. A walk
     # that stopped for "thanks" would be a walk any message could stall.
     a_clock = _AClock(SOME_MOMENT)
@@ -129,6 +129,96 @@ def test_an_offer_is_waited_on_until_a_person_ends_the_incident(ending: Incident
         )(some_incident)) \
         .then(all_of(_it_waited(a_clock), _nothing_was_expired(expired),
                      _the_walk_is_told_to_ask_again(True)))
+
+
+@pytest.mark.unit
+def test_a_request_to_stand_down_is_waited_on_until_the_person_withdraws_the_incident() -> None:
+    # A step started while somebody is about to take the incident back is a
+    # change they will watch Argus put back a minute later.
+    a_clock = _AClock(SOME_MOMENT)
+    expired: list[IncidentEvent] = []
+    some_incident = new_id()
+
+    Scenario() \
+        .given(a_clock) \
+        .when(lambda: _a_wait(
+            _reading(_withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
+            a_clock, expired,
+            ended_by_a_person=_ended_after(2, IncidentStatus.WITHDRAWN)
+        )(some_incident)) \
+        .then(all_of(_it_waited(a_clock), _nothing_was_expired(expired),
+                     _the_walk_is_told_to_ask_again(True)))
+
+
+@pytest.mark.unit
+def test_a_withdrawal_offer_nobody_pressed_expires_as_a_resolution_offer_does() -> None:
+    a_clock = _AClock(SOME_MOMENT)
+    expired: list[IncidentEvent] = []
+    some_incident = new_id()
+
+    Scenario() \
+        .given(a_clock) \
+        .when(lambda: _a_wait(
+            _reading(_withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
+            a_clock, expired
+        )(some_incident)) \
+        .then(all_of(
+            _these_were_expired(expired, [SOME_MESSAGE]),
+            _the_clock_reads_no_earlier_than(a_clock,
+                                             SOME_MOMENT + HOW_LONG_A_PERSON_IS_WAITED_FOR),
+            _the_walk_is_told_to_ask_again(True)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("asked_for", "status"), [
+    ("withdrawal-offered", IncidentStatus.MITIGATED),
+    ("withdrawal-not-offered", IncidentStatus.MITIGATED),
+    ("resolution-not-offered", IncidentStatus.DISPROVEN)
+])
+def test_a_message_asking_for_an_ending_the_incident_no_longer_accepts_is_not_waited_on(
+        asked_for: str, status: IncidentStatus) -> None:
+    # Code-Fix finished with the incident mitigated, and the walk has its
+    # write-up still to do. Nobody can confirm a withdrawal of a mitigated
+    # incident, so a wait for the press is five minutes spent on a button that
+    # does nothing - offered or not, since an offer the agent declined to make
+    # is no more answerable than one it made too early.
+    a_clock = _AClock(SOME_MOMENT)
+    expired: list[IncidentEvent] = []
+    some_incident = new_id()
+    written = _written(some_incident, SOME_MESSAGE, at=SOME_MOMENT)
+    askings: dict[str, list[IncidentEvent]] = {
+        "withdrawal-offered": _withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT),
+        "withdrawal-not-offered": [written,
+                                   _understood(some_incident, SOME_MESSAGE, Meaning.WITHDRAW)],
+        "resolution-not-offered": [written,
+                                   _understood(some_incident, SOME_MESSAGE, Meaning.RESOLVE)]
+    }
+    asking = askings[asked_for]
+
+    Scenario() \
+        .given(a_clock) \
+        .when(lambda: _a_wait(_reading(asking), a_clock, expired, status=status)(some_incident)) \
+        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(expired),
+                     _the_walk_is_told_to_ask_again(False)))
+
+
+@pytest.mark.unit
+def test_a_resolution_offer_on_a_mitigated_incident_is_still_waited_on() -> None:
+    # Mitigated still accepts a resolution - a person who finished the job is
+    # reporting exactly that - so the offer can still be confirmed, and is
+    # waited on, while a withdrawal offer beside it would not be.
+    a_clock = _AClock(SOME_MOMENT)
+    expired: list[IncidentEvent] = []
+    some_incident = new_id()
+
+    Scenario() \
+        .given(a_clock) \
+        .when(lambda: _a_wait(
+            _reading(_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
+            a_clock, expired, status=IncidentStatus.MITIGATED
+        )(some_incident)) \
+        .then(all_of(_it_waited(a_clock), _these_were_expired(expired, [SOME_MESSAGE])))
 
 
 @pytest.mark.unit
@@ -277,9 +367,13 @@ def test_an_expiry_is_written_on_the_incident_it_was_waited_on_for() -> None:
 def _a_wait(events_of: Callable[[str], list[IncidentEvent]],
             clock: _AClock,
             expired: list[IncidentEvent],
-            ended_by_a_person: EndedByAPerson | None = None) -> WaitForPeople:
+            ended_by_a_person: EndedByAPerson | None = None,
+            status: IncidentStatus = IncidentStatus.INVESTIGATING) -> WaitForPeople:
+    """The wait over these reads, on an incident Argus is still working on
+    unless `status` says otherwise."""
     return waiting_for_people(events_of,
                               ended_by_a_person or _ended_after(None, None),
+                              lambda _incident_id: status,
                               expired.append,
                               now=clock.now,
                               sleep=clock.sleep)
@@ -325,6 +419,19 @@ def _offered_on(incident_id: str, message: Reference, at: datetime) -> list[Inci
         ResolutionOffered(incident_id=incident_id, message=message,
                           person_id="some-person-id", person_name="some person",
                           said="it's over")
+    ]
+
+
+def _withdrawal_offered_on(incident_id: str,
+                           message: Reference,
+                           at: datetime) -> list[IncidentEvent]:
+    """A person telling Argus to stand down, read as such, and asked to confirm."""
+    return [
+        _written(incident_id, message, at=at),
+        _understood(incident_id, message, Meaning.WITHDRAW),
+        WithdrawalOffered(incident_id=incident_id, message=message,
+                          person_id="some-person-id", person_name="some person",
+                          said="stop, I've got this")
     ]
 
 

@@ -124,13 +124,13 @@ def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:
     incident entered `withdrawn` when it was already there is a claim about the
     incident that is not true.
     """
-    still_going = [status for status in IncidentStatus if not status.is_terminal()]
+    withdrawable = [status for status in IncidentStatus if status.accepts_withdrawal()]
 
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE incident SET status = %s, ended_at = now() "
             " WHERE id = %s AND status = ANY(%s)",
-            (IncidentStatus.WITHDRAWN, incident_id, still_going)
+            (IncidentStatus.WITHDRAWN, incident_id, withdrawable)
         )
         withdrawn = cursor.rowcount == 1
     conn.commit()

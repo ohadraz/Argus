@@ -27,11 +27,13 @@ import psycopg
 from argus_core import get_settings, utc_now
 from argus_core.models import CHAT_THREAD, the_place_of
 from argus_incidents.repository import references
+from argus_testkit import Assertion
 from chat_platform.slack_deliveries import (
     ACTION_ID,
     ACTIONS,
     BLOCK_ACTIONS,
     CHANNEL,
+    CONFIRM_ACTION,
     CONTENT_TYPE_HEADER,
     EVENT,
     EVENT_CALLBACK,
@@ -40,7 +42,6 @@ from chat_platform.slack_deliveries import (
     MESSAGE,
     MESSAGE_EVENT,
     PAYLOAD,
-    RESOLVE_ACTION,
     SIGNATURE_HEADER,
     SIGNATURE_VERSION,
     TEXT,
@@ -64,13 +65,16 @@ from tests.e2e.framework.argus import (
 # the noxfile is read before anything is installed, and is imported by nothing.
 INTENT_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8098"
 
-# The intent agent's one recorded reading: a person saying the incident is over.
+# The intent agent's recorded readings: a person saying the incident is over,
+# and a person telling Argus to stand down.
 RECORDED_INTENT_RESOLVE: Final = "intent-resolve"
+RECORDED_INTENT_WITHDRAW: Final = "intent-withdraw"
 
-# What the recorded reading was asked about. The double never reads the
+# What each recorded reading was asked about. The double never reads the
 # request, so these are the words a case has to write for the answer it serves
 # to be an answer to them.
 THE_WORDS_CLASSIFIED_AS_RESOLVED: Final = "rolled the flag back by hand, we're fine"
+THE_WORDS_CLASSIFIED_AS_WITHDRAWN: Final = "Argus, stand down - I'm taking this one over by hand"
 
 # How long a case waits for something the stack does without being asked - the
 # relay opening a thread, the intent agent reading a message and offering. Both
@@ -164,7 +168,7 @@ def the_person_presses(person_id: str,
         USER: {ID: person_id},
         CHANNEL: {ID: offer["channel"]},
         MESSAGE: {TS: offer["ts"], THREAD_TS: offer["thread_ts"]},
-        ACTIONS: [{ACTION_ID: RESOLVE_ACTION, VALUE: about}]
+        ACTIONS: [{ACTION_ID: CONFIRM_ACTION, VALUE: about}]
     }
 
     return _deliver(urlencode({PAYLOAD: json.dumps(payload)}).encode(),
@@ -186,6 +190,34 @@ def the_buttons_on(message: dict[str, Any]) -> list[dict[str, Any]]:
     return [element
             for block in message.get("blocks") or [] if block[BLOCK_TYPE] == ACTIONS_BLOCK
             for element in block[ELEMENTS] if element[BLOCK_TYPE] == BUTTON_ELEMENT]
+
+
+def the_offer_now_names(offered: dict[str, dict[str, Any]],
+                        person: str) -> Assertion[httpx2.Response]:
+    """The offer kept in `offered`, rewritten to the line that ended the
+    incident - naming `person` - with nothing left to press.
+
+    Whichever ending: an offer to resolve and an offer to withdraw are both
+    rewritten to the ending's own line, which says who brought it about.
+    """
+    def assertion(_response: httpx2.Response) -> bool:
+        offer = offered["offer"]
+        now = next((message for message in posted_to_slack()
+                    if (message["channel"], message["ts"]) == (offer["channel"], offer["ts"])),
+                   None)
+
+        if now is None:
+            raise AssertionError(f"Expected Slack to still hold the offer {offer}, it does not.")
+
+        if the_buttons_on(now) or person not in now["text"]:
+            raise AssertionError(
+                f"Expected the offer rewritten to name [{person}] with no button, "
+                f"it reads [{now['text']}] with blocks {now.get('blocks')}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _deliver(body: bytes, content_type: str, path: str) -> httpx2.Response:

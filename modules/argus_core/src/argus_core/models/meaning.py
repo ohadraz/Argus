@@ -16,11 +16,10 @@ class Meaning(StrEnum):
 
     Closed, because each member is something Argus does or deliberately does
     not do, and a meaning nothing acts on is one a reader of the timeline would
-    wait on for ever. Five rather than two even though only one of them acts
-    yet: what a message was read as is recorded when it is read, and a reading
-    that could only say "resolve" or "not" would have to be done again for the
-    question, the new fact and the request to stand down the person may have
-    written instead.
+    wait on for ever. Five rather than the two that ask for an ending: what a
+    message was read as is recorded when it is read, and a reading that could
+    only say "resolve", "withdraw" or "neither" would have to be done again for
+    the question and the new fact the person may have written instead.
     """
 
     # The person says the incident is over - they ended it, or it ended and
@@ -31,7 +30,8 @@ class Meaning(StrEnum):
     # The person tells Argus something about the incident it may not know.
     INFORMATION = "information"
     # The person tells Argus to stop and leave the incident to them - they are
-    # taking it over. What a withdrawal from the page does, asked for in words.
+    # taking it over. What a withdrawal from the page does, asked for in words,
+    # and offered back to them to confirm as a resolution is.
     WITHDRAW = "withdraw"
     # Anything else: a thank-you, a conversation between people, a reaction.
     OTHER = "other"

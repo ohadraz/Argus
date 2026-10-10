@@ -55,6 +55,7 @@ from argus_core.events import (
     RetrievalRequested,
     StatusChanged,
     VerdictReached,
+    WithdrawalOffered,
 )
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
@@ -336,6 +337,25 @@ def test_an_offer_to_resolve_is_said_where_the_person_wrote() -> None:
         person_id="some-person-id",
         person_name="some person",
         said="rolled the flag back by hand, we're fine"
+    )
+
+    Scenario() \
+        .given(some_offer) \
+        .when(lambda: how_it_is_said(some_offer)) \
+        .then(_it_is_said(Register.FOLLOWED))
+
+
+@pytest.mark.unit
+def test_an_offer_to_withdraw_is_said_where_the_person_wrote() -> None:
+    # For the resolution offer's reason: a person asked Argus to stand down,
+    # and an offer only Argus's own page showed would leave Argus working on
+    # over their head.
+    some_offer = WithdrawalOffered(
+        incident_id=AN_INCIDENT,
+        message=SOME_MESSAGE,
+        person_id="some-person-id",
+        person_name="some person",
+        said="stop, I've got this"
     )
 
     Scenario() \

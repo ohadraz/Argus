@@ -790,8 +790,33 @@ class ResolutionOffered(_Event):
     said: str
 
 
+class WithdrawalOffered(_Event):
+    """Argus asked the person who told it to stand down to confirm it.
+
+    The resolution offer's sibling, and carrying the same things for the same
+    reason: the press withdraws the incident from this event alone - whose
+    press counts, the name the withdrawal will be credited to, and the words
+    that become its note. Kept apart from the resolution offer rather than
+    folded into one offer with an ending, because the two are confirmed into
+    different endings and said differently, and a reader matching on the
+    class is told which without reading a field.
+    """
+
+    kind: Literal["withdrawal-offered"] = "withdrawal-offered"
+    message: Reference
+    person_id: str
+    person_name: str | None
+    said: str
+
+
+# An offer a person may confirm, whatever it offers. Named once, for the
+# readers that treat every offer alike: the press that finds one by its
+# message, and the walk that waits on one.
+type Offered = ResolutionOffered | WithdrawalOffered
+
+
 class OfferExpired(_Event):
-    """An offer to resolve was not confirmed in time, and the walk carried on.
+    """An offer was not confirmed in time, and the walk carried on.
 
     Published by the walk that was waiting on it, so that the timeline says why
     Argus went on after a person said the incident was over. Names the message
@@ -838,6 +863,7 @@ type IncidentEvent = Annotated[
         | PersonWrote
         | MessageUnderstood
         | ResolutionOffered
+        | WithdrawalOffered
         | OfferExpired
     ),
     Field(discriminator="kind")

@@ -68,11 +68,10 @@ from tests.e2e.framework.chat import (
     RECORDED_INTENT_RESOLVE,
     THE_WORDS_CLASSIFIED_AS_RESOLVED,
     a_person_writes,
-    posted_to_slack,
-    the_buttons_on,
     the_chat_platform_knows,
     the_intent_agent_answers_from,
     the_offer_made_in,
+    the_offer_now_names,
     the_person_presses,
     the_thread_of,
 )
@@ -206,7 +205,7 @@ def test_an_incident_resolved_from_its_slack_thread_is_written_up_and_nothing_mo
                                channel=ReportChannel.SLACK,
                                note=THE_WORDS_CLASSIFIED_AS_RESOLVED)),
                     _no_fix_was_looked_for(),
-                    _the_offer_now_says_who_ended_it(offered, some_person)
+                    the_offer_now_names(offered, some_person)
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )
@@ -377,30 +376,6 @@ def _no_fix_was_looked_for() -> Assertion[httpx2.Response]:
             raise AssertionError(
                 f"Expected no fix looked for after the incident was resolved, got "
                 f"{len(attempts)} attempt(s)."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_offer_now_says_who_ended_it(offered: dict[str, dict[str, Any]],
-                                     person: str) -> Assertion[httpx2.Response]:
-    """The offer, rewritten to the line that ended the incident, with nothing
-    left to press."""
-    def assertion(_response: httpx2.Response) -> bool:
-        offer = offered["offer"]
-        now = next((message for message in posted_to_slack()
-                    if (message["channel"], message["ts"]) == (offer["channel"], offer["ts"])),
-                   None)
-
-        if now is None:
-            raise AssertionError(f"Expected Slack to still hold the offer {offer}, it does not.")
-
-        if the_buttons_on(now) or person not in now["text"]:
-            raise AssertionError(
-                f"Expected the offer rewritten to name [{person}] with no button, "
-                f"it reads [{now['text']}] with blocks {now.get('blocks')}."
             )
 
         return True

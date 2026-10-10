@@ -57,6 +57,7 @@ from argus_core.events import (
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
+    WithdrawalOffered,
 )
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
@@ -957,12 +958,40 @@ def test_an_offer_to_resolve_names_who_was_asked(person_name: str | None,
 
 
 @pytest.mark.unit
-def test_an_offer_carries_the_message_it_asks_to_confirm() -> None:
+@pytest.mark.parametrize(("person_name", "asked"), [
+    ("some person", "some person"),
+    (None, "whoever wrote it")
+])
+def test_an_offer_to_withdraw_names_who_was_asked_and_what_confirming_does(
+        person_name: str | None, asked: str) -> None:
+    # Said, because it is the one thing a press does that a person might not
+    # expect: Argus stops, and puts back what it changed.
+    some_offer = WithdrawalOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name=person_name,
+        said="stop, I've got this"
+    )
+
+    Scenario() \
+        .given(some_offer) \
+        .when(lambda: build_narration([some_offer])) \
+        .then(all_of(_the_only_line_marks(asked),
+                     _the_only_line_says("stand down", "put back"),
+                     _the_lines_are_credited_to(["Intent Agent"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("offered", [ResolutionOffered, WithdrawalOffered],
+                         ids=["resolution", "withdrawal"])
+def test_an_offer_carries_the_message_it_asks_to_confirm(
+        offered: type[ResolutionOffered] | type[WithdrawalOffered]) -> None:
     # The line a destination turns into a button, so it says which message the
     # button answers: only the person who wrote that message may press it, and
     # the press is matched to the offer by it.
     some_message = Reference(source="some-chat", kind="some-kind", value="some-message")
-    some_offer = ResolutionOffered(
+    some_offer = offered(
         incident_id=new_id(),
         message=some_message,
         person_id="some-person-id",
@@ -998,7 +1027,34 @@ def test_a_line_about_a_message_asks_nothing_of_its_writer(
     Scenario() \
         .given(about_a_message) \
         .when(lambda: build_narration([about_a_message])) \
-        .then(_the_only_line_asks_to_confirm(None))
+        .then(all_of(_the_only_line_asks_to_confirm(None),
+                     _the_only_line_offers_to_end_as(None)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("offered", "ending"), [
+    (ResolutionOffered, IncidentStatus.RESOLVED),
+    (WithdrawalOffered, IncidentStatus.WITHDRAWN)
+], ids=["resolution", "withdrawal"])
+def test_an_offer_says_which_ending_its_press_brings_about(
+        offered: type[ResolutionOffered] | type[WithdrawalOffered],
+        ending: IncidentStatus) -> None:
+    # The one button looks the same whatever it confirms, so a destination
+    # learns here what to write on it - and which incident endings take it
+    # away again, since a mitigated incident still takes a resolution and no
+    # longer takes a withdrawal.
+    some_offer = offered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="rolled the flag back by hand, we're fine"
+    )
+
+    Scenario() \
+        .given(some_offer) \
+        .when(lambda: build_narration([some_offer])) \
+        .then(_the_only_line_offers_to_end_as(ending))
 
 
 @pytest.mark.unit
@@ -1037,6 +1093,41 @@ def test_a_move_that_still_takes_a_resolution_does_not(move: IncidentStatus) -> 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.MITIGATED,
+                                    IncidentStatus.RESOLVED,
+                                    IncidentStatus.ESCALATED,
+                                    IncidentStatus.RECOMMENDED,
+                                    IncidentStatus.DISPROVEN,
+                                    IncidentStatus.WITHDRAWN])
+def test_a_move_to_any_ending_leaves_nothing_to_withdraw(ending: IncidentStatus) -> None:
+    # Mitigated among them, where a resolution is still taken: there is no work
+    # left to take back once Argus has stopped, and a withdrawal's unwind would
+    # put back the change holding the service up. A destination holding an
+    # offer to withdraw closes it with this line.
+    the_incident_ending = StatusChanged(incident_id=new_id(), to_status=ending)
+
+    Scenario() \
+        .given(the_incident_ending) \
+        .when(lambda: build_narration([the_incident_ending])) \
+        .then(_the_only_line_leaves_nothing_to_withdraw(True))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("move", [IncidentStatus.ACKNOWLEDGED,
+                                  IncidentStatus.INVESTIGATING,
+                                  IncidentStatus.MITIGATING,
+                                  IncidentStatus.FIXING])
+def test_a_move_argus_is_still_working_through_still_takes_a_withdrawal(
+        move: IncidentStatus) -> None:
+    the_incident_moving = StatusChanged(incident_id=new_id(), to_status=move)
+
+    Scenario() \
+        .given(the_incident_moving) \
+        .when(lambda: build_narration([the_incident_moving])) \
+        .then(_the_only_line_leaves_nothing_to_withdraw(False))
+
+
+@pytest.mark.unit
 def test_an_offer_not_confirmed_in_time_is_said_by_argus() -> None:
     # The walk waited on a person and went on without them. Argus's own line,
     # because it was Argus that decided to carry on - and it says why, so a
@@ -1046,10 +1137,13 @@ def test_an_offer_not_confirmed_in_time_is_said_by_argus() -> None:
         message=Reference(source="some-chat", kind="some-kind", value="some-message")
     )
 
+    # Not "the offer to resolve": an expiry carries only the message, and the
+    # offer it ends may have been to withdraw.
     Scenario() \
         .given(some_expiry) \
         .when(lambda: build_narration([some_expiry])) \
         .then(all_of(_the_only_line_marks("not confirmed in time"),
+                     _the_only_line_does_not_say("resolve"),
                      _the_lines_are_credited_to(["Argus"])))
 
 
@@ -1066,8 +1160,15 @@ def test_an_offer_not_confirmed_in_time_is_said_by_argus() -> None:
         person_name="some person",
         said="rolled the flag back by hand, we're fine"
     ), False),
+    (WithdrawalOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="stop, I've got this"
+    ), False),
     (StatusChanged(incident_id=new_id(), to_status=IncidentStatus.RESOLVED), False)
-], ids=["offer-expired", "resolution-offered", "resolved"])
+], ids=["offer-expired", "resolution-offered", "withdrawal-offered", "resolved"])
 def test_only_an_expiry_expires_the_offers(event: IncidentEvent, expires: bool) -> None:
     # A destination holding an offer takes its button away with this line, and
     # the incident can still be resolved afterwards - so it is not the same
@@ -2149,6 +2250,22 @@ def _the_only_line_asks_to_confirm(expected: Reference | None) -> Assertion[list
     return assertion
 
 
+def _the_only_line_offers_to_end_as(
+        expected: IncidentStatus | None) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.offers_to_end_as != expected:
+            raise AssertionError(
+                f"Expected the line to offer to end the incident as [{expected}], it "
+                f"offers [{line.offers_to_end_as}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_only_line_leaves_nothing_to_resolve(expected: bool) -> Assertion[list[NarrationLine]]:
     def assertion(narration: list[NarrationLine]) -> bool:
         line = _the_only(narration)
@@ -2157,6 +2274,21 @@ def _the_only_line_leaves_nothing_to_resolve(expected: bool) -> Assertion[list[N
             raise AssertionError(
                 f"Expected the line {'' if expected else 'not '}to leave nothing to "
                 f"resolve, it says [{line.leaves_nothing_to_resolve}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_leaves_nothing_to_withdraw(expected: bool) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.leaves_nothing_to_withdraw != expected:
+            raise AssertionError(
+                f"Expected the line {'' if expected else 'not '}to leave nothing to "
+                f"withdraw, it says [{line.leaves_nothing_to_withdraw}]."
             )
 
         return True

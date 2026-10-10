@@ -7,7 +7,7 @@ real workspace, or `slack_double` - so the request path is the same one either
 way.
 
 Nothing that reaches Slack raises. Naming is asked when Argus offers a person
-the chance to confirm a resolution, and a workspace that cannot say who
+the chance to confirm an ending, and a workspace that cannot say who
 somebody is must not cost them the offer: the answer is `None`, and the log
 says why. Posting answers a refusal as "no message", for `slack_posting`'s
 reason.
@@ -26,7 +26,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from chat_platform.platform import Delivery, Line, Offer, Posted
-from chat_platform.slack_deliveries import RESOLVE_ACTION, parse_delivery
+from chat_platform.slack_deliveries import CONFIRM_ACTION, parse_delivery
 from chat_platform.slack_posting import (
     a_line_with_a_button,
     as_slack_says_it,
@@ -135,7 +135,7 @@ def _the_button_for(offer: Offer, said: str) -> list[dict[str, Any]]:
     """
     _, written = the_place_of(offer.about.value)
 
-    return a_line_with_a_button(said, offer.label, RESOLVE_ACTION, written)
+    return a_line_with_a_button(said, offer.label, CONFIRM_ACTION, written)
 
 
 def slack_from(settings: ChatSettings,

@@ -1,4 +1,5 @@
-"""A walk waiting on a person who said the incident was over (spec D11).
+"""A walk waiting on a person who said the incident was over, or told Argus to
+stand down (spec D11).
 
 Argus asked them to confirm it. Until they answer, or until they have had long
 enough to, a step started is work they may be about to make pointless - so the
@@ -24,12 +25,13 @@ from argus_core.events import (
     PersonWrote,
     Publisher,
     ResolutionOffered,
+    WithdrawalOffered,
     publish,
 )
-from argus_core.models import Meaning, Reference
+from argus_core.models import IncidentStatus, Reference
 
 from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
-from argus_incidents.repository import events
+from argus_incidents.repository import events, incidents
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +60,17 @@ class WaitForPeople(Protocol):
 
 def waiting_for_people(events_of: Callable[[str], list[IncidentEvent]],
                        ended_by_a_person: EndedByAPerson,
+                       status_of: Callable[[str], IncidentStatus],
                        publisher: Publisher,
                        now: Callable[[], datetime] = utc_now,
                        sleep: Callable[[float], None] = sleep_on_the_clock) -> WaitForPeople:
-    """The wait, over whatever reads an incident's events and its ending.
+    """The wait, over whatever reads an incident's events, its ending and its
+    status.
 
-    A message is waited on until it is understood as anything but a
-    resolution, until its offer has expired, or until a person ends the
-    incident - the press, or anybody else's ending meanwhile. Waited on from
+    A message is waited on until it is understood as asking for no ending, or
+    for one the incident's status no longer accepts; until its offer has
+    expired; or until a person ends the incident - the press, or anybody
+    else's ending meanwhile. Waited on from
     the message rather than from the offer, so a walk cannot slip through
     between a message stored and its offer posted.
 
@@ -85,7 +90,7 @@ def waiting_for_people(events_of: Callable[[str], list[IncidentEvent]],
             if ended_by_a_person(incident_id) is not None:
                 return True
 
-            unanswered = _unanswered(events_of(incident_id))
+            unanswered = _unanswered(events_of(incident_id), status_of(incident_id))
 
             if not unanswered:
                 return said_so
@@ -113,14 +118,28 @@ def waiting_for_people_via(connections: Connections,
         with connections() as conn:
             return events.get_by_incident(conn, incident_id)
 
-    return waiting_for_people(events_of, ended_by_a_person_via(connections), publisher,
-                              now=now, sleep=sleep)
+    def status_of(incident_id: str) -> IncidentStatus:
+        with connections() as conn:
+            incident = incidents.get(conn, incident_id)
+
+        # A missing row is withdrawn, as the ending reads it, so a wait never
+        # holds a walk for an incident that is not there.
+        return incident.status if incident is not None else IncidentStatus.WITHDRAWN
+
+    return waiting_for_people(events_of, ended_by_a_person_via(connections), status_of,
+                              publisher, now=now, sleep=sleep)
 
 
-def _unanswered(account: list[IncidentEvent]) -> list[PersonWrote]:
-    """Every message a person wrote that nothing has answered yet."""
+def _unanswered(account: list[IncidentEvent], status: IncidentStatus) -> list[PersonWrote]:
+    """Every message a person wrote that nothing has answered yet.
+
+    A message is answered once it is understood as asking for no ending, or as
+    asking for one the incident no longer accepts - which no press can now
+    bring about, offered or not - or once its offer has expired.
+    """
     answered = {_key(event.message) for event in account
-                if (isinstance(event, MessageUnderstood) and event.meaning is not Meaning.RESOLVE)
+                if (isinstance(event, MessageUnderstood)
+                    and not status.accepts_what_was_asked(event.meaning))
                 or isinstance(event, OfferExpired)}
 
     return [event for event in account
@@ -133,7 +152,8 @@ def _expire_the_offers(incident_id: str,
                        publisher: Publisher) -> None:
     """Says each offer still standing has expired - one for each unanswered
     message that was offered. A message never offered has nothing to expire."""
-    offered = {_key(event.message) for event in account if isinstance(event, ResolutionOffered)}
+    offered = {_key(event.message) for event in account
+               if isinstance(event, ResolutionOffered | WithdrawalOffered)}
     expiring = [written.message for written in unanswered if _key(written.message) in offered]
 
     logger.info("offers not confirmed in time", extra={"offers": len(expiring)})

@@ -20,10 +20,13 @@ from typing import Final
 from argus_core import Connections
 from argus_core.events import CommunicationFailed
 from argus_core.models import (
-    CHAT_OFFER,
+    CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
-    a_chat_offer,
+    CHAT_WITHDRAWAL_OFFER,
+    IncidentStatus,
+    a_chat_resolution_offer,
     a_chat_thread,
+    a_chat_withdrawal_offer,
     the_place_of,
 )
 from argus_incidents.repository import events, references
@@ -33,9 +36,20 @@ from chat_platform import ChatPlatformWrites, Line, Link, Offer
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Destination, Outcome
 
-# What the button on an offer says. The question is the line above it, so the
-# button is the answer, in the words of the act it performs.
-_CONFIRM: Final = "Mark resolved"
+# What the button on an offer says, by the ending its press brings about. The
+# question is the line above it, so the button is the answer, in the words of
+# the act it performs.
+_CONFIRMING: Final = {
+    IncidentStatus.RESOLVED: "Mark resolved",
+    IncidentStatus.WITHDRAWN: "Stand Argus down"
+}
+
+# How a posted offer is remembered, by the ending it offers - apart, because
+# the incident's endings retire the two differently.
+_REMEMBERED_AS: Final = {
+    IncidentStatus.RESOLVED: a_chat_resolution_offer,
+    IncidentStatus.WITHDRAWN: a_chat_withdrawal_offer
+}
 
 # What the link to a write-up says: under the write-up's own summary, and under
 # the war room's line saying where it was filed.
@@ -146,12 +160,12 @@ def a_chat_destination(connections: Connections,
         # silence about an incident being worked.
         replying_to = thread if register is Register.FOLLOWED else None
         said = _the_chat_line(line, link)
-        offer = line.asks_to_confirm
+        about = line.asks_to_confirm
+        ending = line.offers_to_end_as
+        offer = (Offer(about=about, label=_CONFIRMING[ending])
+                 if about is not None and ending is not None else None)
 
-        posted = chat.post(
-            channel, said, replying_to,
-            Offer(about=offer, label=_CONFIRM) if offer is not None else None
-        )
+        posted = chat.post(channel, said, replying_to, offer)
 
         if posted.message is None:
             # The platform's own answer, read for the only thing the relay can
@@ -180,17 +194,18 @@ def a_chat_destination(connections: Connections,
             # conversation from now on, however loudly that message was said.
             _remember_the_thread(connections, incident_id, chat, channel, posted.message)
 
-        if offer is not None:
+        if offer is not None and ending is not None:
             # A button outlives the question it asked: the incident may end by
             # another channel while it is still on screen, and whoever ends it
             # has to find this message again to take the button away.
-            _remember_the_offer(connections, incident_id, chat, channel, posted.message)
+            _remember_the_offer(connections, incident_id, chat, channel, posted.message,
+                                ending)
 
-        if line.leaves_nothing_to_resolve or line.expires_the_offers:
-            # Once the ending - or Argus carrying on without an answer - has
-            # been said, not before: a line held back by a throttle comes round
-            # again, and its offers are retired then.
-            _retire_the_offers(connections, incident_id, channel, line, said, chat)
+        # Once the ending - or Argus carrying on without an answer - has been
+        # said, not before: a line held back by a throttle comes round again,
+        # and its offers are retired then.
+        for kind in _the_offers_retired_by(line):
+            _retire_the_offers(connections, incident_id, channel, kind, line, said, chat)
 
         return Outcome.SAID
 
@@ -212,14 +227,34 @@ def _the_chat_line(line: NarrationLine, link: Link | None) -> Line:
                 link=link)
 
 
+def _the_offers_retired_by(line: NarrationLine) -> list[str]:
+    """Which kinds of offer this line takes the button off.
+
+    An expiry takes every one: Argus carried on without an answer to any of
+    them. An ending takes each kind it leaves impossible - a resolution's at
+    `resolved`, `withdrawn` and `disproven`, a withdrawal's at those and at
+    every other ending too, `mitigated` among them.
+    """
+    retired = []
+
+    if line.leaves_nothing_to_resolve or line.expires_the_offers:
+        retired.append(CHAT_RESOLUTION_OFFER)
+
+    if line.leaves_nothing_to_withdraw or line.expires_the_offers:
+        retired.append(CHAT_WITHDRAWAL_OFFER)
+
+    return retired
+
+
 def _retire_the_offers(connections: Connections,
                        incident_id: str,
                        channel: str,
+                       kind: str,
                        line: NarrationLine,
                        said: Line,
                        chat: ChatPlatformWrites) -> None:
-    """Rewrites every offer this incident has in this channel to say how it
-    ended, with nothing left to press.
+    """Rewrites every offer of `kind` this incident has in this channel to say
+    how it ended, with nothing left to press.
 
     In the ending's own words, because they are the ones that say who ended it
     and through what - or, where Argus ended it, what status it ended in - and
@@ -230,7 +265,7 @@ def _retire_the_offers(connections: Connections,
     a message that still asks, which is written down where a reader will find
     it, as a line that could not be said is.
     """
-    for offer in _the_messages_of(connections, incident_id, CHAT_OFFER, channel):
+    for offer in _the_messages_of(connections, incident_id, kind, channel):
         rewritten = chat.rewrite(channel, offer, said)
 
         if rewritten.message is None:
@@ -303,8 +338,9 @@ def _remember_the_offer(connections: Connections,
                         incident_id: str,
                         chat: ChatPlatformWrites,
                         channel: str,
-                        message: str) -> None:
-    """Records an offer Argus posted, so that the incident's ending can find
-    its button again."""
+                        message: str,
+                        ending: IncidentStatus) -> None:
+    """Records an offer Argus posted, as the kind of offer it is, so that the
+    incident's endings can find its button again."""
     with connections() as conn:
-        references.add(conn, incident_id, [a_chat_offer(chat.channel, channel, message)])
+        references.add(conn, incident_id, [_REMEMBERED_AS[ending](chat.channel, channel, message)])

@@ -40,6 +40,7 @@ from chat_platform.slack_deliveries import (
     BOT_ID,
     CHALLENGE,
     CHANNEL,
+    CONFIRM_ACTION,
     CONTENT_TYPE_HEADER,
     EVENT,
     EVENT_CALLBACK,
@@ -48,7 +49,6 @@ from chat_platform.slack_deliveries import (
     MESSAGE,
     MESSAGE_EVENT,
     PAYLOAD,
-    RESOLVE_ACTION,
     SIGNATURE_HEADER,
     SIGNATURE_VERSION,
     SUBTYPE,
@@ -90,10 +90,10 @@ def test_a_reply_in_a_thread_is_parsed_as_a_person_writing() -> None:
 
 
 @pytest.mark.unit
-def test_a_press_of_the_resolve_button_is_parsed_as_that_person_pressing_it() -> None:
+def test_a_press_of_the_confirm_button_is_parsed_as_that_person_pressing_it() -> None:
     # The button's value is the message the offer was made about, which is
     # what the press is checked against.
-    some_delivery = _a_press(RESOLVE_ACTION, value=SOME_REPLY)
+    some_delivery = _a_press(CONFIRM_ACTION, value=SOME_REPLY)
 
     Scenario() \
         .given(some_delivery) \
@@ -311,7 +311,7 @@ def test_a_press_of_a_button_argus_did_not_post_is_irrelevant() -> None:
 def test_an_interaction_that_is_not_a_press_is_irrelevant() -> None:
     # A form submitted, a shortcut run: the same form-field shape, and still
     # not somebody answering an offer.
-    some_delivery = _a_press(RESOLVE_ACTION, value=SOME_REPLY, kind="view_submission")
+    some_delivery = _a_press(CONFIRM_ACTION, value=SOME_REPLY, kind="view_submission")
 
     Scenario() \
         .given(some_delivery) \

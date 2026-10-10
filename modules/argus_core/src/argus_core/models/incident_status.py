@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from argus_core.models.meaning import Meaning
+
 
 class IncidentStatus(StrEnum):
     # Argus has the alert and has committed to handling it, and nothing is
@@ -142,3 +144,39 @@ class IncidentStatus(StrEnum):
             IncidentStatus.WITHDRAWN,
             IncidentStatus.DISPROVEN
         )
+
+    def accepts_withdrawal(self) -> bool:
+        """Whether a person may take the incident back from here.
+
+        Every status Argus is still working in, and none it has stopped in.
+        Withdrawing is taking the work back, and once the incident has ended
+        there is no work left to take - only the unwind a withdrawal starts,
+        which on a mitigated incident would put the failure back.
+
+        Named rather than left as `not is_terminal()` at each caller, because
+        the store that refuses the write, the agent that decides whether to
+        offer it and the walk that decides whether to wait on the offer are
+        asking the same question, and it is this one.
+        """
+        return not self.is_terminal()
+
+    def accepts_what_was_asked(self, meaning: Meaning) -> bool:
+        """Whether the ending a person's message asked for could still come of
+        it from here.
+
+        A message read as the incident being over asks `accepts_resolution`'s
+        question, one read as a request to stand down asks
+        `accepts_withdrawal`'s, and one that asks for no ending is accepted
+        nowhere. Here rather than at either caller, because the agent deciding
+        whether to offer and the walk deciding whether to wait on the offer
+        must give the same answer: an offer made where the walk would not wait
+        is a button pressed after Argus moved on, and a wait where nothing was
+        offered is five minutes spent on nobody.
+        """
+        match meaning:
+            case Meaning.RESOLVE:
+                return self.accepts_resolution()
+            case Meaning.WITHDRAW:
+                return self.accepts_withdrawal()
+            case _:
+                return False

@@ -61,6 +61,7 @@ from argus_core.events import (
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
+    WithdrawalOffered,
 )
 from argus_core.models import (
     ActionType,
@@ -243,21 +244,32 @@ class NarrationLine(BaseModel):
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
     # The message a person wrote that this line asks them to confirm, where it
-    # asks - so far, only an offer to resolve. A reference rather than words,
+    # asks - an offer to resolve, or to withdraw. A reference rather than words,
     # because a destination that can carry a button makes one of it, and the
     # button has to name the one message whose writer may press it; one that
     # cannot simply says the sentence.
     asks_to_confirm: Reference | None = None
+    # How the incident ends if the person this line asks presses - resolved,
+    # or withdrawn - where it asks anything. The button looks the same either
+    # way, so this is how a destination knows what to write on it, and which
+    # endings take it away again.
+    offers_to_end_as: IncidentStatus | None = None
     # Whether, after this line, the incident can no longer be resolved -
     # resolved already, taken back, or found to be no incident. Not the same
     # as an ending: `mitigated` ends Argus's part and still takes a person's
     # resolution, so a destination closing an offer on every ending would take
     # a button away while it could still do what it says.
     leaves_nothing_to_resolve: bool = False
+    # Whether, after this line, the incident can no longer be withdrawn - which
+    # is every ending, `mitigated` included: there is no work left to take back
+    # once Argus has stopped. A destination holding an offer to withdraw closes
+    # it on this, and one holding an offer to resolve does not.
+    leaves_nothing_to_withdraw: bool = False
     # Whether, after this line, the incident's offers are no longer waited on -
     # Argus carried on without an answer. Not the same as leaving nothing to
-    # resolve: the incident can still be resolved, by a person writing again or
-    # from anywhere else, and only the buttons already posted are done with.
+    # resolve or withdraw: the incident can still end either way, by a person
+    # writing again or from anywhere else, and only the buttons already posted
+    # are done with.
     expires_the_offers: bool = False
     # How many identical looks this line stands for. The wait polls every few
     # seconds and says the same thing each time; a dozen rows saying it is
@@ -621,13 +633,22 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # rather than left out of the sentence.
             emphasis = event.person_name or "whoever wrote it"
             text = f"Asked {emphasis} to confirm the incident is resolved"
+        case WithdrawalOffered():
+            who = _INTENT
+            # Named for the reason a resolution offer is, and saying what the
+            # press does, because it does something a person might not expect:
+            # Argus puts back what it changed on the way out.
+            emphasis = event.person_name or "whoever wrote it"
+            text = (f"Asked {emphasis} to confirm Argus should stand down "
+                    f"and put back what it changed")
         case OfferExpired():
             who = _ARGUS
             # Argus's line, not the intent agent's: carrying on is the walk's
             # decision. It says why the next step came, so it does not read as
-            # one taken over the head of a person who said it was over.
+            # one taken over the head of a person who asked for an ending.
+            # Whichever ending: the expiry names only the message.
             emphasis = "not confirmed in time"
-            text = f"The offer to resolve was {emphasis} - carried on"
+            text = f"The offer was {emphasis} - carried on"
         case _:
             assert_never(event)
 
@@ -645,9 +666,14 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_to=moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
-        asks_to_confirm=event.message if isinstance(event, ResolutionOffered) else None,
+        asks_to_confirm=(event.message
+                         if isinstance(event, ResolutionOffered | WithdrawalOffered)
+                         else None),
+        offers_to_end_as=_the_ending_offered_by(event),
         leaves_nothing_to_resolve=(isinstance(event, StatusChanged)
                                    and not event.to_status.accepts_resolution()),
+        leaves_nothing_to_withdraw=(isinstance(event, StatusChanged)
+                                    and not event.to_status.accepts_withdrawal()),
         expires_the_offers=isinstance(event, OfferExpired),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
@@ -729,6 +755,18 @@ def _also_carrying(line: NarrationLine, event: HypothesisFormed) -> NarrationLin
 
 def _how_many_candidates(formed: int) -> str:
     return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first:"
+
+
+def _the_ending_offered_by(event: IncidentEvent) -> IncidentStatus | None:
+    """How the incident ends if an offer's press is made, or `None` for every
+    line that offers nothing."""
+    match event:
+        case ResolutionOffered():
+            return IncidentStatus.RESOLVED
+        case WithdrawalOffered():
+            return IncidentStatus.WITHDRAWN
+        case _:
+            return None
 
 
 def _the_minute_it_names(event: IncidentEvent) -> str:

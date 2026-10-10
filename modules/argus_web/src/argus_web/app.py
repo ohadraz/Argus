@@ -9,7 +9,13 @@ from typing import Annotated, Any, Final
 
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
-from argus_core.events import OfferExpired, Publisher, ResolutionOffered
+from argus_core.events import (
+    Offered,
+    OfferExpired,
+    Publisher,
+    ResolutionOffered,
+    WithdrawalOffered,
+)
 from argus_core.models import IncidentStatus, Reference, Report, ReportChannel
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_INCIDENT_ID
@@ -412,9 +418,10 @@ async def _a_chat_delivery(request: Request,
 class _TheChatRecord:
     """The incident record, as a delivery from the chat platform reaches it.
 
-    Finding and resolving are the on-call platform's, unchanged - a person
-    resolving from a thread is resolved inside the incident's trace, as from
-    anywhere else. Ingesting and finding an offer are the chat's own.
+    Finding, resolving and withdrawing are the incident record's, unchanged - a
+    person ending the incident from a thread ends it inside the incident's
+    trace, as from anywhere else. Ingesting and finding an offer are the chat's
+    own.
     """
 
     def __init__(self, incidents: _TheIncidentRecord, connections: Connections) -> None:
@@ -427,12 +434,13 @@ class _TheChatRecord:
     def ingest(self, incident_id: str, message: Reference, person_id: str, text: str) -> bool:
         return ingest_a_message(incident_id, message, person_id, text, self._connections)
 
-    def offer_about(self, incident_id: str, message: Reference) -> ResolutionOffered | None:
+    def offer_about(self, incident_id: str, message: Reference) -> Offered | None:
         with self._connections() as conn:
             recorded = events.get_by_incident(conn, incident_id)
 
         return next((event for event in recorded
-                     if isinstance(event, ResolutionOffered) and event.message == message),
+                     if isinstance(event, ResolutionOffered | WithdrawalOffered)
+                     and event.message == message),
                     None)
 
     def offer_expired(self, incident_id: str, message: Reference) -> bool:
@@ -445,13 +453,17 @@ class _TheChatRecord:
     def resolve(self, incident_id: str, reported: Report) -> bool:
         return self._incidents.resolve(incident_id, reported)
 
+    def withdraw(self, incident_id: str, reported: Report) -> bool:
+        return self._incidents.withdraw(incident_id, reported)
+
 
 class _TheIncidentRecord:
-    """The incident record, as a delivery from the on-call platform reaches it.
+    """The incident record, as a delivery from the on-call or the chat
+    platform reaches it.
 
-    A resolution here is resolved inside the incident's own trace, as one from
-    the page is: a person reporting it over is part of the incident's story,
-    wherever they said it.
+    A resolution or a withdrawal here is made inside the incident's own trace,
+    as one from the page is: a person ending the incident is part of its
+    story, wherever they said it.
     """
 
     def __init__(self, connections: Connections, publisher: Publisher, tracer: Tracer) -> None:
@@ -475,6 +487,15 @@ class _TheIncidentRecord:
         with inside_the_incidents_trace(incident_id, kept, RESOLVE_SPAN,
                                         kind=SpanKind.SERVER, tracer=self._tracer):
             return resolve_incident(incident_id, reported, self._connections, self._publisher)
+
+    def withdraw(self, incident_id: str, reported: Report) -> bool:
+        """Withdraws the incident inside its own trace, as a resolution is."""
+        with self._connections() as conn:
+            kept = reads.read_trace_context(conn, incident_id) or {}
+
+        with inside_the_incidents_trace(incident_id, kept, WITHDRAW_SPAN,
+                                        kind=SpanKind.SERVER, tracer=self._tracer):
+            return withdraw_incident(incident_id, reported, self._connections, self._publisher)
 
 
 def _the_watermark_kept_by(connections: Connections) -> Watermark:

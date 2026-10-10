@@ -63,10 +63,10 @@ class Written(BaseModel):
 
 
 class Pressed(BaseModel):
-    """A person pressed the button on an offer to resolve.
+    """A person pressed the button on an offer.
 
     `message` is the message the offer was made about - what the offer is found
-    by, and so what decides whose press counts.
+    by, and so what decides whose press counts and which ending it confirms.
     """
 
     thread: Reference
@@ -111,11 +111,12 @@ class Line(BaseModel):
 
 
 class Offer(BaseModel):
-    """A message's one button: confirming that the incident is over.
+    """A message's one button: confirming what a person asked for.
 
     `about` is the person's message the offer answers - what a press carries
-    back, and so what decides whose press counts. `label` is what the button
-    says, in the Communicator's words.
+    back, and so what decides whose press counts and what it confirms. `label`
+    is what the button says, in the Communicator's words, which is the only
+    place the ending offered shows in it.
     """
 
     about: Reference

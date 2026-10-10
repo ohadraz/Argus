@@ -5,9 +5,10 @@ Two things, for two deliveries. A person writing in an incident's thread is
 ingested: recorded on that incident, once, and nothing more. What they meant is
 classified later and elsewhere, by the intent agent, because the platform waits
 three seconds for an answer and a model takes longer than that. And a person pressing
-the button on an offer to resolve resolves the incident - credited to them,
-through the platform, with the words the offer was made about (spec §16: a
-person saying it is over is fact) - but only if the offer was made to them.
+the button on an offer ends the incident the way the offer offered - resolved
+(spec §16: a person saying it is over is fact) or withdrawn - credited to them,
+through the platform, with the words the offer was made about, but only if the
+offer was made to them.
 
 Which deliveries are a person writing or pressing is the platform adapter's to
 say, because only it can tell a person's reply from a bot's or an edit; this
@@ -19,9 +20,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Protocol
+from typing import Protocol, assert_never
 
-from argus_core.events import ResolutionOffered
+from argus_core.events import Offered, ResolutionOffered, WithdrawalOffered
 from argus_core.models import CHAT_THREAD, Reference, Report
 from chat_platform import ChatPlatformReads, Handshake, Irrelevant, Pressed, Written
 
@@ -45,8 +46,8 @@ class ChatRecord(Protocol):
         message was ingested before; whether it was new."""
         ...
 
-    def offer_about(self, incident_id: str, message: Reference) -> ResolutionOffered | None:
-        """The offer to resolve made about this message, or `None`."""
+    def offer_about(self, incident_id: str, message: Reference) -> Offered | None:
+        """The offer made about this message, whatever it offered, or `None`."""
         ...
 
     def offer_expired(self, incident_id: str, message: Reference) -> bool:
@@ -57,6 +58,10 @@ class ChatRecord(Protocol):
         """Resolves the incident as a person reported it; whether it moved."""
         ...
 
+    def withdraw(self, incident_id: str, reported: Report) -> bool:
+        """Withdraws the incident as a person asked; whether it moved."""
+        ...
+
 
 def receive_chat_delivery(body: bytes,
                           headers: Mapping[str, str],
@@ -64,7 +69,7 @@ def receive_chat_delivery(body: bytes,
                           platform: ChatPlatformReads,
                           record: ChatRecord) -> str | None:
     """Acts on one delivery from the chat platform: ingests a person writing
-    in an incident's thread, or resolves the incident on a press of its offer.
+    in an incident's thread, or ends the incident on a press of its offer.
 
     Returns the challenge where the platform is checking the address, and
     `None` for every other delivery. Raises `ChatDeliveryUnverified` for one the
@@ -79,7 +84,7 @@ def receive_chat_delivery(body: bytes,
         case Written():
             _ingest(delivery, record)
         case Pressed():
-            _resolve(delivery, platform, record)
+            _confirm(delivery, platform, record)
         case Irrelevant(why=why):
             # Most of what the platform delivers is not for Argus - bots,
             # edits, other conversations - so it is said where it can be
@@ -108,9 +113,10 @@ def _ingest(written: Written, record: ChatRecord) -> None:
         })
 
 
-def _resolve(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) -> None:
-    """Resolves the incident a press of its offer is about, if the offer was
-    made to whoever pressed it."""
+def _confirm(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) -> None:
+    """Ends the incident a press of its offer is about the way the offer
+    offered - resolved or withdrawn - if the offer was made to whoever pressed
+    it."""
     incident_id = record.incident_known_as(CHAT_THREAD, [pressed.thread.value])
     offer = (record.offer_about(incident_id, pressed.message)
              if incident_id is not None else None)
@@ -130,8 +136,8 @@ def _resolve(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) 
         return
 
     if offer.person_id != pressed.person_id:
-        # The offer is to the person who said it was over. Anybody else
-        # pressing it would be resolving the incident in their name.
+        # The offer is to the person who asked. Anybody else pressing it would
+        # be ending the incident in their name.
         logger.info("offer pressed by someone else", extra={
             "incident_id": incident_id,
             "chat_message": pressed.message.value,
@@ -142,14 +148,23 @@ def _resolve(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) 
     # Credited by the name the offer was made with, or - where the platform
     # could not name them - by its id for them: the one name Argus holds, and
     # one a reader can look up.
-    resolved = record.resolve(incident_id, Report(
-        by=offer.person_name or offer.person_id, channel=platform.channel, note=offer.said
-    ))
+    reported = Report(by=offer.person_name or offer.person_id,
+                      channel=platform.channel,
+                      note=offer.said)
 
-    if not resolved:
+    match offer:
+        case ResolutionOffered():
+            ended = record.resolve(incident_id, reported)
+        case WithdrawalOffered():
+            ended = record.withdraw(incident_id, reported)
+        case _:
+            assert_never(offer)
+
+    if not ended:
         # A button outlives the incident until the relay takes it away, so it
-        # can be pressed after the incident ended some other way. That ending
-        # stands.
+        # can be pressed after the incident ended some other way - or, for a
+        # withdrawal, after the walk left it somewhere a withdrawal is refused.
+        # That ending stands.
         logger.info("offer pressed on an ended incident", extra={
             "incident_id": incident_id,
             "chat_message": pressed.message.value

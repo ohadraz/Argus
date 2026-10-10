@@ -18,6 +18,13 @@ managed one of them has left the shop somewhere nobody chose. A scale-out is two
 things as well, and it is the one whose first half a reader can actually see: a
 revision is nowhere in the platform's answers, where a replica count is in the
 manifest it holds.
+
+One more place the withdrawal comes from, beside the page: the incident's own
+Slack thread. There, the person's words are only read - Argus offers the
+withdrawal back to them, and it is their press that ends the incident. That
+case is ordered rather than timed, as the resolution's thread case is, so it
+stops Argus before it has acted; what a withdrawal puts back is the page's
+cases, and the same for every channel.
 """
 
 from __future__ import annotations
@@ -26,13 +33,14 @@ import json
 import time
 from collections.abc import Callable
 from http import HTTPStatus as HttpStatus
+from typing import Any
 
 import httpx2
 import psycopg
 import pytest
 from agent_mitigation import Undone
-from argus_core.events import ChangeUndone
-from argus_core.models import IncidentStatus
+from argus_core.events import ActionTaken, ChangeUndone, StatusChanged
+from argus_core.models import IncidentStatus, Report, ReportChannel
 from argus_incidents.repository import events, postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from deployment_platform.argocd import AUTOMATED, ENABLED, SPEC, SYNC_POLICY
@@ -49,12 +57,26 @@ from tests.e2e.framework.argus import (
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
+    WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
     incident_id_from,
+    the_held_model_answers_from,
     the_model_answers_from,
+    the_model_is_held,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
+from tests.e2e.framework.chat import (
+    RECORDED_INTENT_WITHDRAW,
+    THE_WORDS_CLASSIFIED_AS_WITHDRAWN,
+    a_person_writes,
+    the_chat_platform_knows,
+    the_intent_agent_answers_from,
+    the_offer_made_in,
+    the_offer_now_names,
+    the_person_presses,
+    the_thread_of,
+)
 from tests.e2e.framework.deployments import (
     THE_AVERAGE_SLOWED,
     THE_CACHE_ENTRY_RESHAPED,
@@ -113,6 +135,48 @@ def test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back() -> None:
                     _nothing_was_written_up()
                 ),
                 timeout=MITIGATION_TIMEOUT_SECONDS
+            )
+        )
+
+
+@pytest.mark.e2e
+def test_an_incident_withdrawn_from_its_slack_thread_stops_where_it_is() -> None:
+    # The person tells Argus to stand down, Argus offers the withdrawal back to
+    # them, and their press is what ends it - credited to them, with their words
+    # as the note. Argus waits for that answer after investigating, so it never
+    # acts, and there is nothing to put back. The offer is then rewritten to say
+    # who ended it, so the thread does not go on asking.
+    some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
+                                            alert_name="HighErrorRate",
+                                            severity="critical")
+    some_person = "Some Person"
+    some_person_id = "U0SOMEONE"
+    offered: dict[str, dict[str, Any]] = {}
+
+    Scenario() \
+        .given(
+            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(the_model_is_held()),
+            calling(the_intent_agent_answers_from(RECORDED_INTENT_WITHDRAW)),
+            calling(the_chat_platform_knows(some_person_id, some_person))
+        ) \
+        .when(
+            _argus_is_withdrawn_from_the_slack_thread_before_it_acts(
+                some_alert, some_person_id, THE_WORDS_CLASSIFIED_AS_WITHDRAWN, offered)
+        ) \
+        .then(
+            eventually(
+                all_of(
+                    argus_ended_with_status(IncidentStatus.WITHDRAWN),
+                    _the_account_says_it_was_withdrawn(
+                        Report(by=some_person,
+                               channel=ReportChannel.SLACK,
+                               note=THE_WORDS_CLASSIFIED_AS_WITHDRAWN)),
+                    _argus_changed_nothing(),
+                    _nothing_was_written_up(),
+                    the_offer_now_names(offered, some_person)
+                ),
+                timeout=WALK_TIMEOUT_SECONDS
             )
         )
 
@@ -371,6 +435,88 @@ def _argus_is_withdrawn_once_it_has_acted_on(
         return response
 
     return step
+
+
+def _argus_is_withdrawn_from_the_slack_thread_before_it_acts(
+    alert: dict[str, object],
+    person_id: str,
+    words: str,
+    offered: dict[str, dict[str, Any]]
+) -> Callable[[], httpx2.Response]:
+    """Fires the alert with the walk's model held, writes in the incident's
+    thread, lets the walk go, and presses what Argus offers.
+
+    Ordered by the hold rather than timed, as the resolution's thread case is:
+    the person's words are on the incident before the walk has taken a step,
+    so the walk waits after investigating - and the press, whenever it comes,
+    is the next thing that happens to it.
+
+    The offer is kept in `offered`, so that what became of it can be asserted
+    once the incident has ended.
+    """
+    def step() -> httpx2.Response:
+        response = argus_is_triggered_with_alert(alert)()
+        thread = the_thread_of(incident_id_from(response))
+        written = a_person_writes(person_id, words, in_thread=thread)
+
+        the_held_model_answers_from(RECORDED_FLAG_TOGGLE, less_code_fix=True)()
+
+        offered["offer"] = the_offer_made_in(thread)
+        pressed = the_person_presses(person_id, offered["offer"], about=written)
+
+        if pressed.status_code not in (HttpStatus.OK, HttpStatus.ACCEPTED):
+            raise AssertionError(
+                f"The press on the offer answered [{pressed.status_code}]: {pressed.text}. "
+                f"Nothing below is about an incident a person took back."
+            )
+
+        return response
+
+    return step
+
+
+def _the_account_says_it_was_withdrawn(expected: Report) -> Assertion[httpx2.Response]:
+    """One withdrawal on the account: who took it back, where, and what they wrote."""
+    def assertion(response: httpx2.Response) -> bool:
+        incident_id = incident_id_from(response)
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            recorded = events.get_by_incident(conn, incident_id)
+
+        reported = [event.reported for event in recorded
+                    if isinstance(event, StatusChanged)
+                    and event.to_status == IncidentStatus.WITHDRAWN]
+
+        if reported != [expected]:
+            raise AssertionError(
+                f"Expected one withdrawal reported as {expected}, got {reported}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _argus_changed_nothing() -> Assertion[httpx2.Response]:
+    """No action taken: the walk waited on the person instead of mitigating,
+    so the withdrawal had nothing to put back."""
+    def assertion(response: httpx2.Response) -> bool:
+        incident_id = incident_id_from(response)
+
+        with psycopg.connect(DATABASE_URL) as conn:
+            recorded = events.get_by_incident(conn, incident_id)
+
+        taken = [event for event in recorded if isinstance(event, ActionTaken)]
+
+        if taken:
+            raise AssertionError(
+                f"Expected Argus to change nothing while a person was being asked to "
+                f"confirm, got {len(taken)} action(s) taken: {taken}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _wait_until_argus_turns_the_flag_off() -> None:

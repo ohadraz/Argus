@@ -73,9 +73,11 @@ ACTIONS: Final = "actions"
 ACTION_ID: Final = "action_id"
 VALUE: Final = "value"
 
-# The one button Argus posts: confirming an offer to resolve. Its value is the
-# message the offer was made about.
-RESOLVE_ACTION: Final = "resolve-incident"
+# The one button Argus posts: confirming an offer, whatever it offers. Its
+# value is the message the offer was made about, and the offer found by that
+# message is what says which ending a press confirms - so the button names no
+# ending, and an adapter reading it needs to know none.
+CONFIRM_ACTION: Final = "confirm-offer"
 
 # How far a delivery's timestamp may be from now, either way, and still be
 # believed. Slack's own advice: the signature covers the timestamp, so a
@@ -150,7 +152,7 @@ def _a_message(event: Mapping[str, Any]) -> Delivery:
 
 
 def _a_press(payload: Mapping[str, Any]) -> Delivery:
-    """A button pressed, which is Argus's only if it is the resolve button."""
+    """A button pressed, which is Argus's only if it is the confirm button."""
     actions = payload.get(ACTIONS) or []
 
     if payload.get(TYPE) != BLOCK_ACTIONS or not actions:
@@ -158,7 +160,7 @@ def _a_press(payload: Mapping[str, Any]) -> Delivery:
 
     action = actions[0]
 
-    if action.get(ACTION_ID) != RESOLVE_ACTION:
+    if action.get(ACTION_ID) != CONFIRM_ACTION:
         return Irrelevant(why=f"a press of [{action.get(ACTION_ID)}]")
 
     channel = str(payload[CHANNEL][ID])

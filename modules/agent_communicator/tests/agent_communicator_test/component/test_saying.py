@@ -15,6 +15,7 @@ joined.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
@@ -34,16 +35,19 @@ from argus_core.events import (
     PostmortemWritten,
     ResolutionOffered,
     StatusChanged,
+    WithdrawalOffered,
 )
 from argus_core.models import (
-    CHAT_OFFER,
+    CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
     Alert,
     IncidentStatus,
+    Reference,
     Report,
     ReportChannel,
     a_chat_message,
-    a_chat_offer,
+    a_chat_resolution_offer,
+    a_chat_withdrawal_offer,
     the_place_of,
 )
 from argus_incidents.repository import events, incidents, references
@@ -56,8 +60,14 @@ from argus_testkit import (
     one_record_was_logged,
 )
 from chat_platform.slack import ChatSettings, Slack
-from chat_platform.slack_deliveries import ACTION_ID, RESOLVE_ACTION, VALUE
-from chat_platform.slack_posting import ACTIONS_BLOCK, BLOCK_TYPE, BUTTON_ELEMENT, ELEMENTS
+from chat_platform.slack_deliveries import ACTION_ID, CONFIRM_ACTION, VALUE
+from chat_platform.slack_posting import (
+    ACTIONS_BLOCK,
+    BLOCK_TYPE,
+    BUTTON_ELEMENT,
+    ELEMENTS,
+    TEXT_FIELD,
+)
 from slack_sdk import WebClient
 
 from agent_communicator_test.framework.slack import messages_posted_to
@@ -76,6 +86,10 @@ ARGUS_AT = "http://argus.example"
 # The message a person wrote in the war room's thread, as Slack named it - what
 # an offer is about, and what its button has to carry back.
 SOME_PERSONS_MESSAGE = "1788999999.000001"
+ANOTHER_PERSONS_MESSAGE = "1788999999.000002"
+
+# Where an offer of one kind is remembered, as the incident's references name it.
+type OfferPlace = Callable[[str, str, str], Reference]
 
 
 @pytest.mark.component
@@ -234,7 +248,7 @@ def test_an_offer_is_a_reply_whose_button_answers_the_person_s_own_message(
                 _it_landed(),
                 _the_last_message_replied_to_the_first(slack),
                 _the_last_message_carries_one_button(slack,
-                                                     action_id=RESOLVE_ACTION,
+                                                     action_id=CONFIRM_ACTION,
                                                      value=SOME_PERSONS_MESSAGE)
             ))
 
@@ -399,6 +413,128 @@ def test_an_offer_not_confirmed_in_time_loses_its_button(
             .then(all_of(
                 _it_landed(),
                 _the_offer_now_says(slack, "not confirmed in time")
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("offered", "label"), [("resolution", "Mark resolved"),
+                                                ("withdrawal", "Stand Argus down")])
+def test_an_offer_s_button_says_what_pressing_it_does(
+        offered: str, label: str, slack: str, a_clean_database: None) -> None:
+    # The one button looks the same to the platform whatever it confirms, so
+    # its words are the only place a person reads which ending they are about
+    # to bring about - and standing Argus down puts back what it changed.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    offer_on = {"resolution": _the_offer_on, "withdrawal": _the_withdrawal_offer_on}[offered]
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(offer_on(incident_id)),
+                                  Register.FOLLOWED)) \
+            .then(_the_last_message_s_button_says(slack, label))
+
+
+@pytest.mark.component
+def test_an_offer_to_withdraw_is_remembered_as_one(
+        slack: str, a_clean_database: None) -> None:
+    # Remembered by what it offers, because the incident's endings retire the
+    # two differently: mitigated takes a withdrawal's button away and leaves a
+    # resolution's.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_the_withdrawal_offer_on(incident_id)),
+                                  Register.FOLLOWED)) \
+            .then(all_of(
+                _the_offers_remembered_are_the_ones_slack_holds(conn, incident_id, slack,
+                                                                a_chat_withdrawal_offer),
+                _no_offer_is_remembered(conn, incident_id, CHAT_RESOLUTION_OFFER)
+            ))
+
+
+@pytest.mark.component
+def test_a_mitigated_incident_takes_the_button_off_an_offer_to_withdraw_only(
+        slack: str, a_clean_database: None) -> None:
+    # Code-Fix finished and left the incident mitigated. Nobody can withdraw it
+    # now - its unwind would put back the change holding the service up - so
+    # that button would do nothing; the resolution's still can.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+        say = _a_destination_pointed_at(slack)
+
+        Scenario() \
+            .given(
+                calling(lambda: say(incident_id,
+                                        a_narration_line(_the_onset_of(incident_id)),
+                                        Register.ANNOUNCED)),
+                calling(lambda: say(incident_id,
+                                        a_narration_line(_the_offer_on(incident_id)),
+                                        Register.FOLLOWED)),
+                calling(lambda: say(incident_id,
+                                        a_narration_line(_the_withdrawal_offer_on(incident_id)),
+                                        Register.FOLLOWED))
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_a_move_of(incident_id,
+                                                              to=IncidentStatus.MITIGATED)),
+                                  Register.ANNOUNCED)) \
+            .then(all_of(
+                _the_offer_still_asks(slack, at=1),
+                _the_offer_now_says(slack, "MITIGATED", at=2)
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("ending", ["resolved", "expired"])
+def test_an_ending_past_resolving_or_an_expiry_takes_the_button_off_every_offer(
+        ending: str, slack: str, a_clean_database: None) -> None:
+    # Neither ending is possible after a resolution, and an expiry is Argus
+    # carrying on without either answer - so both buttons go, whichever kind.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+        say = _a_destination_pointed_at(slack)
+        the_ending = {
+            "resolved": _resolved_by(incident_id, "some person", ReportChannel.PAGERDUTY),
+            "expired": _the_offer_expiring_on(incident_id)
+        }[ending]
+
+        Scenario() \
+            .given(
+                calling(lambda: say(incident_id,
+                                        a_narration_line(_the_onset_of(incident_id)),
+                                        Register.ANNOUNCED)),
+                calling(lambda: say(incident_id,
+                                        a_narration_line(_the_offer_on(incident_id)),
+                                        Register.FOLLOWED)),
+                calling(lambda: say(incident_id,
+                                        a_narration_line(_the_withdrawal_offer_on(incident_id)),
+                                        Register.FOLLOWED))
+            ) \
+            .when(lambda: say(incident_id, a_narration_line(the_ending), Register.FOLLOWED)) \
+            .then(all_of(
+                _the_offer_now_says(slack, at=1),
+                _the_offer_now_says(slack, at=2)
             ))
 
 
@@ -654,6 +790,18 @@ def _a_move_of(incident_id: str, to: IncidentStatus) -> IncidentEvent:
     return StatusChanged(incident_id=incident_id, to_status=to)
 
 
+def _the_withdrawal_offer_on(incident_id: str) -> IncidentEvent:
+    """An offer to stand down, about a different message than `_the_offer_on`'s,
+    so that an incident can hold both."""
+    return WithdrawalOffered(
+        incident_id=incident_id,
+        message=a_chat_message(ReportChannel.SLACK, A_WAR_ROOM, ANOTHER_PERSONS_MESSAGE),
+        person_id="another-person-id",
+        person_name="another person",
+        said="stop, I've got this"
+    )
+
+
 def _the_offer_expiring_on(incident_id: str) -> IncidentEvent:
     return OfferExpired(
         incident_id=incident_id,
@@ -664,7 +812,7 @@ def _the_offer_expiring_on(incident_id: str) -> IncidentEvent:
 def _an_offer_slack_no_longer_holds(conn: psycopg.Connection, incident_id: str) -> None:
     """An offer the incident remembers, for a message Slack never posted."""
     references.add(conn, incident_id,
-                   [a_chat_offer(ReportChannel.SLACK, A_WAR_ROOM, "1788999999.999999")])
+                   [a_chat_resolution_offer(ReportChannel.SLACK, A_WAR_ROOM, "1788999999.999999")])
     conn.commit()
 
 
@@ -886,20 +1034,24 @@ def _the_incident_has_no_thread(conn: psycopg.Connection,
     return assertion
 
 
-def _the_offers_remembered_are_the_ones_slack_holds(conn: psycopg.Connection,
-                                                    incident_id: str,
-                                                    base_url: str) -> Assertion[Any]:
-    """Every offer the incident remembers, against every message Slack holds.
+def _the_offers_remembered_are_the_ones_slack_holds(
+        conn: psycopg.Connection,
+        incident_id: str,
+        base_url: str,
+        an_offer: OfferPlace = a_chat_resolution_offer) -> Assertion[Any]:
+    """Every offer of `an_offer`'s kind the incident remembers, against every
+    message Slack holds.
 
     Compared whole rather than counted, because the claim is that the offer can
     be found again: a reference to the wrong message is one the ending would
     rewrite, and that message is somebody else's line.
     """
     def assertion(_: Any) -> bool:
-        remembered = references.get_values_for(conn, incident_id, CHAT_OFFER)
-        held = [a_chat_offer(ReportChannel.SLACK, message["channel"], message["ts"]).value
+        held = [an_offer(ReportChannel.SLACK, message["channel"], message["ts"])
                 for message in messages_posted_to(base_url)]
-        if remembered != held:
+        kind = held[0].kind if held else "nothing posted"
+        remembered = references.get_values_for(conn, incident_id, kind)
+        if remembered != [offer.value for offer in held]:
             raise AssertionError(
                 f"Expected the offers {held} remembered, got {remembered}."
             )
@@ -909,22 +1061,25 @@ def _the_offers_remembered_are_the_ones_slack_holds(conn: psycopg.Connection,
     return assertion
 
 
-def _no_offer_is_remembered(conn: psycopg.Connection, incident_id: str) -> Assertion[Any]:
+def _no_offer_is_remembered(conn: psycopg.Connection,
+                            incident_id: str,
+                            kind: str = CHAT_RESOLUTION_OFFER) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        remembered = references.get_values_for(conn, incident_id, CHAT_OFFER)
+        remembered = references.get_values_for(conn, incident_id, kind)
         if remembered:
-            raise AssertionError(f"Expected no offer remembered, got {remembered}.")
+            raise AssertionError(f"Expected no offer remembered as [{kind}], got {remembered}.")
 
         return True
 
     return assertion
 
 
-def _the_offer_now_says(base_url: str, *words: str) -> Assertion[Any]:
-    """The offer - the second message, after the one that opened the thread -
-    rewritten to name how the incident ended, with nothing left to press."""
+def _the_offer_now_says(base_url: str, *words: str, at: int = 1) -> Assertion[Any]:
+    """The offer - by default the second message, after the one that opened
+    the thread - rewritten to name how the incident ended, with nothing left to
+    press."""
     def assertion(_: Any) -> bool:
-        offer = messages_posted_to(base_url)[1]
+        offer = messages_posted_to(base_url)[at]
         if not offer["updated"] or offer["blocks"]:
             raise AssertionError(
                 f"Expected the offer rewritten with no blocks, it reads {offer}."
@@ -939,13 +1094,29 @@ def _the_offer_now_says(base_url: str, *words: str) -> Assertion[Any]:
     return assertion
 
 
-def _the_offer_still_asks(base_url: str) -> Assertion[Any]:
+def _the_offer_still_asks(base_url: str, at: int = 1) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        offer = messages_posted_to(base_url)[1]
+        offer = messages_posted_to(base_url)[at]
         if offer["updated"] or not offer["blocks"]:
             raise AssertionError(
                 f"Expected the offer as it was posted, button and all, it reads {offer}."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_last_message_s_button_says(base_url: str, label: str) -> Assertion[Any]:
+    """What the one button reads, which is the only place in an offer that
+    says which ending a press brings about."""
+    def assertion(_: Any) -> bool:
+        blocks = messages_posted_to(base_url)[-1]["blocks"]
+        labels = [element[TEXT_FIELD][TEXT_FIELD]
+                  for block in blocks if block[BLOCK_TYPE] == ACTIONS_BLOCK
+                  for element in block[ELEMENTS] if element[BLOCK_TYPE] == BUTTON_ELEMENT]
+        if labels != [label]:
+            raise AssertionError(f"Expected one button reading [{label}], got {labels}.")
 
         return True
 

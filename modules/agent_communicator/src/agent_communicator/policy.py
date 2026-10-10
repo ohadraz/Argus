@@ -42,6 +42,7 @@ from argus_core.events import (
     ResolutionOffered,
     StatusChanged,
     VerdictReached,
+    WithdrawalOffered,
 )
 
 
@@ -163,6 +164,11 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # rather than announced, because it answers somebody who wrote in
             # the incident's own conversation - the channel hears the ending
             # their press brings about, as it hears every other ending.
+            return Register.FOLLOWED
+        case WithdrawalOffered():
+            # For the resolution offer's reason: a person asked Argus to stand
+            # down, and an offer only the page showed would leave Argus working
+            # on over their head.
             return Register.FOLLOWED
         case OfferExpired():
             # Said, because saying it is what takes the button away: unsaid, an

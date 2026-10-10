@@ -36,6 +36,7 @@ from argus_core.events import (
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
+    WithdrawalOffered,
     parse_event,
     publish,
 )
@@ -424,12 +425,26 @@ def test_a_status_change_a_person_reported_reads_back_with_who_how_and_what_they
         person_name=None,
         said="rolled the flag back by hand, we're fine"
     ),
+    WithdrawalOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="stop, I've got this one"
+    ),
+    WithdrawalOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name=None,
+        said="stop, I've got this one"
+    ),
     OfferExpired(
         incident_id=new_id(),
         message=Reference(source="some-chat", kind="some-kind", value="some-message")
     )
 ], ids=["person-wrote", "message-understood", "resolution-offered", "offered-to-nobody-named",
-        "offer-expired"])
+        "withdrawal-offered", "withdrawal-offered-to-nobody-named", "offer-expired"])
 
 
 def test_what_a_person_wrote_and_what_argus_made_of_it_read_back_as_published(

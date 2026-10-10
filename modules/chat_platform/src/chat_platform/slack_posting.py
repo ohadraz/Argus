@@ -57,7 +57,7 @@ SECTION_BLOCK: Final = "section"
 ACTIONS_BLOCK: Final = "actions"
 ELEMENTS: Final = "elements"
 BUTTON_ELEMENT: Final = "button"
-_TEXT_FIELD: Final = "text"
+TEXT_FIELD: Final = "text"
 _MARKDOWN_TEXT: Final = "mrkdwn"
 _PLAIN_TEXT: Final = "plain_text"
 _STYLE_FIELD: Final = "style"
@@ -97,10 +97,10 @@ def a_line_with_a_button(said: str,
     """
     return [
         {BLOCK_TYPE: SECTION_BLOCK,
-         _TEXT_FIELD: {BLOCK_TYPE: _MARKDOWN_TEXT, _TEXT_FIELD: said}},
+         TEXT_FIELD: {BLOCK_TYPE: _MARKDOWN_TEXT, TEXT_FIELD: said}},
         {BLOCK_TYPE: ACTIONS_BLOCK,
          ELEMENTS: [{BLOCK_TYPE: BUTTON_ELEMENT,
-                     _TEXT_FIELD: {BLOCK_TYPE: _PLAIN_TEXT, _TEXT_FIELD: label},
+                     TEXT_FIELD: {BLOCK_TYPE: _PLAIN_TEXT, TEXT_FIELD: label},
                      _STYLE_FIELD: _PRIMARY_STYLE,
                      ACTION_ID: action_id,
                      VALUE: value}]}

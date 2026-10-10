@@ -9,6 +9,7 @@ and a second copy of it in a template is a second copy that can be wrong.
 from __future__ import annotations
 
 import pytest
+from argus_core.models import Meaning
 from argus_core.models.incident_status import IncidentStatus
 from argus_testkit import Assertion, Scenario
 
@@ -209,6 +210,82 @@ def test_a_person_may_not_report_the_incident_resolved(unresolvable: IncidentSta
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("withdrawable", [
+    IncidentStatus.ACKNOWLEDGED,
+    IncidentStatus.INVESTIGATING,
+    IncidentStatus.MITIGATING,
+    IncidentStatus.FIXING
+])
+def test_a_person_may_withdraw_an_incident_still_being_worked_on(
+        withdrawable: IncidentStatus) -> None:
+    # Withdrawing is taking the work back, and there is work to take back
+    # only until the incident ends - Code-Fix's `fixing` included.
+    Scenario() \
+        .given(
+            withdrawable
+        ) \
+        .when(
+            lambda: withdrawable.accepts_withdrawal()
+        ) \
+        .then(
+            _a_person_may_withdraw_it(True)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ended", [
+    IncidentStatus.MITIGATED,
+    IncidentStatus.RESOLVED,
+    IncidentStatus.ESCALATED,
+    IncidentStatus.RECOMMENDED,
+    IncidentStatus.DISPROVEN,
+    IncidentStatus.WITHDRAWN
+])
+def test_a_person_may_not_withdraw_an_incident_that_has_ended(ended: IncidentStatus) -> None:
+    # Mitigated among them: its change is holding the service up, and the
+    # unwind a withdrawal starts would put the failure back. Withdrawn among
+    # them too: there is nothing left to confirm.
+    Scenario() \
+        .given(
+            ended
+        ) \
+        .when(
+            lambda: ended.accepts_withdrawal()
+        ) \
+        .then(
+            _a_person_may_withdraw_it(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("meaning", "status", "accepted"), [
+    (Meaning.RESOLVE, IncidentStatus.MITIGATED, True),
+    (Meaning.RESOLVE, IncidentStatus.RESOLVED, False),
+    (Meaning.WITHDRAW, IncidentStatus.FIXING, True),
+    (Meaning.WITHDRAW, IncidentStatus.MITIGATED, False),
+    (Meaning.QUESTION, IncidentStatus.INVESTIGATING, False),
+    (Meaning.INFORMATION, IncidentStatus.INVESTIGATING, False),
+    (Meaning.OTHER, IncidentStatus.INVESTIGATING, False)
+])
+def test_what_a_person_asked_for_is_accepted_only_where_its_ending_still_is(
+        meaning: Meaning, status: IncidentStatus, accepted: bool) -> None:
+    # A message that asks for an ending asks the question that ending asks of
+    # the status - a resolution's of a mitigated incident gets a yes, a
+    # withdrawal's a no - and one that asks for no ending is accepted nowhere,
+    # so nothing is ever offered for it or waited on.
+    Scenario() \
+        .given(
+            status
+        ) \
+        .when(
+            lambda: status.accepts_what_was_asked(meaning)
+        ) \
+        .then(
+            _it_is_accepted(accepted)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
 def test_a_person_writes_this_ending(ending: IncidentStatus) -> None:
     # The two endings written from outside the walk. Nothing the walk writes
@@ -250,6 +327,32 @@ def _a_person_wrote_it(expected: bool) -> Assertion[bool]:
             raise AssertionError(
                 f"Expected a status {"a person" if expected else "the walk"} writes, "
                 f"got [{written_by_a_person!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_is_accepted(expected: bool) -> Assertion[bool]:
+    def assertion(accepts: bool) -> bool:
+        if accepts is not expected:
+            raise AssertionError(
+                f"Expected what was asked {'' if expected else 'not '}to be accepted, "
+                f"got [{accepts!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_person_may_withdraw_it(expected: bool) -> Assertion[bool]:
+    def assertion(accepts: bool) -> bool:
+        if accepts is not expected:
+            raise AssertionError(
+                f"Expected a status {"a person" if expected else "nobody"} may withdraw, "
+                f"got [{accepts!r}]."
             )
 
         return True

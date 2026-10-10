@@ -29,11 +29,14 @@ ON_CALL_INCIDENT: Final = "on-call-incident"
 
 # The kinds of name a chat platform gives a place in the conversation about an
 # incident: the thread it is told in, a message a person wrote there, and an
-# offer Argus posted there. The source is the platform's report channel, as an
+# offer Argus posted there - one kind per ending offered, because an incident
+# can stop accepting one ending and still accept the other, and an offer is
+# retired by what it offers. The source is the platform's report channel, as an
 # on-call platform's is.
 CHAT_THREAD: Final = "chat-thread"
 CHAT_MESSAGE: Final = "chat-message"
-CHAT_OFFER: Final = "chat-offer"
+CHAT_RESOLUTION_OFFER: Final = "chat-resolution-offer"
+CHAT_WITHDRAWAL_OFFER: Final = "chat-withdrawal-offer"
 
 # Between the channel and the message in a place's value. A character no chat
 # platform puts in a channel id, because the schema finds the channel as
@@ -71,9 +74,14 @@ def a_chat_message(platform: str, channel: str, message: str) -> Reference:
     return _a_place(platform, CHAT_MESSAGE, channel, message)
 
 
-def a_chat_offer(platform: str, channel: str, message: str) -> Reference:
-    """One offer Argus posted in a channel."""
-    return _a_place(platform, CHAT_OFFER, channel, message)
+def a_chat_resolution_offer(platform: str, channel: str, message: str) -> Reference:
+    """One offer to resolve Argus posted in a channel."""
+    return _a_place(platform, CHAT_RESOLUTION_OFFER, channel, message)
+
+
+def a_chat_withdrawal_offer(platform: str, channel: str, message: str) -> Reference:
+    """One offer to withdraw Argus posted in a channel."""
+    return _a_place(platform, CHAT_WITHDRAWAL_OFFER, channel, message)
 
 
 def the_place_of(value: str) -> tuple[str, str]:

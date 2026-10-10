@@ -26,7 +26,13 @@ from uuid import uuid4
 import httpx2
 import pytest
 from argus_core import connect_from_env
-from argus_core.events import OfferExpired, PersonWrote, ResolutionOffered, StatusChanged
+from argus_core.events import (
+    OfferExpired,
+    PersonWrote,
+    ResolutionOffered,
+    StatusChanged,
+    WithdrawalOffered,
+)
 from argus_core.models import (
     Alert,
     IncidentStatus,
@@ -65,6 +71,9 @@ SOME_WORDS = "rolled the flag back by hand, we're fine"
 SOME_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 SOME_SPAN = "00f067aa0ba902b7"
 SOME_TRACE_CONTEXT = {"traceparent": f"00-{SOME_TRACE}-{SOME_SPAN}-01"}
+
+# Which kind of offer an incident was made, for the cases that hold for both.
+type OfferKind = type[ResolutionOffered] | type[WithdrawalOffered]
 
 
 @pytest.mark.component
@@ -105,19 +114,46 @@ def test_the_person_an_offer_was_made_to_pressing_it_resolves_the_incident() -> 
 
 
 @pytest.mark.component
-def test_a_resolution_from_the_thread_continues_the_incidents_trace() -> None:
-    # As one from the page does: a person reporting it over is part of the
-    # incident's story, wherever they said it.
+def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_incident() -> None:
+    some_name = "Some Person"
+    a_thread, a_message = _a_thread(), _a_message()
+    incident_id = _an_incident_told_in(a_thread, offering=(a_message, SOME_PERSON, some_name),
+                                       offered=WithdrawalOffered)
+
+    with _the_platform_saying(Pressed(thread=a_thread, person_id=SOME_PERSON,
+                                      message=a_message)), \
+            TestClient(app) as client:
+        Scenario() \
+            .when(lambda: client.post(INTERACTIONS_WEBHOOK, content=DONT_CARE_BODY)) \
+            .then(all_of(
+                the_response_was(HttpStatus.OK),
+                _the_incident_is(incident_id, IncidentStatus.WITHDRAWN),
+                _the_account_says_it_was_reported_as(
+                    incident_id,
+                    Report(by=some_name, channel=ReportChannel.SLACK, note=SOME_WORDS),
+                    ending=IncidentStatus.WITHDRAWN
+                )
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("offered", "span_name"), [(ResolutionOffered, "resolve incident"),
+                                                    (WithdrawalOffered, "withdraw incident")],
+                         ids=["resolution", "withdrawal"])
+def test_an_ending_from_the_thread_continues_the_incidents_trace(offered: OfferKind,
+                                                                 span_name: str) -> None:
+    # As one from the page does: a person ending it is part of the incident's
+    # story, wherever they said it.
     a_thread, a_message = _a_thread(), _a_message()
     incident_id = _an_incident_told_in(a_thread, offering=(a_message, SOME_PERSON, "dont care"),
-                                       trace_context=SOME_TRACE_CONTEXT)
+                                       trace_context=SOME_TRACE_CONTEXT, offered=offered)
 
     with _the_platform_saying(Pressed(thread=a_thread, person_id=SOME_PERSON,
                                       message=a_message)), \
             observing_the_app() as spans, TestClient(app) as client:
         Scenario() \
             .when(lambda: client.post(INTERACTIONS_WEBHOOK, content=DONT_CARE_BODY)) \
-            .then(_it_was_resolved_inside_the_trace_it_kept(spans, incident_id))
+            .then(_it_ended_inside_the_trace_it_kept(spans, incident_id, span_name))
 
 
 @pytest.mark.component
@@ -193,10 +229,11 @@ def _a_message() -> Reference:
 def _an_incident_told_in(thread: Reference,
                          offering: tuple[Reference, str, str] | None = None,
                          trace_context: Mapping[str, str] = incidents.NO_TRACE_CONTEXT,
-                         expired: bool = False) -> str:
+                         expired: bool = False,
+                         offered: OfferKind = ResolutionOffered) -> str:
     """An incident whose war room is `thread`, and - where `offering` names a
-    message, a person and their name - an offer to resolve made to them about
-    it."""
+    message, a person and their name - an offer of the `offered` kind made to
+    them about it."""
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
@@ -205,9 +242,9 @@ def _an_incident_told_in(thread: Reference,
 
         if offering is not None:
             message, person_id, person_name = offering
-            events.record(conn, ResolutionOffered(incident_id=incident_id, message=message,
-                                                  person_id=person_id, person_name=person_name,
-                                                  said=SOME_WORDS))
+            events.record(conn, offered(incident_id=incident_id, message=message,
+                                        person_id=person_id, person_name=person_name,
+                                        said=SOME_WORDS))
 
             if expired:
                 events.record(conn, OfferExpired(incident_id=incident_id, message=message))
@@ -294,19 +331,21 @@ def _the_incident_is(incident_id: str,
     return assertion
 
 
-def _the_account_says_it_was_reported_as(incident_id: str,
-                                         expected: Report) -> Assertion[httpx2.Response]:
+def _the_account_says_it_was_reported_as(
+    incident_id: str,
+    expected: Report,
+    ending: IncidentStatus = IncidentStatus.RESOLVED
+) -> Assertion[httpx2.Response]:
     def assertion(_response: httpx2.Response) -> bool:
         with connect_from_env() as conn:
             recorded = events.get_by_incident(conn, incident_id)
 
         reported = [event.reported for event in recorded
-                    if isinstance(event, StatusChanged)
-                    and event.to_status == IncidentStatus.RESOLVED]
+                    if isinstance(event, StatusChanged) and event.to_status == ending]
 
         if reported != [expected]:
             raise AssertionError(
-                f"Expected one resolution reported as [{expected}], got {reported}."
+                f"Expected one [{ending}] reported as [{expected}], got {reported}."
             )
 
         return True
@@ -328,18 +367,18 @@ def _the_challenge_was_answered(expected: str) -> Assertion[httpx2.Response]:
     return assertion
 
 
-def _it_was_resolved_inside_the_trace_it_kept(
-    spans: InMemorySpanExporter, incident_id: str
+def _it_ended_inside_the_trace_it_kept(
+    spans: InMemorySpanExporter, incident_id: str, span_name: str
 ) -> Assertion[httpx2.Response]:
     def assertion(_response: httpx2.Response) -> bool:
-        resolved = the_span_named(spans, "resolve incident")
-        parent = resolved.parent
+        ended = the_span_named(spans, span_name)
+        parent = ended.parent
         continued = (f"{parent.trace_id:032x}", f"{parent.span_id:016x}") if parent else None
-        named = (resolved.attributes or {}).get(ARGUS_INCIDENT_ID)
+        named = (ended.attributes or {}).get(ARGUS_INCIDENT_ID)
 
         if continued != (SOME_TRACE, SOME_SPAN) or named != incident_id:
             raise AssertionError(
-                f"Expected the resolution's span to continue the trace the incident "
+                f"Expected the [{span_name}] span to continue the trace the incident "
                 f"kept, [{SOME_TRACE}/{SOME_SPAN}], and to name [{incident_id}]; it "
                 f"continued [{continued}] and named [{named}]."
             )

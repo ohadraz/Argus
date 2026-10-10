@@ -26,7 +26,7 @@ from argus_core import (
 )
 from argus_core.events import PersonWrote
 from argus_core.llm import build_llm_client
-from argus_core.models import ModelPolicy
+from argus_core.models import IncidentStatus, ModelPolicy
 from argus_core.replay import Replay
 from argus_incidents import (
     Backlog,
@@ -128,16 +128,16 @@ def _understanding(connections: Connections,
         return partial(classify,
                        llm=build_llm_client(Replay(incident_id, recorder), policy=policy))
 
-    def accepts_resolution(incident_id: str) -> bool:
+    def status_of(incident_id: str) -> IncidentStatus | None:
         with connections() as conn:
             incident = incidents.get(conn, incident_id)
 
-        return incident is not None and incident.status.accepts_resolution()
+        return incident.status if incident is not None else None
 
     def understand_one(written: PersonWrote) -> None:
         understand(written,
                    meaning_of=meaning_of(written.incident_id),
-                   accepts_resolution=accepts_resolution,
+                   status_of=status_of,
                    person_named=person_named,
                    publisher=publisher)
 
