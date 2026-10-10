@@ -13,6 +13,9 @@
 # And the .gitattributes file, which is what makes line endings LF for everyone
 # rather than for whoever happens to have configured it that way.
 !.gitattributes
+# And .python-version, which is what makes uv run the workspace on the same
+# interpreter everywhere, rather than on the newest one a runner can download.
+!.python-version
 
 
 #==============================================================================
