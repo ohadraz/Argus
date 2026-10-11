@@ -40,6 +40,7 @@ from argus_core.events import (
     OfferExpired,
     OnsetDetected,
     PostmortemWritten,
+    QuestionAnswered,
     ResolutionOffered,
     StatusChanged,
     VerdictReached,
@@ -182,6 +183,11 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # known: what it made of it, in the thread they wrote it in.
             # Followed rather than announced - it answers them, and nobody
             # else was asking.
+            return Register.FOLLOWED
+        case QuestionAnswered():
+            # The reply owed to whoever asked, in the thread they asked it in:
+            # an answer only the page showed is no answer to them. Followed
+            # rather than announced - nobody else was asking.
             return Register.FOLLOWED
         case _:
             # Everything else, which today is everything that reports a look

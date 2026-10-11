@@ -67,7 +67,7 @@ TOOL_USE_TYPE: Final = "tool_use"
 
 # What a walk is stored under: the mode it was captured in, in front of its name
 # (`tests.e2e.framework.argus.stored_as`). A reading of one person's message is
-# stored with none (`scripts/record_reading.py`), because it is offered one tool
+# stored with none (`scripts/record_classification.py`), because it is offered one tool
 # whatever the mode - and it is not a walk, so neither rule here is about it.
 # Spelled rather than imported, for the reason the tool names above are.
 WALK_PREFIXES: Final = ("grep-", "meaning-", "both-")

@@ -186,6 +186,7 @@ source = { editable = "modules/agent_intent" }
 dependencies = [
     { name = "argus-argus-core", extra = ["llm"] },
     { name = "argus-argus-incidents" },
+    { name = "argus-argus-narration" },
     { name = "argus-argus-telemetry" },
     { name = "argus-chat-platform" },
     { name = "psycopg", extra = ["binary"] },
@@ -201,6 +202,7 @@ dev = [
 requires-dist = [
     { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
     { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
+    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-chat-platform", editable = "modules/chat_platform" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },

@@ -63,6 +63,7 @@ from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, 
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
+from scripts.hold_the_stack import wait_until_told_to_stop
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
     RECORDED_ACCELERATOR_HETEROGENEITY,
@@ -1370,6 +1371,12 @@ def main() -> int:
         action="store_true",
         help="serve the stored recordings instead of calling the real API",
     )
+    parser.add_argument(
+        "--hold",
+        action="store_true",
+        help="keep the stack up once every capture is done, until Enter - so what "
+             "the walks left on the record can be read, or recorded against",
+    )
     arguments = parser.parse_args()
 
     _the_two_declarations_of_a_fix_agree()
@@ -1391,6 +1398,11 @@ def main() -> int:
     print(f"captured {len(asked_for) - len(failed)} of {len(asked_for)}")
     if failed:
         print(f"failed: {', '.join(failed)}")
+
+    # The stack comes down the moment this returns, and every incident with it.
+    if arguments.hold:
+        print("holding the stack: press Enter, or interrupt, to bring it down")
+        wait_until_told_to_stop()
 
     return 1 if failed else 0
 

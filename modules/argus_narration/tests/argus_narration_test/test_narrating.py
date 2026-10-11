@@ -50,6 +50,7 @@ from argus_core.events import (
     PlacementRecorded,
     PlatformUnavailable,
     PostmortemWritten,
+    QuestionAnswered,
     RecoveryChecked,
     RememberingFailed,
     ResolutionOffered,
@@ -1150,6 +1151,26 @@ def test_a_lead_weighed_is_said_by_the_investigator_with_its_standing_and_why(
         .then(all_of(_the_only_line_marks(standing.value),
                      _the_only_line_says(some_reason),
                      _the_lines_are_credited_to(["Investigator Agent"])))
+
+
+@pytest.mark.unit
+def test_an_answer_to_a_question_is_said_whole_by_the_intent_agent() -> None:
+    # The reply the person who asked is owed, in the thread they asked it in:
+    # the answer itself, set apart and never shortened - a line that sends a
+    # reader elsewhere for the rest is no answer.
+    some_answer = ("Argus reverted the checkout flag at 10:16 and is waiting "
+                   "for the error rate to recover")
+    some_answering = QuestionAnswered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        answer=some_answer
+    )
+
+    Scenario() \
+        .given(some_answering) \
+        .when(lambda: build_narration([some_answering])) \
+        .then(all_of(_the_only_line_marks(some_answer),
+                     _the_lines_are_credited_to(["Intent Agent"])))
 
 
 @pytest.mark.unit

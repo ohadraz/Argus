@@ -32,6 +32,7 @@ from argus_core.events import (
     PlacementRecorded,
     PlatformUnavailable,
     Publisher,
+    QuestionAnswered,
     ResolutionOffered,
     RetrievalRequested,
     SimilarIncidentsRecalled,
@@ -450,10 +451,15 @@ def test_a_status_change_a_person_reported_reads_back_with_who_how_and_what_they
         message=Reference(source="some-chat", kind="some-kind", value="some-message"),
         standing=Standing.SUPPORTED,
         reason="the checkout flag moved at the onset"
+    ),
+    QuestionAnswered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        answer="The checkout flag was reverted at 12:12, and errors fell after it."
     )
 ], ids=["person-wrote", "message-understood", "resolution-offered", "offered-to-nobody-named",
         "withdrawal-offered", "withdrawal-offered-to-nobody-named", "offer-expired",
-        "lead-weighed"])
+        "lead-weighed", "question-answered"])
 
 
 def test_what_a_person_wrote_and_what_argus_made_of_it_read_back_as_published(

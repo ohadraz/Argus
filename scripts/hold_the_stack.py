@@ -31,12 +31,12 @@ def main() -> None:
     print()
 
     try:
-        _wait()
+        wait_until_told_to_stop()
     except KeyboardInterrupt:
         print()
 
 
-def _wait() -> None:
+def wait_until_told_to_stop() -> None:
     """Blocks until a person ends it, however this script was started.
 
     Enter is the obvious way and works whenever there is somebody at a
@@ -50,7 +50,7 @@ def _wait() -> None:
     thing being guessed at is already reported plainly by the read itself.
     """
     try:
-        if sys.stdin is not None and sys.stdin.isatty():
+        if sys.stdin is not None:
             input()
             return
     except EOFError:

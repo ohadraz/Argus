@@ -6,6 +6,9 @@ requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core[llm]",
     "argus-argus_incidents",
+    # The incident's timeline said in words, for one question: what a person
+    # asking about it is answered from.
+    "argus-argus_narration",
     "argus-argus_telemetry",
     # The chat platform's port and its Slack adapter, for one question: what
     # the platform calls the person an offer to resolve is made to.
@@ -26,6 +29,7 @@ dev = [
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
 argus-argus_incidents = { workspace = true }
+argus-argus_narration = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-chat_platform = { workspace = true }

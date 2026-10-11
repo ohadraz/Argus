@@ -50,6 +50,7 @@ from argus_core.events import (
     OnsetDetected,
     PersonWrote,
     PostmortemWritten,
+    QuestionAnswered,
     RecoveryChecked,
     RememberingFailed,
     ResolutionOffered,
@@ -393,6 +394,22 @@ def test_how_a_lead_was_weighed_is_said_where_the_person_wrote_it() -> None:
     Scenario() \
         .given(some_weighing) \
         .when(lambda: how_it_is_said(some_weighing)) \
+        .then(_it_is_said(Register.FOLLOWED))
+
+
+@pytest.mark.unit
+def test_an_answer_to_a_question_is_said_where_the_person_asked_it() -> None:
+    # The reply owed to whoever asked: unsaid, the policy's default, would be
+    # an answer only Argus's own page showed, to a person who asked in the
+    # thread. Followed rather than announced, because it answers them and
+    # nobody else was asking.
+    some_answering = QuestionAnswered(incident_id=AN_INCIDENT,
+                                      message=SOME_MESSAGE,
+                                      answer="Argus reverted the checkout flag")
+
+    Scenario() \
+        .given(some_answering) \
+        .when(lambda: how_it_is_said(some_answering)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 

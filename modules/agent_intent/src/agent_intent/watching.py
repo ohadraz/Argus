@@ -41,12 +41,14 @@ from argus_core.models import (
 )
 from argus_core.replay import Replay
 from argus_incidents import calls_into, events_into
-from argus_incidents.repository import conversation, incidents
+from argus_incidents.repository import conversation, events, incidents
+from argus_narration import build_narration
 from argus_telemetry import start_telemetry
 from chat_platform.slack import ChatSettings, slack_from
 
+from agent_intent.answering import answer
 from agent_intent.classifying import classify
-from agent_intent.understanding import MeaningOf, understand
+from agent_intent.understanding import AnswerOf, MeaningOf, understand
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,18 @@ def _understanding(connections: Connections,
         return partial(classify,
                        llm=build_llm_client(Replay(incident_id, recorder), policy=policy))
 
+    def answer_of(incident_id: str) -> AnswerOf:
+        # The incident's timeline as it stands when the question is answered,
+        # read only for a question - the one meaning that needs it.
+        def answered(question: str) -> str | None:
+            with connections() as conn:
+                story = build_narration(events.get_by_incident(conn, incident_id))
+
+            return answer(question, story,
+                          build_llm_client(Replay(incident_id, recorder), policy=policy))
+
+        return answered
+
     def status_of(incident_id: str) -> IncidentStatus | None:
         with connections() as conn:
             incident = incidents.get(conn, incident_id)
@@ -163,6 +177,7 @@ def _understanding(connections: Connections,
     def understand_one(written: ThreadMessage) -> None:
         understand(written,
                    meaning_of=meaning_of(written.incident_id),
+                   answer_of=answer_of(written.incident_id),
                    status_of=status_of,
                    person_named=person_named,
                    record=record,

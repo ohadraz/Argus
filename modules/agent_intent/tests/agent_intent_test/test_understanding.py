@@ -7,19 +7,23 @@ ending - the incident is over, or Argus is to stand down - and the incident can
 still end that way, it offers that person the chance to confirm: named, so the
 offer says who it is to, and carrying their own words, which become the
 ending's note. A lead's writer is named too, because the postmortem owes them
-the line it reports their lead in.
+the line it reports their lead in. A question is answered, from the incident's
+record, whatever the incident's status.
 
 The record is the work and the event the account of it, so the record is
 written first: what decides on a message reads the record, and an account that
-went missing costs the timeline a line and nothing more.
+went missing costs the timeline a line and nothing more. A question is the one
+exception to "first": it is answered before it is recorded as understood, so a
+process that dies mid-answer leaves it to be asked again rather than marked
+understood and never answered.
 
 It never ends anything. The offer is the whole of what a classification can
 do, because a model's classification of a sentence is not a person's decision -
 the press that answers the offer is.
 
 The model, the incident's status, the chat platform and the record are each
-stood in for: the model's classification is `classifying`'s suite, and the rest
-are somebody else's.
+stood in for: the model's classification and answer are `classifying`'s and
+`answering`'s suites, and the rest are somebody else's.
 """
 
 from __future__ import annotations
@@ -29,11 +33,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-from agent_intent.understanding import understand
+from agent_intent.understanding import COULD_NOT_ANSWER, understand
 from argus_core import new_id
 from argus_core.events import (
     MessageUnderstood,
     Offered,
+    QuestionAnswered,
     ResolutionOffered,
     WithdrawalOffered,
 )
@@ -61,6 +66,8 @@ SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
 SOME_NAME = "Some Person"
 SOME_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
+SOME_ANSWER = "The checkout flag was reverted at 12:05, and errors fell after it."
+DONT_CARE_ANSWER = "dont care"
 
 # A status from which the incident can still end either way a person asks.
 STILL_WORKED_ON = IncidentStatus.INVESTIGATING
@@ -74,6 +81,7 @@ def test_every_message_is_kept_and_told_with_what_it_was_classified_as(
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: meaning,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=lambda _: SOME_NAME,
                                  record=_TheRecord(happened),
@@ -90,6 +98,7 @@ def test_what_a_message_meant_is_kept_before_it_is_told() -> None:
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.INFORMATION,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=lambda _: SOME_NAME,
                                  record=_TheRecord(happened),
@@ -108,6 +117,7 @@ def test_a_message_the_model_could_not_classify_is_nothing_to_act_on_and_is_said
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: None,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=lambda _: SOME_NAME,
                                  record=_TheRecord(happened),
@@ -130,6 +140,7 @@ def test_a_person_saying_it_is_over_is_offered_the_chance_to_confirm(named: str 
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.RESOLVE,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=lambda _: named,
                                  record=_TheRecord(happened),
@@ -150,6 +161,7 @@ def test_a_person_telling_argus_to_stand_down_is_offered_the_chance_to_confirm(
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.WITHDRAW,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=lambda _: named,
                                  record=_TheRecord(happened),
@@ -181,6 +193,7 @@ def test_no_offer_is_made_for_an_ending_the_incident_no_longer_accepts(
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: meaning,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: status,
                                  person_named=a_factory_that_must_not_be_called(
                                      a_name_was_asked_for),
@@ -199,6 +212,7 @@ def test_a_mitigated_incident_is_still_offered_a_resolution() -> None:
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.RESOLVE,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: IncidentStatus.MITIGATED,
                                  person_named=lambda _: SOME_NAME,
                                  record=_TheRecord(happened),
@@ -219,12 +233,121 @@ def test_a_lead_is_kept_with_the_name_of_whoever_wrote_it(named: str | None) -> 
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.INFORMATION,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=lambda _: named,
                                  record=_TheRecord(happened),
                                  publisher=happened.append)) \
         .then(all_of(_the_writer_was_named(happened, named),
                      _no_offer_was_made(happened)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [STILL_WORKED_ON, IncidentStatus.MITIGATED,
+                                    IncidentStatus.RESOLVED, IncidentStatus.WITHDRAWN],
+                         ids=["worked-on", "mitigated", "resolved", "withdrawn"])
+def test_a_question_is_answered_whatever_the_incident_s_status(
+        status: IncidentStatus) -> None:
+    # A question about an incident that has ended is still about something
+    # Argus recorded - and answering it changes nothing, so nothing is offered.
+    happened: list[object] = []
+
+    Scenario() \
+        .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.QUESTION,
+                                 answer_of=lambda _: SOME_ANSWER,
+                                 status_of=lambda _: status,
+                                 person_named=lambda _: SOME_NAME,
+                                 record=_TheRecord(happened),
+                                 publisher=happened.append)) \
+        .then(all_of(_it_was_answered(happened, SOME_ANSWER),
+                     _no_offer_was_made(happened)))
+
+
+@pytest.mark.unit
+def test_a_question_is_answered_before_it_is_kept_as_understood() -> None:
+    # A process that dies mid-answer then leaves the question to be asked
+    # again, where answering after the record would leave it understood and
+    # never answered. The account of the answer follows the account of the
+    # meaning, as the reply follows the question.
+    happened: list[object] = []
+
+    def answering(_: str) -> str:
+        happened.append(_Answering())
+
+        return SOME_ANSWER
+
+    Scenario() \
+        .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.QUESTION,
+                                 answer_of=answering,
+                                 status_of=lambda _: STILL_WORKED_ON,
+                                 person_named=lambda _: SOME_NAME,
+                                 record=_TheRecord(happened),
+                                 publisher=happened.append)) \
+        .then(_these_happened_in_order(happened, [_Answering, _Understood, MessageUnderstood,
+                                                  QuestionAnswered]))
+
+
+@pytest.mark.unit
+def test_a_question_the_model_could_not_answer_is_told_so_and_said(
+        caplog: pytest.LogCaptureFixture) -> None:
+    # The person learns their question was read, as a message nobody could
+    # classify is still recorded; the warning is how anybody learns which.
+    happened: list[object] = []
+
+    Scenario() \
+        .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.QUESTION,
+                                 answer_of=lambda _: None,
+                                 status_of=lambda _: STILL_WORKED_ON,
+                                 person_named=lambda _: SOME_NAME,
+                                 record=_TheRecord(happened),
+                                 publisher=happened.append)) \
+        .then(all_of(
+            _it_was_answered(happened, COULD_NOT_ANSWER),
+            one_record_was_logged(caplog, "agent_intent.understanding", logging.WARNING,
+                                  "question not answered",
+                                  values={"incident_id": SOME_INCIDENT,
+                                          "chat_message": SOME_MESSAGE.value})
+        ))
+
+
+@pytest.mark.unit
+def test_a_question_about_an_incident_argus_cannot_find_is_not_answered() -> None:
+    # There is no record to answer from, and no thread of Argus's to answer in.
+    happened: list[object] = []
+    an_answer_was_asked_for: Kept[bool] = Kept()
+
+    Scenario() \
+        .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: Meaning.QUESTION,
+                                 answer_of=a_factory_that_must_not_be_called(
+                                     an_answer_was_asked_for),
+                                 status_of=lambda _: None,
+                                 person_named=lambda _: SOME_NAME,
+                                 record=_TheRecord(happened),
+                                 publisher=happened.append)) \
+        .then(all_of(_it_was_classified_as(happened, Meaning.QUESTION),
+                     _no_answer_was_given(happened),
+                     nothing_was_collected(an_answer_was_asked_for)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("meaning", [Meaning.RESOLVE, Meaning.INFORMATION, Meaning.WITHDRAW,
+                                     Meaning.OTHER])
+def test_nothing_but_a_question_is_answered(meaning: Meaning) -> None:
+    # An answer costs a model call, and a reply to a message that asked
+    # nothing is Argus talking over the people in the thread.
+    happened: list[object] = []
+    an_answer_was_asked_for: Kept[bool] = Kept()
+
+    Scenario() \
+        .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: meaning,
+                                 answer_of=a_factory_that_must_not_be_called(
+                                     an_answer_was_asked_for),
+                                 status_of=lambda _: STILL_WORKED_ON,
+                                 person_named=lambda _: SOME_NAME,
+                                 record=_TheRecord(happened),
+                                 publisher=happened.append)) \
+        .then(all_of(_no_answer_was_given(happened),
+                     nothing_was_collected(an_answer_was_asked_for)))
 
 
 @pytest.mark.unit
@@ -237,6 +360,7 @@ def test_anything_else_is_offered_nothing_and_nobody_is_looked_up(meaning: Meani
 
     Scenario() \
         .when(lambda: understand(_a_person_writing(), meaning_of=lambda _: meaning,
+                                 answer_of=lambda _: DONT_CARE_ANSWER,
                                  status_of=lambda _: STILL_WORKED_ON,
                                  person_named=a_factory_that_must_not_be_called(
                                      a_name_was_asked_for),
@@ -288,6 +412,11 @@ class _OfferKept:
     ending: IncidentStatus
 
 
+@dataclass(frozen=True)
+class _Answering:
+    """The model was asked for an answer."""
+
+
 def _a_person_writing() -> ThreadMessage:
     return ThreadMessage(incident_id=SOME_INCIDENT, message=SOME_MESSAGE,
                          person_id=SOME_PERSON, text=SOME_WORDS, written_at=SOME_TIME)
@@ -320,6 +449,49 @@ def _it_was_kept_before_it_was_told(happened: list[object]) -> Assertion[object]
             raise AssertionError(
                 f"Expected what the message meant kept, then told, got {order}."
             )
+
+        return True
+
+    return assertion
+
+
+def _it_was_answered(happened: list[object], expected: str) -> Assertion[object]:
+    """One answer told, to this message on this incident, and it is this one."""
+    def assertion(_: object) -> bool:
+        told = [(event.incident_id, event.message, event.answer) for event in happened
+                if isinstance(event, QuestionAnswered)]
+
+        if told != [(SOME_INCIDENT, SOME_MESSAGE, expected)]:
+            raise AssertionError(
+                f"Expected the question answered once with [{expected}], got {told}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_answer_was_given(happened: list[object]) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        answers = [event for event in happened if isinstance(event, QuestionAnswered)]
+
+        if answers:
+            raise AssertionError(f"Expected no answer, got {answers}.")
+
+        return True
+
+    return assertion
+
+
+def _these_happened_in_order(happened: list[object],
+                             expected: list[type]) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        order = [type(entry).__name__ for entry in happened
+                 if isinstance(entry, tuple(expected))]
+        wanted = [kind.__name__ for kind in expected]
+
+        if order != wanted:
+            raise AssertionError(f"Expected {wanted} in that order, got {order}.")
 
         return True
 

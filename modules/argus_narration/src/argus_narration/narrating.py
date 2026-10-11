@@ -54,6 +54,7 @@ from argus_core.events import (
     PlacementRecorded,
     PlatformUnavailable,
     PostmortemWritten,
+    QuestionAnswered,
     RecoveryChecked,
     RememberingFailed,
     ResolutionOffered,
@@ -657,6 +658,13 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # reason is a verdict nobody can check.
             emphasis = event.standing.value
             text = f"Weighed the lead from the thread as {emphasis} - {event.reason}"
+        case QuestionAnswered():
+            who = _INTENT
+            # The reply owed to whoever asked, in their own thread: the answer
+            # whole and set apart, because a shortened answer sends the reader
+            # looking for the rest of it somewhere else.
+            emphasis = event.answer
+            text = f"Answered the question from the thread: {emphasis}"
         case _:
             assert_never(event)
 

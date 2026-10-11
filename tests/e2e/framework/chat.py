@@ -59,6 +59,7 @@ from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
     DATABASE_URL,
     REQUEST_TIMEOUT_SECONDS,
+    the_answers_recorded_for,
 )
 
 # Where the intent agent's model double listens. Kept in step with the noxfile's
@@ -67,10 +68,12 @@ from tests.e2e.framework.argus import (
 INTENT_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8098"
 
 # The intent agent's recorded readings: a person saying the incident is over,
-# a person telling Argus to stand down, and a person telling Argus something.
+# a person telling Argus to stand down, a person telling Argus something, and a
+# person asking - read, and then answered.
 RECORDED_INTENT_RESOLVE: Final = "intent-resolve"
 RECORDED_INTENT_WITHDRAW: Final = "intent-withdraw"
 RECORDED_INTENT_INFORMATION: Final = "intent-information"
+RECORDED_INTENT_QUESTION: Final = "intent-question"
 
 # What each recorded reading was asked about. The double never reads the
 # request, so these are the words a case has to write for the answer it serves
@@ -80,6 +83,7 @@ THE_WORDS_CLASSIFIED_AS_WITHDRAWN: Final = "Argus, stand down - I'm taking this 
 THE_WORDS_CLASSIFIED_AS_INFORMATION: Final = (
     "it's legacy-checkout-fallback - someone switched it off right before this started"
 )
+THE_WORDS_CLASSIFIED_AS_QUESTION: Final = "what has Argus done about this so far?"
 
 # How long a case waits for something the stack does without being asked - the
 # relay opening a thread, the intent agent reading a message and offering. Both
@@ -88,7 +92,9 @@ _LONG_ENOUGH_TO_HAPPEN: Final = 60.0
 
 
 def the_intent_agent_answers_from(recording: str) -> Callable[[], None]:
-    """A `given` step naming the stored answer the intent agent's model gives.
+    """A `given` step naming the stored answers the intent agent's model gives,
+    each once, in the order they were given - one for a reading, and two for a
+    question, which is read and then answered.
 
     Resets first, for the reason the walk's double does: a seed left by an
     earlier case answers until it is cleared.
@@ -97,8 +103,10 @@ def the_intent_agent_answers_from(recording: str) -> Callable[[], None]:
         with httpx2.Client(base_url=INTENT_ANTHROPIC_DOUBLE_BASE_URL,
                            timeout=REQUEST_TIMEOUT_SECONDS) as control:
             control.post("/double-control/reset").raise_for_status()
-            control.post("/double-control/seed",
-                         json={"recording": recording, "repeat": 1}).raise_for_status()
+
+            for answered_once in the_answers_recorded_for(recording, control):
+                control.post("/double-control/seed",
+                             json={"recording": answered_once, "repeat": 1}).raise_for_status()
 
     return seeded
 

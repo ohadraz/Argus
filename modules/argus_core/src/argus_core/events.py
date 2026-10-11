@@ -847,6 +847,20 @@ class LeadWeighed(_Event):
     reason: str
 
 
+class QuestionAnswered(_Event):
+    """Argus answered a question a person asked in the incident's thread, from
+    what the incident's record says.
+
+    An account and nothing more: no wait, press or agent decides on an answer,
+    so nothing of it is kept on the record. This is how it reaches the thread
+    the question was asked in, and the timeline.
+    """
+
+    kind: Literal["question-answered"] = "question-answered"
+    message: Reference
+    answer: str
+
+
 type IncidentEvent = Annotated[
     (
         AlertAcknowledged
@@ -886,6 +900,7 @@ type IncidentEvent = Annotated[
         | WithdrawalOffered
         | OfferExpired
         | LeadWeighed
+        | QuestionAnswered
     ),
     Field(discriminator="kind")
 ]

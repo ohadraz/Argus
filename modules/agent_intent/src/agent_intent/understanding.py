@@ -7,28 +7,32 @@ ending - the incident is over, or Argus is to stand down - and the incident can
 still end that way, it offers that person the chance to confirm: named, so the
 offer says who it is to, and carrying their own words, which become the
 ending's note. A lead's writer is named too, because the postmortem owes them
-the line it reports their lead in.
+the line it reports their lead in. A question is answered from the incident's
+record, whatever the incident's status.
 
 The record is the work and the event the account of it, so the record is
 written first. What decides on a message - the wait, the press - reads the
-record, and an account that went missing costs the timeline a line.
+record, and an account that went missing costs the timeline a line. An answer
+is the one thing worked out before the record is written, so a question is
+never kept as understood and left unanswered.
 
-It never ends anything. The offer is the whole of what a classification can do,
-because a model's classification of a sentence is not a person's decision - the
-press that answers the offer is (spec §16). That holds for a withdrawal more
-than for anything: it puts back what Argus changed.
+It never ends anything. Towards an ending, the offer is the whole of what a
+classification can do, because a model's classification of a sentence is not a
+person's decision - the press that answers the offer is (spec §16). That holds
+for a withdrawal more than for anything: it puts back what Argus changed.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Protocol
+from typing import Final, Protocol
 
 from argus_core.events import (
     MessageUnderstood,
     Offered,
     Publisher,
+    QuestionAnswered,
     ResolutionOffered,
     WithdrawalOffered,
     publish,
@@ -39,6 +43,16 @@ logger = logging.getLogger(__name__)
 
 # What a message meant, as the model classifies it, or `None` where it could not.
 type MeaningOf = Callable[[str], Meaning | None]
+# The answer to a question, from the record of the incident it was asked in, or
+# `None` where the model gave none it could use.
+type AnswerOf = Callable[[str], str | None]
+
+# What a person whose question could not be answered is told, so they learn it
+# was read.
+COULD_NOT_ANSWER: Final = (
+    "I could not answer that from what Argus has recorded. The incident's page "
+    "has the whole timeline."
+)
 # Where an incident, by id, stands now, or `None` where it cannot be found.
 type StatusOf = Callable[[str], IncidentStatus | None]
 # What the chat platform calls a person, by its id for them, or `None`.
@@ -66,12 +80,14 @@ class ConversationRecord(Protocol):
 def understand(written: ThreadMessage,
                *,
                meaning_of: MeaningOf,
+               answer_of: AnswerOf,
                status_of: StatusOf,
                person_named: PersonNamed,
                record: ConversationRecord,
                publisher: Publisher) -> None:
-    """Records what a person's message meant, and offers them the chance to
-    confirm the ending they asked for where the incident can still take it."""
+    """Records what a person's message meant, offers them the chance to
+    confirm the ending they asked for where the incident can still take it,
+    and answers what they asked."""
     meaning = meaning_of(written.text)
 
     if meaning is None:
@@ -85,11 +101,26 @@ def understand(written: ThreadMessage,
         })
         meaning = Meaning.OTHER
 
+    # Answered before the meaning is kept: a process that dies mid-answer then
+    # leaves the question to be asked again, where answering after would leave
+    # it understood and never answered.
+    answered = (_the_answer_to(written, answer_of, status_of)
+                if meaning is Meaning.QUESTION else None)
+
     record.understood(written.message, meaning)
     publish(MessageUnderstood(incident_id=written.incident_id,
                               message=written.message,
                               meaning=meaning),
             publisher)
+
+    if meaning is Meaning.QUESTION:
+        if answered is not None:
+            publish(QuestionAnswered(incident_id=written.incident_id,
+                                     message=written.message,
+                                     answer=answered),
+                    publisher)
+
+        return
 
     if meaning is Meaning.INFORMATION:
         # A lead is reported in the postmortem, which owes its writer the line.
@@ -116,6 +147,33 @@ def understand(written: ThreadMessage,
                     person_name=person_name,
                     said=written.text),
             publisher)
+
+
+def _the_answer_to(written: ThreadMessage,
+                   answer_of: AnswerOf,
+                   status_of: StatusOf) -> str | None:
+    """What the person is told in answer to their question, or `None` where
+    the incident cannot be found - there is no record to answer from.
+
+    Answered whatever the incident's status: a question about an incident that
+    has ended is still about something Argus recorded. Where the model gave no
+    usable answer, the person is told so rather than left with nothing, and
+    the warning is how anybody learns which question it was.
+    """
+    if status_of(written.incident_id) is None:
+        return None
+
+    answered = answer_of(written.text)
+
+    if answered is None:
+        logger.warning("question not answered", extra={
+            "incident_id": written.incident_id,
+            "chat_message": written.message.value
+        })
+
+        return COULD_NOT_ANSWER
+
+    return answered
 
 
 def _the_offer_for(meaning: Meaning,

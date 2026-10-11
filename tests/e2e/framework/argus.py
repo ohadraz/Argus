@@ -693,7 +693,7 @@ def _seed_the_answers(control: httpx2.Client, recording: str, less_code_fix: boo
     """Queues every answer recorded for this case, in order, each once."""
     stored = stored_as(recording)
     shift = _how_far_the_world_has_moved_since(stored)
-    answers = _the_answers_recorded_for(stored, control)
+    answers = the_answers_recorded_for(stored, control)
 
     for answered_once in _less_code_fix(answers) if less_code_fix else answers:
         control.post(
@@ -799,7 +799,7 @@ def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
     return {**answer, "content": content}
 
 
-def _the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[str]:
+def the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[str]:
     """Every stored answer belonging to one incident, in the order it was given.
 
     Asked of the double rather than the filesystem: the recordings belong to it,

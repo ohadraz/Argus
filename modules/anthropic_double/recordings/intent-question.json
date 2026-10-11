@@ -1,0 +1,44 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAIS1gMKwAIIEhgCKkCzV6PrGKwbFU+SviXUmjsOp3cUz5XTDfshvIh5qJdgLOjL41LAsyWwheQkW2MkLsf7XL9onNdwgyqEkdLRkiUaMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKaAQ8KDWNsYXVkZS1vcHVzLTWoAf60rtYGwgE6CAQQABoMAl6hA083BdwhBCatIAEyBBJxzyU6BDgzI4pCBIrcK0BKBDwSpMZQAVoE2QXhVmACaAFwANoBYAoWcHJlZml4X2JlZm9yZV9ibG9ja192MRIgZOyxwco49Cvq0jtIKBM9u2pBEbf6UQDFgOCBMkxFW/siADIgwsATyGqckuIvlm89hhd2j4t6RMkCrcwJe/oeCYr7Th9IAxIMujIgKROdi1o2GuQpGgw4AmPWhAZAqn92ug8iMOvW3f/t3bSF+5g800+xtCj7aWqOrMmoPwQR/M7X9bP/PekanUlxML7rdmYYFmm1JCpDpLyZ7jd6E9F2Xsj0dEJC1O+Aucney8tv4G8CDKuLdWfWMmQXzO/qbBG6eyKVLaNC+dBSvFYQ0n+NZJuO08paejbkaRgB",
+      "thinking": "They want to know more details about what happened in the incident.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_0165KfS3r52PkrnJqZFjRxKQ",
+      "input": {
+        "meaning": "question"
+      },
+      "name": "submit_meaning",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CfvbMzFxwZdqt2oa4tuTa",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 643
+    },
+    "cache_creation_input_tokens": 643,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 67,
+    "output_tokens_details": {
+      "thinking_tokens": 14
+    },
+    "service_tier": "standard"
+  }
+}
