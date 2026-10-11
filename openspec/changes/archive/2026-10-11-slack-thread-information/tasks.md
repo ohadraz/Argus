@@ -99,4 +99,4 @@ lands), then leads through each agent, narration and relay, e2e.
       test missing, redundant or weak; design and specs match what was built
 - [x] 10.7 Module suites, typecheck, lint, guard_layering green
 - [x] 10.8 `e2e_replay(mode='both')` green, in the background
-- [ ] 10.9 Specs synced on archive
+- [x] 10.9 Specs synced on archive

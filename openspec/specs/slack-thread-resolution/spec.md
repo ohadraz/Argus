@@ -145,7 +145,10 @@ clock. A step already running SHALL finish. A press SHALL end the walk as it
 does from any other channel. At 5 minutes, an offer still standing SHALL
 expire, the expiry SHALL be recorded on the incident, and the walk SHALL carry
 on. An incident whose walk is not running SHALL wait for nothing, and its
-offers SHALL NOT expire.
+offers SHALL NOT expire. What a person wrote, what it was understood to mean,
+what was offered and whether the offer expired SHALL be part of the incident
+record, and the wait and the press SHALL decide on that record, never on the
+event stream.
 
 #### Scenario: The person confirms in time
 
@@ -186,6 +189,13 @@ offers SHALL NOT expire.
 - **GIVEN** a withdrawal offer made while Code-Fix was running
 - **WHEN** Code-Fix finishes and leaves the incident mitigated
 - **THEN** the walk does not wait on the offer, and starts its next step
+
+#### Scenario: The wait does not read the event stream
+
+- **GIVEN** a conversation recorded on an incident, and none of its events
+  published
+- **WHEN** the walk asks whether to wait
+- **THEN** it gets the answer it would get with every event published
 
 ### Requirement: A resolution from Slack leaves Argus's changes in place
 
