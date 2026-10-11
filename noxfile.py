@@ -1775,10 +1775,18 @@ _THE_STAND_INS: Final = (
 )
 
 
+# Where the suite finds the worker, for a case that has to keep the walk from
+# starting (`tests/e2e/framework/worker.py`). A pid rather than a seam in the
+# worker, because pausing a walk is something only a case wants, and a process
+# can be suspended from outside without Argus knowing it can be.
+_THE_WORKER_PID_VARIABLE: Final = "ARGUS_E2E_WORKER_PID"
+
+
 def _start_each_of(services: list[tuple[str, list[str], str | None]],
                    service_env: dict[str, dict[str, str]],
                    started: list[subprocess.Popen[bytes]]) -> None:
-    """Starts these services, waits for the ones that listen, and records them.
+    """Starts these services, waits for the ones that listen, records them, and
+    tells the suite which one is the worker.
 
     Appends to the caller's list rather than answering with its own, because
     what has to be torn down is everything started so far - including the half
@@ -1786,6 +1794,10 @@ def _start_each_of(services: list[tuple[str, list[str], str | None]],
     """
     for name, module_args, ready_url in services:
         started.append(_start_service(module_args, env=service_env.get(name)))
+        # On the session's environment, so the pytest process started after it
+        # inherits it, as it inherits the settings.
+        if name == "worker":
+            os.environ[_THE_WORKER_PID_VARIABLE] = str(started[-1].pid)
         # A service that listens on nothing is waited for by nothing: the
         # worker's readiness shows up in the queue it drains, not on a port.
         if ready_url is not None:

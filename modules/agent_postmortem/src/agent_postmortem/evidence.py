@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_core.models import OpenedPullRequest
+from argus_core.models import OpenedPullRequest, ThreadMessage
 from pydantic import BaseModel
 
 
@@ -75,3 +75,8 @@ class IncidentEvidence(BaseModel):
     # exactly this, and a summary is free to be written well without mentioning
     # it.
     recommended_action: str | None = None
+    # What people told the incident in its thread, as leads, each with what the
+    # investigation last made of it. Structured rather than left to the
+    # timeline's one line per weighing: the document reports the words, the
+    # standing and what each changed, and the timeline carries only the second.
+    leads: list[ThreadMessage] = []

@@ -7,7 +7,10 @@ walk starts none. Asked between steps, never inside one: a step already running
 finishes, and a press ends the walk wherever it is, as it always has.
 
 Beside the ending rather than in the graph, for the ending's reason: what is
-asked is a question about the incident record, and the walk only asks it.
+asked is a question about the incident record, and the walk only asks it. Of
+the record, never of the event log: an account that could hold a walk would be
+a participant (`argus_core.events`). So an expiry is kept on the record first,
+and told after.
 """
 
 from __future__ import annotations
@@ -18,20 +21,11 @@ from datetime import datetime, timedelta
 from typing import Final, Protocol
 
 from argus_core import Connections, sleep_on_the_clock, utc_now
-from argus_core.events import (
-    IncidentEvent,
-    MessageUnderstood,
-    OfferExpired,
-    PersonWrote,
-    Publisher,
-    ResolutionOffered,
-    WithdrawalOffered,
-    publish,
-)
-from argus_core.models import IncidentStatus, Reference
+from argus_core.events import OfferExpired, Publisher, publish
+from argus_core.models import IncidentStatus, Reference, ThreadMessage
 
 from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
-from argus_incidents.repository import events, incidents
+from argus_incidents.repository import conversation, incidents
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +52,15 @@ class WaitForPeople(Protocol):
     def __call__(self, incident_id: str, /) -> bool: ...
 
 
-def waiting_for_people(events_of: Callable[[str], list[IncidentEvent]],
+def waiting_for_people(messages_of: Callable[[str], list[ThreadMessage]],
                        ended_by_a_person: EndedByAPerson,
                        status_of: Callable[[str], IncidentStatus],
+                       expire: Callable[[Reference], None],
                        publisher: Publisher,
                        now: Callable[[], datetime] = utc_now,
                        sleep: Callable[[float], None] = sleep_on_the_clock) -> WaitForPeople:
-    """The wait, over whatever reads an incident's events, its ending and its
-    status.
+    """The wait, over whatever reads what people wrote in an incident's thread,
+    its ending and its status, and whatever keeps an offer's expiry.
 
     A message is waited on until it is understood as asking for no ending, or
     for one the incident's status no longer accepts; until its offer has
@@ -90,7 +85,7 @@ def waiting_for_people(events_of: Callable[[str], list[IncidentEvent]],
             if ended_by_a_person(incident_id) is not None:
                 return True
 
-            unanswered = _unanswered(events_of(incident_id), status_of(incident_id))
+            unanswered = _unanswered(messages_of(incident_id), status_of(incident_id))
 
             if not unanswered:
                 return said_so
@@ -99,8 +94,10 @@ def waiting_for_people(events_of: Callable[[str], list[IncidentEvent]],
                 logger.info("waiting for a person", extra={"messages": len(unanswered)})
                 said_so = True
 
-            if now() >= max(written.at for written in unanswered) + HOW_LONG_A_PERSON_IS_WAITED_FOR:
-                _expire_the_offers(incident_id, unanswered, events_of(incident_id), publisher)
+            latest = max(written.written_at for written in unanswered)
+
+            if now() >= latest + HOW_LONG_A_PERSON_IS_WAITED_FOR:
+                _expire_the_offers(incident_id, unanswered, expire, publisher)
                 return True
 
             sleep(_A_LOOK)
@@ -114,9 +111,13 @@ def waiting_for_people_via(connections: Connections,
                            sleep: Callable[[float], None] = sleep_on_the_clock) -> WaitForPeople:
     """The real wait, bound to the connections that can answer it."""
 
-    def events_of(incident_id: str) -> list[IncidentEvent]:
+    def messages_of(incident_id: str) -> list[ThreadMessage]:
         with connections() as conn:
-            return events.get_by_incident(conn, incident_id)
+            return conversation.get_all_by_incident(conn, incident_id)
+
+    def expire(message: Reference) -> None:
+        with connections() as conn:
+            conversation.expired(conn, message)
 
     def status_of(incident_id: str) -> IncidentStatus:
         with connections() as conn:
@@ -126,42 +127,34 @@ def waiting_for_people_via(connections: Connections,
         # holds a walk for an incident that is not there.
         return incident.status if incident is not None else IncidentStatus.WITHDRAWN
 
-    return waiting_for_people(events_of, ended_by_a_person_via(connections), status_of,
-                              publisher, now=now, sleep=sleep)
+    return waiting_for_people(messages_of, ended_by_a_person_via(connections), status_of,
+                              expire, publisher, now=now, sleep=sleep)
 
 
-def _unanswered(account: list[IncidentEvent], status: IncidentStatus) -> list[PersonWrote]:
+def _unanswered(written: list[ThreadMessage], status: IncidentStatus) -> list[ThreadMessage]:
     """Every message a person wrote that nothing has answered yet.
 
     A message is answered once it is understood as asking for no ending, or as
     asking for one the incident no longer accepts - which no press can now
     bring about, offered or not - or once its offer has expired.
     """
-    answered = {_key(event.message) for event in account
-                if (isinstance(event, MessageUnderstood)
-                    and not status.accepts_what_was_asked(event.meaning))
-                or isinstance(event, OfferExpired)}
-
-    return [event for event in account
-            if isinstance(event, PersonWrote) and _key(event.message) not in answered]
+    return [message for message in written
+            if not (message.meaning is not None
+                    and not status.accepts_what_was_asked(message.meaning))
+            and not (message.offer is not None and message.offer.expired)]
 
 
 def _expire_the_offers(incident_id: str,
-                       unanswered: list[PersonWrote],
-                       account: list[IncidentEvent],
+                       unanswered: list[ThreadMessage],
+                       expire: Callable[[Reference], None],
                        publisher: Publisher) -> None:
-    """Says each offer still standing has expired - one for each unanswered
-    message that was offered. A message never offered has nothing to expire."""
-    offered = {_key(event.message) for event in account
-               if isinstance(event, ResolutionOffered | WithdrawalOffered)}
-    expiring = [written.message for written in unanswered if _key(written.message) in offered]
+    """Keeps, then says, that each offer still standing has expired - one for
+    each unanswered message that was offered. A message never offered has
+    nothing to expire."""
+    expiring = [written.message for written in unanswered if written.offer is not None]
 
     logger.info("offers not confirmed in time", extra={"offers": len(expiring)})
 
     for message in expiring:
+        expire(message)
         publish(OfferExpired(incident_id=incident_id, message=message), publisher)
-
-
-def _key(message: Reference) -> tuple[str, str, str]:
-    """A message as something a set can hold."""
-    return message.source, message.kind, message.value

@@ -1,5 +1,5 @@
 """Slack as a case plays it: a person writing in an incident's thread, the
-offer Argus answers with, and the person pressing it.
+offer Argus answers with, and the person pressing it - or the lead it becomes.
 
 What Slack delivers is posted by the case itself, signed as Slack signs it, at
 the moment the stack's own clock says it is - the stack may run on a simulated
@@ -26,7 +26,7 @@ import httpx2
 import psycopg
 from argus_core import get_settings, utc_now
 from argus_core.models import CHAT_THREAD, the_place_of
-from argus_incidents.repository import references
+from argus_incidents.repository import conversation, references
 from argus_testkit import Assertion
 from chat_platform.slack_deliveries import (
     ACTION_ID,
@@ -55,6 +55,7 @@ from chat_platform.slack_deliveries import (
 from chat_platform.slack_posting import ACTIONS_BLOCK, BLOCK_TYPE, BUTTON_ELEMENT, ELEMENTS
 
 from tests.e2e.framework.argus import (
+    A_POLL_SECONDS,
     ARGUS_WEB_BASE_URL,
     DATABASE_URL,
     REQUEST_TIMEOUT_SECONDS,
@@ -66,21 +67,24 @@ from tests.e2e.framework.argus import (
 INTENT_ANTHROPIC_DOUBLE_BASE_URL: Final = "http://localhost:8098"
 
 # The intent agent's recorded readings: a person saying the incident is over,
-# and a person telling Argus to stand down.
+# a person telling Argus to stand down, and a person telling Argus something.
 RECORDED_INTENT_RESOLVE: Final = "intent-resolve"
 RECORDED_INTENT_WITHDRAW: Final = "intent-withdraw"
+RECORDED_INTENT_INFORMATION: Final = "intent-information"
 
 # What each recorded reading was asked about. The double never reads the
 # request, so these are the words a case has to write for the answer it serves
 # to be an answer to them.
 THE_WORDS_CLASSIFIED_AS_RESOLVED: Final = "rolled the flag back by hand, we're fine"
 THE_WORDS_CLASSIFIED_AS_WITHDRAWN: Final = "Argus, stand down - I'm taking this one over by hand"
+THE_WORDS_CLASSIFIED_AS_INFORMATION: Final = (
+    "it's legacy-checkout-fallback - someone switched it off right before this started"
+)
 
 # How long a case waits for something the stack does without being asked - the
 # relay opening a thread, the intent agent reading a message and offering. Both
 # poll every half second; this is that, with room for a loaded machine.
 _LONG_ENOUGH_TO_HAPPEN: Final = 60.0
-_A_POLL: Final = 0.5
 
 
 def the_intent_agent_answers_from(recording: str) -> Callable[[], None]:
@@ -121,7 +125,7 @@ def the_thread_of(incident_id: str) -> tuple[str, str]:
         if values:
             return the_place_of(values[0])
 
-        time.sleep(_A_POLL)
+        time.sleep(A_POLL_SECONDS)
 
     raise AssertionError(f"Incident [{incident_id}] was never given a thread in Slack.")
 
@@ -142,6 +146,31 @@ def a_person_writes(person_id: str, words: str, in_thread: tuple[str, str]) -> s
     return written
 
 
+def the_message_became_a_lead(incident_id: str) -> None:
+    """Waits until the intent agent has read a message in the incident's thread
+    as something somebody is telling Argus.
+
+    Read off the conversation rather than off the thread in Slack: a lead says
+    nothing back, so the only sign it was understood is the row the agents will
+    read it from.
+    """
+    deadline = time.monotonic() + _LONG_ENOUGH_TO_HAPPEN
+
+    while time.monotonic() < deadline:
+        with psycopg.connect(DATABASE_URL) as conn:
+            leads = conversation.get_leads_by_incident(conn, incident_id)
+
+        if leads:
+            return
+
+        time.sleep(A_POLL_SECONDS)
+
+    raise AssertionError(
+        f"Nothing written in incident [{incident_id}]'s thread was understood as a "
+        f"lead within [{_LONG_ENOUGH_TO_HAPPEN:.0f}s]."
+    )
+
+
 def the_offer_made_in(in_thread: tuple[str, str]) -> dict[str, Any]:
     """The message carrying a button, once one is posted in the thread."""
     _, thread = in_thread
@@ -153,7 +182,7 @@ def the_offer_made_in(in_thread: tuple[str, str]) -> dict[str, Any]:
         if offers:
             return offers[-1]
 
-        time.sleep(_A_POLL)
+        time.sleep(A_POLL_SECONDS)
 
     raise AssertionError(f"Nothing was offered in thread [{thread}].")
 

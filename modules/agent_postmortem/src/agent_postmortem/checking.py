@@ -1,7 +1,8 @@
 """What is wrong with an answer, said in words the model can act on.
 
 Two faults, checked together because they are answered together. A required
-field the model left out is the obvious one. The other is a figure in the
+field the model left out is the obvious one - and a lead it said nothing about
+is one of those, whose names only the incident knows. The other is a figure in the
 executive summary that Argus never computed: the document's columns are safe
 by construction, but the summary is published as written, so a fluent sentence
 naming an invented number reaches the reader least able to check it.
@@ -15,10 +16,17 @@ was wrong rewrites the part it liked least.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Final
 
-from agent_postmortem.prompting import REQUIRED_FIELDS, SubmittedPostmortem
+from argus_core.models import ThreadMessage, labelled
+
+from agent_postmortem.prompting import (
+    LEAD_EFFECTS_FIELD,
+    REQUIRED_FIELDS,
+    SubmittedPostmortem,
+)
 
 # A currency amount as prose writes one: a dollar sign, then digits with
 # whatever grouping and decimals the writer felt like. Deliberately only `$` -
@@ -33,9 +41,27 @@ CURRENCY_IN_PROSE: Final = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?")
 FIGURE_TOLERANCE: Final = 0.05
 
 
-def faults_in(answer: SubmittedPostmortem, estimate: Decimal | None) -> list[str]:
+def faults_in(answer: SubmittedPostmortem,
+              estimate: Decimal | None,
+              leads: Sequence[ThreadMessage] = ()) -> list[str]:
     """Everything about this answer that has to be put right, or nothing."""
-    return _missing_fields(answer) + _invented_figures(answer, estimate)
+    return (_missing_fields(answer)
+            + _leads_left_unanswered(answer, leads)
+            + _invented_figures(answer, estimate))
+
+
+def _leads_left_unanswered(answer: SubmittedPostmortem,
+                           leads: Sequence[ThreadMessage]) -> list[str]:
+    """Which leads the answer said nothing about, by the label it knows them by.
+
+    A required field whose names only the incident knows, and refused as one:
+    the person who wrote a lead is owed the line, and a model told which lead it
+    skipped has one thing to put right.
+    """
+    return [f"the lead [{label}] was not answered - say in {LEAD_EFFECTS_FIELD} "
+            f"whether it changed what was done"
+            for label, _lead in labelled(leads)
+            if label not in answer.lead_effects]
 
 
 def _missing_fields(answer: SubmittedPostmortem) -> list[str]:

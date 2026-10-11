@@ -9,14 +9,8 @@ from typing import Annotated, Any, Final
 
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
-from argus_core.events import (
-    Offered,
-    OfferExpired,
-    Publisher,
-    ResolutionOffered,
-    WithdrawalOffered,
-)
-from argus_core.models import IncidentStatus, Reference, Report, ReportChannel
+from argus_core.events import Publisher
+from argus_core.models import IncidentStatus, Reference, Report, ReportChannel, ThreadMessage
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
@@ -28,7 +22,7 @@ from argus_incidents import (
     start_incident,
     withdraw_incident,
 )
-from argus_incidents.repository import events, references
+from argus_incidents.repository import conversation, references
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from chat_platform.slack import ChatSettings, slack_from
 from code_index.records import record_pushed
@@ -434,21 +428,13 @@ class _TheChatRecord:
     def ingest(self, incident_id: str, message: Reference, person_id: str, text: str) -> bool:
         return ingest_a_message(incident_id, message, person_id, text, self._connections)
 
-    def offer_about(self, incident_id: str, message: Reference) -> Offered | None:
+    def message_written(self, incident_id: str, message: Reference) -> ThreadMessage | None:
         with self._connections() as conn:
-            recorded = events.get_by_incident(conn, incident_id)
+            written = conversation.get(conn, message)
 
-        return next((event for event in recorded
-                     if isinstance(event, ResolutionOffered | WithdrawalOffered)
-                     and event.message == message),
-                    None)
-
-    def offer_expired(self, incident_id: str, message: Reference) -> bool:
-        with self._connections() as conn:
-            recorded = events.get_by_incident(conn, incident_id)
-
-        return any(isinstance(event, OfferExpired) and event.message == message
-                   for event in recorded)
+        # A message is found by its own name, and belongs to one incident: a
+        # press in one incident's thread on another's message ends neither.
+        return written if written is not None and written.incident_id == incident_id else None
 
     def resolve(self, incident_id: str, reported: Report) -> bool:
         return self._incidents.resolve(incident_id, reported)

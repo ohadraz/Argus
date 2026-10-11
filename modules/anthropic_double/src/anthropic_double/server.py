@@ -6,8 +6,8 @@ Two surfaces, deliberately separate:
   serves what the test seeded, or what was recorded from the real API, and
   fails loudly when it has neither.
 - `POST /double-control/*` - what the *test* talks to, to say what should
-  happen next - including, with `hold`, *when*: a call held waits for the
-  test's seed. Same shape as the Target Service's own scenario control, so
+  happen next - including, with `hold`, *when*: a call held waits until the
+  test releases it. Same shape as the Target Service's own scenario control, so
   there is one idea to learn rather than two.
 
 Selecting the double is a one-line change on the caller's side
@@ -54,7 +54,7 @@ _ERROR_TYPES: dict[int, str] = {
     529: "overloaded_error",
 }
 
-# How often a held call looks again for a seed or a release. Short, because the
+# How often a held call looks again for a release. Short, because the
 # test that released it is waiting on the answer, and polling an in-process
 # flag costs nothing.
 _A_HELD_CALL_LOOKS_EVERY = 0.05
@@ -117,13 +117,33 @@ class _State:
         self.seeds: deque[Seed] = deque()
         self.record_as: str | None = None
         self.recorded: int = 0
+        # A hold asked for and not yet caught, and a call caught and waiting.
         self.holding: bool = False
+        self.held: bool = False
 
     def reset(self) -> None:
         self.seeds.clear()
         self.record_as = None
         self.recorded = 0
         self.holding = False
+        self.held = False
+
+    def catches(self) -> bool:
+        """Whether the hold catches the call now arriving - the first to arrive
+        after it was asked for, whatever is queued.
+
+        Not "the first with nothing queued", because the queue says nothing
+        while recording: it is empty on every call there, and full from the
+        start of a replay, so a hold read off it would catch different calls
+        in the two - and a recording is only worth replaying if it was
+        captured in the order its case drives.
+        """
+        if not self.holding:
+            return False
+
+        self.holding = False
+        self.held = True
+        return True
 
     def take_next_seed(self) -> Seed:
         """The seed answering this call, consuming one of its repeats.
@@ -180,22 +200,22 @@ def seed(seed: Seed) -> dict[str, int]:
     before the loop starts.
     """
     _state.seeds.append(seed)
-    # A seed is what a hold was waiting for, so it ends one: the call held
-    # takes this answer, and a later call with nothing queued is refused at
-    # once, as it always was, rather than held with nothing coming.
-    _state.holding = False
     return {"queued": len(_state.seeds)}
 
 
 @app.post("/double-control/hold")
 def hold() -> dict[str, bool]:
-    """Holds the next call that arrives with nothing queued, until a seed
-    answers it or a release refuses it.
+    """Holds the next call to arrive until a release.
 
     For a test whose order is the point: it fires what makes the call, does
-    what has to happen before the answer, and only then seeds it - so the
-    caller cannot get ahead of the test however fast it runs. Without a hold,
-    an empty double refuses at once, as it always has.
+    what has to happen before the answer, and only then releases it - so the
+    caller cannot get ahead of the test however fast it runs.
+
+    The held call ignores the queue while it waits, and only a release lets
+    it go. A seed cannot, because a replay seeds the whole walk up front and a
+    recording seeds nothing, and a hold that one of them ended at once and the
+    other never did would order a recording differently from its replay.
+    Calls other than the held one are answered as they always are.
     """
     _state.holding = True
     return {"holding": True}
@@ -203,10 +223,16 @@ def hold() -> dict[str, bool]:
 
 @app.post("/double-control/release")
 def release() -> dict[str, bool]:
-    """Ends a hold without an answer: a call held is refused as a call with
-    nothing queued is."""
+    """Lets the held call go, and with it any hold not yet caught.
+
+    The call released is answered as though it had just arrived: the next
+    seed, or the real API while recording, or the refusal a call with neither
+    gets.
+    """
+    released = _state.held
     _state.holding = False
-    return {"holding": False}
+    _state.held = False
+    return {"released": released}
 
 
 @app.post("/double-control/record")
@@ -239,6 +265,7 @@ def state() -> dict[str, Any]:
         "recording_as": _state.record_as,
         "recorded": _state.recorded,
         "holding": _state.holding,
+        "held": _state.held,
         "available_recordings": recordings.available(),
     }
 
@@ -337,8 +364,8 @@ async def messages(request: Request) -> Response:
     There is no default response. A test that forgot to seed gets an error
     naming what it forgot, not a plausible hypothesis - a double that guesses
     is a double that can make a broken investigation look like a working one.
-    A test that asked for a hold gets the call held until it seeds or
-    releases, and the same error after a release.
+    A test that asked for a hold gets the next call to arrive held until it
+    releases it, in record mode as in replay.
 
     Whether the caller asked to be streamed changes only how the answer is
     said, never which answer it is. Code-Fix streams because its answers are
@@ -355,10 +382,12 @@ async def messages(request: Request) -> Response:
     asked: dict[str, Any] = json.loads(await request.body())
     streaming = bool(asked.get("stream"))
 
-    # Held: wait for the test to seed or release. Never while recording, where
-    # an empty queue means "ask the real API".
-    while _state.holding and not _state.seeds and _state.record_as is None:
-        await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
+    # Held: wait for the test to release - or reset, which releases too. The
+    # answer is chosen only after, so a seed queued while waiting is the one
+    # this call takes.
+    if _state.catches():
+        while _state.held:
+            await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
 
     if _state.seeds:
         return _serve(_state.take_next_seed(), streaming)

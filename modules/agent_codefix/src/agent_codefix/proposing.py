@@ -42,11 +42,14 @@ from argus_core.models import (
     Ask,
     Exchange,
     Hypothesis,
+    Leads,
     ModelPolicy,
     OpenedPullRequest,
     ToolResult,
     ToolResults,
     Turn,
+    no_leads,
+    not_yet_shown,
 )
 
 # Aliased because `replay`'s no-op sink is called `nobody`, as `events`' is, and
@@ -64,7 +67,11 @@ from read_mcp_client import (
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
 from agent_codefix.budget import FixSettings, a_budget_for
-from agent_codefix.opening import the_opening_message, what_it_concluded
+from agent_codefix.opening import (
+    the_opening_message,
+    what_it_concluded,
+    what_people_wrote_since,
+)
 from agent_codefix.prompting import (
     EXPLANATION_FIELD,
     REPORT_TOOL_NAME,
@@ -172,7 +179,8 @@ class Fixer(Protocol):
                  hypothesis: Hypothesis | None,
                  incident_id: str, /,
                  *,
-                 still_wanted: StillWanted = ...) -> OpenedPullRequest | None: ...
+                 still_wanted: StillWanted = ...,
+                 leads: Leads = ...) -> OpenedPullRequest | None: ...
 
 
 # What the model is told when one call is all that is left, ridden in on the
@@ -233,7 +241,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                 converse: Conversation | None = None,
                 recorder: Recorder = records_nothing,
                 conversations: Conversations = a_conversation_recorded_for,
-                still_wanted: StillWanted = wanted_throughout
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads
                 ) -> OpenedPullRequest | None:
     """Proposes a fix for `hypothesis` as a draft pull request, or nothing.
 
@@ -266,6 +275,11 @@ def propose_fix(hypothesis: Hypothesis | None,
     `still_wanted` is asked before every turn and once more before the branch
     is written, and `FixStopped` is raised on "no". A turn in flight comes back
     and is recorded; nothing after it is asked for, and nothing is written.
+
+    `leads` is what people have told the incident in its thread, each with the
+    standing the Investigator gave it or none. Asked before the conversation,
+    for the opening, and again after every turn: a lead written since rides on
+    the next result, and each is shown once.
     """
     submitted = _what_the_model_submitted(
         hypothesis,
@@ -285,7 +299,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                 brief=STANDING_BRIEF
             )
         ),
-        still_wanted=still_wanted
+        still_wanted=still_wanted,
+        leads=leads
     )
 
     patch = submitted.patch()
@@ -326,7 +341,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               list_files: FileLister,
                               read_file: FileReader,
                               converse: Conversation,
-                              still_wanted: StillWanted) -> SubmittedFix:
+                              still_wanted: StillWanted,
+                              leads: Leads) -> SubmittedFix:
     """The conversation, until the model submits or runs out of budget.
 
     Every turn that is not a submission is answered and put back, including the
@@ -341,9 +357,11 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     answer there was.
     """
     tools = tools_for(settings)
+    # Every lead the model has been shown, in the order it was shown them.
+    shown = leads()
     transcript: list[Exchange] = [
         Ask(text=the_opening_message(
-            hypothesis, settings, index_notice, list_files
+            hypothesis, settings, index_notice, list_files, shown
         ))
     ]
     spend = a_budget_for(settings)
@@ -383,25 +401,21 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
         submitted = _the_submission_in(turn)
 
+        results: list[ToolResult]
+
         if submitted is not None and submitted.files:
             not_source = the_paths_whose_content_is_not_source(submitted.files)
 
-            if not_source:
-                # A patch that cannot be read as the language it is written in,
-                # which is a submission to recover from rather than one to
-                # propose. Put back for the reason an empty one is: the model has
-                # decided what to write and is one turn from writing it properly.
-                logger.warning("patch is not source", extra={"paths": not_source})
-                transcript.append(_what_it_is_told_next(
-                    [_that_is_not_source(turn, not_source)],
-                    one_call_left=spend.is_on_its_last_call()
-                ))
+            if not not_source:
+                return submitted
 
-                continue
-
-            return submitted
-
-        if submitted is not None:
+            # A patch that cannot be read as the language it is written in,
+            # which is a submission to recover from rather than one to
+            # propose. Put back for the reason an empty one is: the model has
+            # decided what to write and is one turn from writing it properly.
+            logger.warning("patch is not source", extra={"paths": not_source})
+            results = [_that_is_not_source(turn, not_source)]
+        elif submitted is not None:
             # A patch with nothing in it, which the submission's own schema
             # refuses - so this is one whose every entry was dropped as
             # unreadable rather than one the model sent empty on purpose. It
@@ -415,21 +429,25 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # model that keeps sending this runs out instead, and running out
             # is what a reader is told.
             logger.warning("patch was empty")
-            transcript.append(_what_it_is_told_next(
-                [_no_patch_was_attached(turn)],
-                one_call_left=spend.is_on_its_last_call()
-            ))
-
-            continue
-
-        transcript.append(_what_it_is_told_next(
-            [
+            results = [_no_patch_was_attached(turn)]
+        else:
+            results = [
                 the_answer_to(
                     call, settings, search, search_by_meaning, list_files, read_file
                 )
                 for call in turn.tool_calls
-            ],
-            one_call_left=spend.is_on_its_last_call()
+            ]
+
+        # Asked after every turn, as `still_wanted` is before one: a person
+        # writes while the model reads, and what they wrote rides on this
+        # reply rather than waiting for a fix there may never be another of.
+        written_since = not_yet_shown(leads(), shown)
+        shown = [*shown, *written_since]
+
+        transcript.append(_what_it_is_told_next(
+            results,
+            one_call_left=spend.is_on_its_last_call(),
+            news=what_people_wrote_since(written_since)
         ))
 
     # Which bound ended it, named for the human who has to act on it. It was
@@ -444,21 +462,33 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
 
 def _what_it_is_told_next(results: list[ToolResult],
-                          one_call_left: bool) -> ToolResults:
+                          one_call_left: bool,
+                          news: str = "") -> Exchange:
     """What comes back from one turn's requests, and the warning if it is due.
 
     The warning rides on the last result rather than travelling as a message
     of its own, because it is not a separate thing to weigh - it is the
     condition under which everything else in this reply should be read. The
-    investigator's loop says it the same way, for the same reason.
+    investigator's loop says it the same way, for the same reason. `news` -
+    what people wrote in the thread since the last turn - rides the same way,
+    for the reason it arrives at all: between two turns, never inside one.
+
+    A turn that asked for nothing has no result to ride on, so both are said
+    plainly instead. Dropped there, the news would be counted as shown and
+    never sent, and the thread would not be asked about it again.
 
     Without it a model spends its last call asking for one more file and
     everything it read is thrown away as no fix proposed - which reads as a
     verdict on code nobody finished looking at. That costs more here than
     anywhere else: the turns being discarded are whole files.
     """
-    if not one_call_left or not results:
+    postscript = news + (_ONE_CALL_LEFT if one_call_left else "")
+
+    if not postscript:
         return ToolResults(results=results)
+
+    if not results:
+        return Ask(text=postscript.strip())
 
     last = results[-1]
 
@@ -466,7 +496,7 @@ def _what_it_is_told_next(results: list[ToolResult],
         *results[:-1],
         ToolResult(
             call_id=last.call_id,
-            content=last.content + _ONE_CALL_LEFT,
+            content=last.content + postscript,
             failed=last.failed
         )
     ])

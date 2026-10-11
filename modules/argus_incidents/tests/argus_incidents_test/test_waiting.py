@@ -5,6 +5,10 @@ enough to - a step started is work they may be about to make pointless, so the
 walk starts none. A step already running is not cut off; the wait is asked
 between steps, and this is what is asked.
 
+What is asked of is the incident's record of what people wrote, never the event
+log: an account that could hold a walk would be a participant. An expiry is
+kept on the record first and told after, for the same reason.
+
 The clock and the sleep are handed in, so every case here runs on a clock that
 moves only when the wait sleeps on it, and none of them waits on a real one.
 """
@@ -13,22 +17,23 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core import connect_from_env, new_id
-from argus_core.events import (
-    IncidentEvent,
-    MessageUnderstood,
-    OfferExpired,
-    PersonWrote,
-    ResolutionOffered,
-    WithdrawalOffered,
+from argus_core.events import OfferExpired
+from argus_core.models import (
+    Alert,
+    IncidentStatus,
+    Meaning,
+    Offer,
+    Reference,
+    ThreadMessage,
 )
-from argus_core.models import Alert, IncidentStatus, Meaning, Reference
 from argus_incidents.ending import EndedByAPerson
 from argus_incidents.publishing import events_into
-from argus_incidents.repository import events, incidents
+from argus_incidents.repository import conversation, events, incidents
 from argus_incidents.waiting import (
     HOW_LONG_A_PERSON_IS_WAITED_FOR,
     WaitForPeople,
@@ -57,15 +62,22 @@ class _AClock:
         self.reading += timedelta(seconds=seconds)
 
 
+@dataclass(frozen=True)
+class _ExpiryKept:
+    """The record told an offer expired."""
+
+    message: Reference
+
+
 @pytest.mark.unit
 def test_an_incident_nobody_wrote_about_is_not_waited_on() -> None:
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
 
     Scenario() \
         .given(a_clock) \
-        .when(lambda: _a_wait(_reading([]), a_clock, expired)(new_id())) \
-        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(expired),
+        .when(lambda: _a_wait(_reading([]), a_clock, happened)(new_id())) \
+        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(False)))
 
 
@@ -75,17 +87,16 @@ def test_a_message_that_asks_for_no_ending_is_not_waited_on(meaning: Meaning) ->
     # Nothing was offered, so there is nothing for anybody to answer. A walk
     # that stopped for "thanks" would be a walk any message could stall.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading([_written(some_incident, SOME_MESSAGE, at=SOME_MOMENT),
-                      _understood(some_incident, SOME_MESSAGE, meaning)]),
-            a_clock, expired
+            _reading([_understood(some_incident, SOME_MESSAGE, meaning, at=SOME_MOMENT)]),
+            a_clock, happened
         )(some_incident)) \
-        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(expired),
+        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(False)))
 
 
@@ -95,18 +106,18 @@ def test_a_message_not_yet_classified_is_waited_on_until_it_is() -> None:
     # pass the moment between a message arriving and its offer being made: it
     # waits from the message, not from the button.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
-    written = _written(some_incident, SOME_MESSAGE, at=SOME_MOMENT)
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading([written],
-                     [written, _understood(some_incident, SOME_MESSAGE, Meaning.QUESTION)]),
-            a_clock, expired
+            _reading([_written(some_incident, SOME_MESSAGE, at=SOME_MOMENT)],
+                     [_understood(some_incident, SOME_MESSAGE, Meaning.QUESTION,
+                                  at=SOME_MOMENT)]),
+            a_clock, happened
         )(some_incident)) \
-        .then(all_of(_it_waited(a_clock), _nothing_was_expired(expired),
+        .then(all_of(_it_waited(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(True)))
 
 
@@ -117,17 +128,17 @@ def test_an_offer_is_waited_on_until_a_person_ends_the_incident(ending: Incident
     # ending. So does anybody else's ending meanwhile: an incident somebody
     # took back is no longer waiting on a confirmation either.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading(_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, expired,
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened,
             ended_by_a_person=_ended_after(2, ending)
         )(some_incident)) \
-        .then(all_of(_it_waited(a_clock), _nothing_was_expired(expired),
+        .then(all_of(_it_waited(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(True)))
 
 
@@ -136,34 +147,34 @@ def test_a_request_to_stand_down_is_waited_on_until_the_person_withdraws_the_inc
     # A step started while somebody is about to take the incident back is a
     # change they will watch Argus put back a minute later.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading(_withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, expired,
+            _reading([_withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened,
             ended_by_a_person=_ended_after(2, IncidentStatus.WITHDRAWN)
         )(some_incident)) \
-        .then(all_of(_it_waited(a_clock), _nothing_was_expired(expired),
+        .then(all_of(_it_waited(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(True)))
 
 
 @pytest.mark.unit
 def test_a_withdrawal_offer_nobody_pressed_expires_as_a_resolution_offer_does() -> None:
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading(_withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, expired
+            _reading([_withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened
         )(some_incident)) \
         .then(all_of(
-            _these_were_expired(expired, [SOME_MESSAGE]),
+            _these_were_expired(happened, [SOME_MESSAGE]),
             _the_clock_reads_no_earlier_than(a_clock,
                                              SOME_MOMENT + HOW_LONG_A_PERSON_IS_WAITED_FOR),
             _the_walk_is_told_to_ask_again(True)
@@ -184,22 +195,23 @@ def test_a_message_asking_for_an_ending_the_incident_no_longer_accepts_is_not_wa
     # does nothing - offered or not, since an offer the agent declined to make
     # is no more answerable than one it made too early.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
-    written = _written(some_incident, SOME_MESSAGE, at=SOME_MOMENT)
-    askings: dict[str, list[IncidentEvent]] = {
-        "withdrawal-offered": _withdrawal_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT),
-        "withdrawal-not-offered": [written,
-                                   _understood(some_incident, SOME_MESSAGE, Meaning.WITHDRAW)],
-        "resolution-not-offered": [written,
-                                   _understood(some_incident, SOME_MESSAGE, Meaning.RESOLVE)]
+    askings = {
+        "withdrawal-offered": _withdrawal_offered_on(some_incident, SOME_MESSAGE,
+                                                     at=SOME_MOMENT),
+        "withdrawal-not-offered": _understood(some_incident, SOME_MESSAGE, Meaning.WITHDRAW,
+                                              at=SOME_MOMENT),
+        "resolution-not-offered": _understood(some_incident, SOME_MESSAGE, Meaning.RESOLVE,
+                                              at=SOME_MOMENT)
     }
     asking = askings[asked_for]
 
     Scenario() \
         .given(a_clock) \
-        .when(lambda: _a_wait(_reading(asking), a_clock, expired, status=status)(some_incident)) \
-        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(expired),
+        .when(lambda: _a_wait(_reading([asking]), a_clock, happened,
+                              status=status)(some_incident)) \
+        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(False)))
 
 
@@ -209,16 +221,16 @@ def test_a_resolution_offer_on_a_mitigated_incident_is_still_waited_on() -> None
     # reporting exactly that - so the offer can still be confirmed, and is
     # waited on, while a withdrawal offer beside it would not be.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading(_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, expired, status=IncidentStatus.MITIGATED
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened, status=IncidentStatus.MITIGATED
         )(some_incident)) \
-        .then(all_of(_it_waited(a_clock), _these_were_expired(expired, [SOME_MESSAGE])))
+        .then(all_of(_it_waited(a_clock), _these_were_expired(happened, [SOME_MESSAGE])))
 
 
 @pytest.mark.unit
@@ -226,17 +238,17 @@ def test_an_offer_nobody_pressed_expires_once_the_person_has_had_long_enough() -
     # Counted from the message: that is when the person said it, and a slow
     # classification is Argus's delay, not theirs to make up.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading(_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, expired
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened
         )(some_incident)) \
         .then(all_of(
-            _these_were_expired(expired, [SOME_MESSAGE]),
+            _these_were_expired(happened, [SOME_MESSAGE]),
             _the_clock_reads_no_earlier_than(a_clock,
                                              SOME_MOMENT + HOW_LONG_A_PERSON_IS_WAITED_FOR),
             _the_walk_is_told_to_ask_again(True)
@@ -244,24 +256,44 @@ def test_an_offer_nobody_pressed_expires_once_the_person_has_had_long_enough() -
 
 
 @pytest.mark.unit
-def test_a_later_message_puts_every_offer_s_expiry_off() -> None:
-    # Somebody said it again, or somebody else said it too. The question is
-    # being asked afresh, so the walk waits afresh - and the offers expire
-    # together, as one decision to carry on.
-    the_last_message_at = SOME_MOMENT + timedelta(minutes=4)
-    a_clock = _AClock(the_last_message_at)
-    expired: list[IncidentEvent] = []
+def test_an_expiry_is_kept_before_it_is_told() -> None:
+    # What decides on an offer - this wait, the press - reads the record. Told
+    # first, the timeline could say an offer expired that a press could still
+    # confirm.
+    a_clock = _AClock(SOME_MOMENT)
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading([*_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT),
-                      *_offered_on(some_incident, ANOTHER_MESSAGE, at=the_last_message_at)]),
-            a_clock, expired
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened
+        )(some_incident)) \
+        .then(_the_expiry_was_kept_before_it_was_told(happened))
+
+
+@pytest.mark.unit
+def test_a_later_message_puts_every_offer_s_expiry_off() -> None:
+    # Somebody said it again, or somebody else said it too. The question is
+    # being asked afresh, so the walk waits afresh - and the offers expire
+    # together, as one decision to carry on.
+    # Written while the first offer still stands, so it is the later message
+    # and not the clock that decides when both expire.
+    the_last_message_at = SOME_MOMENT + HOW_LONG_A_PERSON_IS_WAITED_FOR - timedelta(minutes=1)
+    a_clock = _AClock(the_last_message_at)
+    happened: list[object] = []
+    some_incident = new_id()
+
+    Scenario() \
+        .given(a_clock) \
+        .when(lambda: _a_wait(
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT),
+                      _offered_on(some_incident, ANOTHER_MESSAGE, at=the_last_message_at)]),
+            a_clock, happened
         )(some_incident)) \
         .then(all_of(
-            _these_were_expired(expired, [SOME_MESSAGE, ANOTHER_MESSAGE]),
+            _these_were_expired(happened, [SOME_MESSAGE, ANOTHER_MESSAGE]),
             _the_clock_reads_no_earlier_than(
                 a_clock, the_last_message_at + HOW_LONG_A_PERSON_IS_WAITED_FOR)
         ))
@@ -272,17 +304,16 @@ def test_an_offer_that_already_expired_is_not_waited_on_again() -> None:
     # The walk carried on without it once. Every step after that would stop
     # for it again otherwise, and a walk that carried on would never get far.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
-            _reading([*_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT),
-                      OfferExpired(incident_id=some_incident, message=SOME_MESSAGE)]),
-            a_clock, expired
+            _reading([_an_expired_offer_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, happened
         )(some_incident)) \
-        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(expired),
+        .then(all_of(_it_did_not_wait(a_clock), _nothing_was_expired(happened),
                      _the_walk_is_told_to_ask_again(False)))
 
 
@@ -291,17 +322,17 @@ def test_a_message_never_classified_in_time_is_carried_on_from_and_expires_nothi
     # The intent agent is down. There is no offer to take away, so nothing is
     # said to have expired - but the walk does not wait on it for ever.
     a_clock = _AClock(SOME_MOMENT)
-    expired: list[IncidentEvent] = []
+    happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(a_clock) \
         .when(lambda: _a_wait(
             _reading([_written(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
-            a_clock, expired
+            a_clock, happened
         )(some_incident)) \
         .then(all_of(
-            _nothing_was_expired(expired),
+            _nothing_was_expired(happened),
             _the_clock_reads_no_earlier_than(a_clock,
                                              SOME_MOMENT + HOW_LONG_A_PERSON_IS_WAITED_FOR)
         ))
@@ -312,14 +343,14 @@ def test_waiting_on_a_person_is_logged(caplog: pytest.LogCaptureFixture) -> None
     # The longest a walk ever stands still on purpose, so it is said once,
     # as it starts - an operator watching a walk go quiet finds why here.
     a_clock = _AClock(SOME_MOMENT)
-    dont_care_expired: list[IncidentEvent] = []
+    dont_care_happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.INFO))) \
         .when(lambda: _a_wait(
-            _reading(_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, dont_care_expired
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, dont_care_happened
         )(some_incident)) \
         .then(one_record_was_logged(caplog, "argus_incidents.waiting", logging.INFO,
                                     "waiting for a person", values={"messages": 1}))
@@ -328,32 +359,35 @@ def test_waiting_on_a_person_is_logged(caplog: pytest.LogCaptureFixture) -> None
 @pytest.mark.unit
 def test_carrying_on_without_an_answer_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     a_clock = _AClock(SOME_MOMENT)
-    dont_care_expired: list[IncidentEvent] = []
+    dont_care_happened: list[object] = []
     some_incident = new_id()
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.INFO))) \
         .when(lambda: _a_wait(
-            _reading(_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)),
-            a_clock, dont_care_expired
+            _reading([_offered_on(some_incident, SOME_MESSAGE, at=SOME_MOMENT)]),
+            a_clock, dont_care_happened
         )(some_incident)) \
         .then(one_record_was_logged(caplog, "argus_incidents.waiting", logging.INFO,
                                     "offers not confirmed in time", values={"offers": 1}))
 
 
 @pytest.mark.component
-def test_an_expiry_is_written_on_the_incident_it_was_waited_on_for() -> None:
-    # The real reads and the real publisher: what the walk waited on is read
-    # from the incident's own events, and the expiry lands among them, where the
-    # page, the relay and the postmortem all read it.
+def test_an_expiry_is_kept_on_the_incident_and_told_among_its_events() -> None:
+    # The real record and the real publisher: what the walk waited on is read
+    # from the incident's record of what people wrote, the expiry is kept
+    # there, and it is told among the incident's events, where the page, the
+    # relay and the postmortem read it.
     a_clock = _AClock(SOME_MOMENT)
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop",
                                                    alert_name="HighErrorRate"))
-        for event in _offered_on(incident_id, SOME_MESSAGE, at=SOME_MOMENT):
-            events.record(conn, event)
         conn.commit()
+        conversation.write(conn, _written(incident_id, SOME_MESSAGE, at=SOME_MOMENT))
+        conn.commit()
+        conversation.understood(conn, SOME_MESSAGE, Meaning.RESOLVE)
+        conversation.offered(conn, SOME_MESSAGE, IncidentStatus.RESOLVED)
 
     Scenario() \
         .given(incident_id) \
@@ -361,32 +395,34 @@ def test_an_expiry_is_written_on_the_incident_it_was_waited_on_for() -> None:
                                              events_into(connect_from_env),
                                              now=a_clock.now,
                                              sleep=a_clock.sleep)(incident_id)) \
-        .then(_the_incident_records_the_expiry_of(incident_id, SOME_MESSAGE))
+        .then(all_of(_the_record_keeps_the_offer_expired(SOME_MESSAGE),
+                     _the_incident_tells_of_the_expiry_of(incident_id, SOME_MESSAGE)))
 
 
-def _a_wait(events_of: Callable[[str], list[IncidentEvent]],
+def _a_wait(messages_of: Callable[[str], list[ThreadMessage]],
             clock: _AClock,
-            expired: list[IncidentEvent],
+            happened: list[object],
             ended_by_a_person: EndedByAPerson | None = None,
             status: IncidentStatus = IncidentStatus.INVESTIGATING) -> WaitForPeople:
     """The wait over these reads, on an incident Argus is still working on
-    unless `status` says otherwise."""
-    return waiting_for_people(events_of,
+    unless `status` says otherwise, keeping and telling into `happened`."""
+    return waiting_for_people(messages_of,
                               ended_by_a_person or _ended_after(None, None),
                               lambda _incident_id: status,
-                              expired.append,
+                              lambda message: happened.append(_ExpiryKept(message)),
+                              happened.append,
                               now=clock.now,
                               sleep=clock.sleep)
 
 
-def _reading(*snapshots: list[IncidentEvent]) -> Callable[[str], list[IncidentEvent]]:
-    """The incident's events, one snapshot per look, the last one for good."""
+def _reading(*snapshots: list[ThreadMessage]) -> Callable[[str], list[ThreadMessage]]:
+    """The incident's messages, one snapshot per look, the last one for good."""
     remaining = list(snapshots)
 
-    def events_of(_incident_id: str) -> list[IncidentEvent]:
+    def messages_of(_incident_id: str) -> list[ThreadMessage]:
         return remaining.pop(0) if len(remaining) > 1 else remaining[0]
 
-    return events_of
+    return messages_of
 
 
 def _ended_after(looks: int | None, ending: IncidentStatus | None) -> EndedByAPerson:
@@ -402,37 +438,38 @@ def _ended_after(looks: int | None, ending: IncidentStatus | None) -> EndedByAPe
     return ended_by_a_person
 
 
-def _written(incident_id: str, message: Reference, at: datetime) -> PersonWrote:
-    return PersonWrote(incident_id=incident_id, message=message,
-                       person_id="some-person-id", text="it's over", at=at)
+def _written(incident_id: str, message: Reference, at: datetime) -> ThreadMessage:
+    return ThreadMessage(incident_id=incident_id, message=message,
+                         person_id="some-person-id", text="it's over", written_at=at)
 
 
-def _understood(incident_id: str, message: Reference, meaning: Meaning) -> MessageUnderstood:
-    return MessageUnderstood(incident_id=incident_id, message=message, meaning=meaning)
+def _understood(incident_id: str,
+                message: Reference,
+                meaning: Meaning,
+                at: datetime) -> ThreadMessage:
+    return _written(incident_id, message, at).model_copy(update={"meaning": meaning})
 
 
-def _offered_on(incident_id: str, message: Reference, at: datetime) -> list[IncidentEvent]:
+def _offered_on(incident_id: str, message: Reference, at: datetime) -> ThreadMessage:
     """A person saying it is over, read as such, and asked to confirm."""
-    return [
-        _written(incident_id, message, at=at),
-        _understood(incident_id, message, Meaning.RESOLVE),
-        ResolutionOffered(incident_id=incident_id, message=message,
-                          person_id="some-person-id", person_name="some person",
-                          said="it's over")
-    ]
+    return _understood(incident_id, message, Meaning.RESOLVE, at).model_copy(update={
+        "offer": Offer(ending=IncidentStatus.RESOLVED)
+    })
 
 
-def _withdrawal_offered_on(incident_id: str,
-                           message: Reference,
-                           at: datetime) -> list[IncidentEvent]:
+def _an_expired_offer_on(incident_id: str, message: Reference, at: datetime) -> ThreadMessage:
+    """A person saying it is over, asked to confirm, and the walk carried on
+    without an answer."""
+    return _understood(incident_id, message, Meaning.RESOLVE, at).model_copy(update={
+        "offer": Offer(ending=IncidentStatus.RESOLVED, expired=True)
+    })
+
+
+def _withdrawal_offered_on(incident_id: str, message: Reference, at: datetime) -> ThreadMessage:
     """A person telling Argus to stand down, read as such, and asked to confirm."""
-    return [
-        _written(incident_id, message, at=at),
-        _understood(incident_id, message, Meaning.WITHDRAW),
-        WithdrawalOffered(incident_id=incident_id, message=message,
-                          person_id="some-person-id", person_name="some person",
-                          said="stop, I've got this")
-    ]
+    return _understood(incident_id, message, Meaning.WITHDRAW, at).model_copy(update={
+        "offer": Offer(ending=IncidentStatus.WITHDRAWN)
+    })
 
 
 def _the_walk_is_told_to_ask_again(expected: bool) -> Assertion[bool]:
@@ -472,25 +509,43 @@ def _it_did_not_wait(clock: _AClock) -> Assertion[object]:
     return assertion
 
 
-def _nothing_was_expired(expired: list[IncidentEvent]) -> Assertion[object]:
+def _nothing_was_expired(happened: list[object]) -> Assertion[object]:
     def assertion(_: object) -> bool:
-        if expired:
-            raise AssertionError(f"Expected no offer expired, got {expired}.")
+        if happened:
+            raise AssertionError(f"Expected no offer expired, got {happened}.")
 
         return True
 
     return assertion
 
 
-def _these_were_expired(expired: list[IncidentEvent],
+def _these_were_expired(happened: list[object],
                         messages: list[Reference]) -> Assertion[object]:
+    """Each of these offers kept as expired and told as expired, and nothing
+    else kept or told."""
     def assertion(_: object) -> bool:
-        said = [event.message for event in expired if isinstance(event, OfferExpired)]
+        kept = [entry.message for entry in happened if isinstance(entry, _ExpiryKept)]
+        told = [entry.message for entry in happened if isinstance(entry, OfferExpired)]
+        wanted = sorted(messages, key=str)
 
-        if len(said) != len(expired) or sorted(said, key=str) != sorted(messages, key=str):
+        if (len(kept) + len(told) != len(happened)
+                or sorted(kept, key=str) != wanted or sorted(told, key=str) != wanted):
             raise AssertionError(
-                f"Expected the offers about {messages} expired, got {expired}."
+                f"Expected the offers about {messages} kept and told as expired, got "
+                f"{happened}."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_expiry_was_kept_before_it_was_told(happened: list[object]) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        order = [type(entry).__name__ for entry in happened]
+
+        if order != [_ExpiryKept.__name__, OfferExpired.__name__]:
+            raise AssertionError(f"Expected the expiry kept, then told, got {order}.")
 
         return True
 
@@ -509,8 +564,26 @@ def _the_clock_reads_no_earlier_than(clock: _AClock, moment: datetime) -> Assert
     return assertion
 
 
-def _the_incident_records_the_expiry_of(incident_id: str,
-                                        message: Reference) -> Assertion[object]:
+def _the_record_keeps_the_offer_expired(message: Reference) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        with connect_from_env() as conn:
+            kept = conversation.get(conn, message)
+
+        offer = kept.offer if kept is not None else None
+
+        if offer is None or not offer.expired:
+            raise AssertionError(
+                f"Expected the record to keep the offer about [{message}] expired, it "
+                f"keeps {offer}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_tells_of_the_expiry_of(incident_id: str,
+                                         message: Reference) -> Assertion[object]:
     def assertion(_: object) -> bool:
         with connect_from_env() as conn:
             recorded = events.get_by_incident(conn, incident_id)
@@ -519,8 +592,8 @@ def _the_incident_records_the_expiry_of(incident_id: str,
 
         if expiries != [message]:
             raise AssertionError(
-                f"Expected the incident to record the offer about [{message}] expired, "
-                f"it records {expiries}."
+                f"Expected the incident to tell of the offer about [{message}] expired, "
+                f"it tells of {expiries}."
             )
 
         return True

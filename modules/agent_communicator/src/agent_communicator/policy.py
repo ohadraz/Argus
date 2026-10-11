@@ -36,6 +36,7 @@ from argus_core.events import (
     FixAttempted,
     HypothesisFormed,
     IncidentEvent,
+    LeadWeighed,
     OfferExpired,
     OnsetDetected,
     PostmortemWritten,
@@ -175,6 +176,12 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # offer goes on asking a question Argus stopped waiting for.
             # Followed, where the offer was made - it answers the person who
             # was asked, and nobody else was waiting on it.
+            return Register.FOLLOWED
+        case LeadWeighed():
+            # The answer owed to whoever told Argus something it may not have
+            # known: what it made of it, in the thread they wrote it in.
+            # Followed rather than announced - it answers them, and nobody
+            # else was asking.
             return Register.FOLLOWED
         case _:
             # Everything else, which today is everything that reports a look

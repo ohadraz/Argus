@@ -1,0 +1,44 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAIS9AMKwAIIEhgCKkD6QB9Y8qWppmewJU28Jj9dYL7ymvuzGoeMk2pmuGBlOTpXj6MHILaellWQt322JnQxwaeU7DRDAJxh7YJIlc2BMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKaAQ8KDWNsYXVkZS1vcHVzLTWoAbyPrdYGwgE6CAQQABoMAl6hA083BSEiBCatIAEyBBJxzyU6BDgzI4pCBIrcK0BKBDwSpMZQAVoE2QXhVmACaAFwANoBYAoWcHJlZml4X2JlZm9yZV9ibG9ja192MRIg9f6u6lHB3/BIohvkfdCJ7kjRIDQiQYBvkX2UlLtG4/giADIgwsATyGqckuIvlm89hhd2j4t6RMkCrcwJe/oeCYr7Th9IAxIMctgLagY487LVcZugGgzccn6aX62k/RsU4xwiMOarQx0O0GKG1LasY1lAIpT0Wp2rRSH7W1SGE9NA6rhZK/EZewd/H1/OvALhpjZNFCphGqCEq859EyvNPRGW/BGHPRygwQqabChO9yF144J3cmwWSNkSnS1KuW3w1o88SA8ije5WyUNyfOQeHjBzxqIT4Q0lyRPY92WzGIUVeRRSgKTh/k6bcgJ1zgekbUUMwvi1XBgB",
+      "thinking": "This message is conveying the cause of the incident, which makes it informational in nature.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01BoSc33sKeCR9bwEvUEu5C6",
+      "input": {
+        "meaning": "information"
+      },
+      "name": "submit_meaning",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cfv8SGWzEdcTeWwN9y6tt",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 656
+    },
+    "cache_creation_input_tokens": 656,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 74,
+    "output_tokens_details": {
+      "thinking_tokens": 21
+    },
+    "service_tier": "standard"
+  }
+}

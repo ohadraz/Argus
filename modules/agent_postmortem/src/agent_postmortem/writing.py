@@ -21,7 +21,7 @@ import logging
 from typing import Protocol
 
 from argus_core.llm import LLMClient
-from argus_core.models import PostmortemDocument
+from argus_core.models import PostmortemDocument, PostmortemLead, labelled
 
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
@@ -106,6 +106,18 @@ def write_postmortem(evidence: IncidentEvidence,
         # lose the address on any run whose prose read well without one.
         pull_request=evidence.pull_request,
         recommended_action=evidence.recommended_action,
+        # The record's facts carried across, and the model's sentence beside
+        # each. A lead the model said nothing of is reported with nothing said,
+        # never dropped: the person who wrote it is owed the line either way.
+        leads=[
+            PostmortemLead(person_id=lead.person_id,
+                           person_name=lead.person_name,
+                           text=lead.text,
+                           written_at=lead.written_at,
+                           weighing=lead.weighing,
+                           effect=answer.lead_effects.get(label))
+            for label, lead in labelled(evidence.leads)
+        ],
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
         checklist_complete=not faults
     )

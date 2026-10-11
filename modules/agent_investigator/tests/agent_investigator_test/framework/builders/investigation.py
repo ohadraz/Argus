@@ -32,9 +32,11 @@ from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
+    Leads,
     MetricBucket,
     PodPlacement,
     ServiceDependency,
+    no_leads,
 )
 from argus_testkit import raising, returning
 
@@ -67,7 +69,8 @@ class Investigation(NamedTuple):
                     publisher: Publisher = nobody,
                     settings: InvestigationSettings | None = None,
                     conversations: Conversations | None = None,
-                    still_wanted: StillWanted = wanted_throughout) -> Findings:
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads) -> Findings:
         """The loop, run with whatever this investigation was built around.
 
         `conversations` is the one argument here that changes which seam is
@@ -96,7 +99,8 @@ class Investigation(NamedTuple):
             already_refuted=already_refuted,
             already_read=already_read,
             publisher=publisher,
-            still_wanted=still_wanted
+            still_wanted=still_wanted,
+            leads=leads
         )
 
     def metrics_showed(self, buckets: list[MetricBucket]) -> Callable[[], None]:

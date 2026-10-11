@@ -1,9 +1,8 @@
 """Where each reader of the event log got to, kept so that a restart resumes.
 
-Here beside the log it points into because more than one process follows the
-log - the relay telling Slack, the intent agent understanding what people
-wrote - and each is an agent that may not know another. A place kept inside one of them is
-a place the other has to reimplement.
+Here beside the log it points into rather than inside the relay, the one
+process that follows it today: a place kept inside one reader is a place the
+next has to reimplement.
 
 One row per reader, so each reader keeps its own pace, and the slower of two
 never decides what the faster has already done.

@@ -33,13 +33,21 @@ def _written(document: PostmortemDocument, field: str) -> object:
     are wrapped, and both are decided by the value rather than by a list of
     field names: a field added to the document arrives as JSON without being
     enrolled here.
+
+    Dumped as JSON rather than as Python, so a model carrying a moment or an
+    enum - a lead's `written_at`, its standing - reaches the column as text
+    the row model reads back, and a list of models is dumped one by one.
     """
     value = getattr(document, field)
 
     if isinstance(value, BaseModel):
-        return Jsonb(value.model_dump())
+        return Jsonb(value.model_dump(mode="json"))
 
-    return Jsonb(value) if isinstance(value, list) else value
+    if isinstance(value, list):
+        return Jsonb([item.model_dump(mode="json") if isinstance(item, BaseModel) else item
+                      for item in value])
+
+    return value
 
 
 def record(

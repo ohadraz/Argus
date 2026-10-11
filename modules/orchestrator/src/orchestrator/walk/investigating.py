@@ -33,6 +33,7 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     ServiceDependency,
+    ThreadMessage,
 )
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -55,8 +56,10 @@ from orchestrator.walk.ports import (
     FetchDeployments,
     FetchFlagChanges,
     Investigate,
+    LeadsOf,
     RecallSimilar,
     RecordHypothesis,
+    RecordWeighing,
 )
 from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
@@ -70,6 +73,16 @@ def _nobody_stops_it(incident_id: str, /) -> bool:
     return True
 
 
+def _nobody_wrote(incident_id: str, /) -> list[ThreadMessage]:
+    """The thread for a caller with no thread to read - a test about something
+    else - whose investigation is told nothing, as it always was."""
+    return []
+
+
+def _keeps_nothing(lead: ThreadMessage, /) -> None:
+    """Where a weighing goes for a caller with no record to keep it in."""
+
+
 def investigator_node(
     state: IncidentState,
     record_hypothesis: RecordHypothesis,
@@ -81,6 +94,8 @@ def investigator_node(
     publisher: Publisher = nobody,
     recorder: Recorder = records_nothing,
     still_wanted: IsStillWanted = _nobody_stops_it,
+    leads_of: LeadsOf = _nobody_wrote,
+    record_weighing: RecordWeighing = _keeps_nothing
 ) -> StateDelta:
     """Forms a hypothesis, records every candidate it considered, and reports
     whether any of them is worth acting on (spec §7.2, §10).
@@ -104,7 +119,14 @@ def investigator_node(
     `still_wanted` is handed to the agent bound to this incident, so it can stop
     between turns; findings it reports as stopped are not acted on at all -
     nothing recorded, nothing read, no memory searched. The empty delta leaves
-    the walk's own check to route out."""
+    the walk's own check to route out.
+
+    `leads_of` is bound the same way, and asked by the agent before each turn,
+    so a lead written mid-investigation reaches the model on the turn after it
+    is understood. What the agent made of each lead it was shown comes back
+    with its findings and is kept before anything else is done with them: the
+    record is where the next round, Code-Fix, the postmortem and the person
+    who wrote it read the standing from."""
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.INVESTIGATOR), publisher)
 
     findings = investigate(
@@ -124,9 +146,13 @@ def investigator_node(
         already_read=state.already_read,
         already_refuted=state.attempts,
         still_wanted=partial(still_wanted, state.incident_id),
+        leads=partial(leads_of, state.incident_id)
     )
     if findings.stopped:
         return StateDelta()
+
+    for lead in findings.leads_weighed:
+        record_weighing(lead)
 
     if findings.disproof is not None:
         # The window contradicted what the alarm claimed, so there is no incident

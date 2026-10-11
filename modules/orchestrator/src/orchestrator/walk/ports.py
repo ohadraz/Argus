@@ -24,11 +24,13 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    Leads,
     OpenedPullRequest,
     PostmortemDocument,
     Reading,
     ServiceDependency,
     TakenAction,
+    ThreadMessage,
     UndoDescriptor,
     UnreadVerdict,
 )
@@ -55,8 +57,36 @@ class Investigate(Protocol):
         already_refuted: Sequence[Attempt] | None = None,
         publisher: Publisher = nobody,
         recorder: Recorder = records_nothing,
-        still_wanted: StillWanted = ...
+        still_wanted: StillWanted = ...,
+        leads: Leads = ...
     ) -> Findings: ...
+
+
+class LeadsOf(Protocol):
+    """What people have told an incident in its thread, as leads, in the order
+    they wrote them - each with whatever an investigation last made of it.
+
+    Takes the incident where the agent's own `Leads` takes nothing: the agent
+    asks without knowing which incident it is working on, so the node binds
+    it, as it binds `still_wanted`.
+    """
+
+    # Positional-only: the incident is the whole question.
+    def __call__(self, incident_id: str, /) -> list[ThreadMessage]: ...
+
+
+class RecordWeighing(Protocol):
+    """Keeps what the Investigator made of a lead on the lead itself, and says
+    so to the person who wrote it.
+
+    Takes the lead carrying its weighing, which is how the findings hand it
+    back. A lead carrying none is refused: there is nothing to keep, and a
+    line saying it was weighed would tell its writer something nobody
+    concluded.
+    """
+
+    # Positional-only: the lead is the whole of it.
+    def __call__(self, lead: ThreadMessage, /) -> None: ...
 
 
 class RecordHypothesis(Protocol):
@@ -332,7 +362,8 @@ class ProposeFix(Protocol):
                  hypothesis: Hypothesis | None,
                  incident_id: str, /,
                  *,
-                 still_wanted: StillWanted = ...) -> OpenedPullRequest | None: ...
+                 still_wanted: StillWanted = ...,
+                 leads: Leads = ...) -> OpenedPullRequest | None: ...
 
 
 class WritePostmortem(Protocol):

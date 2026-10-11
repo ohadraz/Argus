@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from http import HTTPStatus as HttpStatus
 from typing import Any
 from unittest.mock import create_autospec
@@ -26,24 +27,21 @@ from uuid import uuid4
 import httpx2
 import pytest
 from argus_core import connect_from_env
-from argus_core.events import (
-    OfferExpired,
-    PersonWrote,
-    ResolutionOffered,
-    StatusChanged,
-    WithdrawalOffered,
-)
+from argus_core.events import PersonWrote, StatusChanged
 from argus_core.models import (
     Alert,
     IncidentStatus,
+    Meaning,
+    OfferedEnding,
     Reference,
     Report,
     ReportChannel,
+    ThreadMessage,
     a_chat_message,
     a_chat_thread,
 )
 from argus_core.telemetry import ARGUS_INCIDENT_ID
-from argus_incidents.repository import events, incidents, references
+from argus_incidents.repository import conversation, events, incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from argus_web.app import app, chat_platform_of
 from chat_platform import (
@@ -66,14 +64,12 @@ INTERACTIONS_WEBHOOK = "/webhooks/slack/interactions"
 DONT_CARE_BODY = b"{}"
 SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
+DONT_CARE_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
 
 # The context an incident kept from the span its alert was received in.
 SOME_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 SOME_SPAN = "00f067aa0ba902b7"
 SOME_TRACE_CONTEXT = {"traceparent": f"00-{SOME_TRACE}-{SOME_SPAN}-01"}
-
-# Which kind of offer an incident was made, for the cases that hold for both.
-type OfferKind = type[ResolutionOffered] | type[WithdrawalOffered]
 
 
 @pytest.mark.component
@@ -118,7 +114,7 @@ def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_inc
     some_name = "Some Person"
     a_thread, a_message = _a_thread(), _a_message()
     incident_id = _an_incident_told_in(a_thread, offering=(a_message, SOME_PERSON, some_name),
-                                       offered=WithdrawalOffered)
+                                       offered=IncidentStatus.WITHDRAWN)
 
     with _the_platform_saying(Pressed(thread=a_thread, person_id=SOME_PERSON,
                                       message=a_message)), \
@@ -137,10 +133,11 @@ def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_inc
 
 
 @pytest.mark.component
-@pytest.mark.parametrize(("offered", "span_name"), [(ResolutionOffered, "resolve incident"),
-                                                    (WithdrawalOffered, "withdraw incident")],
+@pytest.mark.parametrize(("offered", "span_name"),
+                         [(IncidentStatus.RESOLVED, "resolve incident"),
+                          (IncidentStatus.WITHDRAWN, "withdraw incident")],
                          ids=["resolution", "withdrawal"])
-def test_an_ending_from_the_thread_continues_the_incidents_trace(offered: OfferKind,
+def test_an_ending_from_the_thread_continues_the_incidents_trace(offered: OfferedEnding,
                                                                  span_name: str) -> None:
     # As one from the page does: a person ending it is part of the incident's
     # story, wherever they said it.
@@ -158,8 +155,8 @@ def test_an_ending_from_the_thread_continues_the_incidents_trace(offered: OfferK
 
 @pytest.mark.component
 def test_a_press_on_an_offer_that_expired_leaves_the_incident_as_it_was() -> None:
-    # The expiry is read from the incident's own account, where the walk that
-    # stopped waiting wrote it.
+    # The expiry is read from the incident's record of what people wrote,
+    # where the walk that stopped waiting kept it.
     a_thread, a_message = _a_thread(), _a_message()
     incident_id = _an_incident_told_in(a_thread, offering=(a_message, SOME_PERSON, "dont care"),
                                        expired=True)
@@ -172,6 +169,29 @@ def test_a_press_on_an_offer_that_expired_leaves_the_incident_as_it_was() -> Non
             .then(all_of(
                 the_response_was(HttpStatus.OK),
                 _the_incident_is(incident_id, IncidentStatus.ACKNOWLEDGED)
+            ))
+
+
+@pytest.mark.component
+def test_a_press_in_one_incidents_thread_on_anothers_message_ends_neither() -> None:
+    # A message is found by its own name, and belongs to one incident. A press
+    # that named another incident's message from this thread would otherwise
+    # end this incident on an offer made in someone else's.
+    a_thread, another_thread, a_message = _a_thread(), _a_thread(), _a_message()
+    the_incident_pressed_in = _an_incident_told_in(a_thread)
+    the_incident_offered_on = _an_incident_told_in(
+        another_thread, offering=(a_message, SOME_PERSON, "dont care")
+    )
+
+    with _the_platform_saying(Pressed(thread=a_thread, person_id=SOME_PERSON,
+                                      message=a_message)), \
+            TestClient(app) as client:
+        Scenario() \
+            .when(lambda: client.post(INTERACTIONS_WEBHOOK, content=DONT_CARE_BODY)) \
+            .then(all_of(
+                the_response_was(HttpStatus.OK),
+                _the_incident_is(the_incident_pressed_in, IncidentStatus.ACKNOWLEDGED),
+                _the_incident_is(the_incident_offered_on, IncidentStatus.ACKNOWLEDGED)
             ))
 
 
@@ -230,28 +250,38 @@ def _an_incident_told_in(thread: Reference,
                          offering: tuple[Reference, str, str] | None = None,
                          trace_context: Mapping[str, str] = incidents.NO_TRACE_CONTEXT,
                          expired: bool = False,
-                         offered: OfferKind = ResolutionOffered) -> str:
+                         offered: OfferedEnding = IncidentStatus.RESOLVED) -> str:
     """An incident whose war room is `thread`, and - where `offering` names a
-    message, a person and their name - an offer of the `offered` kind made to
-    them about it."""
+    message, a person and their name - that message kept with an offer of the
+    `offered` ending made back to them, through the record's own writes."""
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, trace_context)
         references.add(conn, incident_id, [thread])
+        conn.commit()
 
         if offering is not None:
             message, person_id, person_name = offering
-            events.record(conn, offered(incident_id=incident_id, message=message,
-                                        person_id=person_id, person_name=person_name,
-                                        said=SOME_WORDS))
+            conversation.write(conn, ThreadMessage(incident_id=incident_id, message=message,
+                                                   person_id=person_id, text=SOME_WORDS,
+                                                   written_at=DONT_CARE_TIME))
+            conn.commit()
+            conversation.understood(conn, message, _THE_MEANING_OF[offered])
+            conversation.named(conn, message, person_name)
+            conversation.offered(conn, message, offered)
 
             if expired:
-                events.record(conn, OfferExpired(incident_id=incident_id, message=message))
-
-        conn.commit()
+                conversation.expired(conn, message)
 
     return incident_id
+
+
+# What a person meant, for each ending an offer can make back to them.
+_THE_MEANING_OF: dict[OfferedEnding, Meaning] = {
+    IncidentStatus.RESOLVED: Meaning.RESOLVE,
+    IncidentStatus.WITHDRAWN: Meaning.WITHDRAW
+}
 
 
 @contextmanager

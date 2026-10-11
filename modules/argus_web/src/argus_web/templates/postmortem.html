@@ -45,6 +45,26 @@
 </p>
 {% endif %}
 
+{# What people told the incident, each with what the investigation made of it
+   and whether it changed anything - one answer to the person who wrote it, so
+   the three stay together. Absent where nobody wrote. #}
+{% if postmortem.leads %}
+<h2>What people told it</h2>
+<ul class="leads">
+{% for lead in postmortem.leads %}
+  <li data-lead="{{ lead.person_id }}">
+    <q>{{ lead.text }}</q> - {{ lead.person_name or lead.person_id }}, {{ lead.written_at | utc }}
+    {% if lead.weighing %}
+      <span class="standing {{ lead.weighing.standing.value }}">{{ lead.weighing.standing.value }}</span>: {{ lead.weighing.reason }}
+    {% else %}
+      <span class="standing">never weighed</span>
+    {% endif %}
+    {% if lead.effect %}<p class="effect">{{ lead.effect }}</p>{% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+
 {% if postmortem.assumptions %}
 <h2>Assumptions</h2>
 <ul class="assumptions">

@@ -51,19 +51,30 @@ from argus_core.models import (
     FlagUndo,
     Hypothesis,
     IncidentStatus,
+    Meaning,
     ModelPolicy,
     OpenedPullRequest,
     PostmortemDocument,
     Report,
     ReportChannel,
+    Standing,
+    ThreadMessage,
     ToolCall,
     ToolDefinition,
     Transcript,
     Turn,
     Verdict,
+    Weighing,
+    a_chat_message,
 )
 from argus_core.replay import Replay
-from argus_incidents.repository import events, hypotheses, incidents, taken_actions
+from argus_incidents.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    taken_actions,
+)
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
@@ -500,6 +511,38 @@ def test_an_incident_that_read_the_code_and_changed_nothing_carries_no_fix(
 
 
 @pytest.mark.component
+def test_the_evidence_carries_what_people_told_the_incident_as_it_was_weighed(
+    a_clean_database: None
+) -> None:
+    # Off the record rather than off the timeline: the timeline says a lead was
+    # weighed, and the record is where its words and its standing are kept
+    # together. A message that was not information - a question, a request to
+    # end it - was never a lead, and the document has nothing to say of it.
+    some_weighing = Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        a_lead = _a_message_understood_as(conn, incident_id, Meaning.INFORMATION,
+                                          "the kuki flag was flipped at noon",
+                                          ts="1760000100.000200")
+        _a_message_understood_as(conn, incident_id, Meaning.QUESTION,
+                                 "is anyone looking at this",
+                                 ts="1760000200.000300")
+        conversation.weighed(conn, a_lead.message, some_weighing)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_leads([a_lead.model_copy(update={"weighing": some_weighing})])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_rule_that_paged(a_clean_database: None) -> None:
     # The postmortem reads the incident's metrics again, over the whole of it,
     # and has to read them for the rule the walk read them for - or the series
@@ -809,6 +852,38 @@ def _carries_no_proposal() -> Assertion[IncidentEvidence]:
         return True
 
     return assertion
+
+
+def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.leads != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry the leads "
+                f"{[(lead.text, lead.weighing) for lead in expected]}, and it carried "
+                f"{[(lead.text, lead.weighing) for lead in evidence.leads]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_message_understood_as(conn: psycopg.Connection,
+                             incident_id: str,
+                             meaning: Meaning,
+                             words: str,
+                             ts: str) -> ThreadMessage:
+    """Something a person wrote in the incident's thread, on the record and
+    understood as `meaning` - the message named by `ts`."""
+    written = ThreadMessage(incident_id=incident_id,
+                            message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                            person_id="U-some-person",
+                            text=words,
+                            written_at=parse_iso("2026-08-20T11:05:00Z"))
+    conversation.write(conn, written)
+    conversation.understood(conn, written.message, meaning)
+
+    return written.model_copy(update={"meaning": meaning})
 
 
 def _an_incident_that_ended(conn: psycopg.Connection, rule: str | None = None) -> str:

@@ -11,21 +11,22 @@ can catch prose that names a different number from the one Argus measured.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from decimal import Decimal
 
 from argus_core.llm import LLMClient
-from argus_core.models import Transcript, Turn
+from argus_core.models import ThreadMessage, Transcript, Turn
 
 from agent_postmortem.checking import faults_in
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
-    SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
     opening_ask,
     opening_ask_again,
     rejecting,
+    submit_postmortem_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,18 +48,21 @@ def answer_worth_writing(llm: LLMClient,
     one writing the document that has to admit to them.
     """
     asked = opening_ask(evidence, measured)
-    submitted = llm.converse(asked, [SUBMIT_POSTMORTEM])
+    # The tool for this incident, which asks what each lead changed only where
+    # people wrote any.
+    submit = submit_postmortem_for(evidence.leads)
+    submitted = llm.converse(asked, [submit])
 
-    first = _reading_of(submitted, measured.loss)
+    first = _reading_of(submitted, measured.loss, evidence.leads)
     _, faults = first
     if not faults:
         return first
 
     logger.warning("postmortem answer rejected", extra={"faults": faults})
 
-    return _reading_of(llm.converse(_asking_again(asked, submitted, faults),
-                                    [SUBMIT_POSTMORTEM]),
-                       measured.loss)
+    return _reading_of(llm.converse(_asking_again(asked, submitted, faults), [submit]),
+                       measured.loss,
+                       evidence.leads)
 
 
 def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Transcript:
@@ -77,17 +81,19 @@ def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Tran
 
 
 def _reading_of(turn: Turn,
-                estimate: Decimal | None
+                estimate: Decimal | None,
+                leads: Sequence[ThreadMessage]
                 ) -> tuple[SubmittedPostmortem, list[str]]:
     """What one turn amounts to: its answer and whatever is wrong with it.
 
     The estimate is no longer computed from anything the model said, so it is
     passed in rather than derived here - the only thing a turn can still get
-    wrong about it is naming a different number in its prose.
+    wrong about it is naming a different number in its prose. The leads go
+    with it, because whether every one was answered is a fault of the turn too.
     """
     answer = _answer_from(turn)
 
-    return answer, faults_in(answer, estimate)
+    return answer, faults_in(answer, estimate, leads)
 
 
 def _answer_from(turn: Turn) -> SubmittedPostmortem:

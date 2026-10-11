@@ -7,11 +7,11 @@ from functools import partial
 
 from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
-from argus_core.models import FixOutcome, OpenedPullRequest
+from argus_core.models import FixOutcome, OpenedPullRequest, ThreadMessage
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import ProposeFix
+from orchestrator.walk.ports import LeadsOf, ProposeFix
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -24,10 +24,17 @@ def _nobody_stops_it(incident_id: str, /) -> bool:
     return True
 
 
+def _nobody_wrote(incident_id: str, /) -> list[ThreadMessage]:
+    """The thread for a caller with no thread to read - a test about something
+    else - whose Code-Fix is told nothing, as it always was."""
+    return []
+
+
 def codefix_node(state: IncidentState,
                  propose_fix: ProposeFix,
                  publisher: Publisher = nobody,
-                 still_wanted: IsStillWanted = _nobody_stops_it) -> StateDelta:
+                 still_wanted: IsStillWanted = _nobody_stops_it,
+                 leads_of: LeadsOf = _nobody_wrote) -> StateDelta:
     """Looks for a permanent fix, once mitigation has done what it can (spec §7.4).
 
     What the agent answered is what this reports, and where the proposal can be
@@ -58,6 +65,11 @@ def codefix_node(state: IncidentState,
     for work somebody asked to stop is an account of nothing, and `fix_found`
     would route an incident nobody wants onwards. The empty delta leaves the
     walk's own check to route out.
+
+    `leads_of` is bound to this incident for the reason `still_wanted` is: the
+    agent asks without knowing which incident it is fixing. What it is told
+    carries the standing the investigation gave each lead, read back from the
+    record, and a lead written since the investigation answered as unweighed.
     """
     narrator = Narrator(state.incident_id, publisher)
 
@@ -65,7 +77,8 @@ def codefix_node(state: IncidentState,
         proposed = propose_fix(
             state.hypothesis,
             state.incident_id,
-            still_wanted=partial(still_wanted, state.incident_id)
+            still_wanted=partial(still_wanted, state.incident_id),
+            leads=partial(leads_of, state.incident_id)
         )
     except FixStopped:
         # Logged by the agent where it stopped, which is the one place that

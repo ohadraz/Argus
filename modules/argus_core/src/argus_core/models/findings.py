@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from argus_core.models.disproof import Disproof
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.placement import RecordedPlacement
 from argus_core.models.reading import Reading
+from argus_core.models.thread_message import ThreadMessage
 
 
 @dataclass(frozen=True)
@@ -82,3 +83,12 @@ class Findings:
     # at all. The candidate list still holds one undetermined entry, so a reader
     # that only knows `candidates` is never handed an empty list.
     stopped: bool = False
+    # Every lead the investigation was shown, as it weighed it - each a message
+    # somebody wrote in the incident's thread, its `weighing` the latest the
+    # model gave, in the order they were written.
+    #
+    # Carried out rather than kept by the Investigator, because the walk is
+    # what writes a weighing to the incident record and tells the person who
+    # wrote the lead. Empty where nobody wrote, and on an ending that came
+    # before the model answered.
+    leads_weighed: list[ThreadMessage] = field(default_factory=list)

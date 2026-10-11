@@ -41,6 +41,7 @@ from argus_core.events import (
     HypothesisFormed,
     IncidentEvent,
     IncidentRemembered,
+    LeadWeighed,
     LogsRetrieved,
     MessageUnderstood,
     MetricsRetrieved,
@@ -69,6 +70,7 @@ from argus_core.models import (
     OpenedPullRequest,
     Refusal,
     RetrievalChannel,
+    Standing,
     Undone,
     Verdict,
     a_chat_message,
@@ -375,6 +377,22 @@ def test_an_offer_not_confirmed_in_time_is_said_where_it_was_made() -> None:
     Scenario() \
         .given(some_expiry) \
         .when(lambda: how_it_is_said(some_expiry)) \
+        .then(_it_is_said(Register.FOLLOWED))
+
+
+@pytest.mark.unit
+def test_how_a_lead_was_weighed_is_said_where_the_person_wrote_it() -> None:
+    # The answer owed to whoever told Argus something it may not have known:
+    # what it made of it, in the thread they wrote it in. Followed rather than
+    # announced, because it answers them and nobody else was asking.
+    some_weighing = LeadWeighed(incident_id=AN_INCIDENT,
+                                message=SOME_MESSAGE,
+                                standing=Standing.SUPPORTED,
+                                reason="the checkout flag moved at the onset")
+
+    Scenario() \
+        .given(some_weighing) \
+        .when(lambda: how_it_is_said(some_weighing)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 

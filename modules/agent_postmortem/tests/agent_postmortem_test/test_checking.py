@@ -7,10 +7,12 @@ the wrong reason and a rule that fired for the right one read identically.
 Here the answer goes in and the faults come out.
 
 Two faults, and they are not alike. A required field the model left out is a
-fact about the answer. A figure in the executive summary that Argus never
-computed is a fact about the world the answer describes - the columns are safe
-by construction, but the summary is published as written, so a fluent sentence
-naming an invented number reaches the reader least able to check it.
+fact about the answer - and so is a lead it said nothing about, which is a
+required field whose names only the incident knows. A figure in the executive
+summary that Argus never computed is a fact about the world the answer
+describes - the columns are safe by construction, but the summary is published
+as written, so a fluent sentence naming an invented number reaches the reader
+least able to check it.
 
 Every case here asserts what was named, not how many faults came back. The
 wording is the product: a model told "invalid answer" rewrites the part it
@@ -29,6 +31,8 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
 )
 from argus_testkit import Assertion, Scenario, all_of
+
+from agent_postmortem_test.framework.builders import a_lead
 
 # The figure this file's incident was measured at. A stated amount is only
 # checkable against a computed one, so every summary below is read against
@@ -297,6 +301,54 @@ def test_a_summary_the_model_never_wrote_is_missing_rather_than_invented() -> No
                 _named(EXECUTIVE_SUMMARY_FIELD),
                 _found(1)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_the_answer_says_nothing_about_is_named() -> None:
+    # Refused as a missing field is, because it is one: what a person told the
+    # incident and whether it changed anything is a question the document owes
+    # them, and an answer that skipped one lead would leave it unanswered on
+    # the page. Named by its label, which is what the model calls it.
+    some_leads = [a_lead("the kuki flag was flipped at noon", ts="1760000100.000200"),
+                  a_lead("it is the database again", ts="1760000200.000300")]
+
+    Scenario() \
+        .given(
+            an_answer_about_the_first_lead_alone := SubmittedPostmortem(
+                root_cause=DONT_CARE_PROSE,
+                executive_summary=SOME_SUMMARY_WITHOUT_A_FIGURE,
+                lead_effects={"L1": DONT_CARE_PROSE})
+        ) \
+        .when(
+            lambda: faults_in(an_answer_about_the_first_lead_alone, SOME_COMPUTED_LOSS,
+                              some_leads)
+        ) \
+        .then(
+            all_of(
+                _named("[L2]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_saying_what_every_lead_changed_has_nothing_wrong_with_it() -> None:
+    some_leads = [a_lead("the kuki flag was flipped at noon", ts="1760000100.000200"),
+                  a_lead("it is the database again", ts="1760000200.000300")]
+
+    Scenario() \
+        .given(
+            an_answer_about_every_lead := SubmittedPostmortem(
+                root_cause=DONT_CARE_PROSE,
+                executive_summary=SOME_SUMMARY_WITHOUT_A_FIGURE,
+                lead_effects={"L1": DONT_CARE_PROSE, "L2": DONT_CARE_PROSE})
+        ) \
+        .when(
+            lambda: faults_in(an_answer_about_every_lead, SOME_COMPUTED_LOSS, some_leads)
+        ) \
+        .then(
+            _found_nothing_wrong()
         )
 
 

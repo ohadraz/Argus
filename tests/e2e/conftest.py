@@ -24,6 +24,7 @@ from tests.e2e.framework.flags import (
     the_boot_flags_were_put_back,
     the_flag_provider_forgot_every_change,
 )
+from tests.e2e.framework.worker import the_worker_resumes
 
 # The one table that is not the suite's to empty. The rates are fetched from
 # outside and cached here, and they do not change between cases - a teardown
@@ -108,11 +109,17 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
       in. It goes last because every step above is itself a change the provider
       records.
 
+    Before any of it, the worker is resumed: a case may have paused it
+    (`framework.worker`), and a suspended worker claims nothing - so a run it
+    left queued would never stop, the wait below would time out on it, and every
+    later case would have nobody to walk it.
+
     Teardown rather than setup, so a failing case leaves nothing behind for a
     human to clear before rerunning.
     """
     yield
 
+    the_worker_resumes()
     _every_live_incident_was_withdrawn()
     _every_run_came_to_a_stop()
     _every_reader_caught_up()

@@ -1,4 +1,4 @@
-"""What Argus says about its own work as it does it (spec §4 principle 6).
+"""What Argus says about its own work as it does it (spec §4 principle 8).
 
 The incident tables record conclusions - which candidate was blamed, what was
 done, where the incident ended. These record the work: which window was asked
@@ -44,6 +44,7 @@ from argus_core.models.reading import RetrievalChannel
 from argus_core.models.reference import Reference
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import Report
+from argus_core.models.thread_message import Standing
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_core.timestamps import utc_now
@@ -54,10 +55,12 @@ _logger = logging.getLogger(__name__)
 class _Event(BaseModel):
     """What every event carries, whatever it is about.
 
-    `at` is taken here rather than accepted from a caller: the moment belongs
-    to the thing that happened, and a narration ordered by when rows reached
-    the database is a narration of the database's day rather than the
-    incident's.
+    `at` is the moment of the thing that happened, because a narration ordered
+    by when rows reached the database is a narration of the database's day
+    rather than the incident's. Taken here by default, which is that moment for
+    everything Argus does itself; an event reporting something another party
+    stamped - a message, written when its platform says - is handed that
+    moment instead.
     """
 
     id: UuidStr = Field(default_factory=new_id)
@@ -776,11 +779,12 @@ class MessageUnderstood(_Event):
 class ResolutionOffered(_Event):
     """Argus asked the person who said the incident was over to confirm it.
 
-    Carries everything the confirmation needs, so that the press of a button
-    resolves the incident from this event alone: whose press counts, the name
-    the resolution will be credited to, and the words that become its note.
-    The name is read once, here, when the offer is made; `None` is a person the
-    chat platform could not name, and the offer stands all the same.
+    The account of an offer the incident record keeps (`ThreadMessage.offer`),
+    which is what the press reads. This says whose press counts, the name the
+    resolution will be credited to, and the words that become its note, so the
+    timeline and the thread can say what was offered without reading the
+    record. `None` is a person the chat platform could not name, and the offer
+    stands all the same.
     """
 
     kind: Literal["resolution-offered"] = "resolution-offered"
@@ -794,12 +798,11 @@ class WithdrawalOffered(_Event):
     """Argus asked the person who told it to stand down to confirm it.
 
     The resolution offer's sibling, and carrying the same things for the same
-    reason: the press withdraws the incident from this event alone - whose
-    press counts, the name the withdrawal will be credited to, and the words
-    that become its note. Kept apart from the resolution offer rather than
-    folded into one offer with an ending, because the two are confirmed into
-    different endings and said differently, and a reader matching on the
-    class is told which without reading a field.
+    reason: whose press counts, the name the withdrawal will be credited to,
+    and the words that become its note. Kept apart from the resolution offer
+    rather than folded into one offer with an ending, because the two are
+    confirmed into different endings and said differently, and a reader
+    matching on the class is told which without reading a field.
     """
 
     kind: Literal["withdrawal-offered"] = "withdrawal-offered"
@@ -809,22 +812,39 @@ class WithdrawalOffered(_Event):
     said: str
 
 
-# An offer a person may confirm, whatever it offers. Named once, for the
-# readers that treat every offer alike: the press that finds one by its
-# message, and the walk that waits on one.
+# An offer a person may confirm, whatever it offers - what the intent agent
+# publishes when it offers an ending.
 type Offered = ResolutionOffered | WithdrawalOffered
 
 
 class OfferExpired(_Event):
     """An offer was not confirmed in time, and the walk carried on.
 
-    Published by the walk that was waiting on it, so that the timeline says why
-    Argus went on after a person said the incident was over. Names the message
-    the offer was about, which is how the offer is found again.
+    Published by the walk that was waiting on it, once the expiry is kept on
+    the incident record, so that the timeline says why Argus went on after a
+    person said the incident was over. Names the message the offer was about,
+    which is how the relay finds the offer's button to take away.
     """
 
     kind: Literal["offer-expired"] = "offer-expired"
     message: Reference
+
+
+class LeadWeighed(_Event):
+    """The Investigator weighed something a person told it, and found it
+    supported, refuted or unverified by what it read - and why.
+
+    Published once the weighing is kept on the incident record, which is what
+    a later investigation, Code-Fix and the postmortem read. This is for the
+    person who wrote it, who is owed an answer in the thread they wrote in, and
+    for the timeline. A lead weighed again is a second event: the record keeps
+    the latest, and this keeps every one.
+    """
+
+    kind: Literal["lead-weighed"] = "lead-weighed"
+    message: Reference
+    standing: Standing
+    reason: str
 
 
 type IncidentEvent = Annotated[
@@ -865,6 +885,7 @@ type IncidentEvent = Annotated[
         | ResolutionOffered
         | WithdrawalOffered
         | OfferExpired
+        | LeadWeighed
     ),
     Field(discriminator="kind")
 ]
@@ -961,7 +982,7 @@ class Narrator:
     Nothing here can fail: `publish` swallows a subscriber's exception, and a
     narrator with no publisher reaches nobody by design. A component holding
     one behaves identically whether or not anybody is listening (spec §4
-    principle 6), and that is easiest to guarantee when the ordinary default is
+    principle 8), and that is easiest to guarantee when the ordinary default is
     that nobody is.
     """
 

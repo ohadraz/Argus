@@ -19,7 +19,13 @@ from decimal import Decimal
 
 import pytest
 from argus_core import new_id
-from argus_core.models import OpenedPullRequest, Postmortem
+from argus_core.models import (
+    OpenedPullRequest,
+    Postmortem,
+    PostmortemLead,
+    Standing,
+    Weighing,
+)
 from argus_testkit import Assertion, Scenario
 from argus_web.views.postmortems import PostmortemView, build_postmortem_view
 
@@ -63,6 +69,19 @@ def test_the_page_is_told_where_the_proposed_fix_can_be_read() -> None:
 
 
 @pytest.mark.unit
+def test_the_page_is_told_what_people_told_the_incident() -> None:
+    # Named explicitly for the pull request's reason: the field-by-field check
+    # reads the view's own fields, and would pass a view that never had this
+    # one.
+    some_postmortem = _a_postmortem_with_a_distinct_value_in_every_field()
+
+    Scenario() \
+        .given(some_postmortem) \
+        .when(lambda: build_postmortem_view(some_postmortem)) \
+        .then(_it_reports_the_leads(some_postmortem.leads))
+
+
+@pytest.mark.unit
 def test_a_postmortem_with_no_fix_proposed_offers_the_page_nowhere_to_send_anyone() -> None:
     # The ordinary ending. A link rendered from nothing would read as a
     # proposal whose address went missing.
@@ -101,9 +120,28 @@ def _a_postmortem_with_a_distinct_value_in_every_field() -> Postmortem:
             url="https://github.invalid/ohadraz/io-shop/pull/7",
             branch="argus/fix-abc"
         ),
+        leads=[PostmortemLead(
+            person_id="U-some-person",
+            person_name="Some Person",
+            text="the kuki flag was flipped at noon",
+            written_at=datetime(2026, 8, 30, 10, 41, tzinfo=UTC),
+            weighing=Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
+            effect="it named the flag that was reverted"
+        )],
         checklist_complete=True,
         created_at=datetime(2026, 8, 30, 11, 2, tzinfo=UTC)
     )
+
+
+def _it_reports_the_leads(expected: list[PostmortemLead]) -> Assertion[PostmortemView]:
+    def assertion(view: PostmortemView) -> bool:
+        if view.leads != expected:
+            raise AssertionError(
+                f"Expected the page to be told the leads {expected}, got {view.leads}.")
+
+        return True
+
+    return assertion
 
 
 def _it_proposes_the_fix_at(expected: str) -> Assertion[PostmortemView]:

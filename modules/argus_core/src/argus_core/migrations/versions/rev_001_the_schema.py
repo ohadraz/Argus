@@ -268,6 +268,15 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- and watched: a sentence here would send somebody to repeat a change
     -- already made.
     recommended_action TEXT,
+    -- What people told the incident in its thread, each with what the
+    -- investigation made of it and the one sentence on whether it changed what
+    -- was done. Copied out of `thread_message` rather than joined to it: the
+    -- document says what was true when it was written, and a standing weighed
+    -- again later would otherwise rewrite a postmortem already read.
+    --
+    -- Never null, for the reason `responder_titles` is not: an incident nobody
+    -- wrote about is a question answered with none.
+    leads JSONB NOT NULL DEFAULT '[]'::jsonb,
     executive_summary TEXT,
     checklist_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -369,16 +378,62 @@ CREATE UNIQUE INDEX IF NOT EXISTS incident_reference_one_chat_thread_idx
     ON incident_reference (incident_id, source, split_part(value, '/', 1))
     WHERE kind = 'chat-thread';
 
+-- What people wrote in an incident's thread. The one input to an incident Argus
+-- did not produce, and so a fact about the incident rather than an account of
+-- Argus's work: `incident_event` says it arrived, and everything that decides
+-- on it - the wait, the press, the agents a lead reaches - reads it here.
+-- Written and read by `argus_incidents`.
+CREATE TABLE IF NOT EXISTS thread_message (
+    incident_id UUID NOT NULL REFERENCES incident(id),
+    -- The chat platform's own name for the message, spelt as a
+    -- `incident_reference` is. Its identity: a delivery the platform repeats
+    -- is the same message, and its second write writes nothing.
+    source TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    -- What the chat platform calls the writer: read once, when the message is
+    -- understood to want something credited to them - an ending, or a lead the
+    -- postmortem reports - and null until then or where the platform could not
+    -- say.
+    person_name TEXT,
+    text TEXT NOT NULL,
+    -- On the stack's clock, set by the writer rather than defaulted here: the
+    -- wait counts a person's five minutes from it.
+    written_at TIMESTAMPTZ NOT NULL,
+    -- What the intent agent understood the message to mean, one of
+    -- `argus_core.models.Meaning`. Null until it has, which is what the
+    -- intent agent finds its work by and what the wait holds a walk for.
+    meaning TEXT,
+    -- The ending offered back to the person, one of the incident statuses.
+    -- Null is no offer.
+    offered_ending TEXT,
+    -- Five minutes passed with the walk waiting on the offer and nobody
+    -- pressing it: a press changes nothing, and the walk is held no longer.
+    offer_expired BOOLEAN NOT NULL DEFAULT false,
+    -- What the Investigator last made of a lead - a message understood as
+    -- information - one of `argus_core.models.Standing`, and why. Null until
+    -- an investigation has weighed it; a later weighing replaces an earlier,
+    -- and the event log keeps every one.
+    standing TEXT,
+    standing_reason TEXT,
+    PRIMARY KEY (source, kind, value)
+);
+CREATE INDEX IF NOT EXISTS thread_message_incident_idx
+    ON thread_message (incident_id, written_at);
+CREATE INDEX IF NOT EXISTS thread_message_not_understood_idx
+    ON thread_message (written_at) WHERE meaning IS NULL;
+
 -- How far each reader of `incident_event` has got. A reader - the relay
--- telling Slack, the intent agent understanding what people wrote - asks the
--- log what has happened since it last looked, and this is the whole of its state: lose
--- it and the reader either repeats an incident from the beginning of time or
--- starts from now and silently drops whatever was published while it was
--- down.
+-- telling Slack - asks the log what has happened since it last looked, and
+-- this is the whole of its state: lose it and the reader either repeats an
+-- incident from the beginning of time or starts from now and silently drops
+-- whatever was published while it was down.
 --
 -- One row per reader rather than one row, because two readers fall behind at
 -- different rates and a shared place would let the slower of them decide what
--- the faster has already done.
+-- the faster has already done. What people wrote is not followed here: the
+-- intent agent finds it on `thread_message`, by what it has not yet understood.
 --
 -- Hangs off no incident, like `exchange_rate`: it is a fact about a reader.
 -- Written and read by `argus_incidents`, beside the log it points into.

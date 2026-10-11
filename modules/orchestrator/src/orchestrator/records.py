@@ -15,18 +15,20 @@ around the graph is where a database is a fact of life.
 from __future__ import annotations
 
 from argus_core import Connections
-from argus_core.events import IncidentEvent, PostmortemWritten
+from argus_core.events import IncidentEvent, LeadWeighed, PostmortemWritten
 from argus_core.models import (
     ActionType,
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
     TakenAction,
+    ThreadMessage,
     UndoDescriptor,
     Verdict,
 )
 from argus_incidents import PublisherFor, publish_beside
 from argus_incidents.repository import (
+    conversation,
     hypotheses,
     incidents,
     postmortems,
@@ -199,10 +201,47 @@ class Records:
                 engineer_minutes=document.engineer_minutes
             ), self._publisher_for(conn))
 
+    def weighing(self, lead: ThreadMessage, /) -> None:
+        """Keeps what the Investigator made of a lead, then says so.
+
+        Not one write, unlike the pairs above. The standing is committed on its
+        own, as every write to a person's message is, and the line is written
+        after it inside a savepoint - so a sentence nobody could write costs
+        the timeline a line, and never the standing the next round, Code-Fix
+        and the postmortem read.
+
+        A lead carrying no weighing is refused rather than skipped: the
+        findings hand back only leads they weighed, and one without is a
+        caller saying something was concluded when nothing was.
+        """
+        if lead.weighing is None:
+            raise ValueError(f"lead {lead.message} carries no weighing to keep")
+
+        with self._connections() as conn:
+            conversation.weighed(conn, lead.message, lead.weighing)
+            publish_beside(conn, LeadWeighed(
+                incident_id=lead.incident_id,
+                message=lead.message,
+                standing=lead.weighing.standing,
+                reason=lead.weighing.reason
+            ), self._publisher_for(conn))
+
+    def leads(self, incident_id: str, /) -> list[ThreadMessage]:
+        """What people told this incident in its thread, as leads, with what an
+        investigation last made of each.
+
+        Here beside the weighing for `actions_taken`'s reason: it is the rows
+        the weighing writes to, read back, and a second object holding one
+        query against them would be a second place that knows where a lead
+        lives.
+        """
+        with self._connections() as conn:
+            return conversation.get_leads_by_incident(conn, incident_id)
+
     def actions_taken(self, incident_id: str, /) -> list[TakenAction]:
         """Every action stored against this incident, with what each reached.
 
-        A read among writes, and the only one here. It belongs beside them
+        A read among writes, as `leads` is. It belongs beside them
         because it is the same table the claim and the completion above wrote
         to, read back once the incident is over - and a second object holding
         one query against one of these tables would be a second place that

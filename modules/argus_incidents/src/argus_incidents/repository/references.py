@@ -48,24 +48,6 @@ def add(conn: psycopg.Connection,
         )
 
 
-def claim(conn: psycopg.Connection, incident_id: str, reference: Reference) -> bool:
-    """Gives the incident this name, and says whether this was the write that
-    gave it.
-
-    For a name that arrives once per thing it names - a message a chat
-    platform delivers - where a second delivery must know it is the second and
-    do nothing. No commit, as with `add`: the name and whatever it is claimed
-    for are one transaction, or a crash between them loses the thing for good.
-    """
-    with conn.cursor() as cursor:
-        cursor.execute(
-            _GIVE_A_NAME,
-            (incident_id, reference.source, reference.kind, reference.value)
-        )
-
-        return cursor.rowcount == 1
-
-
 def get_values_for(conn: psycopg.Connection, incident_id: str, kind: str) -> list[str]:
     """Every name of this kind the incident is known by.
 

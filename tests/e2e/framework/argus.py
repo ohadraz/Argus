@@ -11,6 +11,7 @@ Argus created for it.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
@@ -48,6 +49,9 @@ DATABASE_URL = get_settings().database_url
 WEBHOOK_PATH = "/webhooks/alerts"
 
 REQUEST_TIMEOUT_SECONDS = 10.0
+
+# How often a case looks again for something the stack does in its own time.
+A_POLL_SECONDS: Final = 0.5
 
 # An investigation is bounded by `investigation_max_seconds`, but the budget is
 # only consulted between turns - a model call already in flight runs to
@@ -107,6 +111,10 @@ RECORDED_DEPLOY_CAUSED_CORRUPTION = "monthly-totals-falling-behind"
 RECORDED_FLAG_REVERT_LEAVES_A_FLAP = "flag-revert-leaves-a-flap"
 RECORDED_OUTPUT_QUALITY_DEGRADATION = "categoriser-model-upgraded"
 RECORDED_ACCELERATOR_HETEROGENEITY = "scorer-replica-rescheduled"
+# Two flags changed at once, and somebody in the thread saying which one it is:
+# before the walk has started, and while the Investigator waits on its first turn.
+RECORDED_LEAD_BEFORE_THE_WALK = "competing-flag-changes-lead-before-the-walk"
+RECORDED_LEAD_MID_INVESTIGATION = "competing-flag-changes-lead-mid-investigation"
 
 # Which of those walks has to come back with a patch. Declared once, here,
 # because two things need it and would otherwise each keep a list: the recorder,
@@ -645,10 +653,40 @@ def the_held_model_answers_from(recording: str, *,
     def step() -> bool:
         with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             _seed_the_answers(control, recording, less_code_fix)
+            control.post("/double-control/release").raise_for_status()
 
         return True
 
     return step
+
+
+def the_held_call_arrived() -> None:
+    """Waits until the walk's first call to the model is at the double, held.
+
+    For a case that has to act after the walk has asked its first question and
+    before it hears the answer: the opening has gone out without what the case
+    does next, and whatever the walk reads before its second call - a lead in
+    the thread - is there when it reads it.
+
+    Bounded by an investigation, the outside of how long a walk may take to
+    ask anything at all.
+    """
+    deadline = time.monotonic() + INVESTIGATION_TIMEOUT_SECONDS
+
+    while time.monotonic() < deadline:
+        answered = httpx2.get(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/state",
+                              timeout=REQUEST_TIMEOUT_SECONDS)
+        answered.raise_for_status()
+
+        if answered.json()["held"]:
+            return
+
+        time.sleep(A_POLL_SECONDS)
+
+    raise AssertionError(
+        f"The walk asked its model nothing within [{INVESTIGATION_TIMEOUT_SECONDS}s], "
+        f"so there was no first turn for the case to come between."
+    )
 
 
 def _seed_the_answers(control: httpx2.Client, recording: str, less_code_fix: bool) -> None:

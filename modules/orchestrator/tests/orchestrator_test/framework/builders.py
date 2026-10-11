@@ -4,6 +4,7 @@ import random
 import string
 from datetime import UTC, datetime, timedelta
 
+from argus_core import new_id
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_TO_ACCELERATOR,
@@ -19,8 +20,13 @@ from argus_core.models import (
     FailureMode,
     Hypothesis,
     IncidentStatus,
+    Meaning,
     PodPlacement,
     RecordedPlacement,
+    ReportChannel,
+    ThreadMessage,
+    Weighing,
+    a_chat_message,
 )
 from argus_incidents.ending import EndedByAPerson
 from orchestrator.walk.state import IncidentState
@@ -284,3 +290,22 @@ def a_person_ended_the_incident(ending: IncidentStatus) -> EndedByAPerson:
         return ending
 
     return ended_by_a_person
+
+
+def a_lead(words: str,
+           weighing: Weighing | None = None,
+           ts: str = "1760000100.000200") -> ThreadMessage:
+    """Something a person told the incident, understood as information - the
+    message named by `ts`, where a test needs two of them.
+
+    Its own incident rather than the walk's: the record keys an incident by a
+    UUID and the walk's cases name theirs however they like, and nothing the
+    walk does with a lead reads which incident it belongs to.
+    """
+    return ThreadMessage(incident_id=new_id(),
+                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         person_id="U-some-person",
+                         text=words,
+                         written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),
+                         meaning=Meaning.INFORMATION,
+                         weighing=weighing)

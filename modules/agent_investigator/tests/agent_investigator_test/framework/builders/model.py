@@ -25,16 +25,23 @@ from argus_core.llm import (
     ModelDidNotAnswer,
     ModelRefused,
 )
-from argus_core.models import Evidence, ToolCall, Turn
+from argus_core.models import Evidence, Standing, ToolCall, Turn
 
 METRICS_TOOL = "get_metrics"
 LOGS_TOOL = "get_logs"
 CHANGES_TOOL = "get_changes"
 ANSWER_TOOL = "final_answer"
+WEIGH_TOOL = "weigh_lead"
 
 WINDOW_START_ARG = "window_start"
 WINDOW_END_ARG = "window_end"
 HYPOTHESES_ARG = "hypotheses"
+LEAD_ARG = "lead"
+STANDING_ARG = "standing"
+REASON_ARG = "reason"
+
+# Why a lead stands where it was weighed, where the test is not about why.
+A_REASON = "what was read bears it out"
 
 # What a turn cost, where the test is not about cost. Zero rather than a
 # plausible number, so that a budget bound is only ever reached by a test that
@@ -158,6 +165,18 @@ def a_turn_answering(*explanations: dict[str, Any],
         ],
         input_tokens=input_tokens,
         output_tokens=output_tokens
+    )
+
+
+def a_turn_weighing(lead: str,
+                    standing: Standing,
+                    reason: str = A_REASON,
+                    call_id: str = "toolu_dont_care") -> Turn:
+    """One turn in which the model weighed a lead it was shown, by its label."""
+    return a_turn_calling(
+        WEIGH_TOOL,
+        {LEAD_ARG: lead, STANDING_ARG: standing.value, REASON_ARG: reason},
+        call_id=call_id
     )
 
 

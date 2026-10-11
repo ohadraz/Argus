@@ -1401,6 +1401,94 @@ def _a_fix_of_the_scorer(was: dict[str, Any]) -> dict[str, Any]:
     return {**was, "content": content}
 
 
+# The lead's label as the incident gives it, the tool the Investigator weighs it
+# with, the tool the postmortem is submitted by, and the standing the lead is
+# given - spelled here for the reason the names at the top are. Each lead case
+# writes one lead, so it is the first.
+THE_ONE_LEAD: Final = "L1"
+THE_TOOL_THAT_WEIGHS: Final = "weigh_lead"
+THE_TOOL_THAT_WRITES_UP: Final = "submit_postmortem"
+SUPPORTED: Final = "supported"
+
+
+def _the_lead_weighed_beside_the_answer(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed `final_answer` turn, with the lead weighed in the same turn.
+
+    Borrowed from a walk that reverted the right flag with nobody telling it to,
+    so its answer is already the one the lead points at: what it lacks is the
+    weighing, without which an investigation shown a lead has its answer
+    refused. One turn can weigh and answer, so the weighing is added beside the
+    answer rather than as a turn of its own - which keeps the numbering, and the
+    queue, exactly as long as the borrowed walk's.
+
+    Supported, because the lead names the flag this answer reverts.
+    """
+    answered = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_ANSWERS:
+            content.append({
+                "type": TOOL_USE_TYPE,
+                "id": f"{block['id']}_weighed",
+                "name": THE_TOOL_THAT_WEIGHS,
+                "input": {
+                    "lead": THE_ONE_LEAD,
+                    "standing": SUPPORTED,
+                    "reason": (
+                        "The flag history shows legacy-checkout-fallback switched off "
+                        "in the minute the errors began."
+                    )
+                }
+            })
+            answered = True
+
+        content.append(block)
+
+    if not answered:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_ANSWERS}] answer to weigh the "
+            f"lead beside"
+        )
+
+    return {**was, "content": content}
+
+
+def _a_postmortem_that_answers_the_lead(was: dict[str, Any]) -> dict[str, Any]:
+    """The borrowed postmortem, saying what the lead changed.
+
+    A postmortem of an incident somebody wrote in is refused until it says, for
+    each lead, whether it changed what was done - and the borrowed walk had no
+    lead to say anything about.
+    """
+    submitted = False
+    content = []
+
+    for block in was["content"]:
+        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_WRITES_UP:
+            block = {
+                **block,
+                "input": {
+                    **block["input"],
+                    "lead_effects": [{
+                        "lead": THE_ONE_LEAD,
+                        "effect": "It named the flag that was put back first."
+                    }]
+                }
+            }
+            submitted = True
+
+        content.append(block)
+
+    if not submitted:
+        raise SystemExit(
+            f"the borrowed walk has no [{THE_TOOL_THAT_WRITES_UP}] answer to rewrite, "
+            f"so it was never written up"
+        )
+
+    return {**was, "content": content}
+
+
 # Which answers have to be rewritten, by the set being fabricated, and which tool
 # call marks each. A rehearsal borrows a walk through a world shaped like the new
 # one, so most answers are already right: the investigation read evidence of the
@@ -1469,6 +1557,18 @@ _THE_ANSWERS_THAT_HAVE_TO_DIFFER: Final[
     "both-scorer-replica-rescheduled": (
         (THE_TOOL_THAT_ANSWERS, _a_replica_on_a_card_that_rounds),
         (THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_scorer)
+    ),
+    # Both lead cases, borrowed from `both-fallback-disabled`: the same flag put
+    # back, with a lead to weigh and to write up. One rewrite serves both, because
+    # whether the lead was in the opening or rode on the first turn's results,
+    # the answer that weighs it is the investigation's last.
+    "both-competing-flag-changes-lead-before-the-walk": (
+        (THE_TOOL_THAT_ANSWERS, _the_lead_weighed_beside_the_answer),
+        (THE_TOOL_THAT_WRITES_UP, _a_postmortem_that_answers_the_lead)
+    ),
+    "both-competing-flag-changes-lead-mid-investigation": (
+        (THE_TOOL_THAT_ANSWERS, _the_lead_weighed_beside_the_answer),
+        (THE_TOOL_THAT_WRITES_UP, _a_postmortem_that_answers_the_lead)
     )
 }
 

@@ -39,6 +39,7 @@ from argus_core.models import (
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
 from argus_incidents.repository import (
+    conversation,
     events,
     hypotheses,
     incidents,
@@ -110,7 +111,11 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         log_lines=_what_was_read(conn, incident_id),
         tokens_spent=replay.get_tokens_spent(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
-        recommended_action=_what_is_still_owed(conn, incident_id)
+        recommended_action=_what_is_still_owed(conn, incident_id),
+        # Off the record rather than the account: the account says a lead was
+        # weighed, and the record is where its words and standing are kept
+        # together - the latest standing, which is the one the walk acted on.
+        leads=conversation.get_leads_by_incident(conn, incident_id)
     )
 
 

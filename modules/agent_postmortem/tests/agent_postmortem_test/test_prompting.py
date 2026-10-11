@@ -22,7 +22,10 @@ import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
+    EFFECT_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
+    LEAD_EFFECTS_FIELD,
+    LEAD_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
     SUBMIT_POSTMORTEM,
@@ -31,13 +34,23 @@ from agent_postmortem.prompting import (
     opening_ask,
     opening_ask_again,
     rejecting,
+    submit_postmortem_for,
 )
-from argus_core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
+from argus_core.models import (
+    Ask,
+    Standing,
+    ToolDefinition,
+    ToolResults,
+    Transcript,
+    Turn,
+    Weighing,
+)
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
     ONSET,
     RECOVERED_AT,
+    a_lead,
     a_measured_incident,
     a_submission_of,
     an_answer,
@@ -45,6 +58,12 @@ from agent_postmortem_test.framework.builders import (
 )
 
 SOME_FAULT = "the field [root_cause] was missing from your answer"
+
+# What a lead nobody weighed is said to be, and where people wrote - words
+# rather than sentences, so the prose around them is free to be improved.
+WHAT_AN_UNWEIGHED_LEAD_IS_CALLED = "never weighed"
+THE_THREAD = "thread"
+WHEN_A_LEAD_WAS_WEIGHED = "before anything was tried"
 
 
 @pytest.mark.unit
@@ -316,6 +335,173 @@ def test_the_model_is_asked_for_no_figure_of_its_own() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_what_people_told_the_incident_and_how_it_was_weighed() -> None:
+    # What a person said and what the investigation made of it are one fact
+    # about the incident: the words without the standing would read as advice
+    # Argus followed, and the standing without the words as a verdict on
+    # nothing. A lead written too late to be weighed is said to be unweighed,
+    # rather than shown bare as one nobody doubted.
+    a_supported_lead = a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
+        ts="1760000100.000200"
+    )
+    an_unweighed_lead = a_lead("it is the database again", ts="1760000200.000300")
+
+    Scenario() \
+        .when(
+            lambda: opening_ask(
+                an_evidence_bundle(leads=[a_supported_lead, an_unweighed_lead]),
+                a_measured_incident()
+            )
+        ) \
+        .then(
+            _says(f"L1 ({a_supported_lead.person_id}",
+                  a_supported_lead.text,
+                  Standing.SUPPORTED.value,
+                  "the flag history agrees",
+                  f"L2 ({an_unweighed_lead.person_id}",
+                  an_unweighed_lead.text,
+                  WHAT_AN_UNWEIGHED_LEAD_IS_CALLED)
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_is_told_under_its_writers_name_or_their_id_where_there_is_none() -> None:
+    # The document names the person it owes the line to, and a platform id is
+    # not a name its reader knows. Where the platform could not say, the id is
+    # the one name Argus holds, and one a reader can look up.
+    some_name = "Some Person"
+    a_named_lead = a_lead("the kuki flag was flipped at noon",
+                          ts="1760000100.000200").model_copy(update={"person_name": some_name})
+    an_unnamed_lead = a_lead("it is the database again", ts="1760000200.000300")
+
+    Scenario() \
+        .when(
+            lambda: opening_ask(
+                an_evidence_bundle(leads=[a_named_lead, an_unnamed_lead]),
+                a_measured_incident()
+            )
+        ) \
+        .then(
+            _says(f"L1 ({some_name}", f"L2 ({an_unnamed_lead.person_id}")
+        )
+
+
+@pytest.mark.unit
+def test_a_standing_is_said_to_predate_what_the_actions_showed() -> None:
+    # Weighed before anything was tried, and a lower candidate can then be the
+    # one an action confirms. A lead refuted that way named the cause, and a
+    # document reporting the standing bare would say the person was wrong.
+    a_refuted_lead = a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.REFUTED, reason="the flag moved after the onset")
+    )
+
+    Scenario() \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(leads=[a_refuted_lead]),
+                                a_measured_incident())
+        ) \
+        .then(
+            _says(WHEN_A_LEAD_WAS_WEIGHED)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_nobody_wrote_about_is_told_nothing_of_a_thread() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see, and a request that changed for every incident nobody talked
+    # about would be a different request for the same document.
+    Scenario() \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(leads=[]), a_measured_incident())
+        ) \
+        .then(
+            _does_not_say(THE_THREAD)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_nobody_wrote_about_is_asked_for_what_it_always_was() -> None:
+    # A field for saying what each lead changed, offered where there are none,
+    # is a question about nothing - and a changed tool for every incident.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([])
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD,
+                               ASSUMPTIONS_FIELD),
+                _requires(*REQUIRED_FIELDS)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> None:
+    # Required rather than offered: the document owes the person who wrote an
+    # answer, and an optional field is one a model leaves out whenever its
+    # prose reads well without it. Still no number in it.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([a_lead("the kuki flag was flipped at noon")])
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD,
+                               ASSUMPTIONS_FIELD, LEAD_EFFECTS_FIELD),
+                _requires(*REQUIRED_FIELDS, LEAD_EFFECTS_FIELD),
+                _accepts_no_number()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_each_lead_changed_is_read_by_the_lead_it_names() -> None:
+    Scenario() \
+        .given(
+            a_submission_saying_what_two_leads_changed := an_answer(
+                lead_effects={"L1": "it named the flag reverted",
+                              "L2": "it changed nothing"}
+            )
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_saying_what_two_leads_changed)
+        ) \
+        .then(
+            _says_of_the_leads({"L1": "it named the flag reverted",
+                                "L2": "it changed nothing"})
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_effect_not_in_its_declared_shape_costs_only_itself() -> None:
+    # As an assumption that is not a sentence costs that line: one unreadable
+    # entry is one lead the check then names and asks about again, where
+    # refusing the list would lose what was said of every other.
+    Scenario() \
+        .given(
+            a_submission_with_one_readable_effect := {
+                LEAD_EFFECTS_FIELD: [
+                    {LEAD_FIELD: "L1", EFFECT_FIELD: "it named the flag reverted"},
+                    {LEAD_FIELD: "L2"},
+                    "not an entry"
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_with_one_readable_effect)
+        ) \
+        .then(
+            _says_of_the_leads({"L1": "it named the flag reverted"})
+        )
+
+
+@pytest.mark.unit
 def test_a_refusal_rides_on_the_call_it_refuses() -> None:
     # A provider that has seen a tool call expects its result next, and the
     # result is where a refusal belongs: the model sees what it submitted, is
@@ -519,6 +705,18 @@ def _disclosed(expected: list[str]) -> Assertion[SubmittedPostmortem]:
             raise AssertionError(
                 f"Expected the assumptions to be {expected}, got "
                 f"{submitted.assumptions}.")
+
+        return True
+
+    return assertion
+
+
+def _says_of_the_leads(expected: dict[str, str]) -> Assertion[SubmittedPostmortem]:
+    def assertion(submitted: SubmittedPostmortem) -> bool:
+        if submitted.lead_effects != expected:
+            raise AssertionError(
+                f"Expected what each lead changed to be read as {expected}, got "
+                f"{submitted.lead_effects}.")
 
         return True
 

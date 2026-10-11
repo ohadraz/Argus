@@ -35,10 +35,15 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    Leads,
     PostmortemDocument,
     Reading,
     RevertFeatureFlag,
     RollBackDeployment,
+    Standing,
+    ThreadMessage,
+    Weighing,
+    no_leads,
 )
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
@@ -64,6 +69,7 @@ from orchestrator.walk.state import IncidentState
 from orchestrator_test.framework.builders import (
     a_corruption_blamed_on,
     a_deployment,
+    a_lead,
     a_person_ended_the_incident,
     a_random_id,
     nobody_ended_the_incident,
@@ -115,7 +121,9 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         publisher=nobody,
         recorder=records_nothing,
         ended_by_a_person=nobody_ended_the_incident(),
-        wait_for_people=lambda dont_care_incident_id, /: False
+        wait_for_people=lambda dont_care_incident_id, /: False,
+        leads_of=lambda dont_care_incident_id, /: [],
+        record_weighing=lambda dont_care_lead, /: None
     )
 
 
@@ -290,6 +298,73 @@ def test_code_fix_is_handed_the_walks_own_question(
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
         .then(_the_question_reached_the_walk(reached))
+
+
+@pytest.mark.component
+def test_the_investigation_is_handed_what_people_told_the_incident(
+    collaborators: Collaborators
+) -> None:
+    # The thread is read through the walk, so a lead reaches the investigation
+    # only if the graph hands the node the walk's own reader. Any other - the
+    # default that says nobody wrote - would leave the model never told.
+    some_leads = [a_lead("the kuki flag was flipped at noon")]
+    told: list[list[ThreadMessage]] = []
+
+    Scenario() \
+        .given(
+            a_walk_with_a_thread := replace(
+                collaborators,
+                investigate=_an_investigation_noting_what_it_was_told(told),
+                leads_of=lambda dont_care_incident_id, /: some_leads
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_with_a_thread)) \
+        .then(_the_investigation_was_told(told, some_leads))
+
+
+@pytest.mark.component
+def test_code_fix_is_handed_what_people_told_the_incident(
+    collaborators: Collaborators
+) -> None:
+    # The same wiring at the other agent a lead reaches, and the one a lead
+    # written after the investigation answered reaches first.
+    some_leads = [a_lead("the kuki flag was flipped at noon")]
+    told: list[list[ThreadMessage]] = []
+
+    Scenario() \
+        .given(
+            a_walk_with_a_thread := replace(
+                collaborators,
+                propose_fix=_a_fix_channel_noting_what_it_was_told(told),
+                leads_of=lambda dont_care_incident_id, /: some_leads
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_with_a_thread)) \
+        .then(_the_fix_was_told(told, some_leads))
+
+
+@pytest.mark.component
+def test_every_lead_the_investigation_weighed_is_kept(
+    collaborators: Collaborators
+) -> None:
+    # The same wiring on the way back: a standing the graph does not hand to
+    # the record is one the next round, Code-Fix and the person who wrote the
+    # lead never hear.
+    some_weighed = [a_lead("the kuki flag was flipped at noon",
+                           Weighing(standing=Standing.SUPPORTED,
+                                    reason="the flag history agrees"))]
+    kept: list[ThreadMessage] = []
+
+    Scenario() \
+        .given(
+            a_walk_that_weighs := replace(
+                collaborators,
+                investigate=_an_investigation_weighing(some_weighed),
+                record_weighing=lambda lead, /: kept.append(lead)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_that_weighs)) \
+        .then(_the_weighings_kept_were(kept, some_weighed))
 
 
 @pytest.mark.component
@@ -593,7 +668,8 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
                     already_refuted: Sequence[Attempt] | None = None,
                     publisher: Publisher = nobody,
                     recorder: Recorder = records_nothing,
-                    still_wanted: StillWanted = wanted_throughout) -> Findings:
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads) -> Findings:
         return Findings(
             candidates=[candidate.model_copy(update={"incident_id": incident_id})
                         for candidate in candidates],
@@ -847,7 +923,8 @@ def _an_investigation_whose_question_is_traced(asked: list[str],
                     already_refuted: Sequence[Attempt] | None = None,
                     publisher: Publisher = nobody,
                     recorder: Recorder = records_nothing,
-                    still_wanted: StillWanted = wanted_throughout) -> Findings:
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads) -> Findings:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -862,6 +939,95 @@ def _an_investigation_whose_question_is_traced(asked: list[str],
     return investigate
 
 
+def _an_investigation_noting_what_it_was_told(told: list[list[ThreadMessage]]
+                                              ) -> ports.Investigate:
+    """An investigation that asks what people told the incident, and notes
+    the answer."""
+    def investigate(alert: Alert,
+                    incident_id: str,
+                    *,
+                    already_read: Sequence[Reading] | None = None,
+                    already_refuted: Sequence[Attempt] | None = None,
+                    publisher: Publisher = nobody,
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads) -> Findings:
+        told.append(leads())
+
+        return Findings(
+            candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
+                update={"incident_id": incident_id}
+            )],
+            already_read=[]
+        )
+
+    return investigate
+
+
+def _an_investigation_weighing(weighed: list[ThreadMessage]) -> ports.Investigate:
+    """An investigation that returns these weighings beside its answer."""
+    def investigate(alert: Alert,
+                    incident_id: str,
+                    *,
+                    already_read: Sequence[Reading] | None = None,
+                    already_refuted: Sequence[Attempt] | None = None,
+                    publisher: Publisher = nobody,
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads) -> Findings:
+        return Findings(
+            candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
+                update={"incident_id": incident_id}
+            )],
+            already_read=[],
+            leads_weighed=weighed
+        )
+
+    return investigate
+
+
+def _the_investigation_was_told(told: list[list[ThreadMessage]],
+                                expected: list[ThreadMessage]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if told != [expected]:
+            raise AssertionError(
+                f"Expected the investigation to be told the {len(expected)} "
+                f"lead(s) the thread holds, once, and it was told {told}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_fix_was_told(told: list[list[ThreadMessage]],
+                      expected: list[ThreadMessage]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if told != [expected]:
+            raise AssertionError(
+                f"Expected Code-Fix to be told the {len(expected)} lead(s) the "
+                f"thread holds, once, and it was told {told}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_weighings_kept_were(kept: list[ThreadMessage],
+                             expected: list[ThreadMessage]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if kept != expected:
+            raise AssertionError(
+                f"Expected the {len(expected)} weighing(s) the investigation "
+                f"returned to be kept, and what was kept was {kept}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_fix_channel_whose_question_is_traced(asked: list[str],
                                             reached: list[bool]) -> ports.ProposeFix:
     """Code-Fix that asks the question it was handed, and notes whether asking
@@ -869,10 +1035,27 @@ def _a_fix_channel_whose_question_is_traced(asked: list[str],
     def propose(dont_care_hypothesis: Hypothesis | None,
                 dont_care_incident_id: str,
                 *,
-                still_wanted: StillWanted = wanted_throughout) -> None:
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads) -> None:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
+
+        return None
+
+    return propose
+
+
+def _a_fix_channel_noting_what_it_was_told(told: list[list[ThreadMessage]]
+                                           ) -> ports.ProposeFix:
+    """Code-Fix that asks what people told the incident, and notes the
+    answer."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads) -> None:
+        told.append(leads())
 
         return None
 

@@ -7,7 +7,14 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, OpenedPullRequest, PostmortemDocument
+from argus_core.models import (
+    Alert,
+    OpenedPullRequest,
+    PostmortemDocument,
+    PostmortemLead,
+    Standing,
+    Weighing,
+)
 from argus_incidents.repository import incidents, postmortems
 from argus_testkit import Assertion, Scenario, all_of
 
@@ -96,6 +103,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
             branch="argus/fix-abc"
         ),
         recommended_action="putting monthly-spend-feature back",
+        leads=[_a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted")],
         checklist_complete=True
     )
 
@@ -108,6 +116,32 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
             ) \
             .then(
                 no_column_is_empty(conn, "postmortem", "incident_id", incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_what_people_told_the_incident_comes_back_whole() -> None:
+    # A list of objects, each carrying a moment and an object of its own - the
+    # one field here psycopg can neither send as it stands nor hand back as
+    # what it was. A lead that came back with its standing as a string, or its
+    # moment as text, would be a document saying less than it was written with.
+    some_leads = [
+        _a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted"),
+        _a_lead_weighed_as(None, effect=None)
+    ]
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_created_in(conn)
+        a_document_with_leads = _a_document(pull_request=None).model_copy(
+            update={"leads": some_leads}
+        )
+
+        Scenario() \
+            .when(
+                lambda: postmortems.record(conn, incident_id, a_document_with_leads)
+            ) \
+            .then(
+                _the_stored_postmortem_carries_the_leads(conn, incident_id, some_leads)
             )
 
 
@@ -168,6 +202,41 @@ def _the_stored_postmortem_proposes_nothing(conn: psycopg.Connection,
         return True
 
     return assertion
+
+
+def _the_stored_postmortem_carries_the_leads(conn: psycopg.Connection,
+                                             incident_id: str,
+                                             expected: list[PostmortemLead]
+                                             ) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = postmortems.get_by_incident(conn, incident_id)
+
+        if stored is None:
+            raise AssertionError("Expected a postmortem to have been written, none was.")
+
+        if stored.leads != expected:
+            raise AssertionError(
+                f"Expected the postmortem to carry {expected}, and it came back "
+                f"carrying {stored.leads}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_lead_weighed_as(standing: Standing | None, effect: str | None) -> PostmortemLead:
+    """One thing a person told the incident, as the document reports it -
+    weighed as `standing`, or never weighed where that is `None`."""
+    return PostmortemLead(
+        person_id="U-some-person",
+        person_name="Some Person",
+        text="the kuki flag was flipped at noon",
+        written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),
+        weighing=(Weighing(standing=standing, reason="the flag history agrees")
+                  if standing is not None else None),
+        effect=effect
+    )
 
 
 def _an_incident_created_in(conn: psycopg.Connection) -> str:

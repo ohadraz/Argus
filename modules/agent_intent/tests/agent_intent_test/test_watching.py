@@ -1,119 +1,122 @@
-"""One look at the log, from the intent agent's side of it.
+"""One look at the messages nobody has understood, from the intent agent's side.
 
-The intent agent follows everything published, as the relay does, and acts on one
-kind of event: a person writing in an incident's thread. Everything else is
-passed over, and the place moves past it all the same - an intent agent that stopped
-at the first retrieval would sit there for ever.
+The intent agent finds its work on the incident record rather than in the event
+log: a message is the agent's to understand until the record says what it
+meant, so the record is what it asks. Each look takes the oldest first, because
+a message understood out of order can be offered after a later one that changed
+it.
 
-A message that could not be understood - the model unreachable, the database gone -
-stops the look where it is, and the place stays in front of it. The next look
-tries it again, because a person's words skipped are words Argus never took in,
-and the messages behind it wait rather than being read out of order.
+A message that could not be understood - the model unreachable, the database
+gone - stops the look where it is. The next look finds it again, because a
+person's words skipped are words Argus never took in, and the messages behind
+it wait rather than being understood out of order.
 
-The log and the place are stood in for: they are `argus_incidents`' and tested
-there.
+The record is stood in for: it is `argus_incidents`' and tested there.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 import pytest
 from agent_intent.watching import watch_once
 from argus_core import new_id
-from argus_core.events import (
-    AgentInvoked,
-    IncidentEvent,
-    PersonWrote,
-    RecordedEvent,
-)
-from argus_core.models import Actor, ReportChannel, a_chat_message
+from argus_core.models import ReportChannel, ThreadMessage, a_chat_message
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 
 SOME_INCIDENT = new_id()
+SOME_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
 
 
 @pytest.mark.unit
-def test_each_message_a_person_wrote_is_heard_in_the_order_it_was_written() -> None:
+def test_each_message_nobody_has_understood_is_understood_in_the_order_found() -> None:
     first, second = _a_person_writing("first"), _a_person_writing("second")
-    a_log = _a_log(first, second)
-    understood: list[PersonWrote] = []
+    understood: list[ThreadMessage] = []
 
     Scenario() \
-        .when(lambda: watch_once(a_log.backlog, a_log, understood.append)) \
-        .then(all_of(_it_understood(understood, [first, second]), _the_place_is(a_log, 2)))
+        .when(lambda: watch_once(_not_understood(first, second), understood.append)) \
+        .then(_it_understood(understood, [first, second]))
 
 
 @pytest.mark.unit
-def test_everything_else_is_passed_over_and_the_place_moves_past_it() -> None:
-    a_log = _a_log(AgentInvoked(incident_id=SOME_INCIDENT, agent=Actor.INVESTIGATOR))
-    understood: list[PersonWrote] = []
-
-    Scenario() \
-        .when(lambda: watch_once(a_log.backlog, a_log, understood.append)) \
-        .then(all_of(_it_understood(understood, []), _the_place_is(a_log, 1)))
-
-
-@pytest.mark.unit
-def test_a_message_that_could_not_be_heard_stops_the_look_in_front_of_it(
+def test_a_message_that_could_not_be_understood_stops_the_look_in_front_of_it(
         caplog: pytest.LogCaptureFixture) -> None:
     first, second = _a_person_writing("first"), _a_person_writing("second")
-    a_log = _a_log(first, second)
+    tried: list[ThreadMessage] = []
 
-    def understanding_fails(written: PersonWrote) -> None:
+    def understanding_fails(written: ThreadMessage) -> None:
+        tried.append(written)
         raise ConnectionError("the model could not be reached")
 
     Scenario() \
-        .when(lambda: watch_once(a_log.backlog, a_log, understanding_fails)) \
+        .when(lambda: watch_once(_not_understood(first, second), understanding_fails)) \
         .then(all_of(
-            _the_place_is(a_log, 0),
+            _it_understood(tried, [first]),
             one_record_was_logged(caplog, "agent_intent.watching", logging.WARNING,
                                   "message not understood", failure=ConnectionError)
         ))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("published", "looked_at"), [(0, 0), (3, 3)])
-def test_a_look_says_how_many_events_it_dealt_with(published: int, looked_at: int) -> None:
+@pytest.mark.parametrize(("waiting", "understood"), [(0, 0), (3, 3)])
+def test_a_look_says_how_many_messages_it_understood(waiting: int, understood: int) -> None:
     # What the process waits on: a look that found nothing waits before the
     # next, and one that found something looks again at once.
-    a_log = _a_log(*(_a_person_writing(f"message {n}") for n in range(published)))
+    some_messages = [_a_person_writing(f"message {n}") for n in range(waiting)]
 
     Scenario() \
-        .when(lambda: watch_once(a_log.backlog, a_log, lambda _: None)) \
-        .then(_it_answers(looked_at))
+        .when(lambda: watch_once(_not_understood(*some_messages), lambda _: None)) \
+        .then(_it_answers(understood))
 
 
-def _a_person_writing(words: str) -> PersonWrote:
-    return PersonWrote(incident_id=SOME_INCIDENT,
-                       message=a_chat_message(ReportChannel.SLACK, "C-some-channel", words),
-                       person_id="U-some-person",
-                       text=words)
+@pytest.mark.unit
+def test_a_message_that_could_not_be_understood_is_not_counted() -> None:
+    # A look whose only message failed found nothing it could do, and waits
+    # before trying it again rather than spinning on it.
+    def understanding_fails(_written: ThreadMessage) -> None:
+        raise ConnectionError("the model could not be reached")
+
+    Scenario() \
+        .when(lambda: watch_once(_not_understood(_a_person_writing("first")),
+                                 understanding_fails)) \
+        .then(_it_answers(0))
 
 
-class _ALog:
-    """A log holding these events at places 1, 2, 3..., and a place in it."""
+@pytest.mark.unit
+def test_a_look_asks_for_no_more_than_a_batch() -> None:
+    # A few looks to catch up after a restart, never an hour of messages in
+    # memory at once.
+    asked_for: list[int] = []
+    some_batch = 7
 
-    def __init__(self, *events: IncidentEvent) -> None:
-        self._recorded = [RecordedEvent(seq=seq, event=event)
-                          for seq, event in enumerate(events, start=1)]
-        self.place = 0
+    def not_understood(limit: int) -> list[ThreadMessage]:
+        asked_for.append(limit)
+        return []
 
-    def backlog(self, since: int, batch: int, /) -> list[RecordedEvent]:
-        return [recorded for recorded in self._recorded if recorded.seq > since][:batch]
-
-    def where(self) -> int:
-        return self.place
-
-    def move_to(self, seq: int, /) -> None:
-        self.place = seq
+    Scenario() \
+        .when(lambda: watch_once(not_understood, lambda _: None, batch=some_batch)) \
+        .then(_it_asked_for(asked_for, [some_batch]))
 
 
-def _a_log(*events: IncidentEvent) -> _ALog:
-    return _ALog(*events)
+def _a_person_writing(words: str) -> ThreadMessage:
+    return ThreadMessage(incident_id=SOME_INCIDENT,
+                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", words),
+                         person_id="U-some-person",
+                         text=words,
+                         written_at=SOME_TIME)
 
 
-def _it_understood(understood: list[PersonWrote], expected: list[PersonWrote]) -> Assertion[object]:
+def _not_understood(*messages: ThreadMessage) -> Callable[[int], list[ThreadMessage]]:
+    def not_understood(limit: int) -> list[ThreadMessage]:
+        return list(messages)[:limit]
+
+    return not_understood
+
+
+def _it_understood(understood: list[ThreadMessage],
+                   expected: list[ThreadMessage]) -> Assertion[object]:
     def assertion(_: object) -> bool:
         if understood != expected:
             raise AssertionError(
@@ -126,20 +129,20 @@ def _it_understood(understood: list[PersonWrote], expected: list[PersonWrote]) -
     return assertion
 
 
-def _the_place_is(a_log: _ALog, expected: int) -> Assertion[object]:
-    def assertion(_: object) -> bool:
-        if a_log.place != expected:
-            raise AssertionError(f"Expected the place {expected}, got {a_log.place}.")
+def _it_answers(expected: int) -> Assertion[int]:
+    def assertion(looked_at: int) -> bool:
+        if looked_at != expected:
+            raise AssertionError(f"Expected {expected} messages understood, got {looked_at}.")
 
         return True
 
     return assertion
 
 
-def _it_answers(expected: int) -> Assertion[int]:
-    def assertion(looked_at: int) -> bool:
-        if looked_at != expected:
-            raise AssertionError(f"Expected {expected} events dealt with, got {looked_at}.")
+def _it_asked_for(asked_for: list[int], expected: list[int]) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        if asked_for != expected:
+            raise AssertionError(f"Expected the look to ask for {expected}, got {asked_for}.")
 
         return True
 

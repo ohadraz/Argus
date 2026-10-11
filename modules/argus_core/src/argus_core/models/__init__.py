@@ -83,7 +83,7 @@ from argus_core.models.model_policy import (
     ModelPolicy,
 )
 from argus_core.models.placement import PodPlacement, RecordedPlacement
-from argus_core.models.postmortem import Postmortem, PostmortemDocument
+from argus_core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_core.models.reading import Reading, RetrievalChannel
@@ -106,6 +106,17 @@ from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutProgress
 from argus_core.models.service_dependency import Ownership, ServiceDependency
 from argus_core.models.taken_action import TakenAction
+from argus_core.models.thread_message import (
+    Leads,
+    Offer,
+    OfferedEnding,
+    Standing,
+    ThreadMessage,
+    Weighing,
+    labelled,
+    no_leads,
+    not_yet_shown,
+)
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import (
     Ask,
@@ -191,16 +202,20 @@ __all__ = [
     "Hypothesis",
     "Incident",
     "IncidentStatus",
+    "Leads",
     "Meaning",
     "MetricBucket",
     "LARGEST_UNSTREAMED_ANSWER",
     "Effort",
     "ModelPolicy",
+    "Offer",
+    "OfferedEnding",
     "OpenedPullRequest",
     "Outcome",
     "Ownership",
     "Postmortem",
     "PostmortemDocument",
+    "PostmortemLead",
     "PublishedRates",
     "RatesUnavailable",
     "Reading",
@@ -215,6 +230,9 @@ __all__ = [
     "a_chat_resolution_offer",
     "a_chat_thread",
     "a_chat_withdrawal_offer",
+    "labelled",
+    "no_leads",
+    "not_yet_shown",
     "the_place_of",
     "Refusal",
     "Report",
@@ -235,7 +253,9 @@ __all__ = [
     "RestartedService",
     "RevertFeatureFlag",
     "ServiceDependency",
+    "Standing",
     "TakenAction",
+    "ThreadMessage",
     "ToolCall",
     "ToolDefinition",
     "ToolResult",
@@ -244,6 +264,7 @@ __all__ = [
     "Turn",
     "UndoDescriptor",
     "Undone",
+    "Weighing",
     "WhatWouldBeTried",
     "WorseWhen",
     # Public because `ClaimedAction` names it in an annotation a consumer has

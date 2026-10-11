@@ -23,6 +23,7 @@ from argus_core.events import (
     ChangeUndone,
     FixAttempted,
     IncidentEvent,
+    LeadWeighed,
     LogsRetrieved,
     MessageUnderstood,
     MitigationResumed,
@@ -55,6 +56,7 @@ from argus_core.models import (
     Reference,
     Report,
     ReportChannel,
+    Standing,
     the_actions_through,
 )
 from argus_core.models.action import Verdict
@@ -442,18 +444,25 @@ def test_a_status_change_a_person_reported_reads_back_with_who_how_and_what_they
     OfferExpired(
         incident_id=new_id(),
         message=Reference(source="some-chat", kind="some-kind", value="some-message")
+    ),
+    LeadWeighed(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        standing=Standing.SUPPORTED,
+        reason="the checkout flag moved at the onset"
     )
 ], ids=["person-wrote", "message-understood", "resolution-offered", "offered-to-nobody-named",
-        "withdrawal-offered", "withdrawal-offered-to-nobody-named", "offer-expired"])
+        "withdrawal-offered", "withdrawal-offered-to-nobody-named", "offer-expired",
+        "lead-weighed"])
 
 
 def test_what_a_person_wrote_and_what_argus_made_of_it_read_back_as_published(
         published: IncidentEvent) -> None:
     # A person's words are the one input to an incident Argus did not produce,
     # so they travel whole - who, where, and exactly what - as does what Argus
-    # took them to mean and what it offered to do about it. The offer is read
-    # back by whoever presses its button, and a field lost on the way is a
-    # press checked against nobody.
+    # took them to mean, what it offered to do about it, and how it weighed
+    # what it was told. The thread and the timeline say all of it from these
+    # alone, and a field lost on the way is a line that says less than happened.
     Scenario() \
         .given(published) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \

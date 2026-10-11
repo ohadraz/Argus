@@ -29,13 +29,15 @@ import pytest
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.prompting import (
     EXECUTIVE_SUMMARY_FIELD,
+    LEAD_EFFECTS_FIELD,
     ROOT_CAUSE_FIELD,
     SubmittedPostmortem,
 )
-from argus_core.models import Ask, ToolResults, Transcript, Turn
+from argus_core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
 from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.builders import (
+    a_lead,
     a_measured_incident,
     a_model_answering_in_prose_then,
     a_model_answering_in_turn,
@@ -280,6 +282,60 @@ def test_a_model_that_answers_completely_is_asked_once() -> None:
 
 
 @pytest.mark.unit
+def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> None:
+    # The tool the model is offered is the one for this incident: asked with
+    # the tool every incident gets, a model would have nowhere to say what a
+    # lead changed and the check would refuse it for not saying.
+    offered: Kept[list[ToolDefinition]] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_noting_its_tools := a_model_answering_in_turn(
+                an_answer(lead_effects={"L1": "it named the flag reverted"}),
+                offered_tools=offered)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_noting_its_tools,
+                an_evidence_bundle(leads=[a_lead("the kuki flag was flipped at noon")]),
+                a_measured_incident())
+        ) \
+        .then(
+            _was_offered_a_place_for(offered, LEAD_EFFECTS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_silent_about_a_lead_is_asked_for_again_naming_it() -> None:
+    # As a missing field is: the person who wrote it is owed the line, and a
+    # model told which lead it skipped has one thing to put right.
+    asks: Kept[Transcript] = Kept()
+    some_leads = [a_lead("the kuki flag was flipped at noon", ts="1760000100.000200"),
+                  a_lead("it is the database again", ts="1760000200.000300")]
+
+    Scenario() \
+        .given(
+            a_model_that_skipped_a_lead := a_model_answering_in_turn(
+                an_answer(lead_effects={"L1": "it named the flag reverted"}),
+                an_answer(lead_effects={"L1": "it named the flag reverted",
+                                        "L2": "it changed nothing"}),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_that_skipped_a_lead,
+                                         an_evidence_bundle(leads=some_leads),
+                                         a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "[L2]"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_answer_asked_for_again_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -313,6 +369,21 @@ def _was_asked(asks: Kept[Transcript], times: int = 1) -> Assertion[Reading]:
             raise AssertionError(
                 f"Expected the model to be asked [{times}] time(s), got "
                 f"[{len(asks.taken)}].")
+
+        return True
+
+    return assertion
+
+
+def _was_offered_a_place_for(offered: Kept[list[ToolDefinition]],
+                             field: str) -> Assertion[Reading]:
+    def assertion(dont_care_reading: Reading) -> bool:
+        fields = [sorted(tool.properties) for tools in offered.taken for tool in tools]
+
+        if not fields or any(field not in properties for properties in fields):
+            raise AssertionError(
+                f"Expected every tool the model was offered to ask for [{field}], "
+                f"and they asked for {fields}.")
 
         return True
 

@@ -1,8 +1,14 @@
-"""The process that follows the event log and understands what people wrote.
+"""The process that understands what people wrote in incidents' threads.
 
-It does one thing in a loop: look at the log, understand every message a person
-wrote since the last look, move on. Nothing calls it and it calls nothing in the
-walk - the two share a table and no code, as the relay and the walk do.
+It does one thing in a loop: ask the incident record for the messages nobody has
+understood yet, understand each, oldest first, and ask again. Nothing calls it
+and it calls nothing in the walk - the two share a table and no code, as the
+relay and the walk do.
+
+It finds its work on the record rather than by following the event log: a
+message is the agent's to understand until the record says what it meant, and
+an account that could decide what is done would be a participant
+(`argus_core.events`).
 
 A process of its own rather than a part of the worker or the web: the worker
 walks incidents for minutes at a time and a message is not a walk, and the web
@@ -24,19 +30,18 @@ from argus_core import (
     get_settings,
     open_pool,
 )
-from argus_core.events import PersonWrote
 from argus_core.llm import build_llm_client
-from argus_core.models import IncidentStatus, ModelPolicy
-from argus_core.replay import Replay
-from argus_incidents import (
-    Backlog,
-    Place,
-    calls_into,
-    events_into,
-    events_since,
-    place_for,
+from argus_core.models import (
+    IncidentStatus,
+    Meaning,
+    ModelPolicy,
+    OfferedEnding,
+    Reference,
+    ThreadMessage,
 )
-from argus_incidents.repository import incidents
+from argus_core.replay import Replay
+from argus_incidents import calls_into, events_into
+from argus_incidents.repository import conversation, incidents
 from argus_telemetry import start_telemetry
 from chat_platform.slack import ChatSettings, slack_from
 
@@ -45,73 +50,93 @@ from agent_intent.understanding import MeaningOf, understand
 
 logger = logging.getLogger(__name__)
 
-# Which reader this is, in `event_cursor`: its own row, so it keeps its own
-# pace whatever the relay is doing.
-INTENT: Final = "intent"
-
 # What this process is called in its telemetry.
 _SERVICE: Final = "argus-intent"
 
-# How much one look at the log reads, for the relay's reason: a few passes to
-# catch up after a restart, never an hour of the log in memory at once.
+# How many messages one look asks for: a few looks to catch up after a
+# restart, never an hour of messages in memory at once.
 _A_BATCH: Final = 100
 
+# Up to so many messages nobody has understood, oldest first.
+type NotUnderstood = Callable[[int], list[ThreadMessage]]
 # Understanding one message a person wrote: classifying it, and offering what
 # it calls for.
-type Understand = Callable[[PersonWrote], None]
+type Understand = Callable[[ThreadMessage], None]
 
 
-def watch_once(backlog: Backlog,
-               place: Place,
+def watch_once(not_understood: NotUnderstood,
                understand_one: Understand,
                batch: int = _A_BATCH) -> int:
-    """One look at the log: understands every message a person wrote since the
-    last look, and moves on behind itself.
+    """One look: understands every message nobody has understood yet, oldest
+    first, and says how many it understood.
 
-    Returns how many events it dealt with, understood or passed over, which is
-    what the process waits on.
-
-    Each message is understood before the place moves past it, so an
-    intent agent killed between the two understands one message twice - which is
-    the direction this is meant to fail in. A message that could not be
-    understood stops the look where it is and keeps the place in front of it: a
+    Which is what the process waits on. A message that could not be understood
+    stops the look where it is: the next look finds it again, because a
     person's words skipped are words Argus never took in, and the messages
-    behind wait rather than being understood out of order. Everything else is
-    passed over, and the place moves past it.
+    behind it wait rather than being understood out of order. It is not
+    counted, so a look that only failed waits before trying again rather than
+    spinning on it.
     """
-    dealt_with = 0
+    understood = 0
 
-    for recorded in backlog(place.where(), batch):
-        if isinstance(recorded.event, PersonWrote):
-            try:
-                understand_one(recorded.event)
-            except Exception:
-                # Anything at all, deliberately: the model unreachable and the
-                # database gone are both reasons to try again, and the next
-                # look does. A failure that keeps happening keeps being said.
-                logger.warning("message not understood", exc_info=True,
-                               extra={"seq": recorded.seq})
+    for written in not_understood(batch):
+        try:
+            understand_one(written)
+        except Exception:
+            # Anything at all, deliberately: the model unreachable and the
+            # database gone are both reasons to try again, and the next
+            # look does. A failure that keeps happening keeps being said.
+            logger.warning("message not understood", exc_info=True,
+                           extra={"incident_id": written.incident_id,
+                                  "chat_message": written.message.value})
 
-                break
+            break
 
-        place.move_to(recorded.seq)
-        dealt_with += 1
+        understood += 1
 
-    return dealt_with
+    return understood
 
 
-def watch_forever(backlog: Backlog,
-                  place: Place,
+def watch_forever(not_understood: NotUnderstood,
                   understand_one: Understand,
                   pause: float) -> None:
     """Understands what is new for as long as the process lives.
 
-    Looks again immediately after a look that found anything, and waits only
-    when it found nothing.
+    Looks again immediately after a look that understood anything, and waits
+    only when it understood nothing.
     """
     while True:
-        if not watch_once(backlog, place, understand_one):
+        if not watch_once(not_understood, understand_one):
             time.sleep(pause)
+
+
+class _TheRecord:
+    """The incident record's conversation, as understanding a message writes to
+    it, over the connections this process holds."""
+
+    def __init__(self, connections: Connections) -> None:
+        self._connections = connections
+
+    def understood(self, message: Reference, meaning: Meaning) -> None:
+        with self._connections() as conn:
+            conversation.understood(conn, message, meaning)
+
+    def named(self, message: Reference, person_name: str | None) -> None:
+        with self._connections() as conn:
+            conversation.named(conn, message, person_name)
+
+    def offered(self, message: Reference, ending: OfferedEnding) -> None:
+        with self._connections() as conn:
+            conversation.offered(conn, message, ending)
+
+
+def _not_understood(connections: Connections) -> NotUnderstood:
+    """What a look asks, wired to the record."""
+    def not_understood(limit: int) -> list[ThreadMessage]:
+        with connections() as conn:
+            return conversation.get_not_understood(conn, limit)
+
+    return not_understood
 
 
 def _understanding(connections: Connections,
@@ -121,6 +146,7 @@ def _understanding(connections: Connections,
     the chat platform this process holds."""
     recorder = calls_into(connections)
     publisher = events_into(connections)
+    record = _TheRecord(connections)
 
     def meaning_of(incident_id: str) -> MeaningOf:
         # A client per message, recording into that incident's replay log, as
@@ -134,11 +160,12 @@ def _understanding(connections: Connections,
 
         return incident.status if incident is not None else None
 
-    def understand_one(written: PersonWrote) -> None:
+    def understand_one(written: ThreadMessage) -> None:
         understand(written,
                    meaning_of=meaning_of(written.incident_id),
                    status_of=status_of,
                    person_named=person_named,
+                   record=record,
                    publisher=publisher)
 
     return understand_one
@@ -149,8 +176,8 @@ def main() -> None:
     until killed.
 
     An intent agent with no chat platform is not started at all: nothing would
-    ever be written for it to understand, and a process idling on a log it can
-    never act on is a process somebody has to wonder about.
+    ever be written for it to understand, and a process idling on a record it
+    can never act on is a process somebody has to wonder about.
     """
     settings = get_settings()
 
@@ -167,8 +194,7 @@ def main() -> None:
             logger.info("intent agent started")
 
             watch_forever(
-                events_since(connections),
-                place_for(connections, INTENT),
+                _not_understood(connections),
                 _understanding(connections,
                                ModelPolicy(model=settings.intent_model,
                                            effort=settings.intent_effort),

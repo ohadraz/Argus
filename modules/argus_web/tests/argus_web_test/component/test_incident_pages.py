@@ -9,6 +9,7 @@ free to change without any of these tests having an opinion.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from http import HTTPStatus as HttpStatus
 
 import psycopg
@@ -23,9 +24,12 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     PostmortemDocument,
+    PostmortemLead,
     Report,
     ReportChannel,
+    Standing,
     Verdict,
+    Weighing,
 )
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
@@ -606,6 +610,78 @@ def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> Non
             the_page_says(str(some_responders)),
             the_page_says(some_title),
             the_page_says(some_other_title)
+        ))
+
+
+@pytest.mark.component
+def test_the_postmortem_page_says_what_people_told_the_incident_and_what_it_changed() -> None:
+    # The person who wrote a lead comes looking for what became of it. Their
+    # words, what the investigation made of them and whether they changed what
+    # was done are one answer, so the page gives all three together - and a
+    # lead written too late to be weighed says so rather than standing bare.
+    # Each is credited by name, and by the platform's id where it gave none.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_name = "Some Person"
+    some_unnamed_person = "U-another-person"
+    some_words = "the kuki flag was flipped at noon"
+    some_reason = "the flag history agrees"
+    some_effect = "it named the flag that was reverted"
+    some_late_words = "it is the database again"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(
+            conn,
+            incident_id,
+            PostmortemDocument(
+                root_cause="dont care",
+                executive_summary="dont care",
+                customer_loss_estimate=None,
+                estimate_currency=None,
+                engineer_minutes=None,
+                responders=None,
+                tokens_spent=None,
+                assumptions=[],
+                leads=[
+                    PostmortemLead(
+                        person_id="U-some-person",
+                        person_name=some_name,
+                        text=some_words,
+                        written_at=datetime(2026, 8, 30, 10, 41, tzinfo=UTC),
+                        weighing=Weighing(standing=Standing.SUPPORTED, reason=some_reason),
+                        effect=some_effect
+                    ),
+                    PostmortemLead(
+                        person_id=some_unnamed_person,
+                        person_name=None,
+                        text=some_late_words,
+                        written_at=datetime(2026, 8, 30, 10, 52, tzinfo=UTC),
+                        weighing=None,
+                        effect=None
+                    )
+                ],
+                checklist_complete=True
+            )
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says(some_words),
+            the_page_says(Standing.SUPPORTED.value),
+            the_page_says(some_reason),
+            the_page_says(some_effect),
+            the_page_says(some_late_words),
+            the_page_says("never weighed"),
+            # Credited as the line credits them - by name, or by the id where
+            # the platform gave no name - rather than found in an attribute.
+            the_page_says(f"- {some_name},"),
+            the_page_says(f"- {some_unnamed_person},")
         ))
 
 

@@ -14,9 +14,20 @@ call has fields.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Final
 
-from argus_core.models import Ask, ToolDefinition, ToolResult, ToolResults, Transcript, Turn
+from argus_core import to_iso
+from argus_core.models import (
+    Ask,
+    ThreadMessage,
+    ToolDefinition,
+    ToolResult,
+    ToolResults,
+    Transcript,
+    Turn,
+    labelled,
+)
 from pydantic import BaseModel, field_validator
 
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
@@ -31,12 +42,15 @@ SUBMIT_TOOL_NAME: Final = "submit_postmortem"
 ROOT_CAUSE_FIELD: Final = "root_cause"
 EXECUTIVE_SUMMARY_FIELD: Final = "executive_summary"
 ASSUMPTIONS_FIELD: Final = "assumptions"
+# What each lead changed: one entry per lead, naming it by its label.
+LEAD_EFFECTS_FIELD: Final = "lead_effects"
+LEAD_FIELD: Final = "lead"
+EFFECT_FIELD: Final = "effect"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
     EXECUTIVE_SUMMARY_FIELD
 ]
-
 
 class SubmittedPostmortem(BaseModel):
     """What the model submitted, said as fields rather than as a mapping.
@@ -67,6 +81,9 @@ class SubmittedPostmortem(BaseModel):
     root_cause: str | None = None
     executive_summary: str | None = None
     assumptions: list[str] = []
+    # What each lead changed, by the label the prompt gave it. Empty where
+    # there were no leads to ask about, which is what nothing said means then.
+    lead_effects: dict[str, str] = {}
 
     @field_validator(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, mode="before")
     @classmethod
@@ -100,6 +117,35 @@ class SubmittedPostmortem(BaseModel):
             return [stated for stated in value if isinstance(stated, str)]
 
         return []
+
+    @field_validator(LEAD_EFFECTS_FIELD, mode="before")
+    @classmethod
+    def _each_effect_by_its_lead(cls, value: Any) -> Any:
+        """What each lead changed, keyed by the lead it names.
+
+        An entry that is not an object naming a lead and an effect in words is
+        dropped rather than refused, as an unreadable assumption is: it costs
+        that lead, which the check then names and asks about again. Two entries
+        for one lead keep the later.
+
+        Already keyed by lead, it is taken as it stands - which is the shape
+        the answer has once read, and the one anything building it directly
+        hands over.
+        """
+        if isinstance(value, dict):
+            return {lead: effect for lead, effect in value.items()
+                    if isinstance(lead, str) and isinstance(effect, str)}
+
+        if not isinstance(value, list):
+            return {}
+
+        return {
+            entry[LEAD_FIELD]: entry[EFFECT_FIELD]
+            for entry in value
+            if isinstance(entry, dict)
+            and isinstance(entry.get(LEAD_FIELD), str)
+            and isinstance(entry.get(EFFECT_FIELD), str)
+        }
 
 
 SUBMIT_POSTMORTEM = ToolDefinition(
@@ -137,6 +183,53 @@ SUBMIT_POSTMORTEM = ToolDefinition(
     },
     required=REQUIRED_FIELDS
 )
+
+
+def submit_postmortem_for(leads: Sequence[ThreadMessage]) -> ToolDefinition:
+    """The tool for this incident: the one every incident gets, and a place to
+    say what each lead changed where people wrote any.
+
+    Only where they did. A field for leads offered on an incident nobody wrote
+    about is a question about nothing, and a request that changed for every
+    incident - so that one is sent exactly as it always was.
+
+    Required where it is offered: the document owes the person who wrote a
+    lead an answer, and an optional field is one a model leaves out whenever
+    its prose reads well without it.
+    """
+    if not leads:
+        return SUBMIT_POSTMORTEM
+
+    return SUBMIT_POSTMORTEM.model_copy(update={
+        "properties": {
+            **SUBMIT_POSTMORTEM.properties,
+            LEAD_EFFECTS_FIELD: {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        LEAD_FIELD: {
+                            "type": "string",
+                            "description": "The lead's label, as the incident gives it: L1, L2."
+                        },
+                        EFFECT_FIELD: {
+                            "type": "string",
+                            "description": (
+                                "One sentence: whether this lead changed what was "
+                                "done, and how - or that it did not."
+                            )
+                        }
+                    },
+                    "required": [LEAD_FIELD, EFFECT_FIELD]
+                },
+                "description": (
+                    "One entry for every lead people wrote in the incident's thread, "
+                    "saying whether it changed what was done."
+                )
+            }
+        },
+        "required": [*REQUIRED_FIELDS, LEAD_EFFECTS_FIELD]
+    })
 
 
 def opening_ask(evidence: IncidentEvidence, measured: Measurements) -> Transcript:
@@ -178,8 +271,53 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *(f"  - {action}" for action in evidence.actions),
         "",
         "Log lines it read:",
-        *(f"  - {line}" for line in evidence.log_lines)
+        *(f"  - {line}" for line in evidence.log_lines),
+        *_what_people_told_it(evidence.leads)
     ])
+
+
+def _what_people_told_it(leads: Sequence[ThreadMessage]) -> list[str]:
+    """What people wrote in the incident's thread, each with what the
+    investigation made of it - and the ask to say what each changed.
+
+    The standing travels with the words because the two are one fact: the
+    words alone read as advice Argus followed, and the standing alone as a
+    verdict on nothing. A lead written too late to be weighed is said to be,
+    rather than shown bare as one nobody doubted. And when it was weighed is
+    said: before anything was tried, so a lead refuted then can name the
+    cause an action later confirmed, and a document reporting the standing
+    bare would say the person was wrong.
+
+    Only where somebody wrote: a heading over nothing tells the model there is
+    something it has failed to see.
+    """
+    if not leads:
+        return []
+
+    return [
+        "",
+        "What people working the incident wrote in its thread:",
+        *(f"  - {_a_lead_as_a_line(label, lead)}" for label, lead in labelled(leads)),
+        "Each was weighed on what the investigation had read, before anything was "
+        "tried. Where the actions above say otherwise, the actions are the later word.",
+        f"For each, say in {LEAD_EFFECTS_FIELD} whether it changed what was done."
+    ]
+
+
+def _a_lead_as_a_line(label: str, lead: ThreadMessage) -> str:
+    """One lead: its label, who wrote it and when, its words, and its standing.
+
+    Who by name where the chat platform gave one, and by its id for them where
+    it could not: the one name Argus holds, and one a reader can look up.
+    """
+    who = lead.person_name or lead.person_id
+    line = f"{label} ({who}, {to_iso(lead.written_at)}): \"{lead.text}\""
+
+    if lead.weighing is None:
+        return f"{line} - never weighed by the investigation"
+
+    return (f"{line} - the investigation found it {lead.weighing.standing.value}: "
+            f"{lead.weighing.reason}")
 
 
 def opening_ask_again(asked: Transcript, faults: list[str]) -> Transcript:

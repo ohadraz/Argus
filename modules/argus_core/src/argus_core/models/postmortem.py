@@ -26,6 +26,31 @@ from pydantic import BaseModel
 
 from argus_core.ids import UuidStr
 from argus_core.models.pull_request import OpenedPullRequest
+from argus_core.models.thread_message import Weighing
+
+
+class PostmortemLead(BaseModel):
+    """One thing a person told the incident, as the postmortem reports it.
+
+    The record's facts - who wrote, what they wrote, when, and what the
+    investigation made of it - carried across rather than restated, and the
+    model's one sentence on whether it changed what was done beside them.
+    That sentence is the only part prose can carry; the rest was settled while
+    the incident ran.
+
+    `person_name` is `None` where the chat platform could not name the writer,
+    when their id stands in. `weighing` is `None` for a lead no investigation
+    weighed - written after the last one, or shown to one that ended before it
+    answered. `effect` is `None` where the model said nothing of it - reported
+    anyway, because the person who wrote it is owed the line.
+    """
+
+    person_id: str
+    person_name: str | None
+    text: str
+    written_at: datetime
+    weighing: Weighing | None
+    effect: str | None
 
 
 class PostmortemDocument(BaseModel):
@@ -91,6 +116,10 @@ class PostmortemDocument(BaseModel):
     # and watched. Prose here would send somebody to repeat a change already
     # made.
     recommended_action: str | None = None
+    # What people told the incident in its thread, and what each changed. Empty
+    # where nobody wrote, which is an answer: the question of what people said
+    # was asked of the record, and the record held nothing.
+    leads: list[PostmortemLead] = []
     checklist_complete: bool
 
 

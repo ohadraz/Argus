@@ -19,6 +19,10 @@ dev = [
     "pre-commit",
     "httpx2",
     "psycopg[binary]",
+    # Suspends and resumes the stack's worker, for an e2e case that needs the
+    # walk not to have started yet. Cross-platform, which `SIGSTOP` is not.
+    "psutil",
+    "types-psutil",
     "argus-argus_testkit",
     "argus-anthropic_double",
     "import-linter>=2.15",

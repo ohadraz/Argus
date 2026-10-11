@@ -21,12 +21,21 @@ import pytest
 from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixStopped
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
-from argus_core.models import Alert, FixOutcome, Hypothesis, IncidentStatus, OpenedPullRequest
+from argus_core.models import (
+    Alert,
+    FixOutcome,
+    Hypothesis,
+    IncidentStatus,
+    Leads,
+    OpenedPullRequest,
+    ThreadMessage,
+    no_leads,
+)
 from argus_incidents import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
-from orchestrator.walk.ports import ProposeFix
+from orchestrator.walk.ports import LeadsOf, ProposeFix
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -35,7 +44,7 @@ from orchestrator_test.framework.assertions import (
     the_route_is,
     the_updates_carry,
 )
-from orchestrator_test.framework.builders import a_determined_hypothesis
+from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"
@@ -348,8 +357,32 @@ def test_the_agent_asks_whether_this_incident_is_still_wanted() -> None:
 
 
 @pytest.mark.unit
+def test_the_agent_is_handed_what_people_told_this_incident() -> None:
+    # Handed as a question rather than an answer, because a person can write
+    # while the fix is worked out - and bound here, because the agent asks it
+    # without knowing which incident it is fixing.
+    some_leads = [a_lead("the kuki flag was flipped at noon")]
+    asked: list[str] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 the_agent.propose,
+                                 leads_of=_a_thread_noting_who_it_is_asked_about(
+                                     asked, some_leads))
+        ) \
+        .then(
+            _the_leads_handed_down_are(some_leads, the_agent, asked, DONT_CARE_INCIDENT_ID)
+        )
+
+
+@pytest.mark.unit
 def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
-    # Publishing is an account, never a participant (spec §4 principle 6). A
+    # Publishing is an account, never a participant (spec §4 principle 8). A
     # node that behaved differently with no subscriber would make every test
     # above a test of a different code path than production runs.
     Scenario() \
@@ -504,15 +537,18 @@ class _AnAgentRememberingWhatItWasAsked:
         self.hypothesis: Hypothesis | None = None
         self.incident_id: str | None = None
         self.still_wanted: StillWanted | None = None
+        self.leads: Leads | None = None
 
     def propose(self,
                 hypothesis: Hypothesis | None,
                 incident_id: str,
                 *,
-                still_wanted: StillWanted = wanted_throughout) -> OpenedPullRequest | None:
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads) -> OpenedPullRequest | None:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
         self.still_wanted = still_wanted
+        self.leads = leads
 
         return None
 
@@ -522,7 +558,8 @@ def _an_agent_offering(proposal: OpenedPullRequest | None) -> ProposeFix:
     def propose(dont_care_hypothesis: Hypothesis | None,
                 dont_care_incident_id: str,
                 *,
-                still_wanted: StillWanted = wanted_throughout) -> OpenedPullRequest | None:
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads) -> OpenedPullRequest | None:
         return proposal
 
     return propose
@@ -539,7 +576,8 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
     def propose(dont_care_hypothesis: Hypothesis | None,
                 dont_care_incident_id: str,
                 *,
-                still_wanted: StillWanted = wanted_throughout) -> OpenedPullRequest | None:
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads) -> OpenedPullRequest | None:
         raise failure
 
     return propose
@@ -634,7 +672,8 @@ def _an_agent_raising(error: Exception) -> ProposeFix:
     def refuse(dont_care_hypothesis: Hypothesis | None,
                dont_care_incident_id: str,
                *,
-               still_wanted: StillWanted = wanted_throughout) -> Any:
+               still_wanted: StillWanted = wanted_throughout,
+               leads: Leads = no_leads) -> Any:
         raise error
 
     return refuse
@@ -723,6 +762,45 @@ def _the_question_handed_down_asks_about(agent: _AnAgentRememberingWhatItWasAske
             raise AssertionError(
                 f"Expected the question handed down to ask about incident "
                 f"[{incident_id}], and it asked about {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_thread_noting_who_it_is_asked_about(asked: list[str],
+                                           leads: list[ThreadMessage]) -> LeadsOf:
+    def leads_of(incident_id: str, /) -> list[ThreadMessage]:
+        asked.append(incident_id)
+        return leads
+
+    return leads_of
+
+
+def _the_leads_handed_down_are(expected: list[ThreadMessage],
+                               agent: _AnAgentRememberingWhatItWasAsked,
+                               asked: list[str],
+                               incident_id: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if agent.leads is None:
+            raise AssertionError(
+                "Expected Code-Fix to be handed a way to ask what people told the "
+                "incident, and it was handed none."
+            )
+
+        told = agent.leads()
+
+        if asked != [incident_id]:
+            raise AssertionError(
+                f"Expected the question handed down to ask about incident "
+                f"[{incident_id}], and it asked about {asked}."
+            )
+
+        if told != expected:
+            raise AssertionError(
+                f"Expected the question handed down to answer with the "
+                f"{len(expected)} lead(s) the thread holds, and it answered {told}."
             )
 
         return True

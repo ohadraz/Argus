@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models import IncidentStatus, OpenedPullRequest, Postmortem
+from argus_core.models import IncidentStatus, OpenedPullRequest, Postmortem, PostmortemLead
 from argus_narration import where_a_report_came_from
 from pydantic import BaseModel
 
@@ -38,6 +38,10 @@ class PostmortemView(BaseModel):
     # thing on this page a reader goes on to do something with. `None` for the
     # ordinary ending, where a flag went back and the code was left alone.
     pull_request: OpenedPullRequest | None
+    # What people told the incident in its thread, what the investigation made
+    # of each, and whether it changed what was done - the answer the person who
+    # wrote one comes here for. Empty where nobody wrote.
+    leads: list[PostmortemLead]
     checklist_complete: bool
     created_at: datetime
 
@@ -59,6 +63,7 @@ def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
         assumptions=postmortem.assumptions,
         executive_summary=postmortem.executive_summary,
         pull_request=postmortem.pull_request,
+        leads=postmortem.leads,
         checklist_complete=postmortem.checklist_complete,
         created_at=postmortem.created_at,
     )

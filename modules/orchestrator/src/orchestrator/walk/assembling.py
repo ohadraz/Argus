@@ -80,12 +80,14 @@ from orchestrator.walk.ports import (
     FetchDeployments,
     FetchFlagChanges,
     Investigate,
+    LeadsOf,
     ProposeFix,
     RecallSimilar,
     RecordAction,
     RecordHypothesis,
     RecordOutcome,
     RecordPostmortem,
+    RecordWeighing,
     RememberIncident,
     TakeAction,
     TransitionIncident,
@@ -141,6 +143,12 @@ class Collaborators:
     # Holds the walk off its next step while a person Argus asked to confirm
     # the incident is over has yet to answer (D11). Asked before every node.
     wait_for_people: WaitForPeople
+    # What people told the incident in its thread, as leads, and where what
+    # the Investigator made of each one is kept. The one input to an incident
+    # Argus did not produce, read as the walk goes because a person can write
+    # while an agent is working.
+    leads_of: LeadsOf
+    record_weighing: RecordWeighing
     # How many times one incident may be investigated. On the record
     # rather than read by the graph, because it is a fact about the
     # deployment and `build_graph` is where a walk is assembled, not
@@ -373,6 +381,8 @@ def against(connections: Connections,
         recorder=recorder,
         ended_by_a_person=ended_by_a_person_via(connections),
         wait_for_people=waiting_for_people_via(connections, events_into(connections)),
+        leads_of=records.leads,
+        record_weighing=records.weighing,
         max_rounds=settings.investigation_max_rounds
     )
 

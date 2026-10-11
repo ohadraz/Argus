@@ -22,8 +22,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Protocol, assert_never
 
-from argus_core.events import Offered, ResolutionOffered, WithdrawalOffered
-from argus_core.models import CHAT_THREAD, Reference, Report
+from argus_core.models import CHAT_THREAD, IncidentStatus, Reference, Report, ThreadMessage
 from chat_platform import ChatPlatformReads, Handshake, Irrelevant, Pressed, Written
 
 logger = logging.getLogger(__name__)
@@ -46,12 +45,9 @@ class ChatRecord(Protocol):
         message was ingested before; whether it was new."""
         ...
 
-    def offer_about(self, incident_id: str, message: Reference) -> Offered | None:
-        """The offer made about this message, whatever it offered, or `None`."""
-        ...
-
-    def offer_expired(self, incident_id: str, message: Reference) -> bool:
-        """Whether the walk stopped waiting on the offer about this message."""
+    def message_written(self, incident_id: str, message: Reference) -> ThreadMessage | None:
+        """The message as the incident keeps it, with any offer made back to
+        its writer, or `None` where the incident has no such message."""
         ...
 
     def resolve(self, incident_id: str, reported: Report) -> bool:
@@ -118,16 +114,17 @@ def _confirm(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) 
     offered - resolved or withdrawn - if the offer was made to whoever pressed
     it."""
     incident_id = record.incident_known_as(CHAT_THREAD, [pressed.thread.value])
-    offer = (record.offer_about(incident_id, pressed.message)
-             if incident_id is not None else None)
+    written = (record.message_written(incident_id, pressed.message)
+               if incident_id is not None else None)
+    offer = written.offer if written is not None else None
 
-    if incident_id is None or offer is None:
+    if incident_id is None or written is None or offer is None:
         # Argus posts the button only beside an offer it recorded first, so a
         # press on none is a button it did not post, or a record it lost.
         logger.warning("press on no offer", extra={"chat_message": pressed.message.value})
         return
 
-    if record.offer_expired(incident_id, pressed.message):
+    if offer.expired:
         # The walk stopped waiting for this answer and carried on. The button
         # may still be on screen until the relay takes it away; a press on it
         # answers a question nobody is asking now, and the person who still
@@ -135,7 +132,7 @@ def _confirm(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) 
         logger.info("press on an expired offer", extra={"chat_message": pressed.message.value})
         return
 
-    if offer.person_id != pressed.person_id:
+    if written.person_id != pressed.person_id:
         # The offer is to the person who asked. Anybody else pressing it would
         # be ending the incident in their name.
         logger.info("offer pressed by someone else", extra={
@@ -145,20 +142,20 @@ def _confirm(pressed: Pressed, platform: ChatPlatformReads, record: ChatRecord) 
         })
         return
 
-    # Credited by the name the offer was made with, or - where the platform
-    # could not name them - by its id for them: the one name Argus holds, and
-    # one a reader can look up.
-    reported = Report(by=offer.person_name or offer.person_id,
+    # Credited by the name the writer was given when the offer was made, or -
+    # where the platform could not name them - by its id for them: the one name
+    # Argus holds, and one a reader can look up.
+    reported = Report(by=written.person_name or written.person_id,
                       channel=platform.channel,
-                      note=offer.said)
+                      note=written.text)
 
-    match offer:
-        case ResolutionOffered():
+    match offer.ending:
+        case IncidentStatus.RESOLVED:
             ended = record.resolve(incident_id, reported)
-        case WithdrawalOffered():
+        case IncidentStatus.WITHDRAWN:
             ended = record.withdraw(incident_id, reported)
         case _:
-            assert_never(offer)
+            assert_never(offer.ending)
 
     if not ended:
         # A button outlives the incident until the relay takes it away, so it

@@ -15,6 +15,7 @@ nothing.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import Mock, create_autospec
 
@@ -36,6 +37,7 @@ from agent_codefix.retrieval import (
     SourceSearcher,
 )
 from agent_codefix.tools import READ_FILE_TOOL
+from argus_core import new_id
 from argus_core.budget import StillWanted
 from argus_core.llm import (
     AnswerTruncated,
@@ -52,12 +54,19 @@ from argus_core.models import (
     Evidence,
     FailureMode,
     Hypothesis,
+    Leads,
+    Meaning,
     OpenedPullRequest,
+    ReportChannel,
+    Standing,
+    ThreadMessage,
     ToolCall,
     ToolDefinition,
     ToolResults,
     Transcript,
     Turn,
+    Weighing,
+    a_chat_message,
 )
 from argus_core.replay import Recorder
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
@@ -125,6 +134,12 @@ THE_LAST_CALL_WARNING = "last call"
 # carrying them - for the reason the warning above pins words rather than prose.
 WHAT_THE_CONCLUSION_ALREADY_NAMES = "read it before you search"
 
+# What a lead nobody weighed is said to be, and where people wrote - words
+# rather than sentences, for the reason the warning above pins words.
+WHAT_AN_UNWEIGHED_LEAD_IS_CALLED = "never weighed"
+THE_THREAD = "incident's thread"
+WHAT_THE_FINDING_IS_TO_A_WEIGHING = "outranks"
+
 
 @pytest.mark.unit
 def test_the_model_is_told_what_the_investigation_concluded() -> None:
@@ -185,6 +200,221 @@ def test_the_model_is_told_the_evidence_the_conclusion_rests_on() -> None:
             )
         )
 
+
+@pytest.mark.unit
+def test_the_model_is_told_what_people_wrote_and_what_the_investigation_made_of_it() -> None:
+    # A lead the investigation refuted is one the fix must not be built on, and
+    # one it supported is evidence like the log lines are - so the standing
+    # travels with the words, and Code-Fix gives none of its own.
+    a_supported_lead = _a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [a_supported_lead],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_opening_said(model, a_supported_lead.text),
+                _the_opening_said(model, Standing.SUPPORTED.value),
+                _the_opening_said(model, "the flag history agrees")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_the_investigation_never_weighed_is_said_to_be_unweighed() -> None:
+    # Written after the investigation answered, so nothing read was ever held
+    # against it. Shown without a standing it would read as one nobody doubted.
+    an_unweighed_lead = _a_lead("it is the database again")
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [an_unweighed_lead],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_opening_said(model, an_unweighed_lead.text),
+                _the_opening_said(model, WHAT_AN_UNWEIGHED_LEAD_IS_CALLED)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_the_investigation_refuted_is_put_below_the_finding_not_against_it() -> None:
+    # Weighed on what the investigation had read, before anything was tried -
+    # and a lower candidate can then be the one an action confirms. A lead
+    # refuted that way named the cause, so the fix is told the finding is the
+    # later word rather than told to steer clear of what the lead said.
+    a_refuted_lead = _a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.REFUTED, reason="the flag moved after the onset")
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [a_refuted_lead],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_opening_said(model, WHAT_THE_FINDING_IS_TO_A_WEIGHING)
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_nobody_wrote_about_is_told_nothing_of_a_thread() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see - and a prompt that changed for every incident nobody talked about
+    # would be a different request for the same fix.
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_model_was_not_told(model, THE_THREAD)
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_written_while_the_fix_is_worked_out_rides_on_the_next_result() -> None:
+    # A person writes while the model reads, and what they wrote reaches it
+    # between two turns - never inside one, and never left for a fix there may
+    # never be another of.
+    a_late_lead = _a_lead("the buki deploy went out at noon too")
+    repository = a_repository()
+    model = a_model_that(asks_to_list_files(), submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=_leads_arriving_after(1, [a_late_lead]),
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_opening_did_not_say(model, a_late_lead.text),
+                _a_result_said(model, a_late_lead.text)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_written_while_the_fix_is_worked_out_is_said_to_be_unweighed() -> None:
+    # Written after the investigation answered, so nothing read was ever held
+    # against it - and shown mid-loop as the opening shows one, rather than
+    # bare, as a lead nobody doubted.
+    a_late_lead = _a_lead("the buki deploy went out at noon too")
+    repository = a_repository()
+    model = a_model_that(asks_to_list_files(), submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=_leads_arriving_after(1, [a_late_lead]),
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _a_result_said(model, WHAT_AN_UNWEIGHED_LEAD_IS_CALLED)
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_is_shown_once_however_often_the_thread_is_asked() -> None:
+    # The thread is asked before every turn and answers with every lead it
+    # holds. Shown each time, one lead would read as somebody saying it again
+    # and again.
+    some_lead = _a_lead("the kuki flag was flipped at noon")
+    repository = a_repository()
+    model = a_model_that(
+        asks_to_list_files(), asks_to_read(SOME_PATH), submits_a_fix_touching(SOME_PATH)
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [some_lead],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_conversation_said_once(model, some_lead.text)
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_written_while_the_model_only_talks_still_reaches_it() -> None:
+    # A turn of words asks for nothing, so there is no result for the lead to
+    # ride on - and it is counted as shown all the same. Unsent, it is a lead
+    # the model never sees and the thread is never asked about again.
+    a_late_lead = _a_lead("the buki deploy went out at noon too")
+    repository = a_repository()
+    model = a_model_that(says_only("some thinking aloud"), submits_a_fix_touching(SOME_PATH))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=_leads_arriving_after(1, [a_late_lead]),
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_conversation_said_once(model, a_late_lead.text)
+        )
 
 
 @pytest.mark.unit
@@ -1720,6 +1950,85 @@ def _the_model_was_told(model: _Model, said: str) -> Assertion[Any]:
     return assertion
 
 
+def _the_opening_said(model: _Model, said: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if said not in model.what_it_was_told_first():
+            raise AssertionError(
+                f"Expected the opening message to say [{said!r}]; it did not."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_opening_did_not_say(model: _Model, said: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if said in model.what_it_was_told_first():
+            raise AssertionError(
+                f"Expected the opening message not to say [{said!r}] - it was "
+                f"written after the conversation began - and it did."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_result_said(model: _Model, said: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if said not in model.what_its_results_said():
+            raise AssertionError(
+                f"Expected a result handed back to the model to carry "
+                f"[{said!r}]; none did."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_conversation_said_once(model: _Model, said: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        times = model.what_the_last_request_said().count(said)
+
+        if times != 1:
+            raise AssertionError(
+                f"Expected the conversation to say [{said!r}] once, and it said "
+                f"it {times} times."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_lead(words: str, weighing: Weighing | None = None) -> ThreadMessage:
+    """Something a person told the incident, understood as information."""
+    return ThreadMessage(incident_id=new_id(),
+                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel",
+                                                "1760000100.000200"),
+                         person_id="U-some-person",
+                         text=words,
+                         written_at=datetime(2026, 8, 20, 11, 5, tzinfo=UTC),
+                         meaning=Meaning.INFORMATION,
+                         weighing=weighing)
+
+
+def _leads_arriving_after(asks: int, leads: list[ThreadMessage]) -> Leads:
+    """A thread nobody has written in for its first `asks` questions, and that
+    holds these leads from then on."""
+    asked = 0
+
+    def leads_so_far() -> list[ThreadMessage]:
+        nonlocal asked
+        asked += 1
+
+        return leads if asked > asks else []
+
+    return leads_so_far
+
+
 def _the_model_was_not_told_a_repr(model: _Model) -> Assertion[Any]:
     """The finding said in words, not printed as an object.
 
@@ -1915,6 +2224,11 @@ def asks_to_search_by_meaning_for(description: str) -> Turn:
     )
 
 
+def says_only(text: str) -> Turn:
+    """One turn that is only words - nothing asked for, nothing submitted."""
+    return Turn(text=text, tool_calls=[], input_tokens=NO_TOKENS, output_tokens=NO_TOKENS)
+
+
 def reports_nothing_to_change(explanation: str = "an explanation") -> Turn:
     return _a_turn_calling("report_nothing_to_change", {
         "explanation": explanation
@@ -2019,6 +2333,38 @@ class _Model:
                     said.extend(result.content for result in exchange.results)
 
         return "\n".join(said)
+
+    def what_it_was_told_first(self) -> str:
+        """The opening message, which is everything said before it read
+        anything."""
+        opening = self.transcripts[0][0] if self.transcripts else None
+
+        return opening.text if isinstance(opening, Ask) else ""
+
+    def what_its_results_said(self) -> str:
+        """Every result handed back to it, across the whole conversation."""
+        return "\n".join(
+            result.content
+            for exchange in self.what_it_was_last_sent()
+            if isinstance(exchange, ToolResults)
+            for result in exchange.results
+        )
+
+    def what_the_last_request_said(self) -> str:
+        """Every word in the last request, which carries the whole conversation
+        - so a fact said twice anywhere in it is said twice here."""
+        said: list[str] = []
+
+        for exchange in self.what_it_was_last_sent():
+            if isinstance(exchange, Ask):
+                said.append(exchange.text)
+            elif isinstance(exchange, ToolResults):
+                said.extend(result.content for result in exchange.results)
+
+        return "\n".join(said)
+
+    def what_it_was_last_sent(self) -> Transcript:
+        return self.transcripts[-1] if self.transcripts else []
 
 
 def a_model_that(*turns: Turn) -> _Model:

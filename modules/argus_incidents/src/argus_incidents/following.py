@@ -1,11 +1,10 @@
 """Following the event log: what has been published since a place, and the
 place itself, kept in the row that outlives the reader.
 
-Every process that follows the log reads it through these two seams - the
-relay telling Slack, the intent agent understanding what people wrote - and
-neither knows the other exists. Here rather than in either, because they are agents that may not
-know each other, and the seams are a fact about the log rather than about what
-any one reader does with it.
+Every process that follows the log reads it through these two seams - today
+the relay telling Slack. Here rather than in the relay, because the seams are a
+fact about the log rather than about what any one reader does with it, and a
+second reader would otherwise reimplement them.
 
 A connection per call rather than one held open. A reader spends almost all of
 its life asleep between looks, and a connection held across that is a

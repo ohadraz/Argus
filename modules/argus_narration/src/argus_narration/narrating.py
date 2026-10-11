@@ -43,6 +43,7 @@ from argus_core.events import (
     HypothesisFormed,
     IncidentEvent,
     IncidentRemembered,
+    LeadWeighed,
     LogsRetrieved,
     MessageUnderstood,
     MetricsRetrieved,
@@ -649,6 +650,13 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # Whichever ending: the expiry names only the message.
             emphasis = "not confirmed in time"
             text = f"The offer was {emphasis} - carried on"
+        case LeadWeighed():
+            who = _INVESTIGATOR
+            # The answer owed to whoever wrote it, in their own thread: what the
+            # Investigator made of it, set apart, and why - a standing with no
+            # reason is a verdict nobody can check.
+            emphasis = event.standing.value
+            text = f"Weighed the lead from the thread as {emphasis} - {event.reason}"
         case _:
             assert_never(event)
 

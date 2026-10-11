@@ -18,16 +18,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import call, create_autospec
 
 import pytest
-from argus_core.events import Offered, ResolutionOffered, WithdrawalOffered
 from argus_core.models import (
     CHAT_THREAD,
+    IncidentStatus,
+    Meaning,
+    Offer,
     Reference,
     Report,
     ReportChannel,
+    ThreadMessage,
     a_chat_message,
     a_chat_thread,
 )
@@ -56,23 +60,30 @@ SOME_THREAD = a_chat_thread(ReportChannel.SLACK, "C-some-channel", "1760000000.0
 SOME_MESSAGE = a_chat_message(ReportChannel.SLACK, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
+DONT_CARE_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
 
 DONT_CARE_BODY = b"{}"
 DONT_CARE_HEADERS: dict[str, str] = {}
 
-# An offer made to a person, named or not - either kind, for the cases that
-# hold for both.
-type OfferOf = Callable[[str, str | None], Offered]
+# A message a person wrote, kept with the offer made back to them, named or not
+# - either kind, for the cases that hold for both.
+type OfferOf = Callable[[str, str | None], ThreadMessage]
 
 
-def _an_offer(to: str, named: str | None) -> ResolutionOffered:
-    return ResolutionOffered(incident_id=SOME_ARGUS_INCIDENT, message=SOME_MESSAGE,
-                             person_id=to, person_name=named, said=SOME_WORDS)
+def _an_offer(to: str, named: str | None) -> ThreadMessage:
+    return _a_message_offered(to, named, Meaning.RESOLVE,
+                              Offer(ending=IncidentStatus.RESOLVED))
 
 
-def _a_withdrawal_offer(to: str, named: str | None) -> WithdrawalOffered:
-    return WithdrawalOffered(incident_id=SOME_ARGUS_INCIDENT, message=SOME_MESSAGE,
-                             person_id=to, person_name=named, said=SOME_WORDS)
+def _a_withdrawal_offer(to: str, named: str | None) -> ThreadMessage:
+    return _a_message_offered(to, named, Meaning.WITHDRAW,
+                              Offer(ending=IncidentStatus.WITHDRAWN))
+
+
+def _a_message_offered(to: str, named: str | None, meaning: Meaning, offer: Offer) -> ThreadMessage:
+    return ThreadMessage(incident_id=SOME_ARGUS_INCIDENT, message=SOME_MESSAGE,
+                         person_id=to, person_name=named, text=SOME_WORDS,
+                         written_at=DONT_CARE_TIME, meaning=meaning, offer=offer)
 
 
 @pytest.mark.unit
@@ -129,8 +140,9 @@ def test_a_person_writing_in_a_thread_no_incident_holds_is_not_ingested(
 @pytest.mark.unit
 def test_the_person_an_offer_was_made_to_pressing_it_resolves_the_incident() -> None:
     # Credited by the name the offer was made with, through the platform, with
-    # their own words as the note: all of it read off the offer, which is the
-    # one record of what the person said and who they are.
+    # their own words as the note: all of it read off the message as the
+    # incident keeps it, which is the one record of what the person said and
+    # who they are.
     some_name = "Some Person"
     platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
                                           message=SOME_MESSAGE))
@@ -169,7 +181,7 @@ def test_an_offer_to_a_person_the_platform_could_not_name_credits_them_by_their_
                          ids=["named", "unnamed"])
 def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_incident(
         named: str | None, credited: str) -> None:
-    # The resolution's twin, ending the other way: the offer found by the
+    # The resolution's twin, ending the other way: the offer kept on the
     # message is what says which ending the press confirms, so the same button
     # withdraws - credited, through the platform, with their words - and
     # resolves nothing.
@@ -237,6 +249,30 @@ def test_a_press_on_no_offer_argus_made_ends_nothing(
     platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
                                           message=SOME_MESSAGE))
     record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT}, offers=[])
+
+    Scenario() \
+        .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
+                                            platform=platform, record=record)) \
+        .then(all_of(
+            _nothing_ended(record),
+            one_record_was_logged(caplog, "argus_web.chat", logging.WARNING,
+                                  "press on no offer",
+                                  values={"chat_message": SOME_MESSAGE.value})
+        ))
+
+
+@pytest.mark.unit
+def test_a_press_on_a_message_kept_but_never_offered_ends_nothing(
+        caplog: pytest.LogCaptureFixture) -> None:
+    # Kept, but with nothing offered on it - a lead, or a request for an ending
+    # the incident no longer took. No button was posted beside it, so a press
+    # on it is the same warning as a press on no message at all.
+    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
+                                          message=SOME_MESSAGE))
+    a_lead = ThreadMessage(incident_id=SOME_ARGUS_INCIDENT, message=SOME_MESSAGE,
+                           person_id=SOME_PERSON, text=SOME_WORDS, written_at=DONT_CARE_TIME,
+                           meaning=Meaning.INFORMATION)
+    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT}, offers=[a_lead])
 
     Scenario() \
         .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -380,13 +416,15 @@ def _a_platform(saying: Delivery) -> Any:
 
 
 def _a_record(knowing: dict[str, str],
-              offers: list[Offered] | None = None,
+              offers: list[ThreadMessage] | None = None,
               ingested_before: bool = False,
               ends: bool = True,
               expired: bool = False) -> Any:
     """An incident record holding these threads, each as value -> incident, and
-    these offers. `ends` is whether a resolution or a withdrawal moves it."""
+    these messages with their offers - expired, where `expired` says so.
+    `ends` is whether a resolution or a withdrawal moves it."""
     record = create_autospec(ChatRecord, instance=True)
+    kept = [_expired(written) if expired else written for written in offers or []]
 
     def incident_known_as(kind: str, values: list[str]) -> str | None:
         if kind != CHAT_THREAD:
@@ -394,18 +432,28 @@ def _a_record(knowing: dict[str, str],
 
         return next((knowing[value] for value in values if value in knowing), None)
 
-    def offer_about(incident_id: str, message: Reference) -> Offered | None:
-        return next((offer for offer in offers or []
-                     if offer.incident_id == incident_id and offer.message == message), None)
+    def message_written(incident_id: str, message: Reference) -> ThreadMessage | None:
+        return next((written for written in kept
+                     if written.incident_id == incident_id and written.message == message),
+                    None)
 
     record.incident_known_as.side_effect = incident_known_as
-    record.offer_about.side_effect = offer_about
+    record.message_written.side_effect = message_written
     record.ingest.return_value = not ingested_before
     record.resolve.return_value = ends
     record.withdraw.return_value = ends
-    record.offer_expired.return_value = expired
 
     return record
+
+
+def _expired(written: ThreadMessage) -> ThreadMessage:
+    """The message, its offer expired."""
+    if written.offer is None:
+        return written
+
+    return written.model_copy(update={
+        "offer": written.offer.model_copy(update={"expired": True})
+    })
 
 
 def _it_was_ingested(record: Any,

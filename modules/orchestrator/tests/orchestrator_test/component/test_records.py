@@ -17,14 +17,37 @@ from typing import Final
 
 import pytest
 from argus_core import connect_from_env
-from argus_core.events import IncidentEvent, Publisher, StatusChanged, VerdictReached
-from argus_core.models import REVERT_FEATURE_FLAG, Actor, Alert, FlagUndo, IncidentStatus, Verdict
+from argus_core.events import (
+    IncidentEvent,
+    LeadWeighed,
+    Publisher,
+    StatusChanged,
+    VerdictReached,
+)
+from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    Actor,
+    Alert,
+    FlagUndo,
+    IncidentStatus,
+    Meaning,
+    Standing,
+    ThreadMessage,
+    Verdict,
+    Weighing,
+)
 from argus_incidents.publishing import events_into_connection
-from argus_incidents.repository import events, hypotheses, incidents, taken_actions
-from argus_testkit import Assertion, Scenario, all_of
+from argus_incidents.repository import (
+    conversation,
+    events,
+    hypotheses,
+    incidents,
+    taken_actions,
+)
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from orchestrator.records import Records
 
-from orchestrator_test.framework.builders import a_determined_hypothesis
+from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead
 
 DONT_CARE_ACTOR = Actor.MITIGATION
 DONT_CARE_ACTION: Final = REVERT_FEATURE_FLAG
@@ -241,6 +264,136 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
             _the_action_records_the_outcome(incident_id, candidate.id, some_outcome),
             _nothing_was_narrated(incident_id)
         ))
+
+
+@pytest.mark.component
+def test_a_weighing_is_kept_on_the_lead_and_said(
+    a_clean_database: None
+) -> None:
+    # Kept on the row, because the row is what a later round, Code-Fix and the
+    # postmortem read a lead's standing from; and said, because the person who
+    # wrote it is owed an answer in the thread they wrote in.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_weighing = Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    a_lead_written = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon")
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_weighed_lead := a_lead_written.model_copy(update={"weighing": some_weighing})
+        ) \
+        .when(
+            lambda: records.weighing(a_weighed_lead)
+        ) \
+        .then(all_of(
+            _the_lead_stands(a_lead_written, some_weighing),
+            _the_narration_reports_the_weighing(incident_id, some_weighing)
+        ))
+
+
+@pytest.mark.component
+def test_a_weighing_survives_a_narration_that_could_not_be_written(
+    a_clean_database: None
+) -> None:
+    # The work, from the side the sentence must never cost. A standing lost to
+    # an event nobody could write would be a lead the next round shows as never
+    # weighed, and Code-Fix reads as unweighed (spec §4 principle 8).
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    some_weighing = Weighing(standing=Standing.REFUTED, reason="the database answered throughout")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    a_lead_written = _a_lead_written_in(incident_id, "it is the database again")
+    records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
+
+    Scenario() \
+        .given(
+            a_weighed_lead := a_lead_written.model_copy(update={"weighing": some_weighing})
+        ) \
+        .when(
+            lambda: records.weighing(a_weighed_lead)
+        ) \
+        .then(all_of(
+            _the_lead_stands(a_lead_written, some_weighing),
+            _nothing_was_narrated(incident_id)
+        ))
+
+
+@pytest.mark.component
+def test_a_lead_nobody_weighed_is_refused_rather_than_said_to_be_weighed(
+    a_clean_database: None
+) -> None:
+    # A lead with no standing has nothing to keep, and an event saying it was
+    # weighed would tell its writer something nobody concluded.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    a_lead_written = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon")
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_lead_written
+        ) \
+        .when(
+            attempting(lambda: records.weighing(a_lead_written))
+        ) \
+        .then(all_of(
+            an_error_was_raised(ValueError),
+            _nothing_was_narrated(incident_id)
+        ))
+
+
+@pytest.mark.component
+def test_the_leads_read_are_what_people_told_this_incident(
+    a_clean_database: None
+) -> None:
+    # Another incident's thread is somebody else's conversation, and a lead
+    # from it would have the model weighing what was said about a different
+    # fault.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        another_incident_id = incidents.create(conn, some_alert)
+
+    a_lead_here = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon",
+                                     ts="1760000100.000200")
+    _a_lead_written_in(another_incident_id, "it is the database again",
+                       ts="1760000200.000300")
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: records.leads(incident_id)
+        ) \
+        .then(
+            _the_leads_are([a_lead_here])
+        )
+
+
+def _a_lead_written_in(incident_id: str,
+                       words: str,
+                       ts: str = "1760000100.000200") -> ThreadMessage:
+    """A message a person wrote in the incident's thread, on the record and
+    understood as information."""
+    lead = a_lead(words, ts=ts).model_copy(update={"incident_id": incident_id})
+
+    with connect_from_env() as conn:
+        conversation.write(conn, lead)
+        conversation.understood(conn, lead.message, Meaning.INFORMATION)
+
+    return lead
 
 
 def _nobody_can_write(dont_care_event: IncidentEvent) -> None:
@@ -466,6 +619,59 @@ def _the_stream_never_said(incident_id: str,
             raise AssertionError(
                 f"Expected the stream to say nothing about a move to [{status}] "
                 f"that was never made, got {told}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_lead_stands(lead: ThreadMessage, weighing: Weighing) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            kept = conversation.get(conn, lead.message)
+
+        if kept is None:
+            raise AssertionError(f"No message found named [{lead.message}].")
+
+        if kept.weighing != weighing:
+            raise AssertionError(
+                f"Expected the lead to stand as {weighing}, and the record holds "
+                f"{kept.weighing}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_narration_reports_the_weighing(incident_id: str,
+                                        weighing: Weighing) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            narrated = events.get_by_incident(conn, incident_id)
+
+        said = [Weighing(standing=event.standing, reason=event.reason)
+                for event in narrated
+                if isinstance(event, LeadWeighed)]
+
+        if said != [weighing]:
+            raise AssertionError(
+                f"Expected the stream to say the lead was weighed once, as "
+                f"{weighing}, and it said {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_leads_are(expected: list[ThreadMessage]) -> Assertion[list[ThreadMessage]]:
+    def assertion(leads: list[ThreadMessage]) -> bool:
+        if [lead.message for lead in leads] != [lead.message for lead in expected]:
+            raise AssertionError(
+                f"Expected the leads {[lead.message for lead in expected]}, and "
+                f"the record answered {[lead.message for lead in leads]}."
             )
 
         return True

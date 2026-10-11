@@ -23,7 +23,10 @@ from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
+    EFFECT_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
+    LEAD_EFFECTS_FIELD,
+    LEAD_FIELD,
     ROOT_CAUSE_FIELD,
     SubmittedPostmortem,
 )
@@ -43,15 +46,20 @@ from agent_postmortem.sources import (
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import LLMClient
 from argus_core.models import (
+    Meaning,
     MetricBucket,
     OpenedPullRequest,
     PostmortemDocument,
+    ReportChannel,
     RuleReading,
+    ThreadMessage,
     ToolCall,
     ToolDefinition,
     Transcript,
     Turn,
+    Weighing,
     WorseWhen,
+    a_chat_message,
 )
 from argus_testkit import Kept
 
@@ -144,7 +152,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        tokens_spent: int = DONT_CARE_TOKENS_SPENT,
                        pull_request: OpenedPullRequest | None = None,
                        recommended_action: str | None = None,
-                       rule: str | None = None
+                       rule: str | None = None,
+                       leads: list[ThreadMessage] | None = None
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -164,6 +173,9 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     No rule by default: an incident paged by nothing that names one is read for
     the five fixed series alone, which is every bundle written before a rule's
     own series could be read.
+
+    Nobody wrote in the thread by default, which is most incidents - and the
+    one whose request must not change because the field exists.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -179,8 +191,23 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         tokens_spent=tokens_spent,
         pull_request=pull_request,
         recommended_action=recommended_action,
-        rule=rule
+        rule=rule,
+        leads=leads if leads is not None else []
     )
+
+
+def a_lead(words: str,
+           weighing: Weighing | None = None,
+           ts: str = "1760000100.000200") -> ThreadMessage:
+    """Something a person told the incident, understood as information - the
+    message named by `ts`, where a test needs two of them."""
+    return ThreadMessage(incident_id=DONT_CARE_INCIDENT_ID,
+                         message=a_chat_message(ReportChannel.SLACK, "C-some-channel", ts),
+                         person_id="U-some-person",
+                         text=words,
+                         written_at=datetime(2026, 9, 2, 12, 5, tzinfo=UTC),
+                         meaning=Meaning.INFORMATION,
+                         weighing=weighing)
 
 
 def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
@@ -604,13 +631,24 @@ def a_bucket(at: datetime,
 
 def an_answer(root_cause: str = "dont care",
               executive_summary: str = "dont care",
-              assumptions: list[str] | None = None) -> dict[str, Any]:
-    """The arguments of a submission that would be accepted as it stands."""
-    return {
+              assumptions: list[str] | None = None,
+              lead_effects: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """The arguments of a submission that would be accepted as it stands.
+
+    Saying what each lead changed only where a test hands it leads to say it
+    of, because an incident nobody wrote about is never asked.
+    """
+    answer: dict[str, Any] = {
         ROOT_CAUSE_FIELD: root_cause,
         EXECUTIVE_SUMMARY_FIELD: executive_summary,
         ASSUMPTIONS_FIELD: assumptions if assumptions is not None else []
     }
+
+    if lead_effects is not None:
+        answer[LEAD_EFFECTS_FIELD] = [{LEAD_FIELD: lead, EFFECT_FIELD: effect}
+                                      for lead, effect in lead_effects.items()]
+
+    return answer
 
 
 def an_answer_without(field: str) -> dict[str, Any]:
@@ -622,7 +660,9 @@ def an_answer_without(field: str) -> dict[str, Any]:
 
 def a_submitted_answer(root_cause: str = "dont care",
                        executive_summary: str = "dont care",
-                       assumptions: list[str] | None = None) -> SubmittedPostmortem:
+                       assumptions: list[str] | None = None,
+                       lead_effects: Mapping[str, str] | None = None
+                       ) -> SubmittedPostmortem:
     """The same submission, once it has been read out of the call.
 
     Validated from the arguments above rather than built beside them, so a
@@ -630,7 +670,7 @@ def a_submitted_answer(root_cause: str = "dont care",
     the whole reason the answer became a model.
     """
     return SubmittedPostmortem.model_validate(
-        an_answer(root_cause, executive_summary, assumptions))
+        an_answer(root_cause, executive_summary, assumptions, lead_effects))
 
 
 def a_model_answering(root_cause: str = "dont care",

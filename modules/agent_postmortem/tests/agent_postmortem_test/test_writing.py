@@ -33,7 +33,13 @@ from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import EngagedResponder
-from argus_core.models import OpenedPullRequest, PostmortemDocument
+from argus_core.models import (
+    OpenedPullRequest,
+    PostmortemDocument,
+    PostmortemLead,
+    Standing,
+    Weighing,
+)
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.assertions import (
@@ -58,6 +64,7 @@ from agent_postmortem_test.framework.assertions import (
 )
 from agent_postmortem_test.framework.builders import (
     SOME_CURRENCY,
+    a_lead,
     a_measured_incident,
     a_submitted_answer,
     an_engagement_of,
@@ -327,6 +334,82 @@ def test_the_fix_that_was_proposed_is_carried_onto_the_document() -> None:
 
 
 @pytest.mark.unit
+def test_each_lead_is_reported_with_what_the_model_said_it_changed() -> None:
+    # The record's facts carried across, and the model's one sentence beside
+    # them: who wrote, what they wrote, and what the investigation made of it
+    # are not the model's to restate, and whether it changed what was done is
+    # the one part only prose can carry. A lead the model said nothing about
+    # is reported with nothing said, never dropped - the person who wrote it
+    # is owed the line either way.
+    a_supported_lead = a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
+        ts="1760000100.000200"
+    )
+    an_unweighed_lead = a_lead("it is the database again", ts="1760000200.000300")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(leads=[a_supported_lead, an_unweighed_lead])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer(
+                                         lead_effects={"L1": "it named the flag reverted"}
+                                     )),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _reports_the_leads([
+                PostmortemLead(person_id=a_supported_lead.person_id,
+                               person_name=None,
+                               text=a_supported_lead.text,
+                               written_at=a_supported_lead.written_at,
+                               weighing=a_supported_lead.weighing,
+                               effect="it named the flag reverted"),
+                PostmortemLead(person_id=an_unweighed_lead.person_id,
+                               person_name=None,
+                               text=an_unweighed_lead.text,
+                               written_at=an_unweighed_lead.written_at,
+                               weighing=None,
+                               effect=None)
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_each_lead_is_reported_under_its_writers_name_or_none_where_there_is_none() -> None:
+    # The document names the person it owes the line to, as the chat platform
+    # named them - and says it had no name where the platform could not, so
+    # the page can stand the id in rather than a name nobody gave.
+    some_name = "Some Person"
+    a_named_lead = a_lead("the kuki flag was flipped at noon",
+                          ts="1760000100.000200").model_copy(update={"person_name": some_name})
+    an_unnamed_lead = a_lead("it is the database again", ts="1760000200.000300")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(leads=[a_named_lead, an_unnamed_lead])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _names_the_writers([some_name, None])
+        )
+
+
+@pytest.mark.unit
 def test_the_action_nobody_took_is_carried_onto_the_document() -> None:
     # Carried, not written, for the reason the pull request is: the gate worked
     # this out and declined it, and a document that relied on the model
@@ -514,6 +597,34 @@ def _dont_care_llm() -> MagicMock:
     here rather than in production.
     """
     return cast(MagicMock, create_autospec(_dont_care_llm))
+
+
+def _reports_the_leads(expected: list[PostmortemLead]) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.leads != expected:
+            raise AssertionError(
+                f"Expected the document to report the leads {expected}, got "
+                f"{document.leads}.")
+
+        return True
+
+    return assertion
+
+
+def _names_the_writers(expected: list[str | None]) -> Assertion[PostmortemDocument]:
+    """Each lead's writer by the name the document reports them under, in the
+    order written."""
+    def assertion(document: PostmortemDocument) -> bool:
+        named = [lead.person_name for lead in document.leads]
+
+        if named != expected:
+            raise AssertionError(
+                f"Expected the leads' writers named {expected}, got {named}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _lists_exactly(expected: list[str]) -> Assertion[PostmortemDocument]:

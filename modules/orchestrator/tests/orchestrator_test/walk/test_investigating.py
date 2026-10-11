@@ -55,7 +55,10 @@ from argus_core.models import (
     RecordedPlacement,
     RetrievalChannel,
     ServiceDependency,
+    Standing,
+    ThreadMessage,
     Verdict,
+    Weighing,
 )
 from argus_incidents import IsStillWanted
 from argus_testkit import (
@@ -85,6 +88,7 @@ from orchestrator_test.framework.builders import (
     a_deployment,
     a_determined_hypothesis,
     a_divergence_blamed_on,
+    a_lead,
     a_leak_blamed_on,
     a_placement,
     an_accelerator_blamed_on,
@@ -153,6 +157,11 @@ def investigate() -> MagicMock:
 @pytest.fixture
 def record_hypothesis() -> MagicMock:
     return cast(MagicMock, create_autospec(ports.RecordHypothesis, instance=True))
+
+
+@pytest.fixture
+def record_weighing() -> MagicMock:
+    return cast(MagicMock, create_autospec(ports.RecordWeighing, instance=True))
 
 
 @pytest.fixture
@@ -620,6 +629,80 @@ def test_the_investigation_asks_whether_this_incident_is_still_wanted(
                 investigate, asked, an_investigating_incident.incident_id
             )
         )
+
+
+@pytest.mark.unit
+def test_the_investigation_is_handed_what_people_told_this_incident(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Handed as a question rather than an answer, because a person can write
+    # while the agent is reading - and bound here, because the agent asks it
+    # without knowing which incident it is working on.
+    an_investigating_incident = _an_investigating_incident()
+    some_leads = [a_lead("the kuki flag was flipped at noon")]
+    asked: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      leads_of=_a_thread_noting_who_it_is_asked_about(
+                                          asked, some_leads))
+        ) \
+        .then(
+            _the_leads_handed_down_are(
+                some_leads, investigate, asked, an_investigating_incident.incident_id
+            )
+        )
+
+
+@pytest.mark.unit
+def test_every_lead_the_investigation_weighed_is_recorded(
+    investigate: MagicMock, record_hypothesis: MagicMock, record_weighing: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Kept by the walk, because the record is where everything after the
+    # investigation reads a lead's standing from: a later round, Code-Fix, the
+    # postmortem, and the person who wrote it, who is told it in the thread.
+    an_investigating_incident = _an_investigating_incident()
+    some_weighed = [
+        a_lead("the kuki flag was flipped at noon",
+               Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
+               ts="1760000100.000200"),
+        a_lead("it is the database again",
+               Weighing(standing=Standing.REFUTED, reason="the database answered throughout"),
+               ts="1760000200.000300")
+    ]
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_weighed(
+                investigate,
+                some_weighed,
+                a_determined_hypothesis(an_investigating_incident.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      record_weighing=record_weighing)
+        ) \
+        .then(_the_weighings_recorded_were(some_weighed, record_weighing))
 
 
 @pytest.mark.unit
@@ -2017,6 +2100,64 @@ def _a_question_recording_who_it_asks_about(asked: list[str]) -> IsStillWanted:
     return still_wanted
 
 
+def _a_thread_noting_who_it_is_asked_about(asked: list[str],
+                                           leads: list[ThreadMessage]) -> ports.LeadsOf:
+    def leads_of(incident_id: str, /) -> list[ThreadMessage]:
+        asked.append(incident_id)
+        return leads
+
+    return leads_of
+
+
+def _the_leads_handed_down_are(expected: list[ThreadMessage],
+                               investigate: MagicMock,
+                               asked: list[str],
+                               incident_id: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        handed_down = investigate.call_args.kwargs.get("leads")
+
+        if handed_down is None:
+            raise AssertionError(
+                "Expected the investigation to be handed a way to ask what people "
+                "told the incident, and it was handed none."
+            )
+
+        told = handed_down()
+
+        if asked != [incident_id]:
+            raise AssertionError(
+                f"Expected the question handed down to ask about incident "
+                f"[{incident_id}], and it asked about {asked}."
+            )
+
+        if told != expected:
+            raise AssertionError(
+                f"Expected the question handed down to answer with the "
+                f"{len(expected)} lead(s) the thread holds, and it answered {told}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_weighings_recorded_were(expected: list[ThreadMessage],
+                                 record_weighing: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        recorded = [call.args[0] for call in record_weighing.call_args_list]
+
+        if recorded != expected:
+            raise AssertionError(
+                f"Expected the {len(expected)} weighing(s) the investigation "
+                f"returned to be recorded, in order, and what was recorded was "
+                f"{recorded}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _nothing_was_reached_after_the_stop(*collaborators: MagicMock) -> Assertion[StateDelta]:
     def assertion(dont_care_delta: StateDelta) -> bool:
         reached = [collaborator for collaborator in collaborators if collaborator.called]
@@ -2067,6 +2208,14 @@ def _the_investigation_disproved_the_alarm(investigate: MagicMock,
     """
     investigate.return_value = agent_investigator.Findings(
         candidates=list(candidates), already_read=[], disproof=A_DISPROOF
+    )
+
+
+def _the_investigation_weighed(investigate: MagicMock,
+                               weighed: list[ThreadMessage],
+                               *candidates: Hypothesis) -> None:
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates), already_read=[], leads_weighed=weighed
     )
 
 

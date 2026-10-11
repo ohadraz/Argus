@@ -54,6 +54,7 @@ from argus_core.events import (
     ActionTaken,
     FixAttempted,
     HypothesisFormed,
+    LeadWeighed,
     PlatformUnavailable,
     SimilarIncidentsRecalled,
     VerdictReached,
@@ -78,6 +79,8 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_HALF_FINISHED_ROLLOUT,
     RECORDED_LARGE_CODE_FIX,
+    RECORDED_LEAD_BEFORE_THE_WALK,
+    RECORDED_LEAD_MID_INVESTIGATION,
     RECORDED_MONITORING_BLIND_SPOT,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_OUTPUT_QUALITY_DEGRADATION,
@@ -92,6 +95,16 @@ from tests.e2e.framework.argus import (
     THE_SERVICE_NAME,
     stored_as,
     the_anchor_file_for,
+    the_held_call_arrived,
+)
+from tests.e2e.framework.chat import (
+    RECORDED_INTENT_INFORMATION,
+    THE_WORDS_CLASSIFIED_AS_INFORMATION,
+    a_person_writes,
+    the_chat_platform_knows,
+    the_intent_agent_answers_from,
+    the_message_became_a_lead,
+    the_thread_of,
 )
 from tests.e2e.framework.flags import (
     only_the_boot_flags_were_left_in_the_provider,
@@ -99,6 +112,7 @@ from tests.e2e.framework.flags import (
     the_flag_provider_forgot_every_change,
 )
 from tests.e2e.framework.memory import that_flag_was_tried_before_and_did_not_help
+from tests.e2e.framework.worker import the_worker_is_paused, the_worker_resumes
 from tests.e2e.framework.world import the_incidents_events
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
@@ -209,6 +223,10 @@ _A_PLATFORM_WENT_AWAY: Final = _Published(PlatformUnavailable)
 # candidates a round offers is the model's to decide - so a recording held to the
 # demotion is a recording refused for the model having been concise.
 _MEMORY_WAS_READ: Final = _Published(SimilarIncidentsRecalled)
+# A lead from the thread, weighed. Any standing: which one the model gives it is
+# the model's judgement, and a recording is held to the pipeline having carried
+# the lead to a weighing - whether a lead moves the model is the eval's question.
+_A_LEAD_WAS_WEIGHED: Final = _Published(LeadWeighed)
 # The proposal, not the attempt. See `_Published.saying`.
 _A_FIX_WAS_PROPOSED: Final = _Published(
     FixAttempted, {"outcome": FixOutcome.PROPOSED}
@@ -250,6 +268,11 @@ class _Recording(NamedTuple):
     unlike the one it was captured in runs longer than the queue and the double
     runs dry mid-incident. Anything a case stages, this stages too.
 
+    `once_opened` is whatever the replaying case does once the incident exists
+    and before the walk is let go - a person writing in its thread, with the
+    walk held back until what they wrote is understood. Handed the incident's
+    id, because the thread is the incident's.
+
     `may_take_seconds` is how long the walk is waited for. One figure serves
     every walk whose waits are minutes - judged by the levels, or by a rule
     looking back a minute or two; a walk judged by a rule with a long range
@@ -270,6 +293,7 @@ class _Recording(NamedTuple):
     ends_as: IncidentStatus
     must_have: tuple[_Published, ...]
     and_then: Callable[[], None] | None = None
+    once_opened: Callable[[str], None] | None = None
     may_take_seconds: float = A_WHOLE_INVESTIGATION_SECONDS
 
 
@@ -295,6 +319,66 @@ _A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS: Final = (
     )
     + A_WHOLE_INVESTIGATION_SECONDS
 )
+
+# Who writes the lead in the two recordings that have one. Nobody the replaying
+# cases name: the double serves whatever name it was staged with.
+_A_PERSON_ID: Final = "U0SOMEONE"
+_A_PERSON: Final = "Some Person"
+
+
+def _somebody_will_write_before_the_walk() -> None:
+    """Readies the thread's side of the conversation, and pauses the worker so
+    nothing walks the incident until the lead is understood."""
+    the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)()
+    the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
+    the_worker_is_paused()()
+
+
+def _the_lead_is_written_before_the_walk(incident_id: str) -> None:
+    """Writes the lead, waits for it to be understood, and lets the worker go.
+
+    Resumed whatever happens on the way, because a worker left suspended walks
+    no incident after this one either.
+    """
+    try:
+        a_person_writes(_A_PERSON_ID, THE_WORDS_CLASSIFIED_AS_INFORMATION,
+                        in_thread=the_thread_of(incident_id))
+        the_message_became_a_lead(incident_id)
+    finally:
+        the_worker_resumes()
+
+
+def _somebody_will_write_while_the_first_turn_is_held() -> None:
+    """Readies the thread's side of the conversation, and has the walk's model
+    hold its first call.
+
+    Held here rather than through the e2e framework's `the_model_is_held`,
+    which resets the double first: by now it is armed to record, and a reset
+    would take that back.
+    """
+    the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)()
+    the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
+    httpx2.post(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/hold",
+                timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()
+
+
+def _the_lead_is_written_while_the_first_turn_is_held(incident_id: str) -> None:
+    """Waits for the walk's first call to be held, writes the lead, waits for it
+    to be understood, and lets the call go upstream.
+
+    Released whatever happens on the way, because a held call is a walk that
+    never ends.
+    """
+    thread = the_thread_of(incident_id)
+
+    try:
+        the_held_call_arrived()
+        a_person_writes(_A_PERSON_ID, THE_WORDS_CLASSIFIED_AS_INFORMATION, in_thread=thread)
+        the_message_became_a_lead(incident_id)
+    finally:
+        httpx2.post(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/release",
+                    timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()
+
 
 # Every recording the offline suites rest on, in the order a full run captures
 # them. The names are imported from the e2e framework rather than spelled here:
@@ -682,6 +766,33 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "FraudHoldsHigh",
         IncidentStatus.MITIGATED,
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _A_FIX_WAS_PROPOSED)
+    ),
+    # Two flags changed in one minute, and somebody in the thread saying which
+    # is the cause - before the walk has started, so the lead is in the
+    # Investigator's opening. Held to the lead being weighed, and not to how:
+    # the first capture refuted it twice over on the shop's evidence, which is
+    # a judgement, and a recording refused for a judgement is a run paid for and
+    # thrown away.
+    _Recording(
+        RECORDED_LEAD_BEFORE_THE_WALK,
+        "competing-flag-changes",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_A_LEAD_WAS_WEIGHED, _AN_ACTION_WAS_TAKEN),
+        and_then=_somebody_will_write_before_the_walk,
+        once_opened=_the_lead_is_written_before_the_walk
+    ),
+    # The same, with the lead written while the Investigator's first call is
+    # held: after the opening has gone out, so it arrives with the first turn's
+    # results rather than in the opening.
+    _Recording(
+        RECORDED_LEAD_MID_INVESTIGATION,
+        "competing-flag-changes",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_A_LEAD_WAS_WEIGHED, _AN_ACTION_WAS_TAKEN),
+        and_then=_somebody_will_write_while_the_first_turn_is_held,
+        once_opened=_the_lead_is_written_while_the_first_turn_is_held
     )
 )
 
@@ -801,8 +912,9 @@ def _arm_the_double(name: str) -> None:
 def _a_world_this_recording_can_be_captured_in() -> None:
     """Puts the Target Environment back before each incident is driven.
 
-    The e2e suite's own teardown, step for step and in its order: the service's
-    scenario reset, both boot flags put back where the stack starts them, every
+    The e2e suite's own teardown, step for step and in its order: the worker
+    resumed, in case the last recording paused it and failed before letting
+    it go, the service's scenario reset, both boot flags put back where the stack starts them, every
     flag the environment did not boot with deleted, the provider's record of
     what changed erased, and what Argus remembers of earlier incidents dropped.
     Reused rather than restated, because a recording captured in a world the
@@ -823,6 +935,7 @@ def _a_world_this_recording_can_be_captured_in() -> None:
     model had ranked it right; what changed the answer was a store neither
     recording mentions.
     """
+    the_worker_resumes()
     httpx2.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
@@ -1144,6 +1257,9 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     # printing it only on the way out meant the one failure nobody could
     # diagnose was the only one anybody needed to.
     try:
+        if recording.once_opened:
+            recording.once_opened(incident_id)
+
         _the_walk_came_to_a_stop(incident_id, recording.may_take_seconds)
     finally:
         if not replaying:

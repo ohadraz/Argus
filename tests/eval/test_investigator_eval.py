@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,15 +17,19 @@ from argus_core.models import (
     ChangeKind,
     FailureMode,
     Hypothesis,
+    Meaning,
     MetricBucket,
     Ownership,
     PodPlacement,
+    ReportChannel,
     RetrievalChannel,
     RuleReading,
     ServiceDependency,
+    ThreadMessage,
     ToolDefinition,
     Transcript,
     Turn,
+    a_chat_message,
 )
 from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
@@ -94,6 +98,8 @@ CASE_A_WINDOW_THAT_STOPS = "a-window-that-stops-is-not-read-as-a-well-service"
 CASE_THE_STALE_CACHE = "state-divergence-is-told-from-silent-data-corruption"
 CASE_THE_DEGRADED_ANSWERS = "output-quality-degradation-is-told-from-a-bad-deployment"
 CASE_THE_MOVED_REPLICA = "accelerator-heterogeneity-is-told-from-output-quality-degradation"
+CASE_TWO_FLAGS_WITHOUT_A_LEAD = "two-flags-without-a-lead-rank-the-fallback-first"
+CASE_TWO_FLAGS_WITH_A_LEAD = "two-flags-with-a-lead-rank-the-fallback-first"
 
 # **Derived from 50 pooled samples of each case per configuration**, recorded in
 # `results/investigator.tsv` and read from it rather than restated: five batches
@@ -207,6 +213,24 @@ MUST_IDENTIFY_THE_DEGRADED_ANSWERS = 9  # UNMEASURED - no pooled samples yet
 # case's answer: what separates the two is what changed at the onset - a revision
 # there, or a replica placed on another card with nothing deployed.
 MUST_IDENTIFY_THE_MOVED_REPLICA = 9  # UNMEASURED - no pooled samples yet
+# The lead pair, and the one place in this file where a bar is not a claim about
+# the model on its own. Both members stage two flags moved in the same minute -
+# the fallback switched off and a feature switched on - with one renderer line
+# saying the failing traffic is all on the path the fallback guarded; the single
+# variable is a person in the thread naming the fallback.
+#
+# Without the lead is the control arm, and its bar is zero on purpose: the
+# evidence is meant to support both readings, so how often the fallback comes
+# first there is a rate to pool, not a judgement to fail. What the pair measures
+# is the gap between the two pooled rates - whether being told moves the model -
+# and a bar on the control would be a claim about which reading two flags in one
+# minute ought to produce, which nothing here can settle.
+#
+# With the lead is unmeasured, for its siblings' reason. Its near miss is the
+# control's commonest answer: the feature flag, whose code path the failure is
+# raised in.
+MUST_RANK_THE_FALLBACK_FIRST_UNTOLD = 0  # the control arm - pooled, never failed
+MUST_RANK_THE_FALLBACK_FIRST_WHEN_TOLD = 9  # UNMEASURED - no pooled samples yet
 # How sure a model may sound about a cause the evidence does not carry.
 #
 # The two "nothing explains this" fixtures and the upstream one are a matched
@@ -1206,6 +1230,57 @@ def test_answers_a_replica_on_another_card_made_worse_are_told_from_a_model_upgr
         )
 
 
+@pytest.mark.eval
+@needs_the_real_api
+def test_two_flags_moved_at_once_are_ranked_without_being_told_which() -> None:
+    # The control arm of the lead pair. Two flags moved in the same minute and
+    # the evidence holds both readings: the failure is raised in the feature's
+    # code path, and every page that failed was rendered by the path the
+    # fallback had kept traffic off. Scored on the fallback coming first, and
+    # never failed - see the bar - because the rate is the measurement.
+    some_incident = an_incident_where_two_flags_moved_at_once()
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_TWO_FLAGS_WITHOUT_A_LEAD,
+                MUST_RANK_THE_FALLBACK_FIRST_UNTOLD,
+                _a_run_where(_the_flag_named_was(THE_FALLBACK_FLAG))
+            )
+        )
+
+
+@pytest.mark.eval
+@needs_the_real_api
+def test_two_flags_moved_at_once_are_ranked_by_what_a_person_said() -> None:
+    # The same incident, and a person in the thread naming the fallback before
+    # the investigation opens. The lead is weighed rather than obeyed, so what
+    # it can do is tip evidence that holds both readings - which is the claim:
+    # told, the model ranks the fallback first where untold it need not.
+    some_incident = the_same_incident_with_a_lead_naming(THE_FALLBACK_FLAG)
+
+    Scenario() \
+        .given(
+            some_incident
+        ) \
+        .when(
+            lambda: _the_real_model_investigates_repeatedly(some_incident)
+        ) \
+        .then(
+            _scored(
+                CASE_TWO_FLAGS_WITH_A_LEAD,
+                MUST_RANK_THE_FALLBACK_FIRST_WHEN_TOLD,
+                _a_run_where(_the_flag_named_was(THE_FALLBACK_FLAG))
+            )
+        )
+
+
 @dataclass(frozen=True)
 class Incident:
     """One pinned incident, as the six retrieval channels would serve it.
@@ -1243,6 +1318,9 @@ class Incident:
     # than empty for every case that stages nothing, because production always
     # reads one - and an empty placement says the service runs on no pod.
     placement: list[PodPlacement] = field(default_factory=lambda: a_calm_placement())
+    # What people wrote in the incident's thread, understood as information.
+    # Empty for every case but the one that measures being told something.
+    leads: list[ThreadMessage] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -1779,6 +1857,90 @@ def an_incident_where_a_replica_moved_to_another_card() -> Incident:
     )
 
 
+# The two flags of the lead pair, spelled as the shop's own `competing-flag-changes`
+# spells them: a fallback that kept account pages on the legacy renderer, and a
+# feature whose code path the failure is raised in.
+THE_FALLBACK_FLAG = "legacy-checkout-fallback"
+THE_FEATURE_FLAG = "monthly-spend-feature"
+A_FAILURE_ON_THE_NEW_RENDERER = (
+    "ERROR checkout: account page request failed - ZeroDivisionError: division by "
+    "zero at src/checkout/spend_summary.py:47"
+)
+
+
+def an_incident_where_two_flags_moved_at_once() -> Incident:
+    # The fallback was switched off and the feature on, in the same minute, and
+    # the spike began in the next. What the logs hold is what the shop logs for
+    # that scenario: each flag's value, which renderer served the pages, and the
+    # failure. The renderer line is the only observation tying the fallback to the
+    # failing traffic, and the failure's own words are the only one tying the
+    # feature to it - so the evidence holds both readings, which is what makes a
+    # lead able to move anything.
+    return _an_incident(
+        alert=an_error_rate_alert(),
+        buckets=_a_calm_stretch_then_a_spike(),
+        log_lines=_two_flags_moved_and_the_new_renderer_failed(),
+        changes=[
+            a_flag_switched_off_at(0, THE_FALLBACK_FLAG),
+            a_flag_change_at(0, THE_FEATURE_FLAG)
+        ]
+    )
+
+
+def the_same_incident_with_a_lead_naming(flag: str) -> Incident:
+    # The incident above and nothing else changed but the thread, so the pair's
+    # difference is the lead and only the lead. Written before the investigation
+    # opens, as the e2e case writes it, so it is in the opening message.
+    return replace(
+        an_incident_where_two_flags_moved_at_once(),
+        leads=[a_lead_saying(
+            f"it's {flag} - someone switched it off right before this started"
+        )]
+    )
+
+
+def a_lead_saying(words: str) -> ThreadMessage:
+    """Something a person wrote in the incident's thread, understood as
+    information and not yet weighed."""
+    return ThreadMessage(
+        incident_id=new_id(),
+        message=a_chat_message(ReportChannel.SLACK, "C-some-channel", "1772445900.000100"),
+        person_id="U-some-person",
+        text=words,
+        written_at=ONSET + timedelta(minutes=1),
+        meaning=Meaning.INFORMATION
+    )
+
+
+def _two_flags_moved_and_the_new_renderer_failed() -> list[str]:
+    """Two calm minutes on the legacy renderer, then two failing on the new one."""
+    def evaluated(offset_minutes: int, flag: str, state: str) -> str:
+        return a_log_line_at(offset_minutes, f"INFO checkout: {flag}={state} - 200 evaluations")
+
+    def calm(offset_minutes: int) -> list[str]:
+        return [
+            evaluated(offset_minutes, THE_FALLBACK_FLAG, "on"),
+            evaluated(offset_minutes, THE_FEATURE_FLAG, "off"),
+            a_log_line_at(offset_minutes, "INFO checkout: account pages served - 200 by the "
+                                          "legacy renderer, 0 by the new renderer"),
+            a_log_line_at(offset_minutes, "INFO checkout: account pages rendered normally")
+        ]
+
+    def failing(offset_minutes: int) -> list[str]:
+        return [
+            evaluated(offset_minutes, THE_FALLBACK_FLAG, "off"),
+            evaluated(offset_minutes, THE_FEATURE_FLAG, "on"),
+            a_log_line_at(offset_minutes, "INFO checkout: account pages served - 0 by the "
+                                          "legacy renderer, 200 by the new renderer"),
+            a_log_line_at(offset_minutes, A_FAILURE_ON_THE_NEW_RENDERER),
+            a_log_line_at(offset_minutes, A_FAILURE_ON_THE_NEW_RENDERER),
+            a_log_line_at(offset_minutes, "WARN checkout: account page error rate at 38.00% "
+                                          "over the last minute")
+        ]
+
+    return [*calm(-1), *calm(0), *failing(1), *failing(2)]
+
+
 def an_incident_underway_before_the_window_opens() -> Incident:
     """Every retrieved minute is inside the incident, and the cause is outside.
 
@@ -2274,6 +2436,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             fetch_what_a_deployment_changed=_what_a_deployment_changed_for(incident),
             fetch_rollout=_the_rollout_of(incident),
             fetch_placements=_the_placement_of(incident),
+            leads=lambda: list(incident.leads),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
             converse=speak,
@@ -2515,6 +2678,21 @@ def _the_faulting_service_was_named_as(name: str | None) -> Assertion[Hypothesis
     return assertion
 
 
+def _the_flag_named_was(flag: str) -> Assertion[Hypothesis]:
+    """A flag toggle, of this flag - the subject verbatim, because the subject is
+    what the walk reverts and a paraphrase of a flag's name reverts nothing."""
+    def assertion(best: Hypothesis) -> bool:
+        if best.failure_mode is not FailureMode.FEATURE_FLAG_TOGGLE or best.subject != flag:
+            raise AssertionError(
+                f"Expected the best candidate to name the flag [{flag}], it named "
+                f"[{best.failure_mode}] of [{best.subject!r}]. Model said: {best.summary}"
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_run_where(satisfy: Assertion[Hypothesis]) -> Assertion[Run]:
     """Judges a run by its best candidate, and by what it spent getting there.
 
@@ -2720,6 +2898,20 @@ def a_fraud_alert() -> Alert:
         severity="critical",
         summary="share of purchases held for fraud review above 10% for 5 minutes",
         rule=THE_FRAUD_RULE
+    )
+
+
+def a_flag_switched_off_at(offset_minutes: int, flag: str) -> ChangeEvent:
+    """One flag switched off, as the change channel would serve it - the
+    fallback's direction, where `a_flag_change_at` is the feature's."""
+    return ChangeEvent(
+        kind=ChangeKind.FLAG_TOGGLE,
+        occurred_at=_minute(offset_minutes),
+        reference=flag,
+        summary=f"feature flag '{flag}' switched from 'on' to 'off'",
+        actor="ops-console",
+        source="https://flags.acme.internal/projects/default/features/"
+               f"{flag}"
     )
 
 

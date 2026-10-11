@@ -40,6 +40,7 @@ from argus_core.events import (
     HypothesisFormed,
     IncidentEvent,
     IncidentRemembered,
+    LeadWeighed,
     MessageUnderstood,
     MetricsRetrieved,
     MitigationResumed,
@@ -89,6 +90,7 @@ from argus_core.models import (
     Report,
     ReportChannel,
     RetrievalChannel,
+    Standing,
     Undone,
     Verdict,
     the_actions_through,
@@ -1125,6 +1127,29 @@ def test_a_move_argus_is_still_working_through_still_takes_a_withdrawal(
         .given(the_incident_moving) \
         .when(lambda: build_narration([the_incident_moving])) \
         .then(_the_only_line_leaves_nothing_to_withdraw(False))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("standing", list(Standing))
+def test_a_lead_weighed_is_said_by_the_investigator_with_its_standing_and_why(
+        standing: Standing) -> None:
+    # The answer the person who wrote it is owed, in the thread they wrote it
+    # in: what the Investigator made of it, set apart, and why - a standing
+    # with no reason is a verdict nobody can check.
+    some_reason = "the checkout flag moved at the onset"
+    some_weighing = LeadWeighed(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        standing=standing,
+        reason=some_reason
+    )
+
+    Scenario() \
+        .given(some_weighing) \
+        .when(lambda: build_narration([some_weighing])) \
+        .then(all_of(_the_only_line_marks(standing.value),
+                     _the_only_line_says(some_reason),
+                     _the_lines_are_credited_to(["Investigator Agent"])))
 
 
 @pytest.mark.unit
