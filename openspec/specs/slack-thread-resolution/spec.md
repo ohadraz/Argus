@@ -73,11 +73,11 @@ with a warning.
 - **WHEN** a person writes that they have resolved the incident
 - **THEN** the incident records that the message was classified as a resolution
 
-#### Scenario: A question is recorded and not acted on
+#### Scenario: A question is recorded and answered
 
 - **WHEN** a person asks a question in the thread
-- **THEN** the incident records that the message was classified as a question, and
-  nothing else happens
+- **THEN** the incident records that the message was classified as a question,
+  and the question is answered in the thread
 
 #### Scenario: The model cannot be reached
 

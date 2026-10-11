@@ -49,4 +49,4 @@ answering, understanding, narration and relay, e2e.
       missing, redundant or weak; design and specs match what was built
 - [x] 6.3 Module suites, typecheck, lint, guard_layering green
 - [x] 6.4 `e2e_replay(mode='both')` green, in the background
-- [ ] 6.5 Specs synced on archive
+- [x] 6.5 Specs synced on archive
