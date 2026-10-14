@@ -314,4 +314,4 @@ gathering, agent, view, e2e.
       27 modules, 720 files typed, 10 contracts kept)
 - [x] 7.4 `e2e_replay(mode='both')` green, in the background (55 of 55,
       2026-10-14 23:03, no walk failed, no write-up incomplete)
-- [ ] 7.5 Specs synced on archive
+- [x] 7.5 Specs synced on archive
