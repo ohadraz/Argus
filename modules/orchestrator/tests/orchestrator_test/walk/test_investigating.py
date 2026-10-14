@@ -47,7 +47,9 @@ from argus_core.models import (
     Alert,
     Attempt,
     Disproof,
+    EstablishedOnset,
     FlagChange,
+    HowTheMinuteIsKnown,
     Hypothesis,
     IncidentStatus,
     Ownership,
@@ -796,6 +798,36 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
                                         investigate),
             _the_investigation_was_told("already_refuted", [a_refuted_attempt],
                                         investigate)))
+
+
+@pytest.mark.unit
+def test_a_later_round_is_handed_the_onset_the_first_round_established(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # An incident has one beginning. A later round reads a window Argus has since
+    # acted on, so it is told when the incident began rather than left to find a
+    # beginning among what the action left behind.
+    some_onset = EstablishedOnset(minute="2026-10-13T12:16:00Z",
+                                  how_known=HowTheMinuteIsKnown.MEASURED)
+    a_second_round = _an_investigating_incident().model_copy(update={"onset": some_onset})
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate, a_determined_hypothesis(a_second_round.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(a_second_round,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            _the_investigation_was_told("established_onset", some_onset, investigate)
+        )
 
 
 @pytest.mark.unit

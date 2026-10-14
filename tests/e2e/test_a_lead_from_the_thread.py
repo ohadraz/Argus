@@ -80,7 +80,8 @@ def test_a_lead_written_before_the_walk_is_in_the_investigations_opening() -> No
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(_THE_SCENARIO)),
+            calling(a_scenario_was_seeded(_THE_SCENARIO,
+                                          as_recorded_in=RECORDED_LEAD_BEFORE_THE_WALK)),
             calling(the_model_answers_from(RECORDED_LEAD_BEFORE_THE_WALK)),
             calling(the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)),
             calling(the_chat_platform_knows(some_person_id, some_name)),
@@ -117,7 +118,8 @@ def test_a_lead_written_mid_investigation_reaches_the_next_turn() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(_THE_SCENARIO)),
+            calling(a_scenario_was_seeded(_THE_SCENARIO,
+                                          as_recorded_in=RECORDED_LEAD_MID_INVESTIGATION)),
             calling(the_model_is_held()),
             calling(the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)),
             calling(the_chat_platform_knows(some_person_id, some_name))

@@ -19,6 +19,7 @@ dict of its fields.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from argus_core.models import (
@@ -26,6 +27,7 @@ from argus_core.models import (
     Attempt,
     ChangeEvent,
     Disproof,
+    EstablishedOnset,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -96,6 +98,10 @@ class StateDelta(BaseModel):
     # decides confirmability on it and holds the onset alone - see `Findings`,
     # where it is measured.
     readings_cover_the_incident: bool | None = None
+    # The minute the incident is dated from and how it is known, set by the
+    # investigating node once: the first round's answer stands, as it does for
+    # the postmortem, and every later round is handed it.
+    onset: EstablishedOnset | None = None
     rounds: int | None = None
     # Set explicitly to `None` by the node that could not read the provider, so
     # that "nobody could say" reaches the rest of the round as itself.
@@ -118,6 +124,8 @@ class StateDelta(BaseModel):
     # the alerting service, and nothing else.
     dependencies: list[ServiceDependency] | None = None
     proposed_action: Action | None = None
+    # Set by the mitigating node alone, to the moment it announced the action.
+    acted_at: datetime | None = None
     # The action the gate declined to take because nothing could confirm it, and
     # which somebody else should take instead. Separate from `proposed_action`
     # rather than left in it: that one means "about to be performed", and an

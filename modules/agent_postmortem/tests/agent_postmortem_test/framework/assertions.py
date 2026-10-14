@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from agent_postmortem.reviewing import ANALYSIS_COMPLETE
 from argus_core.models import PostmortemDocument
 from argus_testkit import Assertion
 
@@ -332,9 +333,15 @@ def discloses_no_assumption_about(unexpected: str) -> Assertion[PostmortemDocume
 
 def is_marked_complete() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
-        if not document.checklist_complete:
+        unmet = [entry.criterion for entry in document.review if entry.met is False]
+
+        if not document.review:
+            raise AssertionError("Expected the document to carry its review, got none.")
+
+        if unmet:
             raise AssertionError(
-                "Expected a document with every field filled to be marked complete.")
+                f"Expected a document with every field filled to meet every criterion "
+                f"it can, got {unmet} unmet.")
 
         return True
 
@@ -343,9 +350,12 @@ def is_marked_complete() -> Assertion[PostmortemDocument]:
 
 def is_marked_incomplete() -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
-        if document.checklist_complete:
+        said = [entry.met for entry in document.review if entry.criterion == ANALYSIS_COMPLETE]
+
+        if said != [False]:
             raise AssertionError(
-                "Expected a document still missing a field to say so on its face.")
+                f"Expected a document still carrying a fault to say its analysis is "
+                f"not complete, got {said}.")
 
         return True
 

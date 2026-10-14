@@ -11,8 +11,8 @@ says can move them.
 
 The one judgement it makes is what an unusable answer means: faults do not stop
 a document being written. The incident is over by the time this runs, a partial
-account is worth more than none, and `checklist_complete` is how the page says
-which it is.
+account is worth more than none, and the review is how the page says which it
+is.
 """
 
 from __future__ import annotations
@@ -21,13 +21,34 @@ import logging
 from typing import Protocol
 
 from argus_core.llm import LLMClient
-from argus_core.models import PostmortemDocument, PostmortemLead, labelled
+from argus_core.models import (
+    ActionItem,
+    ActionItemStatus,
+    ChainStep,
+    CitedEvidence,
+    ContributingFactor,
+    PostmortemDocument,
+    PostmortemLead,
+    ReviewCriterion,
+    labelled,
+)
 
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.prompting import SubmittedPostmortem
+from agent_postmortem.prompting import SubmittedPostmortem, the_evidence_labelled
+from agent_postmortem.reviewing import review_of
+from agent_postmortem.sections import (
+    action_item_number,
+    detection_of,
+    hypotheses_of,
+    impact_of,
+    record_action_items_of,
+    resolution_of,
+    timeline_of,
+    trigger_of,
+)
 from agent_postmortem.sources import EngagementAnswer, Sources
 
 logger = logging.getLogger(__name__)
@@ -58,22 +79,33 @@ class Disclose(Protocol):
                  working_hours_a_year: float) -> list[str]: ...
 
 
+class Review(Protocol):
+    """Judging the document as written against the review criteria."""
+
+    def __call__(self,
+                 document: PostmortemDocument,
+                 faults: list[str]) -> list[ReviewCriterion]: ...
+
+
 def write_postmortem(evidence: IncidentEvidence,
                      sources: Sources,
                      llm: LLMClient,
                      *,
                      measure: Measure = measure,
                      ask: Ask = answer_worth_writing,
-                     disclose: Disclose = assumptions_of) -> PostmortemDocument:
-    """The whole document: measure, ask once, then write down both.
+                     disclose: Disclose = assumptions_of,
+                     review: Review = review_of) -> PostmortemDocument:
+    """The whole document: measure, ask once, write down both, then review it.
 
-    The three collaborators are parameters so that a test of this arrangement
+    The four collaborators are parameters so that a test of this arrangement
     can mock them and assert what each was given - which is the only thing that
     can go wrong here, and the one thing a test reading finished figures off
-    the page cannot see.
+    the page cannot see. The sections code writes from the record are not: each
+    is a value computed from the evidence, and placing it is all this does.
     """
     measured = measure(evidence, sources)
     answer, faults = ask(llm, evidence, measured)
+    shown = the_evidence_labelled(evidence)
 
     if faults:
         logger.warning("postmortem written incomplete", extra={"faults": faults})
@@ -82,12 +114,13 @@ def write_postmortem(evidence: IncidentEvidence,
     # to say both leave the figures blank, and the assumptions say which.
     engaged = measured.engaged if isinstance(measured.engaged, EngagementAnswer) else None
 
-    return PostmortemDocument(
+    document = PostmortemDocument(
         # Absent rather than empty where the model never answered: a blank on a
         # page reads as a root cause somebody wrote and left empty, and this
         # document is one nobody can ask a follow-up question of.
         root_cause=answer.root_cause,
         executive_summary=answer.executive_summary,
+        symptom=answer.symptom,
         customer_loss_estimate=measured.loss,
         estimate_currency=measured.currency,
         # Not multiplied by the count: the source answers person-minutes, so
@@ -119,5 +152,62 @@ def write_postmortem(evidence: IncidentEvidence,
             for label, lead in labelled(evidence.leads)
         ],
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
-        checklist_complete=not faults
+        # Written by code from the record, never asked of the model.
+        impact=impact_of(measured),
+        detection=detection_of(evidence),
+        trigger=trigger_of(evidence),
+        resolution=resolution_of(evidence),
+        hypotheses=hypotheses_of(evidence),
+        # Ending at the measured recovery, where the duration beside it ends.
+        timeline=timeline_of(evidence, measured.recovered_at),
+        # The model's sections. Each empty where unanswered - a section of many
+        # has no list to be absent from - and the review says what that costs.
+        causal_chain=_the_chain_as_cited(answer, shown),
+        contributing_factors=[ContributingFactor(text=factor.factor,
+                                                 addressed_by=factor.addressed_by)
+                              for factor in answer.contributing_factors or []],
+        action_items=_the_record_s_items_then_the_model_s(evidence, answer),
+        lessons=answer.lessons,
+        evidence_read=len(shown)
     )
+
+    # Reviewed last, because what it reviews is the document as written.
+    return document.model_copy(update={"review": review(document, faults)})
+
+
+def _the_chain_as_cited(answer: SubmittedPostmortem,
+                        shown: list[CitedEvidence]) -> list[ChainStep]:
+    """Each step with the text of what it cites, since a label means nothing
+    outside the prompt it was given in.
+
+    A label never shown is left out rather than kept bare: the check has named
+    it already and the review holds it against the analysis, and kept it would
+    be a citation a reader can follow nowhere.
+    """
+    by_label = {cited.label: cited for cited in shown}
+
+    return [ChainStep(text=step.step,
+                      cites=[by_label[label] for label in step.cites if label in by_label])
+            for step in answer.causal_chain or []]
+
+
+def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
+                                        answer: SubmittedPostmortem) -> list[ActionItem]:
+    """The record's items as numbered before the model was asked, and its
+    proposals numbered on from them in the order it gave them.
+
+    Open and nobody's: Argus edits no item after the document is written, so
+    whoever takes one on does so somewhere else.
+    """
+    on_record = record_action_items_of(evidence)
+
+    return [
+        *on_record,
+        *(ActionItem(number=action_item_number(len(on_record) + position),
+                     text=proposed.item,
+                     type=proposed.type,
+                     owner=None,
+                     tracking=None,
+                     status=ActionItemStatus.OPEN)
+          for position, proposed in enumerate(answer.action_items or [], start=1))
+    ]

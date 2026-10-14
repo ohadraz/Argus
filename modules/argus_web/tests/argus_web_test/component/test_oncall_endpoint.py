@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from http import HTTPStatus as HttpStatus
 from typing import Any
 from unittest.mock import create_autospec
@@ -39,7 +40,7 @@ from argus_incidents.repository import events, incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from argus_web.app import app, oncall_platform_of
 from fastapi.testclient import TestClient
-from oncall_source import OnCallUnavailable
+from oncall_source import OnCallUnavailable, ReportedIncident
 from oncall_source.platform import (
     Delivery,
     Irrelevant,
@@ -71,7 +72,8 @@ def test_a_persons_resolution_in_the_platform_resolves_the_incident() -> None:
 
     with _the_platform_saying(ResolvedByAPerson(platform_incident=_a_platform_incident(),
                                                 by=some_person),
-                              keys=[some_key], note=some_note), TestClient(app) as client:
+                              keys=[some_key], note=some_note,
+                              paged_at=_the_start_of(incident_id)), TestClient(app) as client:
         Scenario() \
             .when(lambda: client.post(ONCALL_WEBHOOK, content=DONT_CARE_BODY)) \
             .then(all_of(
@@ -93,7 +95,7 @@ def test_a_resolution_from_the_platform_continues_the_incidents_trace() -> None:
 
     with _the_platform_saying(ResolvedByAPerson(platform_incident=_a_platform_incident(),
                                                 by="dont care"),
-                              keys=[some_key]), \
+                              keys=[some_key], paged_at=_the_start_of(incident_id)), \
             observing_the_app() as spans, TestClient(app) as client:
         Scenario() \
             .when(lambda: client.post(ONCALL_WEBHOOK, content=DONT_CARE_BODY)) \
@@ -182,14 +184,33 @@ def _an_incident_known_by(key: str,
     return incident_id
 
 
+def _the_start_of(incident_id: str) -> datetime:
+    """When the incident began, by the database's clock - the moment the
+    monitor paged the platform for it, near enough."""
+    with connect_from_env() as conn:
+        incident = incidents.get(conn, incident_id)
+
+    assert incident is not None
+
+    return incident.created_at
+
+
 @contextmanager
 def _the_platform_saying(delivery: Delivery,
                          keys: list[str] | Exception,
-                         note: str | None = None) -> Iterator[None]:
+                         note: str | None = None,
+                         paged_at: datetime | None = None) -> Iterator[None]:
+    """The platform saying `delivery` about a page under `keys`, opened at
+    `paged_at` and resolved an hour later."""
     platform = create_autospec(OnCallPlatform, instance=True)
     platform.channel = ReportChannel.PAGERDUTY
     platform.parse_delivery.return_value = delivery
     platform.resolution_note.return_value = note
+
+    if paged_at is not None:
+        platform.reported_incident.return_value = ReportedIncident(
+            began_at=paged_at, ended_at=paged_at + timedelta(hours=1), acknowledgements=[]
+        )
 
     if isinstance(keys, Exception):
         platform.keys_of.side_effect = keys

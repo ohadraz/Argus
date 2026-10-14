@@ -146,7 +146,11 @@ def investigator_node(
         already_read=state.already_read,
         already_refuted=state.attempts,
         still_wanted=partial(still_wanted, state.incident_id),
-        leads=partial(leads_of, state.incident_id)
+        leads=partial(leads_of, state.incident_id),
+        # `None` on a first round, which measures one. On a later one, the minute
+        # the first established: the window this round reads is one Argus has
+        # since acted on, and what departs there is what the action left behind.
+        established_onset=state.onset
     )
     if findings.stopped:
         return StateDelta()
@@ -301,6 +305,7 @@ def investigator_node(
         # evidence in front of the walk now says anything about the incident's own
         # minutes.
         readings_cover_the_incident=findings.readings_cover_the_incident,
+        onset=state.onset or findings.onset,
         rounds=state.rounds + 1,
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,

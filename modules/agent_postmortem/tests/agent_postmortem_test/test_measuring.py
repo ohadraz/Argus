@@ -19,15 +19,17 @@ the money, because the money was measured by the party that took it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Mapping
+from datetime import datetime, timedelta
 from decimal import Decimal
 from math import isclose
 
 import pytest
-from agent_postmortem.estimate import RuleSeriesLevels
+from agent_postmortem.estimate import RuleSeriesLevels, Unmeasured
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.sources import EngagedResponder, EngagementAnswer, PayBand
-from argus_testkit import Assertion, Kept, Scenario, all_of
+from agent_postmortem.sources import EngagedResponder, EngagementAnswer, Metrics, PayBand, Revenue
+from argus_core.models import MetricBucket
+from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
     ENDED_AT,
@@ -40,6 +42,7 @@ from agent_postmortem_test.framework.builders import (
     STARTED_AT,
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
+    a_bucket,
     a_revenue_source_that_cannot_answer,
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
@@ -77,6 +80,8 @@ SOME_BAND = PayBand(
     maximum=Decimal(240_000),
     currency=SOME_CURRENCY
 )
+
+A_WEEK = timedelta(weeks=1)
 
 
 @pytest.mark.unit
@@ -130,6 +135,80 @@ def test_the_loss_is_what_the_calm_hour_predicted_less_what_came_in() -> None:
                 _the_loss_was(expected_loss),
                 _the_figure_is_in(SOME_CURRENCY)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_shortfall_within_what_the_shop_varies_by_on_its_own_is_no_loss() -> None:
+    # Like with like: the incident against as long a stretch just before its
+    # onset, and that stretch against the one before it. Here the two calm
+    # stretches differ by more than the incident fell short.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(revenue=_a_shop_taking(earlier=Decimal("1000.00"),
+                                                    just_before=Decimal("1300.00"),
+                                                    during=Decimal("1100.00"))))
+        ) \
+        .then(
+            all_of(
+                _the_loss_was(Decimal(0)),
+                _the_shop_varies_by(Decimal("300.00"))
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_shortfall_beyond_what_the_shop_varies_by_is_the_loss() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(revenue=_a_shop_taking(earlier=Decimal("1000.00"),
+                                                    just_before=Decimal("1100.00"),
+                                                    during=Decimal("100.00"))))
+        ) \
+        .then(
+            _the_loss_was(Decimal("1000.00"))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("lasting", "weeks_back"), [
+    (timedelta(minutes=10), 1),
+    (timedelta(days=8), 2)
+])
+def test_takings_are_compared_at_the_incident_s_own_hours_whole_weeks_earlier(
+        lasting: timedelta, weeks_back: int) -> None:
+    # The same hours on the same weekday, so a shop's day and week cancel out:
+    # a morning incident against the night before it is a loss the morning rush
+    # invented. Far enough back that the stretch never overlaps the incident.
+    recovered = ONSET + lasting
+    back = A_WEEK * weeks_back
+    windows_asked_for: Kept[tuple[datetime, datetime]] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(ended_at=recovered + timedelta(minutes=5),
+                                           recorded_recovery_at=recovered)
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(revenue=_revenue_recording_the_windows_into(windows_asked_for)))
+        ) \
+        .then(
+            _asked_for_the_takings_over([(ONSET - 2 * back, recovered - 2 * back),
+                                         (ONSET - back, recovered - back),
+                                         (ONSET, recovered)],
+                                        windows_asked_for)
         )
 
 
@@ -340,6 +419,24 @@ def test_metrics_that_cannot_be_read_leave_the_rise_unknown_and_the_money_alone(
 
 
 @pytest.mark.unit
+def test_metrics_that_cannot_be_read_say_why_the_rise_is_unknown() -> None:
+    # An unknown rise alone leaves the reader to guess: an empty read and a read
+    # that held no calm minute are different gaps, and only one is an outage.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(
+                evidence, some_sources(metrics=metrics_that_answer_with_nothing())
+            ).error_rates_unmeasured
+        ) \
+        .then(
+            the_answer_was(Unmeasured.NOTHING_READ)
+        )
+
+
+@pytest.mark.unit
 def test_the_rise_is_measured_against_the_calm_minutes_before_the_incident() -> None:
     # Not the raw rate during it. A service that always fails two requests in a
     # hundred did not start doing so because of this incident, and charging
@@ -416,6 +513,79 @@ def test_an_incident_still_broken_when_the_metrics_run_out_reports_no_recovery()
 
 
 @pytest.mark.unit
+def test_an_incident_watched_and_never_seen_to_recover_reports_no_recovery() -> None:
+    # The recovery belongs to the party that was watching at the time, and so
+    # does its absence: Mitigation watched and never saw the service come back.
+    # Asked again of this window, a service that flaps shows a lull that reads as
+    # a recovery in one run and not in the next.
+    some_baseline_error_rate = 0.02
+    some_error_rate_while_broken = 0.30
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(watched_and_never_recovered=True)
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(metrics=metrics_that_recovered(
+                    baseline=some_baseline_error_rate,
+                    during=some_error_rate_while_broken)))
+        ) \
+        .then(
+            _it_never_recovered()
+        )
+
+
+@pytest.mark.unit
+def test_a_recovery_read_off_the_series_is_never_dated_before_the_onset() -> None:
+    # Where nothing recorded a recovery it is read off the series, and the series
+    # opens an hour before the onset. On a service that flapped before this
+    # incident, the first persisted run in it is the earlier episode, whose end
+    # is a recovery from an incident that had not yet begun.
+    the_minute_it_came_back = ONSET + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_metrics_that_flapped_before_the_onset()))
+        ) \
+        .then(
+            _it_recovered_at(the_minute_it_came_back)
+        )
+
+
+def _metrics_that_flapped_before_the_onset() -> Metrics:
+    """Calm, an earlier episode - higher than this incident, and over - calm
+    again, then three minutes of the incident from `ONSET`, and calm to the
+    close."""
+    some_calm_rate = 0.01
+    calm_before = [some_calm_rate] * 6
+    earlier_episode = [some_calm_rate * 9, some_calm_rate * 18, some_calm_rate * 18]
+    calm_between = [some_calm_rate] * 4
+    the_incident = [some_calm_rate * 4] * 3
+    calm_after = [some_calm_rate] * 28
+    first_minute = ONSET - timedelta(
+        minutes=len(calm_before) + len(earlier_episode) + len(calm_between)
+    )
+
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [
+            a_bucket(at=first_minute + timedelta(minutes=minute), error_rate=rate)
+            for minute, rate in enumerate(
+                calm_before + earlier_episode + calm_between + the_incident + calm_after
+            )
+        ]
+
+    return metrics_between
+
+
+@pytest.mark.unit
 def test_an_incident_whose_metrics_stop_at_the_onset_was_unobserved_from_it() -> None:
     # A lower bound is not the whole of it. "Still broken when the metrics ran
     # out" and "nothing was collected from the onset on" both leave no recovery,
@@ -461,6 +631,33 @@ def test_metrics_that_could_not_be_read_say_nothing_of_being_unobserved() -> Non
         .when(
             lambda: measure(evidence,
                             some_sources(metrics=metrics_that_answer_with_nothing()))
+        ) \
+        .then(_it_was_observed_throughout())
+
+
+@pytest.mark.unit
+def test_an_incident_closed_before_its_first_minute_could_be_reported_was_not_unobserved() -> None:
+    # A read holds no minute the source has not reported yet, and the newest it
+    # can hold by the close is the close's own minute less the source's lag. An
+    # incident closed sooner than its first minute is reported finds no row after
+    # it began however well the service was watched - the window had not arrived,
+    # which is no loss of sight. A disproven alarm is the incident that closes
+    # this fast.
+    a_source_a_minute_late = 1
+    alerted_at = ONSET + timedelta(seconds=7)
+    closed_at = ONSET + timedelta(minutes=1, seconds=30)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(started_at=alerted_at,
+                                           ended_at=closed_at,
+                                           onset_at=None)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(
+                                metrics=metrics_that_stop_at_the_onset(),
+                                metrics_reporting_lag_minutes=a_source_a_minute_late))
         ) \
         .then(_it_was_observed_throughout())
 
@@ -997,6 +1194,59 @@ def _asked_metrics_for_a_window_spanning(
             raise AssertionError(
                 f"Expected a window reaching the end of the incident "
                 f"[{ended_at}], got [{window_end}].")
+
+        return True
+
+    return assertion
+
+
+def _a_shop_taking(earlier: Decimal, just_before: Decimal, during: Decimal) -> Revenue:
+    """Three stretches as long as an incident shorter than a week: the incident
+    itself, the same hours a week before it, and the same hours a week before
+    that - told apart by where each window starts."""
+    def revenue_between(window_start: datetime,
+                        dont_care_end: datetime) -> Mapping[str, Decimal] | None:
+        if window_start >= ONSET:
+            return {SOME_CURRENCY: during}
+
+        return {SOME_CURRENCY: just_before if window_start >= ONSET - A_WEEK else earlier}
+
+    return revenue_between
+
+
+def _the_shop_varies_by(expected: Decimal) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.variation != expected:
+            raise AssertionError(
+                f"Expected the two calm stretches to differ by [{expected}], got "
+                f"[{measured.variation}].")
+
+        return True
+
+    return assertion
+
+
+def _revenue_recording_the_windows_into(
+        windows: Kept[tuple[datetime, datetime]]) -> Revenue:
+    """A revenue source noting each window it was asked for, and answering
+    that nothing was taken - what is asked of it is the question."""
+    def revenue_between(window_start: datetime,
+                        window_end: datetime) -> Mapping[str, Decimal] | None:
+        windows.take((window_start, window_end))
+
+        return {}
+
+    return revenue_between
+
+
+def _asked_for_the_takings_over(
+        expected: list[tuple[datetime, datetime]],
+        windows: Kept[tuple[datetime, datetime]]) -> Assertion[Measurements]:
+    def assertion(dont_care_measured: Measurements) -> bool:
+        if sorted(windows.taken) != sorted(expected):
+            raise AssertionError(
+                f"Expected the takings read over {sorted(expected)}, got "
+                f"{sorted(windows.taken)}.")
 
         return True
 

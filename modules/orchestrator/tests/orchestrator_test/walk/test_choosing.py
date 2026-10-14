@@ -24,8 +24,10 @@ decides, publishes, and knows nothing about who is listening.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import pytest
+from argus_core import to_iso
 from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
@@ -76,6 +78,8 @@ SOME_FLAG = "monthly-spend-feature"
 ANOTHER_FLAG = "legacy-checkout-fallback"
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_MOMENT = "2026-08-20T11:05:00Z"
+SOME_MOMENT_IT_WAS_TAKEN = datetime(2026, 8, 20, 11, 3, 25, tzinfo=UTC)
+DONT_CARE_MOMENT_IT_WAS_TAKEN = datetime(2026, 8, 20, 11, 4, tzinfo=UTC)
 
 
 @pytest.mark.unit
@@ -164,6 +168,25 @@ def test_what_was_tried_is_remembered_for_the_round_after() -> None:
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(_the_attempts_recorded_are([SOME_FLAG]))
+
+
+@pytest.mark.unit
+def test_what_was_tried_is_remembered_at_the_moment_it_was_taken() -> None:
+    # A later round reads the attempt beside the flag provider's record of the
+    # same change. Remembered when the walk moved on from it - after the wait
+    # for the service to answer - it was dated minutes after that record, and
+    # the round read two changes where there was one.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 acted_at=SOME_MOMENT_IT_WAS_TAKEN)
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(_the_attempt_recorded_is_dated(to_iso(SOME_MOMENT_IT_WAS_TAKEN)))
 
 
 @pytest.mark.unit
@@ -482,6 +505,7 @@ def _a_walk_at(incident_id: str,
                candidates: list[Hypothesis],
                index: int,
                acted_on: str = SOME_FLAG,
+               acted_at: datetime = DONT_CARE_MOMENT_IT_WAS_TAKEN,
                rounds: int = 1) -> IncidentState:
     """An incident mid-walk: a candidate has just been tried and did not settle
     anything, and the state carries what it takes to decide what happens next.
@@ -515,7 +539,8 @@ def _a_walk_at(incident_id: str,
             flag=acted_on,
             enabled=False,
             undo_descriptor=FlagUndo(flag=acted_on, was_enabled=True)
-        )
+        ),
+        acted_at=acted_at
     )
 
 
@@ -687,6 +712,19 @@ def _the_attempts_recorded_are(expected: list[str]) -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the attempts to record {expected}, they record {recorded}."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_recorded_is_dated(expected: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        dated = [attempt.occurred_at for attempt in updates.attempts or []]
+
+        if dated != [expected]:
+            raise AssertionError(
+                f"Expected the one attempt recorded to be dated [{expected}], got {dated}.")
 
         return True
 

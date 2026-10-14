@@ -55,7 +55,9 @@ from argus_core.models import (
     AlarmClaim,
     Ask,
     Attempt,
+    EstablishedOnset,
     Evidence,
+    HowTheMinuteIsKnown,
     Meaning,
     MetricBucket,
     ModelPolicy,
@@ -87,6 +89,7 @@ from agent_investigator_test.framework.builders.budget import (
     a_clock_that_runs_out_after_one_look,
 )
 from agent_investigator_test.framework.builders.configuration import (
+    SOME_RECHECK_INTERVAL_IN_SECONDS,
     some_investigation_settings,
     some_thresholds,
 )
@@ -100,7 +103,9 @@ from agent_investigator_test.framework.builders.incident import (
     CALM_ERROR_RATE,
     CALM_MINUTES,
     DONT_CARE_STARTED_AT,
+    MINUTES_BEFORE_THE_ALERT,
     a_steady_window,
+    a_steady_window_that_stops_before_the_alert,
     a_window_of,
     a_window_that_starts_calm,
     a_window_that_stops_reporting,
@@ -282,6 +287,40 @@ def test_evidence_that_names_no_moment_says_so_rather_than_borrowing_one() -> No
         ) \
         .then(
             _the_evidence_is(some_cited)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cited_at", [
+    "2026-10-12T19:24:00Z to 2026-10-12T21:29:00Z",
+    "2026-10-12T21:35:00Z/2026-10-12T21:40:00Z",
+    "21:35–21:40",
+    "21:35",
+    "2026-10-12"
+])
+def test_evidence_cited_at_no_one_moment_is_kept_and_says_so(cited_at: str) -> None:
+    # A real answer from the recordings cited a window as its `at`, and the
+    # whole investigation was lost for one field. A window, a time of day with
+    # no date, a date with no time: none of them is the one minute a claim
+    # rests on, so the claim is kept and says it rests on no particular moment
+    # - rather than pointing a reader at a minute nobody cited.
+    some_claim = "error rate held above baseline across the window"
+    explanation = an_explanation() | {
+        "supporting_evidence": [{"claim": some_claim, "at": cited_at}]
+    }
+    investigation = an_investigation(
+        a_model_that_says(a_turn_answering(explanation))
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_evidence_is(Evidence(claim=some_claim, at=None))
         )
 
 
@@ -882,6 +921,30 @@ def test_an_investigation_whose_window_was_read_throughout_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_an_onset_measured_before_a_stated_absence_leaves_the_incident_unread() -> None:
+    # A measured onset is a minute of the very window it is asked about, so asked
+    # of that minute the question can only answer yes. Whether the incident was
+    # read is a question about the alert's own claim - that the minutes it dates
+    # were never seen - and only the minute it states can put it.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+    window = a_window_that_starts_calm()
+    the_first_unread_minute = parse_iso(window[-1].bucket_id) + timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(window))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=the_first_unread_minute)
+            )
+        ) \
+        .then(
+            _the_readings_cover_the_incident(False)
+        )
+
+
+@pytest.mark.unit
 def test_the_change_channels_are_read_at_the_stated_onset() -> None:
     # The whole of what a stated onset buys. An alert raised by a check that
     # runs weekly fires long after the writing went wrong, so a window anchored
@@ -1248,6 +1311,147 @@ def test_a_flat_window_under_a_series_alarm_reports_the_alarm_disproven() -> Non
         ) \
         .then(
             _the_alarm_was_disproven_over(THE_JUDGED_SIGNALS)
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_short_of_the_alerts_minute_is_read_until_it_reaches_it() -> None:
+    # A source that reports a minute only once it is over has nothing yet for
+    # the minute the alert fired in, and that minute can hold the whole fault.
+    # A flat window without it says nothing about the alarm, so the metrics are
+    # read again until the alert's minute is there - and only then is the alarm
+    # judged.
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed_in_turn(
+                a_steady_window_that_stops_before_the_alert(),
+                a_steady_window_that_stops_before_the_alert(),
+                a_steady_window()
+            ))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            all_of(
+                _the_alarm_was_disproven_over(THE_JUDGED_SIGNALS),
+                _the_metrics_were_read(investigation.metrics_fetcher, times=3)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_flat_window_that_never_reaches_the_alerts_minute_disproves_nothing() -> None:
+    # Given up on after the longest wait allowed: four more reads, fifteen
+    # seconds apart, within a minute. The minute that could hold the fault was
+    # never seen, so the alarm is not called false - it is investigated.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window_that_stops_before_the_alert()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            all_of(
+                _nothing_was_disproven(),
+                _the_metrics_were_read(investigation.metrics_fetcher, times=5),
+                _the_model_was_asked(investigation.model, times=1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_metrics_are_read_again_a_recheck_interval_apart() -> None:
+    waited: list[float] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window_that_stops_before_the_alert()))
+        ) \
+        .when(
+            lambda: investigation.investigate(
+                alert=an_alert(stated_onset=None), sleep=waited.append
+            )
+        ) \
+        .then(
+            _waited(waited, [SOME_RECHECK_INTERVAL_IN_SECONDS] * 4)
+        )
+
+
+@pytest.mark.unit
+def test_a_reread_that_fails_disproves_nothing() -> None:
+    # The minute the alarm is about was never read, whatever stopped the read.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed_in_turn(
+                a_steady_window_that_stops_before_the_alert(),
+                McpToolError("the metrics source did not answer")
+            ))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            all_of(
+                _nothing_was_disproven(),
+                _the_model_was_asked(investigation.model, times=1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_window_that_stops_before_the_alerts_minute_but_shows_an_onset_is_read_once() -> None:
+    # Only the alarm's being called false waits for the alert's minute. A window
+    # that already shows where the incident began has nothing to wait for.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+    a_departure_before_the_alert = a_window_of(
+        [CALM_ERROR_RATE] * (MINUTES_BEFORE_THE_ALERT - 2) + [0.09, 0.18]
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_departure_before_the_alert))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            _the_metrics_were_read(investigation.metrics_fetcher, times=1)
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_alerts_minute_had_not_been_reported_yet() -> None:
+    # Where the case above that gives up goes on to. The rows stop because the
+    # source had not reported the last minutes yet, not because the service
+    # stopped reporting - and the alarm watches a series, so it is not a finding
+    # no series carries either. Each of those would send the model the wrong way.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window_that_stops_before_the_alert()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(investigation.model, "not reported yet"),
+                _what_was_asked_first_avoids(
+                    investigation.model,
+                    "stopped reporting",
+                    "knows something no series does"
+                )
+            )
         )
 
 
@@ -1945,6 +2149,39 @@ def test_the_model_is_shown_which_replica_started_at_the_onset() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_a_replica_placed_long_after_the_onset_started_after_it() -> None:
+    # Placed six days after the onset, it has only ever served during the
+    # incident - and still was not placed at it. Marked as started at the
+    # onset, the model is handed a suspect the placement does not support.
+    some_metrics = a_window_that_starts_calm()
+    began = parse_iso(the_onset_of(some_metrics))
+    a_pod_placed_days_later = PodPlacement(
+        pod="kuki-5b8c6d-q2xls",
+        node=ANOTHER_NODE,
+        accelerator=ANOTHER_CARD,
+        started_at=began + timedelta(days=6)
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics)),
+            calling(investigation.the_platform_placed([a_pod_placed_days_later]))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_opening_line_naming(
+                investigation.model,
+                a_pod_placed_days_later.pod,
+                mentions=("started after the onset",),
+                avoids=(THE_ONSET_MARK,)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_brief_says_what_a_replica_placed_at_the_onset_is_evidence_of() -> None:
     # The mark on a pod's line means nothing to a model never told what it is
     # evidence of: a replica the platform moved onto a card the others do not
@@ -2528,6 +2765,33 @@ def _the_findings_carry_the_placement(
             raise AssertionError(
                 f"Expected the findings to carry the placement {expected!r}, got "
                 f"{findings.placement!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_metrics_were_read(reader: Mock, times: int) -> Assertion[Findings]:
+    """How many times the loop read the metrics before going on."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        if reader.call_count != times:
+            raise AssertionError(
+                f"Expected the metrics to be read {times} time(s), and they were "
+                f"read {reader.call_count}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _waited(waited: list[float], expected: list[float]) -> Assertion[Findings]:
+    """Every wait the loop took, in seconds, in order."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        if waited != expected:
+            raise AssertionError(
+                f"Expected the loop to wait {expected} seconds, and it waited {waited}."
             )
 
         return True
@@ -3180,6 +3444,83 @@ def test_the_onset_it_found_is_published() -> None:
 
 
 @pytest.mark.unit
+def test_a_first_round_carries_the_onset_it_measured_and_how_it_knows() -> None:
+    # What a later round is handed, so both halves travel: the minute, and how it
+    # was established - the model is told a different thing in each grade.
+    some_metrics = a_window_that_starts_calm()
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate()
+        ) \
+        .then(
+            _the_onset_carried_is(EstablishedOnset(
+                minute=the_onset_of(some_metrics), how_known=HowTheMinuteIsKnown.MEASURED
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_a_later_round_works_from_the_onset_an_earlier_round_established() -> None:
+    # An incident has one beginning. A later round reads a window Argus has since
+    # acted on, and a departure found there is what followed the action - a flap
+    # after a revert - rather than a better reading of when the incident began.
+    some_metrics = a_window_that_starts_calm()
+    earlier_onset = EstablishedOnset(
+        minute=some_metrics[0].bucket_id, how_known=HowTheMinuteIsKnown.MEASURED
+    )
+    some_pods = _pods_either_side_of(earlier_onset.minute)
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics)),
+            calling(investigation.the_platform_placed(some_pods))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append,
+                                              established_onset=earlier_onset)
+        ) \
+        .then(all_of(
+            _the_placement_published_was(published, RecordedPlacement(
+                onset=parse_iso(earlier_onset.minute), pods=tuple(some_pods)
+            )),
+            _no_onset_was_published(published),
+            _the_onset_carried_is(earlier_onset)
+        ))
+
+
+@pytest.mark.unit
+def test_a_later_round_is_told_how_the_earlier_round_knew_its_onset() -> None:
+    # The grade travels with the minute. Re-derived from the later window, a
+    # stated minute would be graded by a departure that followed the action.
+    some_metrics = a_window_that_starts_calm()
+    earlier_onset = EstablishedOnset(
+        minute=some_metrics[0].bucket_id, how_known=HowTheMinuteIsKnown.STATED_BY_THE_ALERT
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(established_onset=earlier_onset)
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(investigation.model,
+                                           "stated by the alert rather than measured"),
+            _what_was_asked_first_avoids(investigation.model,
+                                         "measured from the per-minute metrics")
+        ))
+
+
+@pytest.mark.unit
 def test_a_departure_only_the_rules_series_shows_is_measured_and_investigated() -> None:
     # The incident this whole channel exists for: every request served as fast
     # and as successfully as before, and the one series that moves is the one
@@ -3710,6 +4051,33 @@ def _the_onset_published_was(published: list[IncidentEvent], onset: str) -> Asse
         detected_onset = detected[0].onset
         if detected_onset != onset:
             raise AssertionError(f"Expected the onset [{onset}], got [{detected_onset}].")
+
+        return True
+
+    return assertion
+
+
+def _no_onset_was_published(published: list[IncidentEvent]) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        detected = [event.onset for event in published if isinstance(event, OnsetDetected)]
+        if detected:
+            raise AssertionError(
+                f"Expected a round handed its onset to publish none, and it published "
+                f"{detected} - so the incident's record says it began more than once."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_onset_carried_is(expected: EstablishedOnset) -> Assertion[Findings]:
+    def assertion(findings: Findings) -> bool:
+        if findings.onset != expected:
+            raise AssertionError(
+                f"Expected the findings to carry the onset {expected!r}, and they "
+                f"carry {findings.onset!r}."
+            )
 
         return True
 

@@ -41,8 +41,6 @@ is looking at.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
@@ -64,7 +62,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import the_incidents_events
+from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_events
 
 # What the shop's own monitoring pages on for a leak, and not what it pages on
 # for anything else. Memory is the signal that moves first: by the time a
@@ -91,7 +89,7 @@ def test_a_leaking_service_is_restarted_and_still_gets_a_fix_proposed() -> None:
 
     Scenario() \
         .given(
-            calling(_the_shop_was_left_leaking()),
+            calling(a_scenario_was_seeded("resource-leak", as_recorded_in=RECORDED_RESOURCE_LEAK)),
             calling(the_model_answers_from(RECORDED_RESOURCE_LEAK))
         ) \
         .when(
@@ -274,16 +272,3 @@ def _the_shops_window() -> list[dict[str, Any]]:
         )
 
     return window
-
-
-def _the_shop_was_left_leaking() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "resource-leak"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

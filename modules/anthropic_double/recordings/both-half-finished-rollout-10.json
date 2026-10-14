@@ -2,34 +2,208 @@
   "container": null,
   "content": [
     {
-      "signature": "CAISywoKrgIIEhgCKkCAZ9qBDi+3IZDWrh546s+v9GN/mqyVtY2kH0F4+zJ6PzMqDfMIo9/7RwpioOJ3d4YPvNelUqdui14T6Qt2S1RxMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKoAa3y69UGwgE6CAQQABoMAkaTA083BdjmBCatIAEyBBJxzyU6BDgzI4pCBMz0wwJKBCJaML1QAVoE2QXhVmACaAFwANoBYAoWcHJlZml4X2JlZm9yZV9ibG9ja192MRIgxoa3RddxLRQCqRaNQqBDkZQ+k2b0PfQSLTNId3lFXDkiADIgwsATyGqckuIvlm89hhd2j4t6RMkCrcwJe/oeCYr7Th9IAxIMeZGy7p4R40lotJIfGgy7/zXKPailWRVC5lEiMHJjcPM9E0KxpxY5/TzOf9BW/xP/HOr2JQZfYCCKaSLnFT9WEyg7KKQzTAlIjZ9IEyrJB+OVMqT1Epqwt5D/zJA0YScFyZdYbGoqgQFIyE2A+zreE85fUpRo3hneABCpG0lfv3QfY1TTM4DTfShxpvWEeeM6rXfuhaZ/BqlwdSBBsUamglrFJhuHX2eHwkln+M0tx+G3OX8lruCsEDf9awr6gxILIDRkyQNYSAk/MJAxPirjGUIg1pqin4L0Qb/GdqsPLlhpj3/oa4R53rREWuwKrCK4VxUyq2p4Qv9p1mnV/LjM0FmOeA79CqPqgOxt1s/OSnlAOtlA8m4/bLHPv0kHkOaKPZ8U1CaLDRHi+sTqQMIdHQfCTx3eoE8aksKDOytHXX1cdUBL/yyQYD4ySVNkQO+57WsUur5HUrJ6vRM0glit11deiY2EWUAgLinumhFO8iBiyXWMwpWEmzR95eRsyLQvFXrdI8ylEIrCyzZIIR5H/E5C2ZIMoMVuHmgQ5EG05dz1XtZPPX+9JgIDyP6jXaORj14H3WHcnKx1cNvPRcrG4A3+s7GMOAnSmwrmuZU3UeS4BOVBjOc+gsY7y04aSCekoZ8rV7r7HcomaasaLAZQpCT8VFAXlsFmPanOplVTZxW8z7jORHioHBsO5rqXFH241CmU/Zh+Fp/8n9A+vOGRHG0KvcDBTe822yjMnw9DC84fn8+T92GuPm3gt/Bw/Vb4afecyPxyK6pCRnfBO+8VOd5J7wLyF7g36JZr81OsHZiRbq+++V29Xb8aMIS+S31BtP//osRmn22Ww5iTbrCDNnSYEq0HxLvtyLjrMzqSHnueMvyjwW6IGS3/5QWTUFgjKMSu1BhiEuNsg+R5YEnXAnRXbssHYSZ56lm4kepPbSgO6uSyAB+xwTQaecmIFI/zlvUdr6IGja7tJ6z5kJ4bXtGh+F0ANxp+bYdQT1GvhTcHtqXsUXA/ABl3LiKH3xevDrGIpvX3fmLRaSiPl2qdzjALQ3b8DqYyq/D1EsgmOD2Pv+CzCGO1A+k78HVN73jqrNr0HiiKOv6W/kjFImtJz1wXlRHqIr8BUa3nQhSRhmVGwZdPAkTtLjb6qs/wbZJ+zhMv8xaPc7C8M2RWjI3Svyby+bIcCqg3mJOMj3Qlmccs+h3prqzbmuks6Qs9aBMk9qjWQlXAhNR9lE3lzcrjZvPT5Pq2SYQCOI5tRz2+oQ7tUwO2J4k+mnlerXSkY5ANWec+spUGMLNyxzDQfXdDetOqkDEZh943xF7ThmItm4bjmkmecwn1VZbJ0D+oHZ/EzbDtxNLeyrVXeXQ7ah1KLuKhvwd+2uNroDgTBw7ZQum+n+hbnOteARgB",
-      "thinking": "I'm noting the assumptions I need to flag clearly: the rollout appears stalled based on inferred state, the flag provider shows no changes, the fix PR is still a draft, and the recovery is only correlated with the rollback rather than proven causal. I should keep the executive summary free of internal component names, referring instead to something like \"the shop's account page,\" and avoid presenting inferred figures as if they were directly computed.\n\n",
+      "signature": "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",
+      "thinking": "I need to avoid writing any actual digits or figures myself, using placeholders instead for things like durations, timestamps, and counts, while spelling out small numbers in words like \"both versions\" rather than numerals.\n\nWorking through the causal chain: users saw account page failures with error rates spiking between {began} and {recovered}, caused by replicas failing to read a composite cache entry that the deployment had switched to from a simpler format. I'm tracing this to a stalled rollout where replicas were split between old and new revisions sharing a cache, with old parsers unable to read the new composite entries\u2014rolling back to the prior revision confirmed this as the root cause, though the split-rollout detail rests on the Investigator's assumption.\n\nContributing factors include no staged compatibility check for the format change and a detection gap, since the alert fired several minutes after errors actually began. I'm drafting new action items: a tolerant reader or two-phase format rollout, alerting on stalled rollouts or cache parse errors, and a pre-deploy review step for shared-state format changes\u2014noting that rollback did eventually resolve things once triggered.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_015sAivnwo9AyBLtA5NsVka4",
+      "id": "toolu_01RunAq6cTgqNozudZVG2VPo",
       "input": {
-        "assumptions": [
-          "The recovery is attributed to the rollback on timing alone: the service returned to baseline ~22s after the rollback was issued, and no other change was observed in that window.",
-          "The 23:21 deployment was identified as the trigger because it was the only relevant production change found in the preceding ~6.5 hours; two production changes were read but only that one lines up with the failure signature.",
-          "The 3-of-6 / 3-of-6 split rollout state was taken from the reported rollout status. There is no per-replica request evidence in hand showing failures originating on both revisions; the mixed-version explanation rests on the rollout state plus the error text.",
-          "The low-level errors before 23:22 (ClientDisconnected, ~0.5-3% of requests) are treated as ordinary background noise unrelated to this incident.",
-          "Feature flags were ruled out on the basis that the flag provider reported no recent changes.",
-          "Impact is characterised only from the service's own error-rate and log signal; no customer reports or downstream effects were checked, and the draft pull request is a proposal that has not been reviewed or merged."
+        "action_items": [
+          {
+            "item": "Make the summary cache reader accept both the bare cents format and the composite format. Roll the change out in two phases: first deploy the tolerant reader everywhere, then deploy the writer that emits the new format.",
+            "type": "prevent"
+          },
+          {
+            "item": "Alert on a rollout that stays split between revisions beyond a set time, and on a rise in summary cache parse errors, so a stalled mixed-version state is flagged before the general error-rate alert fires.",
+            "type": "detect"
+          },
+          {
+            "item": "Add a pre-deploy review check and a test that runs the previous revision's reader against the new revision's writer. It should be required for any change to the format of shared cache or storage entries.",
+            "type": "process"
+          }
         ],
-        "executive_summary": "For about six minutes late on 28 September 2026 (23:22\u201323:28 UTC), a large minority of visits to the online shop's account page failed outright, returning an error instead of the page. Roughly one in four requests failed at the worst point, against a baseline where almost everything succeeded; customers who retried would generally have succeeded, since the failures were intermittent rather than a full outage. Nothing else in the shop was affected, and no customer data was lost or altered. The cause was a software release begun a minute before the errors started: it was only half applied, so two versions of the shop were running side by side and disagreed about how to read the saved account-summary figures they share. The automated on-call system, Argus, picked up the alert, traced the failures to that release, and reversed it; the error rate returned to normal immediately afterward. A draft code change to prevent a repeat has been opened for the team to review.",
-        "root_cause": "The 23:21 deployment of io-shop (696c33a6) changed the format of the shared summary-cache entry from a bare cents integer to a composite \"amount_cents/items_counted\" string (summary_cache.py / account_page.py), and the rollout paused mid-way with 3 of 6 replicas on each revision. With both revisions live against the same cache, replicas read entries written in the other revision's format and the parse failed with ValueError: summary cache entry '2400/8' is not a figure in cents \u2014 so the fault was a version-compatibility break during an unconverged rollout, not code that was simply broken on its own."
+        "causal_chain": [
+          {
+            "cites": [
+              "Gbac1",
+              "G3714"
+            ],
+            "step": "Shoppers' account page requests failed. The error rate rose from {errors_before} to {errors_while_broken} on average between {began} and {recovered}, peaking at {errors_at_worst}, and the account page error warnings climbed with it."
+          },
+          {
+            "cites": [
+              "Gc956",
+              "G3714"
+            ],
+            "step": "The failing requests raised a ValueError because a summary cache entry was not a figure in cents. The service was reading a composite 'amount/items' value where it expected a bare integer."
+          },
+          {
+            "cites": [
+              "P2",
+              "C1",
+              "Gc956"
+            ],
+            "step": "The deployment at {began} changed the summary cache entry format from a bare cents integer to a composite 'amount_cents/items_counted' string. The first parse errors appear at the same time as that deploy."
+          },
+          {
+            "cites": [
+              "C1",
+              "G3714"
+            ],
+            "step": "The rollout did not converge. Replicas on the old revision and replicas on the new revision were live against the same shared cache at once. Old-revision code still parses entries as a bare integer, so it fails on entries the new revision wrote. The break existed only while both versions were running together."
+          },
+          {
+            "cites": [
+              "C1",
+              "M1",
+              "T20",
+              "T22"
+            ],
+            "step": "The new format was shipped as a direct replacement, not as a change the old reader could tolerate. Nothing before or during the rollout caught that the old and new revisions could not read each other's cache entries. Rolling back removed the mixed state, and the error rate returned to baseline."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2",
+              "AI-3",
+              "AI-5"
+            ],
+            "factor": "A change to the format of shared state (the summary cache) went out as a single-step replacement. The old revision's reader could not handle the new format, and no review or test checked compatibility between adjacent revisions during a rollout."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "The stalled, split rollout was not flagged. Cache parse errors were reaching shoppers until the general error-rate alert paged at {alert_raised}, after the onset at {began}."
+          }
+        ],
+        "executive_summary": "For about {duration}, from {began} to {recovered}, a share of shoppers' account page requests failed. The error rate rose from {errors_before} to {errors_while_broken} on average and peaked at {errors_at_worst}. A software release changed how a small piece of shared cached data was stored. For a while, servers running the old release and servers running the new release were both live. The old ones could not read what the new ones wrote. Argus rolled the release back, the error rate returned to baseline, and Argus confirmed recovery and closed its response after {held}. A draft fix has been proposed for review.",
+        "lessons": {
+          "got_lucky": [
+            "The failure was limited to the account page summary and the mixed-version state was reversible. A rollback was enough, with no cache cleanup shown as needed in the record."
+          ],
+          "went_well": [
+            "Argus read metrics, logs and change events, and identified the format change as the leading cause within seconds of being called in.",
+            "The rollback was applied quickly. Argus confirmed the metrics returned to baseline and the paging rule stopped firing, and the response was held for {held}.",
+            "A draft fix was proposed as a pull request right after mitigation."
+          ],
+          "went_wrong": [
+            "A cache format change that was not backward compatible reached production and stalled the rollout in a mixed-version state.",
+            "The alert fired at {alert_raised}, after the onset at {began}, so shoppers were failing before anyone was paged."
+          ]
+        },
+        "root_cause": "The deployment at {began} changed the format of entries in the shared summary cache from a bare cents figure to a composite string. The rollout stalled with old and new revisions live together, so old-revision replicas could not parse entries written by new-revision replicas, and account page requests failed.",
+        "symptom": "Account pages failed for some shoppers"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01MrJvHBVs8JQEJq1xxvtqUn",
+      "input": {
+        "action_items": [
+          {
+            "item": "Make the summary cache reader accept both the bare cents format and the composite format. Roll the change out in two phases: first deploy the tolerant reader everywhere, then deploy the writer that emits the new format.",
+            "type": "prevent"
+          },
+          {
+            "item": "Alert on a rollout that stays split between revisions beyond a set time, and on a rise in summary cache parse errors, so a stalled mixed-version state is flagged before the general error-rate alert fires.",
+            "type": "detect"
+          },
+          {
+            "item": "Add a pre-deploy review check and a test that runs the previous revision's reader against the new revision's writer. It should be required for any change to the format of shared cache or storage entries.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "Gbac1",
+              "G3714"
+            ],
+            "step": "Shoppers' account page requests failed. The error rate rose from {errors_before} to {errors_while_broken} on average between {began} and {recovered}, peaking at {errors_at_worst}, and the account page error warnings climbed with it."
+          },
+          {
+            "cites": [
+              "Gc956",
+              "G3714"
+            ],
+            "step": "The failing requests raised a ValueError because a summary cache entry was not a figure in cents. The service was reading a composite 'amount/items' value where it expected a bare integer."
+          },
+          {
+            "cites": [
+              "P2",
+              "C1",
+              "Gc956"
+            ],
+            "step": "The deployment at {began} changed the summary cache entry format from a bare cents integer to a composite 'amount_cents/items_counted' string. The first parse errors appear at the same time as that deploy."
+          },
+          {
+            "cites": [
+              "C1",
+              "G3714"
+            ],
+            "step": "The rollout did not converge. Replicas on the old revision and replicas on the new revision were live against the same shared cache at once. Old-revision code still parses entries as a bare integer, so it fails on entries the new revision wrote. The break existed only while both versions were running together."
+          },
+          {
+            "cites": [
+              "C1",
+              "M1",
+              "T20",
+              "T22"
+            ],
+            "step": "The new format was shipped as a direct replacement, not as a change the old reader could tolerate. Nothing before or during the rollout caught that the old and new revisions could not read each other's cache entries. Rolling back removed the mixed state, and the error rate returned to baseline."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2",
+              "AI-3",
+              "AI-5"
+            ],
+            "factor": "A change to the format of shared state (the summary cache) went out as a single-step replacement. The old revision's reader could not handle the new format, and no review or test checked compatibility between adjacent revisions during a rollout."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "The stalled, split rollout was not flagged. Cache parse errors were reaching shoppers until the general error-rate alert paged at {alert_raised}, after the onset at {began}."
+          }
+        ],
+        "executive_summary": "For about {duration}, from {began} to {recovered}, a share of shoppers' account page requests failed. The error rate rose from {errors_before} to {errors_while_broken} on average and peaked at {errors_at_worst}. A software release changed how a small piece of shared cached data was stored. For a while, servers running the old release and servers running the new release were both live. The old ones could not read what the new ones wrote. Argus rolled the release back, the error rate returned to baseline, and Argus confirmed recovery and closed its response after {held}. A draft fix has been proposed for review.",
+        "lessons": {
+          "got_lucky": [
+            "The failure was limited to the account page summary and the mixed-version state was reversible. A rollback was enough, with no cache cleanup shown as needed in the record."
+          ],
+          "went_well": [
+            "Argus read metrics, logs and change events, and identified the format change as the leading cause within seconds of being called in.",
+            "The rollback was applied quickly. Argus confirmed the metrics returned to baseline and the paging rule stopped firing, and the response was held for {held}.",
+            "A draft fix was proposed as a pull request right after mitigation."
+          ],
+          "went_wrong": [
+            "A cache format change that was not backward compatible reached production and stalled the rollout in a mixed-version state.",
+            "The alert fired at {alert_raised}, after the onset at {began}, so shoppers were failing before anyone was paged."
+          ]
+        },
+        "root_cause": "The deployment at {began} changed the format of entries in the shared summary cache from a bare cents figure to a composite string. The rollout stalled with old and new revisions live together, so old-revision replicas could not parse entries written by new-revision replicas, and account page requests failed.",
+        "symptom": "Account pages failed for some shoppers"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfWiCQ8N58HtXNKSBBGov",
-  "model": "claude-opus-5",
+  "id": "msg_011Cfyu8bymutHGq5sKpWcYD",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -38,15 +212,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 4879
+      "ephemeral_5m_input_tokens": 2894
     },
-    "cache_creation_input_tokens": 4879,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 2894,
+    "cache_read_input_tokens": 1900,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1232,
+    "input_tokens": 4,
+    "output_tokens": 4053,
     "output_tokens_details": {
-      "thinking_tokens": 305
+      "thinking_tokens": 821
     },
     "service_tier": "standard"
   }

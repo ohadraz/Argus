@@ -465,9 +465,12 @@ def contract(session: nox.Session) -> None:
     workspace does, that the GitHub double still compares two commits as GitHub
     does, and that the Target Service's stand-ins at `/prometheus`, `/stripe`
     and `/frankfurter` still answer the adapters as a real Prometheus, a Stripe
-    sandbox and Frankfurter itself do. Brings up the Slack and GitHub doubles,
-    and the Target Service with a real Prometheus scraping it - one half of
-    each comparison is the stand-in.
+    sandbox and Frankfurter itself do, and that `target_service_double` still
+    draws the world the shop itself draws. Brings up the Slack and GitHub
+    doubles, and the Target Service with a real Prometheus scraping it - one
+    half of each comparison is the stand-in. The shop's stand-in is compared
+    in the shop's own environment, so that half needs the shop checked out
+    beside this repository, as `grade_fixes` does.
 
     Free, which is the line between this and `paid_contract`. The Slack half
     posts messages somebody can see and skips itself without `SLACK_BOT_TOKEN`
@@ -481,7 +484,8 @@ def contract(session: nox.Session) -> None:
     _contract_against(
         session, [_SLACK_DOUBLE, _GITHUB_DOUBLE],
         ["tests/contract/slack", "tests/contract/github", "tests/contract/prometheus",
-         "tests/contract/stripe", "tests/contract/frankfurter"],
+         "tests/contract/stripe", "tests/contract/frankfurter",
+         "tests/contract/target_service"],
         compose_services=("target-service", "prometheus")
     )
 
@@ -1592,6 +1596,23 @@ _PAGERDUTY_AT_THE_DOUBLE = {
     "PAGERDUTY_WEBHOOK_SECRET": "the-suite-signs-its-resolutions-with-this"
 }
 
+# The shop served through `target_service_double`, which re-keys its draws by
+# how far this run sits from the recording's anchor - so a replayed answer
+# citing a log group, a figure or a timeline line finds the one it was recorded
+# citing.
+#
+# `COMPOSE_FILE` rather than `-f` on the one `up`, because every `docker
+# compose` here has to see the same project: `down`, `logs` and `ps` given the
+# base file alone would describe a different stack from the one that came up.
+# Joined with the platform's own separator, which is what compose splits on.
+#
+# `TARGET_SERVICE_DOUBLE` is for the suite, which stages an anchor before it
+# seeds only when something is there to take one.
+_THE_SHOP_AT_ITS_STAND_IN: Final = {
+    "COMPOSE_FILE": os.pathsep.join(["docker-compose.yml", "docker-compose.replay.yml"]),
+    "TARGET_SERVICE_DOUBLE": "1"
+}
+
 _ANTHROPIC_DOUBLE: tuple[str, list[str], str] = (
     "anthropic_double",
     ["-m", "anthropic_double.server"],
@@ -1813,6 +1834,7 @@ def _run_against_the_stack(
     github_stands_in: bool = True,
     pagerduty_stands_in: bool = True,
     model_stands_in: bool = False,
+    shop_stands_in: bool = False,
     on_a_simulated_clock: bool = False
 ) -> None:
     """Brings the whole stack up, runs `test_paths` against it, tears it down.
@@ -1820,6 +1842,12 @@ def _run_against_the_stack(
     `on_a_simulated_clock` runs every process of the stack - Argus's, the
     containers', and the pytest process - on one clock `_THE_SIMULATED_SPEED`
     times faster than the real one, counted from now. See `argus_core.clock`.
+
+    `shop_stands_in` serves the Target Service through its stand-in
+    (`_THE_SHOP_AT_ITS_STAND_IN`), and is the one setting here that is also
+    taken away when it is not asked for. Every session runs in one process, so
+    a replay followed by `e2e` in the same invocation would otherwise hand a
+    paid run a shop whose draws answer to somebody else's anchor.
 
     Shared by `e2e` and `e2e_replay` so the two cannot drift on anything except
     the one difference that distinguishes them - which service, if any, is
@@ -1870,6 +1898,12 @@ def _run_against_the_stack(
         os.environ.update(_GITHUB_AT_THE_DOUBLE)
     if pagerduty_stands_in:
         os.environ.update(_PAGERDUTY_AT_THE_DOUBLE)
+    # Before the first `docker compose`, which is what reads it.
+    if shop_stands_in:
+        os.environ.update(_THE_SHOP_AT_ITS_STAND_IN)
+    else:
+        for setting in _THE_SHOP_AT_ITS_STAND_IN:
+            os.environ.pop(setting, None)
     # Before docker, because the clock writer reads both as it starts, and on the
     # session's environment for the reason the settings above are: a process that
     # was not handed them runs on the real clock, minutes adrift of the rest.
@@ -2218,6 +2252,9 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
         [] if named_cases else _the_cases_for(mode),
         service_env=_THE_MODEL_AT_ITS_DOUBLES,
         model_stands_in=True,
+        # A recorded answer cites the world it was recorded in, so the shop
+        # has to draw that world again.
+        shop_stands_in=True,
         on_a_simulated_clock=True
     )
 
@@ -2254,6 +2291,18 @@ _THE_CATEGORISER_CASE: Final = "tests/e2e/test_a_categoriser_upgrade_is_rolled_b
 # which tool found a file.
 _THE_RESCHEDULED_SCORER_CASE: Final = "tests/e2e/test_a_rescheduled_scorer_is_pinned_back.py"
 
+# The two endings settled before the model is asked anything: a window nobody
+# could read, escalated, and a flat one, disproven. A decision, and a stronger
+# one than the categoriser's - neither walk offers the model a tool at all, so
+# no mode's tool list can reach them. One file, since the pair is written to be
+# read together.
+_THE_ENDINGS_WITHOUT_A_CAUSE_CASES: Final = "tests/e2e/test_incident_lifecycle.py"
+
+# A person reporting the incident over, from its page, the on-call platform and
+# its thread. A decision: that a resolution leaves Argus's changes in place and
+# is written up does not vary by which tool found a file.
+_THE_RESOLUTION_CASES: Final = "tests/e2e/test_resolving_an_incident.py"
+
 
 def _the_cases_for(mode: str) -> list[str]:
     """The suite, less what this mode has no index for and less what it has no
@@ -2266,7 +2315,8 @@ def _the_cases_for(mode: str) -> list[str]:
     against this stack, they are about a mechanism it does not have.
 
     The large-fix, scale-out, pin, unreachable-platform, undated-finding,
-    categoriser and rescheduled-scorer cases are left out of the other two modes
+    categoriser and rescheduled-scorer cases, the two endings reached without a
+    cause and the three resolutions, are left out of the other two modes
     for a different reason, and it is a decision rather than an absence. One
     claims that an answer the size of a whole large file survives the round trip
     - streamed, reassembled, parsed and written; another that a mode reaches the
@@ -2276,8 +2326,12 @@ def _the_cases_for(mode: str) -> list[str]:
     answering; the fifth that a finding nobody can date is walked from the minute
     it paged; the sixth that a walk dates and judges an incident on the rule's own
     series; the seventh that a walk pins a deployment to the card its record says
-    the fleet ran on. Nothing in any of those varies by which tool the model found
-    a file with, and the walks that do
+    the fleet ran on; the next two that a window nobody could read escalates and
+    a flat one is disproven, both before the model is offered a tool at all; the
+    last three that a person reporting the incident over leaves Argus's changes
+    in place and is written up.
+    Nothing in any of those varies by which tool the model found a file with, and
+    the walks that do
     differ per mode are covered by their siblings - so recording them three times
     would buy three recordings of one assertion, at a real investigation each, on
     every re-record for ever. The pin's is the dearest: its near-miss is a whole
@@ -2291,7 +2345,7 @@ def _the_cases_for(mode: str) -> list[str]:
     claim is worth: it is simply recorded under two modes and not the third, so
     under `meaning` there is no queue for the double to answer from. That makes it
     the one exclusion here with an expiry - it goes when the recording arrives,
-    where the seven above stay for as long as their reasoning holds.
+    where the ones above stay for as long as their reasoning holds.
     """
     left_out = []
 
@@ -2306,11 +2360,19 @@ def _the_cases_for(mode: str) -> list[str]:
         left_out.append(f"--ignore={_THE_UNDATED_FINDING_CASE}")
         left_out.append(f"--ignore={_THE_CATEGORISER_CASE}")
         left_out.append(f"--ignore={_THE_RESCHEDULED_SCORER_CASE}")
+        left_out.append(f"--ignore={_THE_ENDINGS_WITHOUT_A_CAUSE_CASES}")
+        left_out.append(f"--ignore={_THE_RESOLUTION_CASES}")
 
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")
 
     return ["tests/e2e", *left_out]
+
+
+# The recorder's flag for a write-up captured over a walk already on disk.
+# Spelled here as `scripts/record_incident.py` spells it, rather than imported:
+# a noxfile that fails to import takes every session with it.
+_RE_RECORDING_THE_WRITE_UP_ALONE: Final = "--postmortem-only"
 
 
 @nox.session
@@ -2365,6 +2427,15 @@ def record(session: nox.Session, mode: str) -> None:
         # upstream and saves what comes back, so a recording run needs it up
         # and pointed at even though every answer is the real model's.
         model_stands_in=True,
+        # The stand-in, so a write-up re-recorded over an existing walk sees the
+        # world that walk saw. With no anchor staged it is the shop unchanged.
+        shop_stands_in=True,
+        # A write-up re-recorded alone runs on the replay's clock, because
+        # everything before it is a replay: the walk it follows was recorded
+        # against the world a replay draws, and the one paid call takes its
+        # seconds whatever the clock says. A fresh capture stays on the real
+        # clock, where a real model's answer takes the time it takes.
+        on_a_simulated_clock=_RE_RECORDING_THE_WRITE_UP_ALONE in session.posargs,
         # The real repository, for the reason `e2e` uses it and one more. A
         # recording is a walk captured in a particular world, and the world a
         # code fix is decided by is the source Code-Fix reads - so a recording

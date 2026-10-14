@@ -378,7 +378,11 @@ class Settings(BaseSettings):
     # a ceiling is not a reservation, so asking for all of it costs nothing
     # for the fixes that turn out to be small.
     codefix_max_output_tokens: int = Field(default=128_000, gt=0)
-    postmortem_model: str = Field(default=DEFAULT_MODEL)
+    # Sonnet rather than the shared default, at 40% of Opus's rates: the
+    # postmortem reads a finished record and answers once, and every claim it
+    # makes is checked by code before it is accepted. A cost decision, not yet
+    # measured against Opus the way the investigation's model was.
+    postmortem_model: str = Field(default="claude-sonnet-5-5")
     postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
 
     # The model that classifies what a person wrote in an incident's thread, and
@@ -546,6 +550,14 @@ class Settings(BaseSettings):
     # has or has not spent. This is the bound that answers to the human
     # waiting on the incident rather than to the accountant.
     investigation_max_seconds: float = Field(default=300.0, gt=0.0)
+
+    # How often the Investigator reads the metrics again when they stop before
+    # the minute the alert fired in, and how long it keeps trying. A source that
+    # reports a minute only once it is over has nothing yet for that minute, and
+    # an alarm is called false only over a window that reaches it. Given up on,
+    # the alarm is investigated instead.
+    metrics_recheck_interval_seconds: float = Field(default=15.0, gt=0.0)
+    metrics_recheck_max_wait_seconds: float = Field(default=120.0, ge=0.0)
 
     # How many times one incident may be investigated. A round after the first
     # is bought by a refuted attempt, not by a wider window: Argus changed

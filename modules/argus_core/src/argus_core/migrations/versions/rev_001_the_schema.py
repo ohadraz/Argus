@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
     root_cause TEXT,
+    symptom TEXT,
     -- Three figures rather than one blob, and three rather than two: what the
     -- incident cost the business, what it cost the humans, and what it cost
     -- Argus are different quantities in different units, measured by different
@@ -277,8 +278,29 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- Never null, for the reason `responder_titles` is not: an incident nobody
     -- wrote about is a question answered with none.
     leads JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- The template's sections (`argus_core.models.postmortem_sections`). JSONB
+    -- rather than tables of their own: each is read whole, by a renderer that
+    -- shows it, and nothing queries across incidents by a chain step or a
+    -- lesson. Null where a section is one value nothing wrote; an empty list
+    -- where it is many and there were none, for the reason `leads` is.
+    impact JSONB,
+    detection JSONB,
+    trigger JSONB,
+    resolution JSONB NOT NULL DEFAULT '[]'::jsonb,
+    causal_chain JSONB NOT NULL DEFAULT '[]'::jsonb,
+    contributing_factors JSONB NOT NULL DEFAULT '[]'::jsonb,
+    hypotheses JSONB NOT NULL DEFAULT '[]'::jsonb,
+    action_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+    lessons JSONB,
+    timeline JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- How many labelled pieces of evidence the model was handed. A column
+    -- rather than JSON because it is a figure, and the eval tier aggregates
+    -- figures.
+    evidence_read INTEGER,
     executive_summary TEXT,
-    checklist_complete BOOLEAN NOT NULL DEFAULT false,
+    -- Google's five review criteria, each met, unmet, or left for a person.
+    -- Never null: a document is always reviewed against all five.
+    review JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -360,13 +382,25 @@ CREATE TABLE IF NOT EXISTS incident_reference (
     kind TEXT NOT NULL,
     value TEXT NOT NULL,
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- One name, one incident: the tool's word about it must reach exactly
-    -- one. A second claim on a name writes nothing, and the incident that had
-    -- it keeps it.
-    PRIMARY KEY (source, kind, value)
+    -- An incident holds a name once: the same name arriving again for it - a
+    -- webhook delivered twice, a reminder of the firing that opened it -
+    -- writes nothing.
+    PRIMARY KEY (incident_id, source, kind, value)
 );
-CREATE INDEX IF NOT EXISTS incident_reference_incident_idx
-    ON incident_reference (incident_id);
+-- One name, one incident, for every kind but three: the tool's word about a
+-- thread, a message or an offer must reach exactly one, so a second claim on
+-- such a name writes nothing and the incident that had it keeps it. The three
+-- are names the tools handing them out cannot tell Argus's incidents apart
+-- by - every firing of an alert group pages under the group's one key, one
+-- page can stay open across two incidents, and one firing can be reminded of
+-- after Argus opened a second incident for it - so each may have several
+-- holders, and which of them a tool meant is read from when each was going
+-- on. `argus_core.models.reference` names the three.
+CREATE UNIQUE INDEX IF NOT EXISTS incident_reference_one_holder_idx
+    ON incident_reference (source, kind, value)
+    WHERE kind NOT IN ('notification-key', 'on-call-incident', 'alert-firing');
+CREATE INDEX IF NOT EXISTS incident_reference_name_idx
+    ON incident_reference (kind, value);
 -- One conversation per incident per channel. A thread is a different name each
 -- time one is opened, so the key above cannot stop a second - two relays at
 -- once, a pass repeated after a crash - and this is the guard: the second

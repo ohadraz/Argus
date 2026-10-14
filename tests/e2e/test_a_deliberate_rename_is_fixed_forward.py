@@ -112,7 +112,8 @@ def test_a_rename_the_monitoring_did_not_follow_is_fixed_forward_not_rolled_back
     # minute the alert states is the only thing dating the incident.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(A_SHOP_RENAMED_TO_THE_CONVENTION)),
+            calling(a_scenario_was_seeded(A_SHOP_RENAMED_TO_THE_CONVENTION,
+                                          as_recorded_in=RECORDED_MONITORING_CONFIGURATION_DRIFT)),
             calling(the_model_answers_from(RECORDED_MONITORING_CONFIGURATION_DRIFT)),
             calling(_the_deployment_history_was_staged())
         ) \

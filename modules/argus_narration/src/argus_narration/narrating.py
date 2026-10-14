@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import assert_never
 
+from argus_core import to_iso
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -83,7 +84,7 @@ from argus_core.models import (
 )
 from pydantic import BaseModel
 
-from argus_narration.clock import a_minute, a_window
+from argus_narration.clock import a_minute, a_moment, a_window
 from argus_narration.findings import Finding, a_finding
 from argus_narration.flags import on_or_off, said_as_a_state
 from argus_narration.logs import LogLine, a_log_line
@@ -149,6 +150,15 @@ _WHY_IT_WAS_REFUSED = {
                                       "taken"
 }
 
+# The reasons said of the action rather than of the investigation. Each opens
+# on its verb, so the line gives it its subject; the other two carry their own.
+_SAID_OF_THE_ACTION = frozenset({
+    Refusal.NOT_A_GENERIC_MITIGATION,
+    Refusal.ALREADY_TRIED_ENOUGH,
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+    Refusal.NOTHING_COULD_CONFIRM_IT
+})
+
 
 # What each retrieval channel is, said so that somebody who has never read the
 # spec knows what was asked for. "changes" in particular: it means deploys and
@@ -189,6 +199,9 @@ class CandidateLine(BaseModel):
     ask, and the answer belongs where they are looking.
     """
 
+    # The hypothesis this is, so whatever lays the candidates out elsewhere -
+    # the write-up, under labels of its own - can tell which line formed which.
+    hypothesis_id: str
     rank: int
     summary: str
     subject: str | None
@@ -273,6 +286,13 @@ class NarrationLine(BaseModel):
     # writing again or from anywhere else, and only the buttons already posted
     # are done with.
     expires_the_offers: bool = False
+    # Whether this line is outside the walk: there because a person wrote or
+    # pressed something, or because the relay could not post, rather than at a
+    # step the walk takes whoever is watching. Where such a line lands among the
+    # walk's - and whether it is there at all - is a matter of timing, so a
+    # destination numbering the walk's lines numbers these apart: counted with
+    # them, a message written a second earlier renumbers everything after it.
+    outside_the_walk: bool = False
     # How many identical looks this line stands for. The wait polls every few
     # seconds and says the same thing each time; a dozen rows saying it is
     # noise, and none at all is a page that looks stuck.
@@ -318,6 +338,23 @@ def build_narration(events: Sequence[IncidentEvent]) -> list[NarrationLine]:
     return narration
 
 
+def each_wait_told_once(narration: list[NarrationLine]) -> list[NarrationLine]:
+    """The narration with every wait for recovery told by its last look alone.
+
+    For a destination that numbers the walk's lines. How many looks a wait
+    took, and which of them a person's message fell between, is a matter of
+    timing - so told look by look, one walk numbers differently from one run to
+    the next. The last look is the one that says what the wait came to; the
+    looks before it said only that it had not yet.
+
+    A wait is the run of looks with no other line of the walk's between them.
+    A line outside the walk stays where it fell and ends no wait.
+    """
+    return [line for position, line in enumerate(narration)
+            if not (line.kind == _RECOVERY_CHECKED
+                    and _the_walk_looks_again(narration[position + 1:]))]
+
+
 def a_narration_line(event: IncidentEvent) -> NarrationLine:
     """One event, said in words, by somebody.
 
@@ -357,7 +394,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             who = _INVESTIGATOR
             text = (
                 f"Asked for {_CHANNELS[event.channel]}, "
-                f"{a_window(event.window_start, event.window_end)}"
+                f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
             )
         case MetricsRetrieved():
             who = _INVESTIGATOR
@@ -373,10 +410,12 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             )
         case LogsRetrieved():
             who = _INVESTIGATOR
-            text = f"Read back {len(event.lines)} log lines"
+            read = len(event.lines)
+            text = f"Read back {read} log line{'s' if read != 1 else ''}"
         case ChangesRetrieved():
             who = _INVESTIGATOR
-            text = f"Read back {len(event.changes)} production changes"
+            read = len(event.changes)
+            text = f"Read back {read} production change{'s' if read != 1 else ''}"
         case FlagChangesRetrieved():
             who = _MITIGATION
             recent = len(event.changes)
@@ -398,7 +437,12 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             )
         case OnsetDetected():
             who = _INVESTIGATOR
-            text = f"Placed the start of the incident at {a_minute(event.onset)}"
+            # Beside the line's own moment: a fault found a week after it began
+            # has an onset that, as a clock time alone, reads as this morning.
+            text = (
+                f"Placed the start of the incident at "
+                f"{a_minute(event.onset, beside=to_iso(event.at))}"
+            )
         case PlacementRecorded():
             who = _INVESTIGATOR
             emphasis, text = _where_the_replicas_ran(event.placement)
@@ -462,7 +506,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # refusal: the two are different findings, and which of them
             # happened is the only part a person can act on.
             emphasis = _WHY_IT_WAS_REFUSED[event.refusal]
-            text = f"Refused to act - {emphasis}"
+            subject = "the action " if event.refusal in _SAID_OF_THE_ACTION else ""
+            text = f"Refused to act - {subject}{emphasis}"
         case ActionRecommended():
             who = _ARGUS
             # The subject rather than the kind, because the kind is not
@@ -691,6 +736,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         leaves_nothing_to_withdraw=(isinstance(event, StatusChanged)
                                     and not event.to_status.accepts_withdrawal()),
         expires_the_offers=isinstance(event, OfferExpired),
+        outside_the_walk=_outside_the_walk(event),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
             if isinstance(event, MetricsRetrieved)
@@ -712,8 +758,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
 def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
     """One explanation the investigation formed, with what it cited for it."""
     return CandidateLine(
+        hypothesis_id=event.hypothesis_id,
         rank=event.rank,
-        summary=said_plainly(event.summary),
+        summary=said_plainly(event.summary, beside=to_iso(event.at)),
         subject=event.subject,
         confidence=_a_percentage(event.confidence) if event.confidence else None,
         moved_from=said_as_a_state(event.from_state),
@@ -749,6 +796,14 @@ def _says_the_same_as_the_last_look(line: NarrationLine,
     )
 
 
+def _the_walk_looks_again(after: list[NarrationLine]) -> bool:
+    """Whether the walk's next line, whatever lies outside the walk before it,
+    is another look."""
+    following = next((line for line in after if not line.outside_the_walk), None)
+
+    return following is not None and following.kind == _RECOVERY_CHECKED
+
+
 def _looked_again(line: NarrationLine) -> NarrationLine:
     """One more identical look, counted rather than repeated.
 
@@ -769,8 +824,56 @@ def _also_carrying(line: NarrationLine, event: HypothesisFormed) -> NarrationLin
     })
 
 
+def what_was_done(action_type: ActionType, subject: str) -> str:
+    """An action Argus took, said the way the account's own line opens.
+
+    For a document listing what was done - its resolution, its action items -
+    long after anybody reads the action's tag: the same words the line about
+    it used, so the two read as one fact.
+    """
+    return f"{_an_action_said(action_type)} {subject}"
+
+
+def said_in_full(line: NarrationLine) -> str:
+    """One line as a single sentence, for a destination with no page around it.
+
+    A page shows a line's move as two struck-through and picked-out states and
+    lays its candidates out beneath it; a document or a message has only the
+    sentence, so both are said in words there - or the line ends on "moved"
+    and on a colon promising a list that never comes.
+    """
+    said = line.text.rstrip()
+
+    if line.moved_to:
+        said = f"{said} from {line.moved_from} to {line.moved_to}"
+
+    if line.candidates:
+        said = f"{said} " + "; ".join(candidate.summary for candidate in line.candidates)
+
+    return said
+
+
 def _how_many_candidates(formed: int) -> str:
     return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first:"
+
+
+def _outside_the_walk(event: IncidentEvent) -> bool:
+    """Whether something other than the walk's own steps put this event in
+    the account.
+
+    What a person wrote or reported, what the intent agent made of it, an offer
+    and its expiry, and the relay failing to post. A status move is outside
+    only when a person reported it; the walk's own moves are its steps. A lead
+    weighed is not: it answers a person, at a step the walk takes either way.
+    """
+    match event:
+        case StatusChanged():
+            return event.reported is not None
+        case (PersonWrote() | MessageUnderstood() | ResolutionOffered() | WithdrawalOffered()
+              | OfferExpired() | QuestionAnswered() | CommunicationFailed()):
+            return True
+        case _:
+            return False
 
 
 def _the_ending_offered_by(event: IncidentEvent) -> IncidentStatus | None:
@@ -1141,7 +1244,8 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     The pods started at the onset are gathered at the end rather than flagged
     where they fall, so the marked part is one stretch of the sentence however
     many of them there are. Where none was, the onset goes unmentioned: a clause
-    naming nobody would read as a finding about it.
+    naming nobody would read as a finding about it. A pod placed well after the
+    onset is said as that, and unmarked: a week after it is not at it.
 
     A placement of no pods is said as that. It is the platform answering, which
     is a different thing from a platform that would not, and said as an empty
@@ -1150,17 +1254,24 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     if not placement.pods:
         return "", "Recorded where the service's replicas run - the platform reported no pods"
 
+    after = placement.started_after_the_onset()
     before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())
-    at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset())
+    at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset()
+                             if pod not in after)
+    # Each with when it came up, because "after the onset" alone reads as any
+    # time after it - a pod placed a week later was taken for the rollout
+    # that began the incident.
+    onset = to_iso(placement.onset)
+    since = ", ".join(f"{_a_pod_said(pod)} at {a_moment(to_iso(pod.started_at), beside=onset)}"
+                      for pod in after)
 
-    said = f"Recorded where the service's replicas run - {before}"
+    clauses = (before,
+               f"started at the onset: {at_the_onset}" if at_the_onset else "",
+               f"started after the onset: {since}" if since else "")
+    first, *rest = [told for told in clauses if told]
 
-    if not at_the_onset:
-        return "", said
-
-    joined = ". Started at the onset: " if before else "started at the onset: "
-
-    return at_the_onset, f"{said}{joined}{at_the_onset}"
+    return at_the_onset, (f"Recorded where the service's replicas run - {first}"
+                          + "".join(f". {told[0].upper()}{told[1:]}" for told in rest))
 
 
 def _a_pod_said(pod: PodPlacement) -> str:

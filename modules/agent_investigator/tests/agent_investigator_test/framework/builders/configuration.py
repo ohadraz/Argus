@@ -21,6 +21,11 @@ A_LOOKAHEAD_IN_MINUTES = 10
 A_LOG_CEILING_IN_MINUTES = 180
 A_CHANGE_LOOKBACK_IN_MINUTES = 1440
 
+# How often the metrics are read again while the alert's own minute is missing,
+# and for how long before giving up: four more reads at most.
+SOME_RECHECK_INTERVAL_IN_SECONDS = 15.0
+SOME_RECHECK_MAX_WAIT_IN_SECONDS = 60.0
+
 ROOM_TO_SPARE_IN_TOOL_CALLS = 99
 ROOM_TO_SPARE_IN_TOKENS = 1_000_000
 ROOM_TO_SPARE_IN_SECONDS = 3600.0
@@ -50,7 +55,9 @@ def some_investigation_settings(
     lookback_minutes: int = A_LOOKBACK_IN_MINUTES,
     lookahead_minutes: int = A_LOOKAHEAD_IN_MINUTES,
     log_ceiling_minutes: int = A_LOG_CEILING_IN_MINUTES,
-    change_lookback_minutes: int = A_CHANGE_LOOKBACK_IN_MINUTES
+    change_lookback_minutes: int = A_CHANGE_LOOKBACK_IN_MINUTES,
+    recheck_interval_seconds: float = SOME_RECHECK_INTERVAL_IN_SECONDS,
+    recheck_max_wait_seconds: float = SOME_RECHECK_MAX_WAIT_IN_SECONDS
 ) -> InvestigationSettings:
     """What one investigation may spend, and how wide it may look.
 
@@ -67,7 +74,9 @@ def some_investigation_settings(
         log_initial_lookback_minutes=lookback_minutes,
         log_initial_lookahead_minutes=lookahead_minutes,
         log_max_window_minutes=log_ceiling_minutes,
-        change_lookback_minutes=change_lookback_minutes
+        change_lookback_minutes=change_lookback_minutes,
+        metrics_recheck_interval_seconds=recheck_interval_seconds,
+        metrics_recheck_max_wait_seconds=recheck_max_wait_seconds
     )
 
 

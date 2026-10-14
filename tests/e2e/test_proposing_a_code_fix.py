@@ -76,7 +76,8 @@ def test_a_mitigated_incident_leaves_a_draft_pull_request_for_a_person() -> None
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(

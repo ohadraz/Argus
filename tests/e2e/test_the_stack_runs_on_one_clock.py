@@ -135,7 +135,8 @@ def test_a_flag_argus_switched_is_dated_inside_the_incident_argus_recorded() -> 
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("fallback-disabled")),
+            calling(a_scenario_was_seeded("fallback-disabled",
+                                          as_recorded_in=RECORDED_FALLBACK_DISABLED)),
             calling(the_model_answers_from(RECORDED_FALLBACK_DISABLED))
         ) \
         .when(

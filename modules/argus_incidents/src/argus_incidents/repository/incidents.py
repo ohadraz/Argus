@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Final
 
@@ -244,6 +244,35 @@ def get_open_by_rule_and_service(conn: psycopg.Connection,
             "ORDER BY created_at DESC "
             " LIMIT 1",
             (rule, service, still_going)
+        )
+        return cursor.fetchone()
+
+
+def get_newest_by_names_and_service(conn: psycopg.Connection,
+                                    kind: str,
+                                    values: Iterable[str],
+                                    service: str) -> Incident | None:
+    """The newest incident for `service` holding any of these names of this
+    kind, whatever its status, if any.
+
+    What an alert arriving again is matched to: a reminder of a firing joins
+    the incident that firing opened. Every status is looked at, because
+    whether an ending lets a reminder join is the caller's to decide. The
+    newest, because a firing reminded of after Argus opened a second incident
+    for it is held by both, and the newer is the latest word about it. Only
+    `service`'s, because one alert group spans every service its rule watches
+    and an incident holds every firing its notification carried.
+    """
+    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+        cursor.execute(
+            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            "  FROM incident "
+            " WHERE alert_payload->>'service' = %s "
+            "   AND id IN (SELECT incident_id FROM incident_reference "
+            "               WHERE kind = %s AND value = ANY(%s)) "
+            "ORDER BY created_at DESC "
+            " LIMIT 1",
+            (service, kind, list(values))
         )
         return cursor.fetchone()
 

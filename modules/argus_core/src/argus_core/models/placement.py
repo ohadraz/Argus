@@ -55,5 +55,15 @@ class RecordedPlacement(BaseModel, frozen=True):
         recorded - the ones that have only ever served during the incident."""
         return [pod for pod in self.pods if self._started_at_the_onset(pod)]
 
+    def started_after_the_onset(self) -> list[PodPlacement]:
+        """Of the pods started at the onset or since, the ones placed more than
+        the grace after it, in the order they were recorded.
+
+        Not a third side of the rule: they count as started at the onset there,
+        having only ever served during the incident. Split off for whoever says
+        it, because a pod placed a week after an onset was not placed at it.
+        """
+        return [pod for pod in self.pods if pod.started_at > self.onset + THE_ONSETS_GRACE]
+
     def _started_at_the_onset(self, pod: PodPlacement) -> bool:
         return pod.started_at >= self.onset - THE_ONSETS_GRACE

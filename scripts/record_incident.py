@@ -36,17 +36,21 @@ by accident and never part of a suite.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Any, Final, NamedTuple
 
 import httpx2
 import psycopg
-from anthropic_double.recordings import RECORDINGS_DIR
+from agent_investigator.tools.answer import ANSWER_TOOL
+from agent_postmortem.prompting import SUBMIT_TOOL_NAME
+from anthropic_double.recordings import RECORDINGS_DIR, load
 from argus_core import get_settings, to_iso
 from argus_core.events import (
     ActionRecommended,
@@ -60,13 +64,17 @@ from argus_core.events import (
     VerdictReached,
 )
 from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
+from argus_incidents.repository import runs
+from argus_incidents.repository.runs import RunState
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
 from scripts.hold_the_stack import wait_until_told_to_stop
 from tests.e2e.framework.argus import (
+    MITIGATION_TIMEOUT_SECONDS,
     RECORDED_ABSENCE_OF_EVIDENCE,
     RECORDED_ACCELERATOR_HETEROGENEITY,
+    RECORDED_ALARM_DISPROVEN,
     RECORDED_AUTOSCALER_FLAPPING,
     RECORDED_BAD_DEPLOYMENT,
     RECORDED_CACHE_MISCONFIGURED,
@@ -86,6 +94,9 @@ from tests.e2e.framework.argus import (
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_OUTPUT_QUALITY_DEGRADATION,
     RECORDED_PRICING_SERVICE_DEGRADED,
+    RECORDED_RESOLVED_FROM_SLACK,
+    RECORDED_RESOLVED_FROM_THE_PAGE,
+    RECORDED_RESOLVED_IN_PAGERDUTY,
     RECORDED_RESOURCE_LEAK,
     RECORDED_SILENT_DATA_CORRUPTION,
     RECORDED_SLOW_CANARY_ROLLOUT,
@@ -94,27 +105,46 @@ from tests.e2e.framework.argus import (
     RECORDED_UPSTREAM_DEPENDENCY_FAILURE,
     THE_RECORDINGS_THAT_MUST_CARRY_A_FIX,
     THE_SERVICE_NAME,
+    TOOL_USE_TYPE,
     stored_as,
     the_anchor_file_for,
     the_held_call_arrived,
+    the_model_answers_from,
 )
 from tests.e2e.framework.chat import (
     RECORDED_INTENT_INFORMATION,
+    RECORDED_INTENT_RESOLVE,
     THE_WORDS_CLASSIFIED_AS_INFORMATION,
+    THE_WORDS_CLASSIFIED_AS_RESOLVED,
     a_person_writes,
     the_chat_platform_knows,
     the_intent_agent_answers_from,
     the_message_became_a_lead,
+    the_offer_made_in,
+    the_person_presses,
     the_thread_of,
 )
 from tests.e2e.framework.flags import (
+    THE_DEMO_FLAG,
+    flags_evaluating_true,
     only_the_boot_flags_were_left_in_the_provider,
     the_boot_flags_were_put_back,
     the_flag_provider_forgot_every_change,
 )
 from tests.e2e.framework.memory import that_flag_was_tried_before_and_did_not_help
+from tests.e2e.framework.oncall import (
+    a_resolution_by,
+    the_on_call_platform_delivers,
+    the_on_call_platform_holds,
+)
 from tests.e2e.framework.worker import the_worker_is_paused, the_worker_resumes
-from tests.e2e.framework.world import the_incidents_events
+from tests.e2e.framework.world import (
+    A_SEED_SECONDS,
+    the_incidents_events,
+    the_recorded_anchor_was_staged,
+    the_shops_stand_in_was_put_back,
+    the_shops_window,
+)
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
@@ -274,6 +304,18 @@ class _Recording(NamedTuple):
     walk held back until what they wrote is understood. Handed the incident's
     id, because the thread is the incident's.
 
+    `resolved_by` is whatever ends the walk from outside it once the incident
+    exists - a person reporting it over. Apart from `once_opened` because the
+    write-up is the walk's very next call after it: a write-up recorded afresh
+    is held before this runs, where after it the call could already have found
+    the queue empty and been refused.
+
+    `walk_from` names the recording whose walk this one's is, for an incident
+    that ends early in another's walk. Its answers up to the end of the
+    investigation, its write-up and its anchor are what a postmortem-only run
+    starts this set from, so only the write-up is paid for - and it is written
+    about this incident's own shorter record rather than the longer one's.
+
     `may_take_seconds` is how long the walk is waited for. One figure serves
     every walk whose waits are minutes - judged by the levels, or by a rule
     looking back a minute or two; a walk judged by a rule with a long range
@@ -295,6 +337,8 @@ class _Recording(NamedTuple):
     must_have: tuple[_Published, ...]
     and_then: Callable[[], None] | None = None
     once_opened: Callable[[str], None] | None = None
+    resolved_by: Callable[[str], None] | None = None
+    walk_from: str | None = None
     may_take_seconds: float = A_WHOLE_INVESTIGATION_SECONDS
 
 
@@ -381,6 +425,124 @@ def _the_lead_is_written_while_the_first_turn_is_held(incident_id: str) -> None:
                     timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()
 
 
+# What the cases resolving an incident say, said here as they say it. The
+# write-up quotes who reported the incident over and what they wrote, so a
+# recording captured with other words would replay naming somebody nobody in
+# the case is.
+_THE_NOTE_ON_THE_PAGE: Final = "kept the flag off and told the checkout team"
+_THE_ON_CALL_INCIDENT: Final = "PSOMEINCIDENT"
+_THE_ON_CALL_PERSON: Final = "Some Person"
+_THE_ON_CALL_PERSON_ID: Final = "PSOMEONE"
+_THE_ON_CALL_NOTE: Final = "kept the flag off and paged the checkout team"
+_THE_ON_CALL_INCIDENT_RESOLVED_AFTER: Final = timedelta(minutes=10)
+_THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER: Final = timedelta(minutes=1)
+
+
+def _argus_has_turned_the_flag_off() -> None:
+    """Waits until Mitigation has acted, the moment those cases resolve at."""
+    deadline = time.monotonic() + MITIGATION_TIMEOUT_SECONDS
+
+    while THE_DEMO_FLAG in flags_evaluating_true():
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Argus never turned [{THE_DEMO_FLAG}] off within "
+                               f"[{MITIGATION_TIMEOUT_SECONDS}s]")
+
+        time.sleep(A_POLL_SECONDS)
+
+
+def _it_was_reported_over(answered: httpx2.Response, where: str) -> None:
+    if answered.status_code not in (HTTPStatus.OK, HTTPStatus.ACCEPTED):
+        raise RuntimeError(f"resolving from {where} answered [{answered.status_code}]: "
+                           f"{answered.text}")
+
+
+def _resolved_on_the_incident_page(incident_id: str) -> None:
+    """Resolves the incident from its page, with the case's note, once the flag
+    is off."""
+    _argus_has_turned_the_flag_off()
+    _it_was_reported_over(
+        httpx2.post(f"{ARGUS_WEB_BASE_URL}/incidents/{incident_id}/resolve",
+                    data={"note": _THE_NOTE_ON_THE_PAGE},
+                    timeout=REQUEST_TIMEOUT_SECONDS),
+        "the incident page"
+    )
+
+
+def _the_on_call_platform_paged_somebody() -> None:
+    """Stages the PagerDuty incident the case stages, for the alert this script
+    sends - the key PagerDuty stamps is read off the alert group, which is the
+    alert's name alone."""
+    the_on_call_platform_holds(
+        _THE_ON_CALL_INCIDENT,
+        paged_for=_an_alert_for(THE_SERVICE_NAME, "HighErrorRate", None),
+        paged_at=datetime.now(UTC),
+        resolved_after=_THE_ON_CALL_INCIDENT_RESOLVED_AFTER,
+        acknowledged_after={_THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER},
+        resolution_note=_THE_ON_CALL_NOTE
+    )()
+
+
+def _resolved_in_the_on_call_platform(dont_care_incident_id: str) -> None:
+    """Resolves the platform's incident once the flag is off, delivered as
+    PagerDuty would deliver it."""
+    _argus_has_turned_the_flag_off()
+    _it_was_reported_over(
+        the_on_call_platform_delivers(
+            a_resolution_by(_THE_ON_CALL_PERSON, _THE_ON_CALL_PERSON_ID, _THE_ON_CALL_INCIDENT)),
+        "the on-call platform"
+    )
+
+
+def _somebody_will_resolve_it_in_the_thread() -> None:
+    """Readies the thread's side of a resolution, and has the walk's model hold
+    its first call - for `_somebody_will_write_while_the_first_turn_is_held`'s
+    reason, without the e2e framework's reset."""
+    the_intent_agent_answers_from(RECORDED_INTENT_RESOLVE)()
+    the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()
+    httpx2.post(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/hold",
+                timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()
+
+
+def _a_resolution_in_the_thread() -> tuple[Callable[[str], None], Callable[[str], None]]:
+    """The words written while the first turn is held, and the press on what
+    Argus offers back - two hooks, since the write-up comes straight after the
+    press and has to be held before it, where the release before it lets every
+    hold go.
+
+    One pair sharing what was written, because the press names the message it
+    answers.
+    """
+    written: list[str] = []
+
+    def while_the_first_turn_is_held(incident_id: str) -> None:
+        try:
+            the_held_call_arrived()
+            written.append(a_person_writes(_A_PERSON_ID, THE_WORDS_CLASSIFIED_AS_RESOLVED,
+                                           in_thread=the_thread_of(incident_id)))
+        finally:
+            httpx2.post(f"{ANTHROPIC_DOUBLE_BASE_URL}/double-control/release",
+                        timeout=REQUEST_TIMEOUT_SECONDS).raise_for_status()
+
+    def pressed(incident_id: str) -> None:
+        offer = the_offer_made_in(the_thread_of(incident_id))
+        _it_was_reported_over(the_person_presses(_A_PERSON_ID, offer, about=written[-1]),
+                              "the thread")
+
+    return while_the_first_turn_is_held, pressed
+
+
+_WRITTEN_IN_THE_THREAD, _PRESSED_IN_THE_THREAD = _a_resolution_in_the_thread()
+
+
+def _the_shop_is_reporting() -> None:
+    """Refuses to fire the alert until the shop serves a window at all.
+
+    A disproof is of a window that was read and found flat; over an empty one
+    the walk escalates instead, and the recording would be of the other ending.
+    """
+    the_shops_window()
+
+
 # Every recording the offline suites rest on, in the order a full run captures
 # them. The names are imported from the e2e framework rather than spelled here:
 # a recording this script stores under a name nothing replays is a recording
@@ -392,6 +554,47 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         IncidentStatus.MITIGATED,
         (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED)
+    ),
+    # The same incident, reported over by a person part of the way through it:
+    # from its page and from the on-call platform once the flag is off, and
+    # from its thread before anything was investigated. Each walk is the flag
+    # toggle's up to where the person stops it, so only the write-up differs -
+    # and it differs, because each is about a shorter record than the flag
+    # toggle's and names who ended it.
+    _Recording(
+        RECORDED_RESOLVED_FROM_THE_PAGE,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.RESOLVED,
+        (_AN_ACTION_WAS_TAKEN,),
+        resolved_by=_resolved_on_the_incident_page,
+        walk_from=RECORDED_FLAG_TOGGLE
+    ),
+    # Captured on a stack of its own, never after another incident of this
+    # alert: the platform's resolution finds its incident by the alert group's
+    # key, and on a shared stack an earlier incident already holds that key.
+    _Recording(
+        RECORDED_RESOLVED_IN_PAGERDUTY,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.RESOLVED,
+        (_AN_ACTION_WAS_TAKEN,),
+        and_then=_the_on_call_platform_paged_somebody,
+        resolved_by=_resolved_in_the_on_call_platform,
+        walk_from=RECORDED_FLAG_TOGGLE
+    ),
+    # Nothing beyond the ending: the person's press arrives while the walk
+    # waits after its first step, before anything was acted on.
+    _Recording(
+        RECORDED_RESOLVED_FROM_SLACK,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.RESOLVED,
+        (),
+        and_then=_somebody_will_resolve_it_in_the_thread,
+        once_opened=_WRITTEN_IN_THE_THREAD,
+        resolved_by=_PRESSED_IN_THE_THREAD,
+        walk_from=RECORDED_FLAG_TOGGLE
     ),
     # The incident whose only evidence is the deploy history. Its alert is
     # latency because nothing here fails - the revision that went out is slower
@@ -603,6 +806,20 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         IncidentStatus.ESCALATED,
         ()
+    ),
+    # The same alert over a shop that is reporting and flat. A window read and
+    # holding no departure is evidence against the alarm, so the walk closes it
+    # without a cause or an action - and makes no model call before the
+    # write-up, which is the whole of what this recording holds. Its own rather
+    # than the escalated one's: that walk names a candidate this one never
+    # stores, and a write-up citing it is refused here.
+    _Recording(
+        RECORDED_ALARM_DISPROVEN,
+        "silent-data-corruption",
+        "HighErrorRate",
+        IncidentStatus.DISPROVEN,
+        (),
+        and_then=_the_shop_is_reporting
     ),
     # The one incident whose alert is not written here. The shop's own weekly
     # check finds stored totals that stopped keeping up with the purchases
@@ -846,31 +1063,6 @@ def _an_alert_for(service: str, alert_name: str, rule_uid: str | None) -> dict[s
     }
 
 
-def _replay_from(name: str) -> None:
-    """Serves a stored recording for every call instead of forwarding upstream.
-
-    The same drive, for free. What it is for is the question a recording cannot
-    answer on its own - what the *graph* did with that answer - and being able
-    to ask it repeatedly, without paying for a fresh verdict each time, is the
-    difference between reading a timeline and guessing at one.
-
-    Every answer is seeded, once each and in the order they were given, exactly
-    as the e2e suite seeds one. A recording is a walk rather than a reply: the
-    single-seed spelling this used to have - one name, repeating forever - kept
-    handing the walk its opening move whatever it had just asked, and the
-    investigation spent its whole tool budget re-reading the same two channels
-    before escalating for want of evidence. That reads as a walk that went
-    wrong, which is precisely the thing this is used to rule out.
-    """
-    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
-        control.post("/double-control/reset").raise_for_status()
-        for answered_once in _the_set_named(name):
-            control.post(
-                "/double-control/seed",
-                json={"recording": answered_once.stem, "repeat": 1}
-            ).raise_for_status()
-
-
 def _the_timeline_of(published: list[Any]) -> list[str]:
     """What the incident recorded about itself, in order.
 
@@ -910,12 +1102,57 @@ def _arm_the_double(name: str) -> None:
         control.post("/double-control/record", json={"name": name}).raise_for_status()
 
 
+class _AWalkIsStillLive(Exception):
+    """A walk that would not stop, which ends the run rather than the case:
+    every capture after it would be recorded into a world nobody controls."""
+
+
+def _no_walk_is_live() -> None:
+    """Ends whatever walk is still live, and waits until none is.
+
+    A precondition of every case rather than cleanup after a failed one,
+    because a walk outlives its case whatever ended the case - a failure, an
+    interrupt, an earlier invocation - and a live one acts on the world the next
+    case stages: it answers its calls from that case's queue, has its write-up
+    caught by that case's hold, and between calls still reverts the flags that
+    case has just set. That is how a flap walk once came to be recorded as the
+    categoriser's write-up.
+
+    The worker is resumed so a paused one lets its run go; the double is reset
+    so the walk's next call finds nothing queued and fails. Then the wait, bounded
+    by the longest walk there is, since a walk watching a verification asks
+    nothing until the watch ends.
+    """
+    the_worker_resumes()
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        control.post("/double-control/reset").raise_for_status()
+
+    deadline = time.monotonic() + _A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS
+
+    while True:
+        with psycopg.connect(DATABASE_URL) as connection:
+            live = runs.get_unsettled_runs(connection)
+
+        if not live:
+            return
+
+        if time.monotonic() >= deadline:
+            raise _AWalkIsStillLive(
+                f"incidents {[run.incident_id for run in live]} were still being walked "
+                f"after [{_A_WALK_JUDGED_BY_THE_SUSTAINED_RULE_SECONDS:.0f}s]"
+            )
+
+        time.sleep(A_POLL_SECONDS)
+
+
 def _a_world_this_recording_can_be_captured_in() -> None:
     """Puts the Target Environment back before each incident is driven.
 
     The e2e suite's own teardown, step for step and in its order: the worker
     resumed, in case the last recording paused it and failed before letting
-    it go, the service's scenario reset, both boot flags put back where the stack starts them, every
+    it go, the service's scenario reset, the shop's stand-in made to forget any
+    anchor staged and never seeded from, both boot flags put back where the
+    stack starts them, every
     flag the environment did not boot with deleted, the provider's record of
     what changed erased, and what Argus remembers of earlier incidents dropped.
     Reused rather than restated, because a recording captured in a world the
@@ -938,6 +1175,7 @@ def _a_world_this_recording_can_be_captured_in() -> None:
     """
     the_worker_resumes()
     httpx2.post(f"{TARGET_SERVICE_BASE_URL}/scenario/reset", timeout=30.0)
+    the_shops_stand_in_was_put_back()
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
     the_flag_provider_forgot_every_change()
@@ -981,7 +1219,7 @@ def _stage(scenario_id: str) -> _Staged:
     staged = httpx2.post(
         f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
         json={"scenario_id": scenario_id},
-        timeout=30.0,
+        timeout=A_SEED_SECONDS,
     )
     staged.raise_for_status()
     said = staged.json()
@@ -1081,6 +1319,16 @@ def _the_walk_came_to_a_stop(incident_id: str, may_take_seconds: float) -> None:
         if status is not None and status.is_terminal() and _was_written_up(incident_id):
             return
 
+        # A walk that died writes no postmortem, so waiting out the deadline for
+        # one only delays the same answer - by half an hour a walk, which is
+        # what a replay of answers a newer check refuses costs per scenario.
+        failed_because = _why_the_walk_failed(incident_id)
+        if failed_because is not None:
+            raise RuntimeError(
+                f"incident [{incident_id}] stopped without a postmortem: the walk "
+                f"failed with {failed_because} - nothing was recorded from it"
+            )
+
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"incident [{incident_id}] was [{status}] with "
@@ -1148,6 +1396,18 @@ def _was_written_up(incident_id: str) -> bool:
         return cursor.fetchone() is not None
 
 
+def _why_the_walk_failed(incident_id: str) -> str | None:
+    """What the worker failed the incident's run with, or `None` while it has
+    not - asked of the queue, which is where the worker says so."""
+    with psycopg.connect(DATABASE_URL) as connection:
+        run = runs.get_run_for_incident(connection, incident_id)
+
+    if run is None or run.state is not RunState.FAILED:
+        return None
+
+    return run.failure_reason or "no reason given"
+
+
 def _the_status_of(incident_id: str) -> IncidentStatus | None:
     """Where the incident is now, asked of the record rather than of the walk.
 
@@ -1213,20 +1473,217 @@ def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[P
     return stale
 
 
-def _capture(recording: _Recording, service: str, replaying: bool) -> None:
+# Where a postmortem-only run records the write-up before it is put in place.
+# Not digits after the name, so nothing reads it as one of the set's answers.
+_THE_WRITE_UP_AFRESH: Final = "-write-up-afresh"
+
+
+def _calls_the_write_up(answer: Path) -> bool:
+    return any(block.get("type") == TOOL_USE_TYPE and block.get("name") == SUBMIT_TOOL_NAME
+               for block in load(answer.stem).get("content", []))
+
+
+def _where_the_write_up_begins(stored: str) -> int:
+    """The position of the set's first write-up, refusing a set that answers
+    anything else after it.
+
+    The double serves in order and never reads the request, so a postmortem
+    recorded afresh is only replayable where nothing comes after it: an answer
+    of the walk's own left behind the write-up would be handed to whichever
+    call asked next. Checked before anything is spent.
+    """
+    answers = _the_set_named(stored)
+    begins = next((position for position, answer in enumerate(answers)
+                   if _calls_the_write_up(answer)), None)
+
+    if begins is None:
+        raise RuntimeError(f"[{stored}] holds no write-up to record afresh")
+
+    after = [answer.stem for answer in answers[begins:] if not _calls_the_write_up(answer)
+             and any(block.get("type") == TOOL_USE_TYPE
+                     for block in load(answer.stem).get("content", []))]
+    if after:
+        raise RuntimeError(f"[{stored}] answers the walk again after its write-up: {after}")
+
+    return begins
+
+
+def _the_walk_is_taken_from(source: str, stored: str) -> None:
+    """Makes `stored` the walk `source` recorded, less Code-Fix's answers, with
+    `source`'s write-up and anchor beside it.
+
+    The write-up is copied to be replaced: a postmortem-only run records one in
+    place of the set's own, and refuses a set holding none. The anchor because
+    a postmortem-only run writes none, and without it the replayed walk's times
+    are the day `source` was captured.
+
+    Copied afresh every time rather than once, so a set taken from a walk that
+    was since re-recorded is that walk, not the one before it.
+    """
+    answers = _the_set_named(source)
+    if not answers:
+        raise RuntimeError(f"[{source}] holds no walk to take [{stored}] from")
+
+    called = [_the_tools_called_in(answer) for answer in answers]
+    the_investigations_end = max(position for position, tools in enumerate(called)
+                                 if ANSWER_TOOL in tools)
+    the_write_up = next(position for position, tools in enumerate(called)
+                        if SUBMIT_TOOL_NAME in tools)
+    taken = answers[:the_investigations_end + 1] + answers[the_write_up:]
+
+    for old in _the_set_named(stored):
+        old.unlink()
+
+    for position, answer in enumerate(taken):
+        named = stored if position == 0 else f"{stored}-{position + 1}"
+        shutil.copyfile(answer, RECORDINGS_DIR / f"{named}.json")
+
+    anchor = the_anchor_file_for(source)
+    if anchor.exists():
+        shutil.copyfile(anchor, the_anchor_file_for(stored))
+    else:
+        the_anchor_file_for(stored).unlink(missing_ok=True)
+
+    print(f"taken from [{source}]: {', '.join(path.stem for path in _the_set_named(stored))}")
+
+
+def _the_tools_called_in(answer: Path) -> list[str]:
+    return [block["name"] for block in load(answer.stem).get("content", [])
+            if block.get("type") == TOOL_USE_TYPE]
+
+
+def _put_the_write_up_in_place(stored: str, begins: int) -> list[str]:
+    """Swaps the set's old write-up for the one just recorded, and says what
+    the set now holds.
+
+    The old write-up's files go first, every one of them: a model that answers
+    in one attempt where the last took two would otherwise leave the second
+    behind, served to nothing until it is served to something.
+    """
+    afresh = _the_set_named(f"{stored}{_THE_WRITE_UP_AFRESH}")
+
+    if not afresh:
+        raise RuntimeError(f"[{stored}] recorded no write-up - the old one is left in place")
+
+    for old in _the_set_named(stored)[begins:]:
+        old.unlink()
+
+    for offset, answer in enumerate(afresh):
+        position = begins + offset
+        named = stored if position == 0 else f"{stored}-{position + 1}"
+        answer.rename(RECORDINGS_DIR / f"{named}.json")
+
+    return [answer.stem for answer in _the_set_named(stored)]
+
+
+def _the_write_up_was_asked_for(incident_id: str, may_take_seconds: float) -> None:
+    """Waits until the walk's write-up is at the double, held.
+
+    Bounded by the walk's own bound rather than by an investigation's: the
+    write-up is the walk's last call, and a walk judged by the sustained rule
+    reaches it well after an investigation's bound has passed. Sooner where the
+    walk failed first, since a walk that failed asks for no write-up at all.
+    """
+    deadline = time.monotonic() + may_take_seconds
+
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        while True:
+            state = control.get("/double-control/state")
+            state.raise_for_status()
+
+            if state.json()["held"]:
+                return
+
+            failed_because = _why_the_walk_failed(incident_id)
+            if failed_because is not None:
+                raise RuntimeError(
+                    f"incident [{incident_id}] stopped before its write-up: the walk "
+                    f"failed with {failed_because}"
+                )
+
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"incident [{incident_id}] asked for no write-up within "
+                    f"[{may_take_seconds:.0f}s]"
+                )
+
+            time.sleep(A_POLL_SECONDS)
+
+
+def _the_held_call_is_the_write_up(incident_id: str, ends_as: IncidentStatus) -> None:
+    """Refuses the held call, at no cost, unless the incident has already ended
+    as the case expects.
+
+    The hold catches whichever call first finds the queue empty, and that is
+    the write-up only for a walk that went where its replayed answers lead. One
+    that went further - a resolution that never took, so the walk carried on
+    into Code-Fix - had Code-Fix's first call held, released and paid for as
+    though it were the write-up. The write-up is asked for only once the walk
+    has ended, so an incident not yet at its ending is holding some other call.
+    """
+    status = _the_status_of(incident_id)
+
+    if status == ends_as:
+        return
+
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        control.post("/double-control/reset").raise_for_status()
+
+    raise RuntimeError(
+        f"incident [{incident_id}] held a call while [{status}], not [{ends_as}] - "
+        f"so not its write-up; refused before it reached the real model"
+    )
+
+
+def _the_write_up_is_recorded_afresh(stored: str) -> None:
+    """Names where the held write-up is recorded, then lets it go to the real
+    model.
+
+    Held until now so that the name is in place before the call goes out. The
+    walk it writes up was replayed into this run's world, and its times are
+    this run's only where the shop hangs them off the seeding: two runs act,
+    judge and recover in different minutes, as two real ones would. So no time
+    the replayed findings quote is checked against this run - the write-up
+    states every time by name, and code writes it in from this run's record.
+    """
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        control.post(
+            "/double-control/record", json={"name": f"{stored}{_THE_WRITE_UP_AFRESH}"}
+        ).raise_for_status()
+        control.post("/double-control/release").raise_for_status()
+
+
+def _capture(recording: _Recording,
+             service: str,
+             replaying: bool,
+             postmortem_only: bool = False) -> None:
     """Drives the one incident this recording is of, and says what came of it.
 
     The name asked for on the command line is the *case*; the name on disk is
     that case as this run's `CODE_SEARCH` stores it. Converted here rather than
     in the mapping above, because a run records the world it is in - and the
     same case captured under two modes is two recordings of two different walks.
+
+    `postmortem_only` records the write-up and nothing else: the rest of the
+    walk replays its stored answers, rebased as the e2e suite rebases them, and
+    the one call left unanswered goes to the real model. A walk's answers are
+    unchanged by a change to the postmortem alone, so paying for all of them
+    again buys nothing but different answers to questions already settled.
     """
     stored = stored_as(recording.name)
     print(f"=== {stored} ===")
 
-    if replaying:
-        _replay_from(stored)
-    else:
+    # First, before the double is armed: arming resets it and enters record
+    # mode, which would put a walk still live from earlier on the paid line,
+    # under this case's name.
+    _no_walk_is_live()
+
+    if postmortem_only and recording.walk_from:
+        _the_walk_is_taken_from(stored_as(recording.walk_from), stored)
+
+    begins = _where_the_write_up_begins(stored) if postmortem_only else 0
+
+    if not replaying and not postmortem_only:
         _arm_the_double(stored)
 
     # Read before anything is written, and from the clock the files are stamped
@@ -1235,14 +1692,34 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     started_at = time.time()
 
     _a_world_this_recording_can_be_captured_in()
+
+    # A walk that replays is answered about the world it was recorded in, so
+    # the shop is told that world's anchor before it seeds. Not on a fresh
+    # capture: its world is the one this run writes the anchor of.
+    if replaying or postmortem_only:
+        the_recorded_anchor_was_staged(recording.name)
+
     staged = (
         _stage(recording.scenario) if recording.scenario
         else _Staged(seeded_at=None, rule_uid=None)
     )
 
-    if not replaying:
+    if not replaying and not postmortem_only:
         _write_the_anchor(stored, staged.seeded_at)
 
+    # After staging, because the rebasing reads when this world was seeded;
+    # and record mode after the seeds, because a seed is served ahead of it.
+    # A replay is seeded here too, and by the suite's own seeder: answers served
+    # as they were stored name instants from the day they were recorded, and
+    # the walk replaying them is in a world staged today.
+    if replaying:
+        the_model_answers_from(recording.name)()
+    elif postmortem_only:
+        the_model_answers_from(recording.name, less_postmortem=True)()
+
+    # After the seeding, never before it: seeding resets the double first, and a
+    # reset ends whatever hold a case had already armed - which left a walk
+    # answered straight through while its case waited for a held first turn.
     if recording.and_then:
         recording.and_then()
 
@@ -1251,6 +1728,8 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
     )
 
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")
+
+    asked_for_the_write_up = False
 
     # The account is printed whatever happened to the walk. A walk that never
     # finished is the one whose timeline is worth reading - it is the only
@@ -1261,9 +1740,38 @@ def _capture(recording: _Recording, service: str, replaying: bool) -> None:
         if recording.once_opened:
             recording.once_opened(incident_id)
 
+        if postmortem_only:
+            # Held rather than recorded straight away: the write-up is the one
+            # call paid for, and where it is recorded is named before it goes
+            # out. Armed only once the case is done with the walk, because a
+            # release lets every hold go - and the lead written mid-investigation
+            # releases the first turn, which took this hold with it and left the
+            # write-up asking an empty queue. Arming it this late relies on the
+            # walk still having replayed answers to spend, which it spends over
+            # minutes; a walk that ran dry first had its write-up refused, failed
+            # for it, and is reported as that by the wait below. A case that ends
+            # the walk itself does it after this, in `resolved_by`, since the
+            # write-up is then the walk's very next call.
+            with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+                control.post("/double-control/hold-when-dry").raise_for_status()
+
+        if recording.resolved_by:
+            recording.resolved_by(incident_id)
+
+        if postmortem_only:
+            _the_write_up_was_asked_for(incident_id, recording.may_take_seconds)
+            _the_held_call_is_the_write_up(incident_id, recording.ends_as)
+            _the_write_up_is_recorded_afresh(stored)
+            asked_for_the_write_up = True
+
         _the_walk_came_to_a_stop(incident_id, recording.may_take_seconds)
     finally:
-        if not replaying:
+        if postmortem_only and asked_for_the_write_up:
+            print(f"recorded: {', '.join(_put_the_write_up_in_place(stored, begins))}")
+        elif postmortem_only:
+            print("recorded: nothing - the write-up was never asked for, and the old "
+                  "one is left in place")
+        elif not replaying:
             discarded = _discard_what_was_not_answered_again(stored, started_at)
             written = [path.stem for path in _the_set_named(stored)]
             print(f"recorded: {', '.join(written) or 'nothing'}")
@@ -1372,6 +1880,11 @@ def main() -> int:
         help="serve the stored recordings instead of calling the real API",
     )
     parser.add_argument(
+        "--postmortem-only",
+        action="store_true",
+        help="replay each walk's stored answers and record only its write-up afresh",
+    )
+    parser.add_argument(
         "--hold",
         action="store_true",
         help="keep the stack up once every capture is done, until Enter - so what "
@@ -1383,17 +1896,35 @@ def main() -> int:
 
     asked_for = _what_was_asked_for(arguments.names)
     failed: list[str] = []
+    left_quiet = True
 
     # One failure does not end the run. The stack is up and paid for by the
     # time anything is captured, and a scenario that fails to record is a
     # reason to look at that scenario - not a reason to throw away the four
-    # recordings that would have worked.
-    for recording in asked_for:
+    # recordings that would have worked. A walk that will not stop does end
+    # it: nothing captured after it could be trusted.
+    for position, recording in enumerate(asked_for):
         try:
-            _capture(recording, arguments.service, arguments.replay)
+            _capture(recording, arguments.service, arguments.replay,
+                     postmortem_only=arguments.postmortem_only)
+        except _AWalkIsStillLive as error:
+            print(f"STOPPED at {recording.name}: {error}")
+            failed.extend(left.name for left in asked_for[position:])
+            left_quiet = False
+            break
         except Exception as error:
             print(f"FAILED {recording.name}: {error!r}")
             failed.append(recording.name)
+
+    # The stack left quiet, for a `--hold` to be read against and for nothing
+    # to be mid-call when it comes down. Not asked again after a walk already
+    # would not stop: that is one more whole bound spent learning the same.
+    if left_quiet:
+        try:
+            _no_walk_is_live()
+        except _AWalkIsStillLive as error:
+            print(f"NOT QUIET at the end: {error}")
+            left_quiet = False
 
     print(f"captured {len(asked_for) - len(failed)} of {len(asked_for)}")
     if failed:
@@ -1404,7 +1935,7 @@ def main() -> int:
         print("holding the stack: press Enter, or interrupt, to bring it down")
         wait_until_told_to_stop()
 
-    return 1 if failed else 0
+    return 1 if failed or not left_quiet else 0
 
 
 if __name__ == "__main__":

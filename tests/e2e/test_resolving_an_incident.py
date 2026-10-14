@@ -51,7 +51,9 @@ from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,
     DATABASE_URL,
     MITIGATION_TIMEOUT_SECONDS,
-    RECORDED_FLAG_TOGGLE,
+    RECORDED_RESOLVED_FROM_SLACK,
+    RECORDED_RESOLVED_FROM_THE_PAGE,
+    RECORDED_RESOLVED_IN_PAGERDUTY,
     REQUEST_TIMEOUT_SECONDS,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
@@ -100,8 +102,9 @@ def test_an_incident_resolved_mid_walk_keeps_its_flag_off_and_is_written_up() ->
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE, less_code_fix=True))
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_RESOLVED_FROM_THE_PAGE)),
+            calling(the_model_answers_from(RECORDED_RESOLVED_FROM_THE_PAGE))
         ) \
         .when(
             _argus_is_resolved_once_it_has_acted_on(
@@ -136,8 +139,9 @@ def test_an_incident_resolved_in_pagerduty_keeps_its_flag_off_and_is_written_up(
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE, less_code_fix=True)),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_RESOLVED_IN_PAGERDUTY)),
+            calling(the_model_answers_from(RECORDED_RESOLVED_IN_PAGERDUTY)),
             calling(the_on_call_platform_holds(
                 some_on_call_incident,
                 paged_for=some_alert,
@@ -186,7 +190,8 @@ def test_an_incident_resolved_from_its_slack_thread_is_written_up_and_nothing_mo
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_RESOLVED_FROM_SLACK)),
             calling(the_model_is_held()),
             calling(the_intent_agent_answers_from(RECORDED_INTENT_RESOLVE)),
             calling(the_chat_platform_knows(some_person_id, some_person))
@@ -293,7 +298,7 @@ def _argus_is_resolved_from_the_slack_thread_before_it_investigates(
         thread = the_thread_of(incident_id_from(response))
         written = a_person_writes(person_id, words, in_thread=thread)
 
-        the_held_model_answers_from(RECORDED_FLAG_TOGGLE, less_code_fix=True)()
+        the_held_model_answers_from(RECORDED_RESOLVED_FROM_SLACK)()
 
         offered["offer"] = the_offer_made_in(thread)
         pressed = the_person_presses(person_id, offered["offer"], about=written)

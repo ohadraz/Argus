@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import Any, Final
 
 from argus_core import parse_iso
-from argus_core.models import ReportChannel
+from argus_core.models import Lifespan, ReportChannel
 from pagerduty import Error as PagerDutyError
 from pagerduty import RestApiV2Client
 
@@ -36,7 +36,7 @@ from oncall_source.engagement import (
     ReportedIncident,
 )
 from oncall_source.pagerduty_webhooks import parse_delivery
-from oncall_source.platform import Delivery
+from oncall_source.platform import Delivery, PagedIncident
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,9 @@ ALERTS_OF_AN_INCIDENT: Final = "/incidents/{incident_id}/alerts"
 ALERT_KEY: Final = "alert_key"
 INCIDENT_LIST: Final = "/incidents"
 INCIDENT_KEY: Final = "incident_key"
+# How the list is told to reach past `since`'s default of a month back.
+_DATE_RANGE: Final = "date_range"
+_EVERY_DATE: Final = "all"
 
 # Where what a person wrote when they resolved the incident is kept: among the
 # incident's notes, as one more note, marked only by the prefix PagerDuty writes
@@ -120,8 +123,8 @@ class PagerDuty:
     def keys_of(self, platform_incident: str) -> list[str]:
         return keys_of(platform_incident, self._settings, self._client_of)
 
-    def incident_for(self, keys: Iterable[str]) -> str | None:
-        return incident_for(keys, self._settings, self._client_of)
+    def incidents_for(self, keys: Iterable[str]) -> list[PagedIncident]:
+        return incidents_for(keys, self._settings, self._client_of)
 
     def resolution_note(self, platform_incident: str) -> str | None:
         return resolution_note(platform_incident, self._settings, self._client_of)
@@ -159,23 +162,47 @@ def keys_of(incident_id: str,
     return [str(alert[ALERT_KEY]) for alert in alerts if alert.get(ALERT_KEY)]
 
 
-def incident_for(keys: Iterable[str],
-                 settings: OnCallSettings,
-                 client_of: ClientOf = RestApiV2Client) -> str | None:
-    """The incident carrying any of these keys, or `None` where none does.
+def incidents_for(keys: Iterable[str],
+                  settings: OnCallSettings,
+                  client_of: ClientOf = RestApiV2Client) -> list[PagedIncident]:
+    """Every incident carrying any of these keys, with when each was open -
+    one carrying several of them once.
 
-    One request per key, in order, until one finds an incident: Argus holds one
-    or two keys for an incident, and the list endpoint takes one at a time.
+    Every one rather than the first, because a key is an alert group's and
+    every firing of the group opened an incident under it; which of them an
+    Argus incident is, is told by when each was open, and that is the caller's
+    to weigh. One list per key, since the list takes one at a time.
+
+    Across every date and every page. The list reaches back a month unless told
+    otherwise, and an incident is written up whenever it ends; and it answers
+    25 at a time, oldest first, so its first page of a busy key is the
+    incidents least likely to be the one asked about. `list_all` is the SDK's
+    own read of every page.
     """
     client = _the_client(settings, client_of)
+    found: dict[str, PagedIncident] = {}
 
     for key in keys:
-        found = _read(client, INCIDENT_LIST, params={INCIDENT_KEY: key})
+        try:
+            listed = client.list_all(
+                INCIDENT_LIST, params={INCIDENT_KEY: key, _DATE_RANGE: _EVERY_DATE}
+            )
+        except PagerDutyError as error:
+            raise OnCallUnavailable(
+                f"the on-call provider could not be read: {error}"
+            ) from error
 
-        if found:
-            return str(found[0][_ID])
+        for incident in listed:
+            found.setdefault(str(incident[_ID]), PagedIncident(
+                id=str(incident[_ID]),
+                lifespan=Lifespan(
+                    began_at=_began_at(incident),
+                    ended_at=(parse_iso(str(incident[_RESOLVED_AT]))
+                              if incident.get(_RESOLVED_AT) else None)
+                )
+            ))
 
-    return None
+    return list(found.values())
 
 
 def resolution_note(incident_id: str,

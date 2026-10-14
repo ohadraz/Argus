@@ -15,18 +15,58 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from argus_core.models import OpenedPullRequest, ThreadMessage
+from argus_core.models import (
+    ChangeEvent,
+    OpenedPullRequest,
+    ThreadMessage,
+    TimelineEntry,
+)
 from pydantic import BaseModel
+
+
+class CandidateRecord(BaseModel):
+    """One candidate the Investigator ranked, as it was recorded.
+
+    Values rather than a rendered line, because the document reads them as
+    values: the trigger is the subject and transition of the confirmed one, and
+    the hypotheses section shows each result. Nothing here is a conclusion the
+    postmortem reaches - every field was written while the incident ran.
+    """
+
+    summary: str
+    failure_mode: str | None
+    confidence: float | None
+    subject: str | None
+    from_state: str | None
+    to_state: str | None
+    tested: bool
+    result: str | None
+
+
+class ActionRecord(BaseModel):
+    """One action Argus took, what it came to, and whether it still stands.
+
+    `verdict` is the verdict as recorded, `None` where none was reached;
+    `standing` is the sentence a responder needs about it now - still in place,
+    put back, or nothing to put back.
+    """
+
+    taken_at: datetime
+    action: str
+    reversible: bool
+    verdict: str | None
+    standing: str
 
 
 class IncidentEvidence(BaseModel):
     """One incident, as the postmortem reads it.
 
-    The prose fields are lists of already-rendered lines rather than domain
-    objects, because everything downstream of here either counts them or shows
-    them to a model. A postmortem that re-derived the story from `Hypothesis`
-    and `Action` rows would be re-deciding what happened, and what happened was
-    decided while it was happening.
+    Recorded values rather than conclusions: the narration's lines, the
+    candidates and actions as their rows hold them, the changes the
+    investigation read. A postmortem that re-derived the story from them would
+    be re-deciding what happened, and what happened was decided while it was
+    happening - so what the agent does with these is arrange and label them,
+    never judge them again.
     """
 
     incident_id: str
@@ -53,16 +93,39 @@ class IncidentEvidence(BaseModel):
     # then falls back to the series, which is the best available answer and the
     # only one there is.
     recorded_recovery_at: datetime | None = None
+    # That Mitigation watched for the service to come back and never saw it -
+    # every look it recorded found it still broken. An answer rather than the
+    # absence of one, so the measurement takes it as it takes a recorded minute:
+    # asked again of this document's window, a service that flaps shows a lull
+    # in one run and not in the next, and the incident is reported recovered or
+    # not by when the run happened to read it.
+    #
+    # `False` where anything else is true: a recovery recorded, one confirmed
+    # with nothing to date it by, or nobody watching at all - an incident that
+    # escalated before acting, or one nobody mitigated.
+    watched_and_never_recovered: bool = False
     # The alert rule that paged, as the alert addressed it. `measure` reads the
     # metrics again over the whole incident, and read for this rule they carry its
     # own series - the one a fault in what the service answers departs in alone.
     # `None` for an incident paged by nothing that named a rule.
     rule: str | None = None
-    alert_summary: str
-    timeline: list[str]
-    candidates: list[str]
-    actions: list[str]
+    # The alert in a line - its name and the service it named, `HighErrorRate
+    # on io-shop`. A title rather than the alert's summary, which is the
+    # sender's own words and is `alert_finding` below.
+    alert_title: str
+    # What the alert said it found, in its sender's words. A check that
+    # reconciles stored figures against the records behind them reports how
+    # many disagree, by how much and since when - figures nothing Argus reads
+    # again can supply, and which a document without them credits to the
+    # investigation or to nobody. `None` where the sender said nothing.
+    alert_finding: str | None = None
+    timeline: list[TimelineEntry]
+    candidates: list[CandidateRecord]
+    actions: list[ActionRecord]
     log_lines: list[str]
+    # What changed on the service, as the investigation read it - what dates
+    # the change the confirmed candidate blamed.
+    changes: list[ChangeEvent] = []
     tokens_spent: int
     # The fix Code-Fix proposed, where it proposed one. Structured rather than
     # left in `timeline` for the model to notice: the address is what a reader

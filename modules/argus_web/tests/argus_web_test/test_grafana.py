@@ -17,7 +17,7 @@ import logging
 
 import pytest
 from argus_core import to_iso
-from argus_core.models import NOTIFICATION_KEY, AlarmClaim, Alert, Reference
+from argus_core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 from argus_testkit import Assertion, Scenario, one_record_was_logged
 from argus_web.grafana import GRAFANA_SOURCE, parse_grafana_alert, reports_only_resolutions
 
@@ -357,6 +357,84 @@ def test_parse_grafana_alert_names_the_incident_no_other_way_without_a_group_key
 
 
 @pytest.mark.unit
+def test_parse_grafana_alert_names_the_incident_by_every_firing_the_notification_carries() -> None:
+    # A reminder lists the group's alerts in whatever order Grafana keeps
+    # them, and one that resolved is still a firing the incident knew. Each is
+    # a name the next notification can be matched by, whichever comes first.
+    some_firing = a_grafana_payload(fingerprint="a1b2c3d4e5f60718")
+    some_resolved = a_grafana_payload(fingerprint="0f1e2d3c4b5a6978", status="resolved")
+
+    Scenario() \
+        .given(
+            payload := {**some_firing, "alerts": [*some_resolved["alerts"], *some_firing["alerts"]]}
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_this_many_firings(2)
+        )
+
+
+@pytest.mark.unit
+def test_a_reminder_of_a_firing_names_it_as_the_first_notification_did() -> None:
+    # What a reminder is matched to its incident by. Another alert ahead of it
+    # in the list changes nothing about this one.
+    some_fingerprint = "a1b2c3d4e5f60718"
+    the_first = a_grafana_payload(fingerprint=some_fingerprint)
+    another = a_grafana_payload(fingerprint="0f1e2d3c4b5a6978",
+                                starts_at="2026-08-14T11:40:00Z")
+    a_reminder = {**the_first, "alerts": [*another["alerts"], *the_first["alerts"]]}
+
+    Scenario() \
+        .when(
+            lambda: (parse_grafana_alert(the_first), parse_grafana_alert(a_reminder))
+        ) \
+        .then(
+            _the_second_names_every_firing_the_first_did()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("fingerprint", "starts_at"), [
+    ("a1b2c3d4e5f60718", "2026-08-14T12:05:00Z"),
+    ("0f1e2d3c4b5a6978", "2026-08-14T10:15:00Z")
+], ids=["the-same-alert-firing-again", "another-alert-starting-together"])
+def test_a_firing_is_named_apart_from_any_other(fingerprint: str, starts_at: str) -> None:
+    # The same alert stopping and starting again is a new firing, and a new
+    # incident; another alert of the group is another firing, whenever it
+    # began.
+    the_first = a_grafana_payload(fingerprint="a1b2c3d4e5f60718",
+                                  starts_at="2026-08-14T10:15:00Z")
+    the_other = a_grafana_payload(fingerprint=fingerprint, starts_at=starts_at)
+
+    Scenario() \
+        .when(
+            lambda: (parse_grafana_alert(the_first), parse_grafana_alert(the_other))
+        ) \
+        .then(
+            _the_two_name_no_firing_alike()
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_with_no_fingerprint_names_no_firing() -> None:
+    # A sender shaped like Grafana without being it: nothing in the alert says
+    # which alert it is, and a start alone is shared by every alert that began
+    # in that second.
+    Scenario() \
+        .given(
+            payload := a_grafana_payload()
+        ) \
+        .when(
+            lambda: parse_grafana_alert(payload)
+        ) \
+        .then(
+            _it_names_this_many_firings(0)
+        )
+
+
+@pytest.mark.unit
 def test_a_notification_of_resolved_alerts_alone_reports_only_resolutions() -> None:
     some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
     some_other_resolved = a_grafana_payload(rule_uid="some-other-rule", status="resolved")
@@ -585,6 +663,65 @@ def _it_names_the_incident_by(*expected: Reference) -> Assertion[Alert]:
             raise AssertionError(
                 f"Expected the alert to name its incident by {expected}, got "
                 f"{alert.references}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_firings_named_by(alert: Alert) -> list[Reference]:
+    return [reference for reference in alert.references if reference.kind == ALERT_FIRING]
+
+
+def _it_names_this_many_firings(expected: int) -> Assertion[Alert]:
+    """How many firings the alert names, each Grafana's and distinct."""
+    def assertion(alert: Alert) -> bool:
+        firings = _the_firings_named_by(alert)
+        not_grafanas = [firing for firing in firings if firing.source != GRAFANA_SOURCE]
+
+        distinct = {firing.value for firing in firings}
+
+        if len(distinct) != expected or len(firings) != expected or not_grafanas:
+            raise AssertionError(
+                f"Expected the alert to name [{expected}] distinct firings, all "
+                f"[{GRAFANA_SOURCE}]'s, got {firings}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_second_names_every_firing_the_first_did() -> Assertion[tuple[Alert, Alert]]:
+    def assertion(alerts: tuple[Alert, Alert]) -> bool:
+        first, second = (_the_firings_named_by(alert) for alert in alerts)
+        missing = [firing for firing in first if firing not in second]
+
+        if not first:
+            raise AssertionError(
+                "Expected the first notification to name a firing, and it named none."
+            )
+
+        if missing:
+            raise AssertionError(
+                f"Expected the reminder to name every firing the first notification "
+                f"named, {first}, and it did not name {missing}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_two_name_no_firing_alike() -> Assertion[tuple[Alert, Alert]]:
+    def assertion(alerts: tuple[Alert, Alert]) -> bool:
+        first, second = (_the_firings_named_by(alert) for alert in alerts)
+        alike = [firing for firing in first if firing in second]
+
+        if not first or not second or alike:
+            raise AssertionError(
+                f"Expected two firings named apart, got {first} and {second}."
             )
 
         return True

@@ -51,6 +51,9 @@ A_STATED_ONSET_OF_AN_ABSENCE = WINDOW_START + timedelta(
     minutes=MINUTES_BEFORE_THE_SHOP_WENT_QUIET
 )
 A_STATED_ONSET = WINDOW_START - timedelta(days=7)
+# How many minutes the window holds before the alert's own: the window starts
+# this many minutes before the alert fired.
+MINUTES_BEFORE_THE_ALERT = int((AN_ALERT_TIME - WINDOW_START) / timedelta(minutes=1))
 
 A_SERVICE = "kuki"
 
@@ -136,6 +139,16 @@ def a_steady_window(rule_reading: RuleReading | None = None) -> list[MetricBucke
     minutes = CALM_MINUTES + 2
 
     return a_window_of([CALM_ERROR_RATE] * minutes, rule_readings=[rule_reading] * minutes)
+
+
+def a_steady_window_that_stops_before_the_alert() -> list[MetricBucket]:
+    """Steady minutes up to the one before the alert fired, and not that one.
+
+    What a source that reports a minute only once it is over answers when it is
+    asked moments after the alert: every minute before the alert's own, and
+    nothing yet for the minute the alert fired in.
+    """
+    return a_window_of([CALM_ERROR_RATE] * MINUTES_BEFORE_THE_ALERT)
 
 
 def a_window_of(error_rates: list[float],

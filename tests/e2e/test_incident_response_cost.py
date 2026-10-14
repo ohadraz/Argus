@@ -72,7 +72,8 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
             calling(the_on_call_platform_holds(
                 some_on_call_incident,

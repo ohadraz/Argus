@@ -2,25 +2,37 @@
 
 The model is handed the incident and the figures Argus already computed, and
 asked only for the parts prose can carry - what went wrong, in what words, for
-which audience. Not one number: every figure in the document is measured, and
-a model asked for one term of an arithmetic it cannot check would be supplying
-a guess that arrives looking like the rest.
+which audience. It writes no figure itself. Every figure in the document is
+measured, and a model's restatement of one - rounded, worked out again, or
+spelled out in words - is a second answer nobody can tell apart from the first.
+So every figure it is shown carries a name after it, and it writes the name
+where the figure goes; code writes the figure in (`figures`).
 
 The answer arrives as a tool call rather than as prose. A document parsed back
 out of paragraphs is a document that can be parsed wrongly, and the failure is
 silent: a summary that mentions a figure in passing becomes the figure. A tool
 call has fields.
+
+What it reads is said the way a reader says it: every instant to the second,
+and every span in days, hours and minutes. The record keeps what it measured -
+the timeline is sorted on it - but a model told "0.10 hours", or six digits past
+the second, either does the arithmetic or repeats the figure.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Final
 
-from argus_core import to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.models import (
+    ActionItemType,
     Ask,
+    ChangeEvent,
+    CitedEvidence,
+    Lessons,
     ThreadMessage,
+    TimelineEntry,
     ToolDefinition,
     ToolResult,
     ToolResults,
@@ -30,9 +42,40 @@ from argus_core.models import (
 )
 from pydantic import BaseModel, field_validator
 
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
-from agent_postmortem.evidence import IncidentEvidence
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
+from agent_postmortem.evidence import ActionRecord, CandidateRecord, IncidentEvidence
+from agent_postmortem.figures import (
+    ALERT_RAISED_FIGURE,
+    BEGAN_FIGURE,
+    CLOSED_FIGURE,
+    DURATION_FIGURE,
+    ERRORS_AT_WORST_FIGURE,
+    ERRORS_BEFORE_FIGURE,
+    ERRORS_RISE_FIGURE,
+    ERRORS_WHILE_BROKEN_FIGURE,
+    HELD_FIGURE,
+    RECOVERED_FIGURE,
+    SERIES_AT_WORST_FIGURE,
+    SERIES_BEFORE_FIGURE,
+    SERIES_WHILE_BROKEN_FIGURE,
+    UNOBSERVED_FROM_FIGURE,
+    Figure,
+    figures_of,
+    named,
+    the_evidence_figures,
+    the_evidence_named,
+    the_finding_named,
+)
+from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements
+from agent_postmortem.sections import (
+    ACTION_PREFIX,
+    CANDIDATE_PREFIX,
+    PRODUCTION_CHANGE_PREFIX,
+    label_of,
+    labels_of_the_narration,
+    record_action_items_of,
+)
 
 # The tool's name and its fields, named once. Both ends of the exchange read
 # them - the definition offered to the model, and the reader taking the call
@@ -41,16 +84,63 @@ from agent_postmortem.measuring import Measurements
 SUBMIT_TOOL_NAME: Final = "submit_postmortem"
 ROOT_CAUSE_FIELD: Final = "root_cause"
 EXECUTIVE_SUMMARY_FIELD: Final = "executive_summary"
+# What a reader saw go wrong, as the document's title says it.
+SYMPTOM_FIELD: Final = "symptom"
 ASSUMPTIONS_FIELD: Final = "assumptions"
 # What each lead changed: one entry per lead, naming it by its label.
 LEAD_EFFECTS_FIELD: Final = "lead_effects"
 LEAD_FIELD: Final = "lead"
 EFFECT_FIELD: Final = "effect"
+# The cause as steps, each citing evidence by label (`T3`, `G3fa2`).
+CAUSAL_CHAIN_FIELD: Final = "causal_chain"
+STEP_FIELD: Final = "step"
+CITES_FIELD: Final = "cites"
+# The conditions that had to hold, each naming the action items that answer it.
+CONTRIBUTING_FACTORS_FIELD: Final = "contributing_factors"
+FACTOR_FIELD: Final = "factor"
+ADDRESSED_BY_FIELD: Final = "addressed_by"
+# What the model proposes be done, each of one of the four kinds.
+ACTION_ITEMS_FIELD: Final = "action_items"
+ITEM_FIELD: Final = "item"
+ITEM_TYPE_FIELD: Final = "type"
+# Google's three lists.
+LESSONS_FIELD: Final = "lessons"
+WENT_WELL_FIELD: Final = "went_well"
+WENT_WRONG_FIELD: Final = "went_wrong"
+GOT_LUCKY_FIELD: Final = "got_lucky"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
-    EXECUTIVE_SUMMARY_FIELD
+    EXECUTIVE_SUMMARY_FIELD,
+    SYMPTOM_FIELD,
+    CAUSAL_CHAIN_FIELD,
+    CONTRIBUTING_FACTORS_FIELD,
+    ACTION_ITEMS_FIELD,
+    LESSONS_FIELD
 ]
+
+
+class SubmittedStep(BaseModel):
+    """One step of the cause as the model wrote it, and the labels it cited."""
+
+    step: str
+    cites: list[str]
+
+
+class SubmittedFactor(BaseModel):
+    """One contributing factor as the model wrote it, and the items it named."""
+
+    factor: str
+    addressed_by: list[str]
+
+
+class SubmittedItem(BaseModel):
+    """One action item the model proposed. Unnumbered: its number is its place
+    after the record's own."""
+
+    item: str
+    type: ActionItemType
+
 
 class SubmittedPostmortem(BaseModel):
     """What the model submitted, said as fields rather than as a mapping.
@@ -80,12 +170,71 @@ class SubmittedPostmortem(BaseModel):
 
     root_cause: str | None = None
     executive_summary: str | None = None
+    symptom: str | None = None
     assumptions: list[str] = []
     # What each lead changed, by the label the prompt gave it. Empty where
     # there were no leads to ask about, which is what nothing said means then.
     lead_effects: dict[str, str] = {}
+    # The template's prose sections. `None` where unanswered, as the prose
+    # fields above are; an empty list is an answer of none.
+    causal_chain: list[SubmittedStep] | None = None
+    contributing_factors: list[SubmittedFactor] | None = None
+    action_items: list[SubmittedItem] | None = None
+    lessons: Lessons | None = None
 
-    @field_validator(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, mode="before")
+    def sentences(self) -> Iterator[str]:
+        """Every sentence the answer would publish as written.
+
+        Beside `with_each_sentence`, and the two read the same fields: a field
+        one of them leaves out is prose the other's rule never sees - a figure
+        the check never refuses, or a name never written in.
+        """
+        yield from (prose for prose in (self.root_cause, self.executive_summary, self.symptom)
+                    if prose is not None)
+        yield from self.assumptions
+        yield from self.lead_effects.values()
+        yield from (step.step for step in self.causal_chain or [])
+        yield from (factor.factor for factor in self.contributing_factors or [])
+        yield from (item.item for item in self.action_items or [])
+
+        if self.lessons is not None:
+            yield from self.lessons.went_well
+            yield from self.lessons.went_wrong
+            yield from self.lessons.got_lucky
+
+    def with_each_sentence(self, rewrite: Callable[[str], str]) -> SubmittedPostmortem:
+        """The answer with `rewrite` applied to every sentence it would publish,
+        field for field the ones `sentences` reads."""
+        def rewritten(prose: str | None) -> str | None:
+            return rewrite(prose) if prose is not None else None
+
+        return self.model_copy(update={
+            ROOT_CAUSE_FIELD: rewritten(self.root_cause),
+            EXECUTIVE_SUMMARY_FIELD: rewritten(self.executive_summary),
+            SYMPTOM_FIELD: rewritten(self.symptom),
+            ASSUMPTIONS_FIELD: [rewrite(each) for each in self.assumptions],
+            LEAD_EFFECTS_FIELD: {lead: rewrite(effect)
+                                 for lead, effect in self.lead_effects.items()},
+            CAUSAL_CHAIN_FIELD: (None if self.causal_chain is None else
+                                 [SubmittedStep(step=rewrite(step.step), cites=step.cites)
+                                  for step in self.causal_chain]),
+            CONTRIBUTING_FACTORS_FIELD: (None if self.contributing_factors is None else
+                                         [SubmittedFactor(factor=rewrite(factor.factor),
+                                                          addressed_by=factor.addressed_by)
+                                          for factor in self.contributing_factors]),
+            ACTION_ITEMS_FIELD: (None if self.action_items is None else
+                                 [SubmittedItem(item=rewrite(item.item), type=item.type)
+                                  for item in self.action_items]),
+            LESSONS_FIELD: (None if self.lessons is None else
+                            self.lessons.model_copy(update={
+                                WENT_WELL_FIELD: [rewrite(each) for each in self.lessons.went_well],
+                                WENT_WRONG_FIELD: [rewrite(each)
+                                                   for each in self.lessons.went_wrong],
+                                GOT_LUCKY_FIELD: [rewrite(each) for each in self.lessons.got_lucky]
+                            }))
+        })
+
+    @field_validator(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, SYMPTOM_FIELD, mode="before")
     @classmethod
     def _prose_however_it_arrived(cls, value: Any) -> Any:
         """A prose field made to cost only itself.
@@ -147,14 +296,127 @@ class SubmittedPostmortem(BaseModel):
             and isinstance(entry.get(EFFECT_FIELD), str)
         }
 
+    @field_validator(CAUSAL_CHAIN_FIELD, mode="before")
+    @classmethod
+    def _each_step_that_says_something(cls, value: Any) -> Any:
+        """The steps that carry words, each with whichever citations are labels.
+
+        A step with no words is no step and is dropped. One whose citations
+        arrived in the wrong shape still said something, so it is kept citing
+        nothing - which the check then names, rather than this dropping a claim
+        the model made.
+        """
+        if not isinstance(value, list):
+            return None
+
+        return [
+            entry if isinstance(entry, SubmittedStep)
+            else SubmittedStep(step=entry[STEP_FIELD],
+                               cites=_the_strings_in(entry.get(CITES_FIELD)))
+            for entry in value
+            if isinstance(entry, SubmittedStep)
+            or (isinstance(entry, dict) and isinstance(entry.get(STEP_FIELD), str))
+        ]
+
+    @field_validator(CONTRIBUTING_FACTORS_FIELD, mode="before")
+    @classmethod
+    def _each_factor_that_says_something(cls, value: Any) -> Any:
+        """The factors that carry words, each with whichever names are strings."""
+        if not isinstance(value, list):
+            return None
+
+        return [
+            entry if isinstance(entry, SubmittedFactor)
+            else SubmittedFactor(factor=entry[FACTOR_FIELD],
+                                 addressed_by=_the_strings_in(entry.get(ADDRESSED_BY_FIELD)))
+            for entry in value
+            if isinstance(entry, SubmittedFactor)
+            or (isinstance(entry, dict) and isinstance(entry.get(FACTOR_FIELD), str))
+        ]
+
+    @field_validator(ACTION_ITEMS_FIELD, mode="before")
+    @classmethod
+    def _each_item_of_a_declared_kind(cls, value: Any) -> Any:
+        """The proposals in words, each of one of the four kinds.
+
+        A kind nobody declared is a proposal nobody can file, and costs that
+        proposal alone.
+        """
+        if not isinstance(value, list):
+            return None
+
+        kinds = {kind.value for kind in ActionItemType}
+
+        return [
+            entry if isinstance(entry, SubmittedItem)
+            else SubmittedItem(item=entry[ITEM_FIELD], type=ActionItemType(entry[ITEM_TYPE_FIELD]))
+            for entry in value
+            if isinstance(entry, SubmittedItem)
+            or (isinstance(entry, dict)
+                and isinstance(entry.get(ITEM_FIELD), str)
+                and entry.get(ITEM_TYPE_FIELD) in kinds)
+        ]
+
+    @field_validator(LESSONS_FIELD, mode="before")
+    @classmethod
+    def _the_three_lists(cls, value: Any) -> Any:
+        """Each list as far as it is sentences; a list left out is an empty one.
+
+        Already three lists, it is taken as it stands - the shape anything
+        building an answer directly hands over, as with every field here.
+        """
+        if isinstance(value, Lessons):
+            return value
+
+        if not isinstance(value, dict):
+            return None
+
+        return Lessons(went_well=_the_strings_in(value.get(WENT_WELL_FIELD)),
+                       went_wrong=_the_strings_in(value.get(WENT_WRONG_FIELD)),
+                       got_lucky=_the_strings_in(value.get(GOT_LUCKY_FIELD)))
+
+
+def _the_strings_in(value: Any) -> list[str]:
+    """The sentences in a list, and nothing where there is no list."""
+    if not isinstance(value, list):
+        return []
+
+    return [each for each in value if isinstance(each, str)]
+
+
+def _a_list_of(item_properties: dict[str, Any],
+               required: list[str],
+               description: str) -> dict[str, Any]:
+    """An array-of-objects property, each object in the shape given."""
+    return {
+        "type": "array",
+        "items": {"type": "object", "properties": item_properties, "required": required},
+        "description": description
+    }
+
+
+_SENTENCES: Final[dict[str, Any]] = {"type": "array", "items": {"type": "string"}}
+
 
 SUBMIT_POSTMORTEM = ToolDefinition(
     name=SUBMIT_TOOL_NAME,
     description=(
         "Submit the postmortem for this incident. Every field is required. "
-        "No number is asked of you: what the incident cost was measured from "
-        "what the shop actually took, so do not restate the figures you were "
-        "given as if you had computed them, and do not offer one of your own."
+        "Write no figure yourself anywhere in your answer - no time, duration, "
+        "percentage, count or amount, not in digits and not spelled out in "
+        "words. Every figure you are shown is followed by its name in braces, "
+        f"like {{A3}} or {{{DURATION_FIGURE}}}: where your prose states one, write "
+        "its name, braces and all, and the document writes the figure in. A "
+        "figure you were not shown but could work out from two you were - the "
+        "span between two instants, how far one share is above another, how "
+        "many times one is the other - is written as that working, braces and "
+        f"all: {{{RECOVERED_FIGURE} - {BEGAN_FIGURE}}}, "
+        f"{{{ERRORS_AT_WORST_FIGURE} / {ERRORS_BEFORE_FIGURE}}}. The document "
+        "works it out from the figures as you were shown them. Say any other "
+        "size with no number in it, not even in a word - \"most requests\", "
+        "\"for several minutes\", never \"twenty minutes\", \"a third\" or "
+        "\"tripled\". Labels you cite (T2, G3fa2, C1, M1, L1, AI-3) are "
+        "names and may be written as given."
     ),
     properties={
         ROOT_CAUSE_FIELD: {
@@ -172,12 +434,61 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "was done. No component names unless they are unavoidable."
             )
         },
+        SYMPTOM_FIELD: {
+            "type": "string",
+            "description": (
+                "What went wrong as somebody using the service saw it, in a few "
+                "words with no number: 'Account pages failed'. Not the metric "
+                "that paged, and not the cause - the document adds the change "
+                "it began with itself."
+            )
+        },
         ASSUMPTIONS_FIELD: {
             "type": "array",
             "items": {"type": "string"},
             "description": (
                 "Anything else the reader should know was assumed rather than "
                 "measured. Empty is a valid answer."
+            )
+        },
+        CAUSAL_CHAIN_FIELD: _a_list_of(
+            {STEP_FIELD: {"type": "string"},
+             CITES_FIELD: {**_SENTENCES,
+                           "description": ("The labels of the evidence this step "
+                                           "rests on: T3, G3fa2.")}},
+            [STEP_FIELD, CITES_FIELD],
+            "The cause as the five whys, from the symptom down: the first step is "
+            "what users saw, and each step after it answers why the one before "
+            "happened. Every step cites at least one piece of evidence by its "
+            "label. Stop where the evidence stops."
+        ),
+        CONTRIBUTING_FACTORS_FIELD: _a_list_of(
+            {FACTOR_FIELD: {"type": "string"},
+             ADDRESSED_BY_FIELD: {**_SENTENCES,
+                                  "description": "The action items that answer it: AI-2."}},
+            [FACTOR_FIELD, ADDRESSED_BY_FIELD],
+            "Conditions that had to hold for the incident to happen and did not "
+            "cause it alone - a missing safeguard, a gap in detection or review. "
+            "Each names at least one action item that answers it."
+        ),
+        ACTION_ITEMS_FIELD: _a_list_of(
+            {ITEM_FIELD: {"type": "string"},
+             ITEM_TYPE_FIELD: {"type": "string",
+                               "enum": [kind.value for kind in ActionItemType]}},
+            [ITEM_FIELD, ITEM_TYPE_FIELD],
+            "What should be done that the record does not already hold, each "
+            "one thing a person could take on. Empty where the record's own "
+            "items answer every factor."
+        ),
+        LESSONS_FIELD: {
+            "type": "object",
+            "properties": {WENT_WELL_FIELD: _SENTENCES,
+                           WENT_WRONG_FIELD: _SENTENCES,
+                           GOT_LUCKY_FIELD: _SENTENCES},
+            "required": [WENT_WELL_FIELD, WENT_WRONG_FIELD, GOT_LUCKY_FIELD],
+            "description": (
+                "What went well, what went wrong, and where the incident got "
+                "lucky - a risk that went unnoticed this time. Any list may be empty."
             )
         }
     },
@@ -247,33 +558,144 @@ def opening_ask(evidence: IncidentEvidence, measured: Measurements) -> Transcrip
 
 
 def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> str:
-    """Everything Argus knows, written once and used by both asks."""
+    """Everything Argus knows, written once and used by both asks.
+
+    Every figure in it is shown with its name after it, which is how the
+    answer states one.
+    """
+    figures = figures_shown(evidence, measured)
+
     return "\n".join([
         "Write the postmortem for the incident below.",
         "",
-        f"Alert: {evidence.alert_summary}",
-        f"Alert raised: {evidence.started_at.isoformat()}",
-        *_how_long_it_was_broken(evidence, measured),
-        f"Argus held the incident for {measured.time_to_close_in_hours:.2f} "
-        f"hours, until {evidence.ended_at.isoformat()}. That is a measure of "
-        f"the response, not of the fault - do not report it as how long the "
-        f"service was broken.",
-        *_what_the_error_rate_did(measured.error_rates),
-        *_what_the_rules_series_did(measured.rule_series),
+        f"Alert: {evidence.alert_title}",
+        # The sender's own words, where it wrote any: for a check that measured
+        # what it paged on - how many totals were wrong, since when - they are
+        # the incident's first measurement, and shown the title alone a model
+        # credited those figures to the Investigator and hedged them.
+        *([f"What the alert said: {the_finding_named(evidence.alert_finding)}"]
+          if evidence.alert_finding else []),
+        f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
+        *_how_long_it_was_broken(measured, figures),
+        f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
+        f"until {_shown(CLOSED_FIGURE, figures)}. That is a measure of the response, "
+        f"not of the fault - do not report it as how long the service was broken.",
+        *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
+                                  figures),
+        *_what_the_rules_series_did(measured.rule_series, evidence.alert_title,
+                                    measured.error_rates, figures),
+        *(line
+          for heading, cited in _the_evidence_by_kind(evidence)
+          for line in ["", heading,
+                       *(f"  - [{each.label}] {the_evidence_named(each)}" for each in cited)]),
         "",
-        "What Argus did, in order:",
-        *(f"  - {line}" for line in evidence.timeline),
+        "Action items the record already holds:",
+        *(_the_record_items(evidence) or ["  - none"]),
         "",
-        "Candidates it considered:",
-        *(f"  - {candidate}" for candidate in evidence.candidates),
-        "",
-        "Actions it took:",
-        *(f"  - {action}" for action in evidence.actions),
-        "",
-        "Log lines it read:",
-        *(f"  - {line}" for line in evidence.log_lines),
+        f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label, and name action items "
+        f"in {CONTRIBUTING_FACTORS_FIELD} by their number. Items you propose in "
+        f"{ACTION_ITEMS_FIELD} are numbered after these, in the order you give them.",
         *_what_people_told_it(evidence.leads)
     ])
+
+
+def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[str, Figure]:
+    """Every figure the model is shown, by its name: what Argus measured, what
+    the alert said, and what each piece of evidence states.
+
+    One list for the asking and the reading of the answer alike - a figure
+    shown and not on it is one the check refuses and nothing writes in.
+    """
+    return figures_of(evidence, measured) | the_evidence_figures(the_evidence_labelled(evidence))
+
+
+def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """Every piece of evidence the model is shown, each under its own label.
+
+    The label is what a step of the cause cites, so every line a claim could
+    rest on has one and no two share it. Each kind is labelled on its own,
+    and the logs by message rather than by place: a recorded answer is replayed
+    in a run that read a different number of log lines, and a label counted
+    across the kinds would then name a different line in every kind after the
+    logs.
+    """
+    return [cited for _, cited_of_a_kind in _the_evidence_by_kind(evidence)
+            for cited in cited_of_a_kind]
+
+
+def _the_evidence_by_kind(evidence: IncidentEvidence
+                          ) -> list[tuple[str, list[CitedEvidence]]]:
+    """The evidence under the heading the model reads it beneath, in the order
+    it is shown: the narration, the changes, the logs, the candidates, the
+    actions."""
+    return [
+        ("What Argus did, in order:",
+         [CitedEvidence(label=label, text=_a_line_of_the_narration(entry))
+          for entry, label in zip(evidence.timeline,
+                                  labels_of_the_narration(evidence.timeline),
+                                  strict=True)]),
+        ("Changes to production it read:",
+         _numbered(PRODUCTION_CHANGE_PREFIX,
+                   [_a_change_as_a_line(change) for change in evidence.changes])),
+        ("Log lines it read, one per message:", grouped(evidence.log_lines)),
+        ("Candidates it considered:",
+         _numbered(CANDIDATE_PREFIX,
+                   [_a_candidate_as_a_line(candidate) for candidate in evidence.candidates])),
+        ("Actions it took:",
+         _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions]))
+    ]
+
+
+def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:
+    return [CitedEvidence(label=label_of(prefix, position), text=line)
+            for position, line in enumerate(lines, start=1)]
+
+
+def _the_record_items(evidence: IncidentEvidence) -> list[str]:
+    return [f"  - {item.number} ({item.type}, {item.status}): {item.text}"
+            for item in record_action_items_of(evidence)]
+
+
+def _a_line_of_the_narration(entry: TimelineEntry) -> str:
+    """One line of the narration, with the candidates it formed named by label.
+
+    Said in full, such a line repeats every candidate word for word, and the
+    model reads each one twice - in the narration and under its own label -
+    with nothing to say the two are one. The document's own timeline keeps the
+    words, since a reader of the page has no labels to follow.
+    """
+    if not entry.candidates:
+        return f"{to_iso(entry.at)} {entry.who}: {entry.text}"
+
+    formed = len(entry.candidates)
+    labels = ", ".join(label_of(CANDIDATE_PREFIX, position + 1) for position in entry.candidates)
+
+    return (f"{to_iso(entry.at)} {entry.who}: Formed {formed} candidate "
+            f"cause{'s' if formed != 1 else ''}, best first: {labels}")
+
+
+def _a_change_as_a_line(change: ChangeEvent) -> str:
+    """A change the investigation read: when, what kind, to what, by whom, and
+    what it did.
+
+    The instant to the second whatever its source wrote, and a change nobody is
+    named for said to be, rather than shown with a blank where the name goes.
+    """
+    return (f"{to_iso(parse_iso(change.occurred_at))} {change.kind} {change.reference} "
+            f"by {change.actor or 'someone unnamed'}: {change.summary}")
+
+
+def _a_candidate_as_a_line(candidate: CandidateRecord) -> str:
+    """A candidate, its failure mode, its confidence, and what became of it."""
+    became = candidate.result if candidate.tested else "never tried"
+
+    return (f"{candidate.summary} [{candidate.failure_mode}, confidence "
+            f"{candidate.confidence}, {became}]")
+
+
+def _an_action_as_a_line(action: ActionRecord) -> str:
+    """An action, its verdict, and whether it still stands."""
+    return f"{action.action} - {action.verdict or 'no verdict recorded'}, {action.standing}"
 
 
 def _what_people_told_it(leads: Sequence[ThreadMessage]) -> list[str]:
@@ -351,25 +773,34 @@ def rejecting(asked: Transcript, submitted: Turn, faults: list[str]) -> Transcri
 
     The result is marked failed, which is how a tool says "this is something
     to fix" rather than "this is what I found out".
+
+    Every call the turn made is answered, not only the first: a provider
+    expects one result per call, together, and a model that submitted twice -
+    the second a placeholder - would otherwise be refused in a conversation
+    the provider will not continue.
     """
+    refusal = "\n".join([
+        "Your postmortem was not accepted:",
+        *(f"  - {fault}" for fault in faults),
+        "",
+        f"Call {SUBMIT_TOOL_NAME} again with the whole answer, corrected."
+    ])
+
     return [
         *asked,
         submitted,
-        ToolResults(results=[ToolResult(
-            call_id=submitted.tool_calls[0].id,
-            content="\n".join([
-                "Your postmortem was not accepted:",
-                *(f"  - {fault}" for fault in faults),
-                "",
-                f"Call {SUBMIT_TOOL_NAME} again with the whole answer, corrected."
-            ]),
-            failed=True
-        )])
+        ToolResults(results=[ToolResult(call_id=call.id, content=refusal, failed=True)
+                             for call in submitted.tool_calls])
     ]
 
 
-def _how_long_it_was_broken(evidence: IncidentEvidence,
-                            measured: Measurements) -> list[str]:
+def _shown(name: str, figures: Mapping[str, Figure]) -> str:
+    """The figure of that name as the model is shown it, with its name after it."""
+    return named(name, figures[name])
+
+
+def _how_long_it_was_broken(measured: Measurements,
+                            figures: Mapping[str, Figure]) -> list[str]:
     """When the service broke, when it came back, and how long that was.
 
     Both endpoints, and the figure between them. A duration printed beside one
@@ -389,7 +820,6 @@ def _how_long_it_was_broken(evidence: IncidentEvidence,
     running out are different facts, and printed alike the second reads as the
     first.
     """
-    began = measured.onset_at or evidence.started_at
     dated_from = (
         "the onset" if measured.onset_at is not None
         else "the alert, since no onset could be measured"
@@ -401,32 +831,46 @@ def _how_long_it_was_broken(evidence: IncidentEvidence,
         # window before the onset would read as though it were the incident.
         return [
             f"No metrics were collected from "
-            f"{measured.unobserved_from.isoformat()} ({dated_from}) onwards: the "
+            f"{_shown(UNOBSERVED_FROM_FIGURE, figures)} ({dated_from}) onwards: the "
             f"service was still unobserved when the incident closed. That is "
-            f"{measured.duration_in_hours:.2f} hours nobody could see, not a "
-            f"stretch the service is known to have spent in trouble, and the "
+            f"{_shown(DURATION_FIGURE, figures)} nobody could see, not "
+            f"a stretch the service is known to have spent in trouble, and the "
             f"error rates below cover none of it."
         ]
 
     if measured.recovered_at is None:
         return [
-            f"Broken from {began.isoformat()} ({dated_from}). The service had "
-            f"not recovered by the last minute of metrics read, so it was "
-            f"broken for at least {measured.duration_in_hours:.2f} hours - a "
-            f"lower bound, not a measurement, and every impact figure below "
-            f"is bounded the same way."
+            f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}). The service "
+            f"had not recovered by the last minute of metrics read, so it was broken "
+            f"for at least {_shown(DURATION_FIGURE, figures)} - a lower bound, not a "
+            f"measurement, and every impact figure below is bounded the same way."
         ]
 
     return [
-        f"Broken from {began.isoformat()} ({dated_from}) to "
-        f"{measured.recovered_at.isoformat()}, when the metrics show it "
-        f"recovered.",
-        f"That is {measured.duration_in_hours:.2f} hours, and every impact "
-        f"figure below is measured over that stretch."
+        f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}) to "
+        f"{_shown(RECOVERED_FIGURE, figures)}, when the metrics show it recovered.",
+        f"That is {_shown(DURATION_FIGURE, figures)}, and every impact figure below "
+        f"is measured over that stretch."
     ]
 
 
-def _what_the_error_rate_did(rates: ErrorRates | None) -> list[str]:
+# Why the error rates went unmeasured, as the model is told it. Three gaps that
+# read alike as an absent figure and are not alike: a read that came back empty
+# is an outage of the metrics, and the other two are reads that answered - over
+# a shorter memory than the fault's, or over none of the stretch it broke.
+_WHY_NOT_KNOWN: Final[dict[Unmeasured, str]] = {
+    Unmeasured.NOTHING_READ: "the metrics for the incident could not be read",
+    Unmeasured.NO_MINUTE_BEFORE_THE_ONSET: (
+        "metrics were read, but none from before the onset, so there is no calm "
+        "stretch to measure a rise against"),
+    Unmeasured.NO_MINUTE_WHILE_BROKEN: (
+        "metrics were read, but none from while the service was broken")
+}
+
+
+def _what_the_error_rate_did(rates: ErrorRates | None,
+                             unmeasured: Unmeasured | None,
+                             figures: Mapping[str, Figure]) -> list[str]:
     """The error rate at every level worth reporting, each named for itself.
 
     One line per question. The rise answers attribution - how much of the
@@ -435,20 +879,51 @@ def _what_the_error_rate_did(rates: ErrorRates | None) -> list[str]:
     figure labelled as the error rate was being asked both: handed one, a
     model said in its own assumptions that the number was unusable and went to
     the per-minute logs for the severity it actually needed.
+
+    Where it was not measured, why not. Every gap was once told to the model as
+    metrics that could not be read, about a read that had returned six hours of
+    them - all after an onset a week earlier - and the write-up described a
+    monitoring outage.
     """
     if rates is None:
-        return ["Error rate: not known - metrics for the incident could not be read."]
+        why = f" - {_WHY_NOT_KNOWN[unmeasured]}" if unmeasured is not None else ""
+
+        return [f"Error rate: not known{why}."]
 
     return [
-        f"Error rate before it began: {rates.baseline:.1%}.",
-        f"Error rate while it was broken: {rates.while_broken:.1%}, "
-        f"peaking at {rates.at_its_worst:.1%}.",
-        f"Rise above baseline: {rates.rise:.1%} of traffic failed that "
-        f"otherwise would not have."
+        f"Error rate before it began: {_shown(ERRORS_BEFORE_FIGURE, figures)}.",
+        f"Error rate while it was broken: {_shown(ERRORS_WHILE_BROKEN_FIGURE, figures)}, "
+        f"peaking at {_shown(ERRORS_AT_WORST_FIGURE, figures)}.",
+        _the_rise(rates, figures)
     ]
 
 
-def _what_the_rules_series_did(levels: RuleSeriesLevels | None) -> list[str]:
+def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
+    """How much of the traffic failed that would not have otherwise - or that
+    none did.
+
+    A rise at or below nothing is no rise. "-0.3% of traffic failed" says the
+    opposite of what it means, and a model handed it explains a failure nobody
+    measured; the levels beside it already say what the rate was. The figure
+    itself stays unclamped where it is measured (`ErrorRates.rise`).
+    """
+    if not _the_errors_rose(rates):
+        return ("Rise above baseline: none - no more of the traffic failed while "
+                "it was broken than before it began.")
+
+    return (f"Rise above baseline: {_shown(ERRORS_RISE_FIGURE, figures)} of traffic "
+            f"failed that otherwise would not have.")
+
+
+def _the_errors_rose(rates: ErrorRates | None) -> bool:
+    """Whether a rise in failed requests was measured at all."""
+    return rates is not None and rates.rise > 0
+
+
+def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
+                               alert: str,
+                               rates: ErrorRates | None,
+                               figures: Mapping[str, Figure]) -> list[str]:
     """The series the paging rule evaluates, at the error rate's levels.
 
     Nothing at all where the metrics carry no such series - not a line saying it
@@ -456,8 +931,17 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None) -> list[str]:
     entirely. Its direction is said with it, because its worst is its lowest or
     its highest according to the rule, and the number alone does not say which.
 
+    Named by the alert it paged under, which is the one name for it a write-up
+    can use: "the series the paging rule evaluates" says that something moved
+    and not what.
+
     Plain numbers rather than percentages: the series is in whatever unit its
     rule watches, and only the rule knows what that is.
+
+    Where no rise in failed requests was measured, the series is said to be the
+    harm. Every request succeeded, so the failed requests say nothing happened,
+    and a write-up reading them called the harm "small to none" while its series
+    tripled.
     """
     if levels is None:
         return []
@@ -465,8 +949,13 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None) -> list[str]:
     worse = "worse falling" if levels.worse_when == "below" else "worse rising"
 
     return [
-        f"The series the paging rule evaluates, which it calls {worse}: "
-        f"{levels.baseline:g} before it began, "
-        f"{levels.while_broken:g} on average while it was broken, and "
-        f"{levels.at_its_worst:g} at its worst."
+        f"The series behind the alert ({alert}), which its paging rule evaluates "
+        f"and calls {worse}: {_shown(SERIES_BEFORE_FIGURE, figures)} before it began, "
+        f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
+        f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst.",
+        *([] if _the_errors_rose(rates) else [
+            "No rise in failed requests was measured, so the harm to report is "
+            "what this series did: say what it meant for the people using the "
+            "service, not that little or nothing failed."
+        ])
     ]

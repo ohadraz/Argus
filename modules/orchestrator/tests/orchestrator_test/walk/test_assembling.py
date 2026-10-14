@@ -27,8 +27,10 @@ from typing import Any
 
 import psycopg
 import pytest
+from agent_postmortem import postmortem_policy
 from argus_core import Connections, get_settings
 from argus_core.mcp_transport import McpClient
+from argus_core.models import ModelPolicy
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.assembling import (
     Collaborators,
@@ -146,6 +148,27 @@ def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
                               None)) \
         .then(
             _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
+        )
+
+
+@pytest.mark.unit
+def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
+    # The brief rides in the policy the postmortem's client is built with, and
+    # nowhere else - so a binding that built the client from a policy of its own
+    # would write every postmortem from the incident alone. The write-up would
+    # still arrive in the right shape and read well, which is why nothing
+    # downstream of here would notice.
+    settings = get_settings()
+
+    Scenario() \
+        .given(no_connections := _connections_that_must_not_be_opened()) \
+        .when(lambda: against(no_connections,
+                              _a_client_that_must_not_be_reached(),
+                              _a_client_that_must_not_be_reached(),
+                              None)) \
+        .then(
+            _the_postmortem_is_asked_under(
+                postmortem_policy(settings.postmortem_model, settings.postmortem_effort))
         )
 
 
@@ -307,6 +330,27 @@ def _investigating_needs_only(supplied: frozenset[str]) -> Assertion[Collaborato
             _still_required_of(collaborators.investigate),
             "investigate"
         )
+
+        return True
+
+    return assertion
+
+
+def _the_postmortem_is_asked_under(expected: ModelPolicy) -> Assertion[Collaborators]:
+    """The policy the postmortem's model is built with, read off the binding.
+
+    Off the binding because that is the only place it can be seen: the client
+    is built per incident, inside the walk, and a model asked without its brief
+    answers in the same shape as one asked with it.
+    """
+    def assertion(collaborators: Collaborators) -> bool:
+        client_for = getattr(collaborators.write_postmortem, "keywords", {}).get("client_for")
+        policy = getattr(client_for, "keywords", {}).get("policy")
+
+        if policy != expected:
+            raise AssertionError(
+                f"Expected the postmortem to be written by a model asked under "
+                f"[{expected}], got [{policy}].")
 
         return True
 

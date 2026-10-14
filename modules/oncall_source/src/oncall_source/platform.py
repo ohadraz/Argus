@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Protocol
 
-from argus_core.models import ReportChannel
+from argus_core.models import Lifespan, ReportChannel
 from pydantic import BaseModel
 
 from oncall_source.engagement import ReportedIncident
@@ -73,6 +73,18 @@ class Reopened(BaseModel):
     platform_incident: str
 
 
+class PagedIncident(BaseModel):
+    """One of the platform's incidents, and when it was open.
+
+    The span is what ties it to an Argus incident once a key no longer can:
+    every firing of an alert group pages under the group's one key, and the
+    platform incident a firing opened is the one open while it was going on.
+    """
+
+    id: str
+    lifespan: Lifespan
+
+
 class Irrelevant(BaseModel):
     """Anything else the platform said, named by its own event."""
 
@@ -104,8 +116,9 @@ class OnCallPlatform(Protocol):
         """The keys the incident's senders stamped on it."""
         ...
 
-    def incident_for(self, keys: Iterable[str]) -> str | None:
-        """The platform's incident carrying any of these keys, or `None`."""
+    def incidents_for(self, keys: Iterable[str]) -> list[PagedIncident]:
+        """Every one of the platform's incidents carrying any of these keys,
+        however long ago it was open."""
         ...
 
     def resolution_note(self, platform_incident: str) -> str | None:

@@ -128,7 +128,8 @@ def test_a_shop_that_stopped_reporting_is_made_visible_again() -> None:
     # mode would still see the rows come back.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(A_SHOP_THAT_STOPPED_REPORTING)),
+            calling(a_scenario_was_seeded(A_SHOP_THAT_STOPPED_REPORTING,
+                                          as_recorded_in=RECORDED_MONITORING_BLIND_SPOT)),
             calling(the_model_answers_from(RECORDED_MONITORING_BLIND_SPOT)),
             calling(_the_deployment_history_was_staged())
         ) \

@@ -136,7 +136,8 @@ def test_a_rollout_stopped_half_way_is_ended_by_converging_the_fleet() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(THE_SCENARIO)),
+            calling(a_scenario_was_seeded(THE_SCENARIO,
+                                          as_recorded_in=RECORDED_HALF_FINISHED_ROLLOUT)),
             calling(the_model_answers_from(RECORDED_HALF_FINISHED_ROLLOUT)),
             calling(the_deployment_was_staged(THE_CACHE_ENTRY_RESHAPED))
         ) \

@@ -37,8 +37,17 @@ def a_minute(value: str, beside: str | None = None) -> str:
     return _reformatted(value, "%H:%M")
 
 
-def a_moment(value: str) -> str:
-    """A wire-format instant to the second, for a log line's own stamp."""
+def a_moment(value: str, beside: str | None = None) -> str:
+    """A wire-format instant to the second, for a log line's own stamp.
+
+    `beside` is the moment it is read against, and the date comes back the
+    moment the two fall on different days, as in `a_minute`: a pod placed a
+    week after the onset, said as a time of day alone, reads as one placed the
+    same day.
+    """
+    if beside is not None and not _the_same_day(value, beside):
+        return _reformatted(value, "%d %b %H:%M:%S")
+
     return _reformatted(value, "%H:%M:%S")
 
 
@@ -52,20 +61,28 @@ def is_a_moment(value: str) -> bool:
     return True
 
 
-def a_window(start: str | None, end: str | None) -> str:
+def a_window(start: str | None, end: str | None, beside: str | None = None) -> str:
     """A retrieval's window, said the way the request actually made it.
 
     A metrics read is anchored rather than bounded (spec §16), so it has one
     end, and saying "to now" for the other would put a bound in the account
     that the call never had.
+
+    `beside` is the moment of the line the window is said on. A clock time is
+    read as that line's day, so a window on any other keeps its date - even
+    one whose two ends share a day, a week before the line asking for it.
     """
     if start and end:
-        return f"the {_how_long(start, end)} before {a_minute(end, beside=start)}"
+        on_another_day = (not _the_same_day(end, start)
+                          or beside is not None and not _the_same_day(end, beside))
+        said_end = _reformatted(end, "%d %b %H:%M" if on_another_day else "%H:%M")
+
+        return f"the {_how_long(start, end)} before {said_end}"
 
     if start:
-        return f"anchored on {a_minute(start)}"
+        return f"anchored on {a_minute(start, beside=beside)}"
 
-    return f"up to {a_minute(end)}" if end else "over no particular window"
+    return f"up to {a_minute(end, beside=beside)}" if end else "over no particular window"
 
 
 def _the_same_day(value: str, other: str) -> bool:

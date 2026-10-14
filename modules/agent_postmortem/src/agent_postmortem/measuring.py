@@ -1,8 +1,10 @@
 """Everything about an incident that is a number, read before anything is asked
 of a model.
 
-One function, because the figures are not independent: the loss is a
-subtraction between two windows, both windows are dated from the same instant,
+One function, because the figures are not independent: the loss is the
+incident's hours against the same hours whole weeks earlier, beyond how far
+those differ from the same hours as far back again; every window is dated from
+the same instant,
 and the currency the answer is published in is a property of the table that
 converted them. Measured separately they could disagree with each other, and a
 document whose duration and whose loss describe different incidents is worse
@@ -37,24 +39,26 @@ provider must not become a postmortem reporting that the incident cost nothing.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
-from argus_core import parse_iso
+from argus_core import parse_iso, to_iso
 from argus_core.anomaly import AnomalyThresholds, find_recovery
 from argus_core.models import MetricBucket
 from pydantic import BaseModel
 
 from agent_postmortem.estimate import (
     BASELINE_WINDOW,
-    BASELINE_WINDOW_HOURS,
     ErrorRates,
     RuleSeriesLevels,
+    Unmeasured,
+    beyond_the_variation,
     duration_in_hours,
     error_rates_over,
     in_the_reporting_currency,
-    loss_between,
     rule_series_over,
+    weeks_back_for,
+    why_no_error_rates,
 )
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.responder_cost import ResponderCost, responder_cost
@@ -97,15 +101,27 @@ class Measurements(BaseModel):
     # field answering both questions is the defect all of this came from.
     time_to_close_in_hours: float
     # What the error rate did, at the three levels worth reporting, or `None`
-    # where the metrics could not be read. Nothing rests on it: it is what the
+    # where it could not be measured - `error_rates_unmeasured` says why.
+    # Nothing rests on it: it is what the
     # model is told about what happened, and no figure is computed from it.
     error_rates: ErrorRates | None
     loss: Decimal | None
     # What the loss is stated in, and `None` wherever there is no loss to
     # state. A currency beside an absent figure is a label for nothing.
     currency: str | None
+    # What the shop took over the incident's own hours whole weeks earlier -
+    # what the incident is compared with.
     baseline_revenue: Decimal | None
-    # What the calm window took, per currency, before any of it was converted.
+    # How far those hours and the same hours as far back again differ, in the
+    # reporting currency: how much the shop varies on its own over them.
+    # A shortfall no larger is no loss. `None` where either went unread.
+    variation: Decimal | None = None
+    # How far the incident's takings fell short of that stretch's, whether or
+    # not it was beyond the variation - negative where the shop took more.
+    # `None` where either went unread.
+    shortfall: Decimal | None = None
+    # What the incident's hours took whole weeks earlier, per currency, before
+    # any of it was converted.
     # The conversions are disclosed one line each, and a line naming a currency
     # needs the currencies rather than the total.
     baseline_takings: Mapping[str, Decimal] | None
@@ -125,6 +141,10 @@ class Measurements(BaseModel):
     # `None` where the metrics carry no such series. Told to the model beside
     # the error rate and resting no figure, as that does.
     rule_series: RuleSeriesLevels | None = None
+    # Why `error_rates` is `None`, and `None` itself wherever they were
+    # measured. An absent figure alone was told to the model as metrics that
+    # could not be read, about a read that had returned six hours of them.
+    error_rates_unmeasured: Unmeasured | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -147,7 +167,11 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # this function exists to prevent.
     metrics = sources.metrics(began - BASELINE_WINDOW, evidence.ended_at, evidence.rule)
     recovered_at = _when_the_service_came_back(
-        evidence.recorded_recovery_at, metrics, sources.thresholds
+        evidence.recorded_recovery_at,
+        evidence.watched_and_never_recovered,
+        metrics,
+        sources.thresholds,
+        began
     )
     # The read has to end somewhere even when nothing says the service came
     # back, so it ends at the close - the boundary a query needs. What must
@@ -156,13 +180,24 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     measured_until = recovered_at or evidence.ended_at
     duration = duration_in_hours(began, measured_until)
     rates = sources.rates()
-    taken_before = sources.revenue(began - BASELINE_WINDOW, began)
+    # Like with like: the incident against its own clock hours whole weeks
+    # earlier, so a shop's day and week cancel out - and those against the same
+    # hours as far back again, for how much the shop varies on its own.
+    back = weeks_back_for(measured_until - began)
+    taken_earlier = sources.revenue(began - 2 * back, measured_until - 2 * back)
+    taken_before = sources.revenue(began - back, measured_until - back)
     taken_during = sources.revenue(began, measured_until)
+    earlier_revenue, _ = _as_one_figure(
+        taken_earlier, rates, sources.reporting_currency)
     baseline_revenue, left_out = _as_one_figure(
         taken_before, rates, sources.reporting_currency)
     revenue_during, _ = _as_one_figure(
         taken_during, rates, sources.reporting_currency)
-    loss = (_loss(baseline_revenue, revenue_during, duration)
+    variation = (abs(baseline_revenue - earlier_revenue)
+                 if baseline_revenue is not None and earlier_revenue is not None else None)
+    shortfall = (baseline_revenue - revenue_during
+                 if baseline_revenue is not None and revenue_during is not None else None)
+    loss = (_loss(shortfall, variation)
             if evidence.onset_at is not None else None)
     engaged = sources.engagement(evidence.incident_id)
     bands = sources.bands()
@@ -184,33 +219,58 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         currency=sources.reporting_currency if loss is not None else None,
         baseline_revenue=baseline_revenue,
         baseline_takings=taken_before,
+        variation=variation,
+        shortfall=shortfall,
         rates=rates,
         currencies_left_out=left_out,
         onset_at=evidence.onset_at,
         engaged=engaged,
         cost=_what_the_response_cost(engaged, bands, sources.working_hours_a_year),
         bands=bands,
-        unobserved_from=_when_the_sight_was_lost(metrics, began),
+        unobserved_from=_when_the_sight_was_lost(
+            metrics, began, evidence.ended_at, sources.metrics_reporting_lag_minutes),
         # Over the same stretch as the error rate, for the same reason.
-        rule_series=rule_series_over(metrics, began, recovered_at)
+        rule_series=rule_series_over(metrics, began, recovered_at),
+        error_rates_unmeasured=why_no_error_rates(metrics, began, recovered_at)
     )
 
 
 def _when_the_sight_was_lost(metrics: list[MetricBucket],
-                             began: datetime) -> datetime | None:
-    """`began`, where the read answered and holds no minute at or after it.
+                             began: datetime,
+                             closed_at: datetime,
+                             reporting_lag_minutes: int) -> datetime | None:
+    """`began`, where the read answered and holds no minute at or after it
+    that it could have held.
 
     An empty read is not this. It is a source that could not answer, and it
     says nothing about whether the service was being collected from - where a
     window whose rows simply stop says exactly that.
+
+    Nor is a window that had not arrived. The newest minute a read can hold is
+    the close's own minute less the source's lag, so an incident closed before
+    its first minute was reported has no row after it however well it was
+    watched. Dated from the close rather than from the read, so a postmortem
+    written again says the same.
     """
     if not metrics:
+        return None
+
+    first_minute = _the_minute_starting_at_or_after(began)
+    newest_reported = (closed_at.replace(second=0, microsecond=0)
+                       - timedelta(minutes=reporting_lag_minutes))
+    if first_minute > newest_reported:
         return None
 
     if any(parse_iso(bucket.bucket_id) >= began for bucket in metrics):
         return None
 
     return began
+
+
+def _the_minute_starting_at_or_after(instant: datetime) -> datetime:
+    minute = instant.replace(second=0, microsecond=0)
+
+    return minute if minute == instant else minute + timedelta(minutes=1)
 
 
 def _as_one_figure(taken: Mapping[str, Decimal] | None,
@@ -254,26 +314,25 @@ def _only_the_money_needing_no_rate(
     )
 
 
-def _loss(baseline_revenue: Decimal | None,
-          revenue_during: Decimal | None,
-          duration: float) -> Decimal | None:
-    """The estimate, or nothing when either window went unread.
+def _loss(shortfall: Decimal | None, variation: Decimal | None) -> Decimal | None:
+    """The estimate, or nothing when any window went unread.
 
     Nothing, never zero: an unreadable revenue source and a service that lost
     no money are different findings, and only one of them is a measurement.
-    Both windows are needed, because a loss is the difference between them -
-    one alone is half a subtraction.
+    Every window is needed - a loss is the difference between two of them, and
+    whether that difference is a loss at all is what the third says.
     """
-    if baseline_revenue is None or revenue_during is None:
+    if shortfall is None or variation is None:
         return None
 
-    return loss_between(baseline_revenue, BASELINE_WINDOW_HOURS,
-                        revenue_during, duration)
+    return beyond_the_variation(shortfall, variation)
 
 
 def _when_the_service_came_back(recorded: datetime | None,
+                                watched_and_never_recovered: bool,
                                 metrics: list[MetricBucket],
-                                thresholds: AnomalyThresholds) -> datetime | None:
+                                thresholds: AnomalyThresholds,
+                                began: datetime) -> datetime | None:
     """The instant the incident ended, or `None` where nothing ever said.
 
     The minute Mitigation recorded, where it recorded one, and nothing is
@@ -291,10 +350,16 @@ def _when_the_service_came_back(recorded: datetime | None,
     and relapsed afterwards would have its recovery withdrawn by minutes that
     came after Argus had stopped looking.
 
+    The same holds where the answer was no. Mitigation watched, never saw the
+    service come back, and said so on every look - and asking again of this
+    window would resolve the same disagreement in favour of the window that was
+    not watching. On a service that flaps it finds a lull in one run and none in
+    the next, so the incident is not recovered, and every figure a lower bound.
+
     Falling back to the series where nothing was recorded, which is not a
-    degenerate case but two ordinary ones: an incident that escalated, and one
-    nobody mitigated. Neither has a verification wait to have recorded anything,
-    and both get a postmortem.
+    degenerate case but three ordinary ones: an incident that escalated before
+    it acted, one nobody mitigated, and a recovery confirmed with nothing to
+    date it by. None of them has a minute to give, and all get a postmortem.
 
     Never from the moment an action was applied, and never from the moment a
     verdict was reached. Those say when Argus acted and when it concluded, and a
@@ -302,11 +367,18 @@ def _when_the_service_came_back(recorded: datetime | None,
 
     As an instant rather than the `bucket_id` the detector answers with, because
     everything here subtracts it from another instant.
+
+    From `began` on, the instant the incident is dated from, for the reason
+    Mitigation dates its own from the onset: a window re-read for where the
+    incident started can open on an earlier episode and end that one instead.
     """
     if recorded is not None:
         return recorded
 
-    recovered = find_recovery(metrics, thresholds)
+    if watched_and_never_recovered:
+        return None
+
+    recovered = find_recovery(metrics, thresholds, since=to_iso(began))
 
     return parse_iso(recovered) if recovered is not None else None
 

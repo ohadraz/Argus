@@ -29,7 +29,10 @@ from argus_narration.narrating import (
     NarrationLine,
     a_narration_line,
     build_narration,
+    each_wait_told_once,
+    said_in_full,
     what_the_action_does,
+    what_was_done,
     where_a_report_came_from,
 )
 from argus_narration.prose import said_plainly
@@ -50,12 +53,15 @@ __all__ = [
     "a_narration_line",
     "a_window",
     "build_narration",
+    "each_wait_told_once",
     "is_a_moment",
     "on_or_off",
     "pointed_at",
     "said_as_a_state",
+    "said_in_full",
     "said_plainly",
     "the_minutes_logged",
     "what_the_action_does",
+    "what_was_done",
     "where_a_report_came_from"
 ]

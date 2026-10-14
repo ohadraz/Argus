@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from argus_core.models.disproof import Disproof
 from argus_core.models.hypothesis import Hypothesis
+from argus_core.models.onset import EstablishedOnset
 from argus_core.models.placement import RecordedPlacement
 from argus_core.models.reading import Reading
 from argus_core.models.thread_message import ThreadMessage
@@ -92,3 +93,15 @@ class Findings:
     # wrote the lead. Empty where nobody wrote, and on an ending that came
     # before the model answered.
     leads_weighed: list[ThreadMessage] = field(default_factory=list)
+    # The minute the investigation dated the incident from, and how it is known -
+    # measured off the window, the one the alert stated where the window measured
+    # none, or the one an earlier round established and this one was handed.
+    #
+    # Carried out because the walk dates the incident's end against it, and the
+    # end of an incident cannot come before its start: where the start is worked
+    # out again from another window, a service that flaps hands over an earlier
+    # episode, and its end is reported as this incident's recovery. Asked once,
+    # by the first round that had a minute, and handed to every round after.
+    #
+    # `None` where the investigation ended before it had one.
+    onset: EstablishedOnset | None = None

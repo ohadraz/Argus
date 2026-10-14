@@ -7,8 +7,8 @@ from typing import Any
 import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, Incident, IncidentStatus
-from argus_incidents.repository import incidents
+from argus_core.models import ALERT_FIRING, Alert, Incident, IncidentStatus, Reference
+from argus_incidents.repository import incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling
 
 from argus_incidents_test.framework import no_column_is_empty
@@ -648,6 +648,150 @@ def test_the_same_rules_open_incident_for_another_service_is_not_found() -> None
             )
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("status", list(IncidentStatus))
+def test_an_incident_is_found_by_a_name_it_holds_for_its_service(status: IncidentStatus) -> None:
+    # What a reminder of a firing joins: the incident the firing opened,
+    # however it ended. Whether its ending lets the reminder join is intake's
+    # to decide, so every status is found here.
+    some_service = "kuki-service"
+    some_firing = _a_firing("fp-1@2026-10-14T15:59:00Z")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_holding(conn, some_service, some_firing)
+
+        Scenario() \
+            .given(
+                calling(lambda: _it_ended_as(conn, incident_id, status))
+            ) \
+            .when(
+                lambda: incidents.get_newest_by_names_and_service(
+                    conn, ALERT_FIRING, ["fp-unknown", some_firing.value], some_service
+                )
+            ) \
+            .then(
+                _it_found(incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_of_two_incidents_holding_a_name_the_newer_is_found() -> None:
+    # A firing reminded of after a mitigation is held by the incident it
+    # opened and by the one its reminder opened. The newer is the latest word
+    # about it.
+    some_service = "kuki-service"
+    some_firing = _a_firing("fp-1@2026-10-14T15:59:00Z")
+
+    with connect_from_env() as conn:
+        older = _an_incident_holding(conn, some_service, some_firing)
+        # `now()` is transaction time, so two incidents created in one
+        # transaction share a timestamp and nothing is left to break the tie.
+        conn.commit()
+        newer = _an_incident_holding(conn, some_service, some_firing)
+
+        Scenario() \
+            .given(
+                older, newer
+            ) \
+            .when(
+                lambda: incidents.get_newest_by_names_and_service(
+                    conn, ALERT_FIRING, [some_firing.value], some_service
+                )
+            ) \
+            .then(
+                _it_found(newer)
+            )
+
+
+@pytest.mark.integration
+def test_another_services_incident_holding_the_name_is_not_found() -> None:
+    # One alert group spans every service its rule watches, and a notification
+    # carries every firing in it - so an incident holds firings that are not
+    # its own service's.
+    some_service = "kuki-service"
+    some_firing = _a_firing("fp-1@2026-10-14T15:59:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_incident_holding(conn, "buki-service", some_firing)
+            ) \
+            .when(
+                lambda: incidents.get_newest_by_names_and_service(
+                    conn, ALERT_FIRING, [some_firing.value], some_service
+                )
+            ) \
+            .then(
+                _nothing_came_back()
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_holding_the_value_as_another_kind_is_not_found() -> None:
+    some_service = "kuki-service"
+    some_value = "fp-1@2026-10-14T15:59:00Z"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_incident_holding(conn, some_service, Reference(
+                    source="some-monitor", kind="some-other-kind", value=some_value
+                ))
+            ) \
+            .when(
+                lambda: incidents.get_newest_by_names_and_service(
+                    conn, ALERT_FIRING, [some_value], some_service
+                )
+            ) \
+            .then(
+                _nothing_came_back()
+            )
+
+
+@pytest.mark.integration
+def test_a_name_no_incident_holds_finds_nothing() -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_incident_holding(conn, "kuki-service",
+                                     _a_firing("fp-1@2026-10-14T15:59:00Z"))
+            ) \
+            .when(
+                lambda: incidents.get_newest_by_names_and_service(
+                    conn, ALERT_FIRING, ["fp-2@2026-10-14T17:20:00Z"], "kuki-service"
+                )
+            ) \
+            .then(
+                _nothing_came_back()
+            )
+
+
+def _a_firing(value: str) -> Reference:
+    return Reference(source="some-monitor", kind=ALERT_FIRING, value=value)
+
+
+def _an_incident_holding(conn: psycopg.Connection, service: str, name: Reference) -> str:
+    incident_id = an_incident_created_for(conn, Alert(service=service,
+                                                      alert_name="HighErrorRate"))
+    references.add(conn, incident_id, [name])
+
+    return incident_id
+
+
+def _it_ended_as(conn: psycopg.Connection, incident_id: str, status: IncidentStatus) -> None:
+    """The incident moved to `status` through the door that status comes
+    through - or left where it started, for the status it starts in."""
+    match status:
+        case IncidentStatus.ACKNOWLEDGED:
+            pass
+        case IncidentStatus.RESOLVED:
+            incidents.resolve(conn, incident_id)
+        case IncidentStatus.WITHDRAWN:
+            incidents.withdraw(conn, incident_id)
+        case _:
+            incidents.transition(conn, incident_id, status)
+
+
 def _the_incident_is(conn: psycopg.Connection,
                      status: str,
                      incident_id: str | None = None) -> Assertion[Any]:
@@ -711,14 +855,14 @@ def _nothing_came_back() -> Assertion[Incident | None]:
 
 
 def _it_found(expected: str) -> Assertion[Incident | None]:
-    """Which open incident a rule firing again would join."""
+    """Which incident an alert arriving again would join."""
     def assertion(found: Incident | None) -> bool:
         if found is None:
-            raise AssertionError(f"Expected incident [{expected}] to be found open, got none.")
+            raise AssertionError(f"Expected incident [{expected}] to be found, got none.")
 
         if found.id != expected:
             raise AssertionError(
-                f"Expected incident [{expected}] to be found open, got [{found.id}]."
+                f"Expected incident [{expected}] to be found, got [{found.id}]."
             )
 
         return True

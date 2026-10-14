@@ -11,8 +11,9 @@ The incident is found when the resolution arrives, not when the alert did.
 Grafana pages the platform and Argus at the same moment, so at intake the
 platform's incident may not exist yet; by the time somebody resolves it, it
 does. It is found through the keys its senders stamped on it - which a merge
-carries over to the incident merged into - or, where an earlier match already
-linked it, by the platform's own id.
+carries over to the incident merged into - among the incidents going on while
+the page was open, and by the platform's own id where an earlier match already
+linked it.
 
 Nothing here knows which platform answered. It holds the port.
 """
@@ -27,6 +28,8 @@ from argus_core import SettingsSlice
 from argus_core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
+    Incident,
+    Lifespan,
     Reference,
     Report,
 )
@@ -61,8 +64,8 @@ class IncidentRecord(Protocol):
     suite. What belongs here is which deliveries reach them, and with what.
     """
 
-    def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
-        """The incident holding any of these names of this kind, or `None`."""
+    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[Incident]:
+        """Every incident holding any of these names of this kind."""
         ...
 
     def know_it_as(self, incident_id: str, reference: Reference) -> None:
@@ -121,13 +124,10 @@ def _resolve(platform_incident: str,
              by: str,
              platform: OnCallPlatform,
              record: IncidentRecord) -> None:
-    """Resolves the Argus incident a person's resolution is about, if any."""
-    incident_id = (
-        record.incident_known_as(ON_CALL_INCIDENT, [platform_incident])
-        or record.incident_known_as(NOTIFICATION_KEY, platform.keys_of(platform_incident))
-    )
+    """Resolves every Argus incident a person's resolution is about, if any."""
+    about = _the_incidents_about(platform_incident, platform, record)
 
-    if incident_id is None:
+    if not about:
         # The webhook covers every incident on the services it watches, and
         # Argus opened only some of them.
         logger.info("on-call resolution matched no incident", extra={
@@ -135,9 +135,38 @@ def _resolve(platform_incident: str,
         })
         return
 
-    record.know_it_as(incident_id, Reference(
-        source=platform.channel, kind=ON_CALL_INCIDENT, value=platform_incident
-    ))
-    record.resolve(incident_id, Report(
+    reported = Report(
         by=by, channel=platform.channel, note=platform.resolution_note(platform_incident)
-    ))
+    )
+
+    # Each is resolved on its own, and refuses on its own: one of them may have
+    # ended in a way a resolution would contradict.
+    for incident_id in about:
+        record.know_it_as(incident_id, Reference(
+            source=platform.channel, kind=ON_CALL_INCIDENT, value=platform_incident
+        ))
+        record.resolve(incident_id, reported)
+
+
+def _the_incidents_about(platform_incident: str,
+                         platform: OnCallPlatform,
+                         record: IncidentRecord) -> list[str]:
+    """The Argus incidents the platform's incident is about.
+
+    Those an earlier read already linked to it, and those holding a key it
+    carries that were going on while it was open. A key alone names no
+    incident: every firing of an alert group pages under the group's one key,
+    so an alert that stopped and started again leaves an older incident
+    holding the key of a page opened long after it ended - and resolving that
+    one would leave the incident the page was about still open. The page's
+    life is read only where some incident holds a key to weigh against it.
+    """
+    linked = record.incidents_known_as(ON_CALL_INCIDENT, [platform_incident])
+    keyed = record.incidents_known_as(NOTIFICATION_KEY, platform.keys_of(platform_incident))
+
+    if keyed:
+        reported = platform.reported_incident(platform_incident)
+        page = Lifespan(began_at=reported.began_at, ended_at=reported.ended_at)
+        keyed = [incident for incident in keyed if incident.lifespan.overlaps(page)]
+
+    return list(dict.fromkeys(incident.id for incident in [*linked, *keyed]))

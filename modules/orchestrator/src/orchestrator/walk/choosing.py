@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from argus_core import to_iso, utc_now
+from argus_core import to_iso
 from argus_core.events import CandidateSelected, Publisher, nobody, publish
 from argus_core.models import (
     Attempt,
@@ -192,17 +192,23 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     an action that leaves nothing to put back is still an action that changed
     the running service - a restart that did not help is evidence about the
     cause exactly as a reverted flag is.
+
+    Dated by when the action was taken, not by when the walk moved on from it.
+    A later round reads the attempt beside the flag provider's record of the
+    same change, and this node runs after the wait for the service to answer -
+    dated here, the two disagreed by the length of that wait, and the round
+    read two changes where there was one.
     """
     action = state.proposed_action
 
-    if action is None:
+    if action is None or state.acted_at is None:
         return []
 
     return [
         Attempt(
             identity=the_identity_of(action),
             enabled=the_direction_of(action),
-            occurred_at=to_iso(utc_now())
+            occurred_at=to_iso(state.acted_at)
         )
     ]
 

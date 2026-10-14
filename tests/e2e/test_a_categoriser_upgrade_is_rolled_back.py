@@ -84,7 +84,8 @@ def test_a_categoriser_upgrade_that_files_purchases_worse_is_rolled_back() -> No
     # The scenario's id is also the recording's name, so one constant serves both.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(RECORDED_OUTPUT_QUALITY_DEGRADATION)),
+            calling(a_scenario_was_seeded(RECORDED_OUTPUT_QUALITY_DEGRADATION,
+                                          as_recorded_in=RECORDED_OUTPUT_QUALITY_DEGRADATION)),
             calling(the_model_answers_from(RECORDED_OUTPUT_QUALITY_DEGRADATION)),
             calling(the_deployment_was_staged(THE_CATEGORISER_UPGRADED))
         ) \

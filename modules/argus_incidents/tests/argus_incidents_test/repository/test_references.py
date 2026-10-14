@@ -3,16 +3,35 @@
 The table a tool's later word about an incident is matched through: a person
 resolving it in a paging tool arrives carrying that tool's names for it and
 nothing of Argus's. So what this owes its readers is that a name, once given to
-an incident, finds that incident and no other - and that a name nobody gave
-finds nothing rather than something close.
+an incident, finds that incident - and that a name nobody gave finds nothing
+rather than something close.
+
+Most names are one incident's alone: a thread, a message in it, an offer posted
+there. A few are shared by design, because the tool that hands them out cannot
+tell Argus's incidents apart - every firing of an alert group pages under the
+group's one key, one page can stay open across two incidents, and one firing
+can be reminded of after Argus has opened a second incident for it. A shared
+name finds every incident holding it, and which of them a tool meant is the
+caller's to decide.
 """
 
 from __future__ import annotations
 
+import psycopg
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import CHAT_THREAD, Alert, Reference, a_chat_thread
-from argus_incidents.repository import references
+from argus_core.models import (
+    ALERT_FIRING,
+    CHAT_THREAD,
+    NOTIFICATION_KEY,
+    ON_CALL_INCIDENT,
+    Alert,
+    Incident,
+    IncidentStatus,
+    Reference,
+    a_chat_thread,
+)
+from argus_incidents.repository import incidents, references
 from argus_testkit import Assertion, Scenario, calling
 
 from argus_incidents_test.framework import no_column_is_empty
@@ -32,10 +51,10 @@ def test_an_incident_is_found_by_any_one_of_its_names() -> None:
 
         Scenario() \
             .given(calling(lambda: references.add(conn, some_incident, [some_name]))) \
-            .when(lambda: references.get_incident_by_values(
+            .when(lambda: references.get_incidents_by_values(
                 conn, SOME_KIND, ["some-unknown-key", some_name.value]
             )) \
-            .then(_the_incident_found_is(some_incident))
+            .then(_the_incidents_found_are([some_incident]))
 
 
 @pytest.mark.integration
@@ -45,10 +64,10 @@ def test_a_name_nobody_gave_finds_no_incident() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(SOME_KIND) \
-            .when(lambda: references.get_incident_by_values(
+            .when(lambda: references.get_incidents_by_values(
                 conn, SOME_KIND, ["some-unknown-key"]
             )) \
-            .then(_the_incident_found_is(None))
+            .then(_the_incidents_found_are([]))
 
 
 @pytest.mark.integration
@@ -65,18 +84,18 @@ def test_a_name_of_another_kind_is_not_mistaken_for_this_one() -> None:
             .given(calling(lambda: references.add(
                 conn, some_incident, [_a_reference("some-other-kind", some_value)]
             ))) \
-            .when(lambda: references.get_incident_by_values(
+            .when(lambda: references.get_incidents_by_values(
                 conn, SOME_KIND, [some_value]
             )) \
-            .then(_the_incident_found_is(None))
+            .then(_the_incidents_found_are([]))
 
 
 @pytest.mark.integration
 def test_a_name_already_given_stays_with_the_incident_that_had_it() -> None:
-    # One name, one incident: a tool saying something about it must reach
-    # exactly one. A second incident claiming a name is the same name arriving
-    # again, and the first holder keeps it - the write does not fail, because
-    # the alert that brought it is still worth opening an incident for.
+    # A name of Argus's own giving is one incident's: a message in a thread
+    # must reach exactly one. A second incident claiming it is the same name
+    # arriving again, and the first holder keeps it - the write does not fail,
+    # because whatever brought it is still worth recording the rest of.
     some_name = _a_reference(SOME_KIND, "k-1")
 
     with connect_from_env() as conn:
@@ -89,10 +108,73 @@ def test_a_name_already_given_stays_with_the_incident_that_had_it() -> None:
                 calling(lambda: references.add(conn, some_later_incident, [some_name])),
                 calling(lambda: references.add(conn, the_first_holder, [some_name]))
             ) \
-            .when(lambda: references.get_incident_by_values(
+            .when(lambda: references.get_incidents_by_values(
                 conn, SOME_KIND, [some_name.value]
             )) \
-            .then(_the_incident_found_is(the_first_holder))
+            .then(_the_incidents_found_are([the_first_holder]))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("kind", [NOTIFICATION_KEY, ON_CALL_INCIDENT, ALERT_FIRING])
+def test_a_name_several_incidents_share_finds_every_one_of_them(kind: str) -> None:
+    # The key of an alert group is every firing's key, a page left open
+    # across two incidents is both incidents' page, and a firing reminded of
+    # after a mitigation is both incidents' firing. Kept by the first holder
+    # alone, the name would send every later word about the second to the
+    # first.
+    some_name = _a_reference(kind, "k-1")
+
+    with connect_from_env() as conn:
+        the_first_holder = an_incident_created_for(conn, _an_alert())
+        the_second_holder = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, the_first_holder, [some_name])),
+                calling(lambda: references.add(conn, the_second_holder, [some_name]))
+            ) \
+            .when(lambda: references.get_incidents_by_values(conn, kind, [some_name.value])) \
+            .then(_the_incidents_found_are([the_first_holder, the_second_holder]))
+
+
+@pytest.mark.integration
+def test_a_shared_name_given_twice_to_one_incident_is_held_once() -> None:
+    # A webhook delivered twice, or a reminder of the firing that opened the
+    # incident, is the same name arriving again for the same incident.
+    some_name = _a_reference(NOTIFICATION_KEY, "k-1")
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, some_incident, [some_name])),
+                calling(lambda: references.add(conn, some_incident, [some_name]))
+            ) \
+            .when(lambda: references.get_values_for(conn, some_incident, NOTIFICATION_KEY)) \
+            .then(_the_values_are([some_name.value]))
+
+
+@pytest.mark.integration
+def test_an_incident_found_by_a_name_is_found_as_it_stands() -> None:
+    # Which of several holders a tool meant is read from when each was going
+    # on, so an incident found is the whole row - an ended one with its end.
+    some_name = _a_reference(NOTIFICATION_KEY, "k-1")
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, some_incident, [some_name])),
+                calling(lambda: incidents.transition(
+                    conn, some_incident, IncidentStatus.ESCALATED
+                ))
+            ) \
+            .when(lambda: references.get_incidents_by_values(
+                conn, NOTIFICATION_KEY, [some_name.value]
+            )) \
+            .then(_they_are_as_recorded(conn, [some_incident]))
 
 
 @pytest.mark.integration
@@ -180,13 +262,30 @@ def _a_reference(kind: str, value: str) -> Reference:
     return Reference(source="some-tool", kind=kind, value=value)
 
 
-def _the_incident_found_is(expected: str | None) -> Assertion[str | None]:
-    def assertion(found: str | None) -> bool:
-        if found != expected:
+def _the_incidents_found_are(expected: list[str]) -> Assertion[list[Incident]]:
+    """The incidents found, in no order: nothing a caller does with several
+    holders depends on which came back first."""
+    def assertion(found: list[Incident]) -> bool:
+        found_ids = [incident.id for incident in found]
+
+        if sorted(found_ids) != sorted(expected):
             raise AssertionError(
-                f"Expected the name to find the incident [{expected}], got "
-                f"[{found}]."
+                f"Expected the name to find the incidents {sorted(expected)}, got "
+                f"{sorted(found_ids)}."
             )
+
+        return True
+
+    return assertion
+
+
+def _they_are_as_recorded(conn: psycopg.Connection,
+                          expected: list[str]) -> Assertion[list[Incident]]:
+    def assertion(found: list[Incident]) -> bool:
+        recorded = [incidents.get(conn, incident_id) for incident_id in expected]
+
+        if found != recorded:
+            raise AssertionError(f"Expected the incidents found to be {recorded}, got {found}.")
 
         return True
 

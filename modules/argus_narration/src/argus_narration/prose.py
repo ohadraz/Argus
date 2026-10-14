@@ -42,17 +42,20 @@ _A_TIME_IN_PROSE = re.compile(
 _A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2})?Z?")
 
 
-def said_plainly(prose: str) -> str:
+def said_plainly(prose: str, beside: str | None = None) -> str:
     """A model's sentence, with its instants said the way the page says them.
 
     A claim arrives here already on one line - that is settled where the answer
     is accepted - so an instant is never split across a break by the time these
     patterns read it.
+
+    `beside` is the moment of the line the sentence sits on. A clock time is
+    read as that line's day, so an instant on any other keeps its date.
     """
-    return _with_readable_times(prose)
+    return _with_readable_times(prose, beside)
 
 
-def _with_readable_times(prose: str) -> str:
+def _with_readable_times(prose: str, beside: str | None) -> str:
     """Wire-format instants inside a sentence, said as a clock says them.
 
     `21:48Z` is what the tools speak to each other; a person reading a page
@@ -60,10 +63,10 @@ def _with_readable_times(prose: str) -> str:
     the one the model named, and every other time on the page is rendered the
     same way.
     """
-    return _A_TIME_IN_PROSE.sub(lambda found: _on_the_clock(found.group(0)), prose)
+    return _A_TIME_IN_PROSE.sub(lambda found: _on_the_clock(found.group(0), beside), prose)
 
 
-def _on_the_clock(said: str) -> str:
+def _on_the_clock(said: str, beside: str | None) -> str:
     """One quoted time as a clock reads it, whatever shape it arrived in.
 
     A bare `21:48Z` is a wire-format time with its date left off, which nothing
@@ -73,4 +76,4 @@ def _on_the_clock(said: str) -> str:
     if _A_BARE_CLOCK.fullmatch(said):
         return said[:5]
 
-    return a_minute(said)
+    return a_minute(said, beside=beside)

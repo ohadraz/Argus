@@ -178,6 +178,24 @@ def get_run_for_incident(conn: psycopg.Connection, incident_id: str) -> Run | No
         return cursor.fetchone()
 
 
+def get_unsettled_runs(conn: psycopg.Connection) -> list[Run]:
+    """Every run still waiting to be walked or being walked, oldest first.
+
+    Both, because a run waiting is as live as one being walked: a worker takes
+    it the moment one is free, and acts on whatever is there when it does. A
+    run that finished or failed acts on nothing again.
+    """
+    with conn.cursor(row_factory=class_row(Run)) as cursor:
+        cursor.execute(
+            "SELECT id, incident_id, state, claimed_by, leased_until, "
+            "failure_reason, created_at FROM incident_run "
+            "WHERE state IN (%s, %s) ORDER BY created_at",
+            (RunState.QUEUED, RunState.RUNNING)
+        )
+
+        return cursor.fetchall()
+
+
 def _settle(conn: psycopg.Connection,
             run_id: str,
             state: RunState,

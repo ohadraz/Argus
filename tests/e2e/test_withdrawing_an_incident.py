@@ -121,7 +121,8 @@ def test_an_incident_withdrawn_mid_walk_stops_and_puts_its_flag_back() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -155,7 +156,8 @@ def test_an_incident_withdrawn_from_its_slack_thread_stops_where_it_is() -> None
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_is_held()),
             calling(the_intent_agent_answers_from(RECORDED_INTENT_WITHDRAW)),
             calling(the_chat_platform_knows(some_person_id, some_person))
@@ -191,7 +193,8 @@ def test_a_flag_changed_from_outside_is_left_alone_when_the_incident_is_withdraw
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -227,7 +230,8 @@ def test_a_withdrawn_rollback_puts_the_deployment_back_and_resumes_reconciliatio
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("bad-deployment")),
+            calling(a_scenario_was_seeded("bad-deployment",
+                                          as_recorded_in=RECORDED_BAD_DEPLOYMENT)),
             calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT)),
             calling(the_deployment_was_staged(THE_AVERAGE_SLOWED))
         ) \
@@ -267,7 +271,8 @@ def test_a_withdrawn_scale_out_puts_the_count_back_and_resumes_reconciliation() 
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("cpu-saturation")),
+            calling(a_scenario_was_seeded("cpu-saturation",
+                                          as_recorded_in=RECORDED_CPU_SATURATION)),
             calling(the_model_answers_from(RECORDED_CPU_SATURATION))
         ) \
         .when(
@@ -305,7 +310,8 @@ def test_a_withdrawn_pin_puts_the_floor_back_and_resumes_reconciliation() -> Non
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("autoscaler-flapping")),
+            calling(a_scenario_was_seeded("autoscaler-flapping",
+                                          as_recorded_in=RECORDED_AUTOSCALER_FLAPPING)),
             calling(the_model_answers_from(RECORDED_AUTOSCALER_FLAPPING))
         ) \
         .when(
@@ -338,7 +344,8 @@ def test_a_withdrawn_rollback_splits_the_fleet_again() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("half-finished-rollout")),
+            calling(a_scenario_was_seeded("half-finished-rollout",
+                                          as_recorded_in=RECORDED_HALF_FINISHED_ROLLOUT)),
             calling(the_model_answers_from(RECORDED_HALF_FINISHED_ROLLOUT)),
             calling(the_deployment_was_staged(THE_CACHE_ENTRY_RESHAPED))
         ) \

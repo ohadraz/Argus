@@ -97,7 +97,8 @@ def test_an_earlier_incident_like_this_one_is_found_and_said() -> None:
     Scenario() \
         .given(
             calling(that_flag_was_tried_before_and_did_not_help),
-            calling(a_scenario_was_seeded("flag-toggle-red-herring")),
+            calling(a_scenario_was_seeded("flag-toggle-red-herring",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_RED_HERRING)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
         ) \
         .when(
@@ -112,7 +113,7 @@ def test_an_earlier_incident_like_this_one_is_found_and_said() -> None:
 
 
 def _a_flag_was_toggled() -> Callable[[], bool]:
-    return a_scenario_was_seeded("feature-flag-toggle")
+    return a_scenario_was_seeded("feature-flag-toggle", as_recorded_in=RECORDED_FLAG_TOGGLE)
 
 
 def _it_was_remembered_as_having_tried(

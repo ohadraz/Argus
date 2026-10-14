@@ -6,7 +6,7 @@ candidates it ranked and the actions it took. Gathering is the Orchestrator's
 work because the tables are, and because an agent that queried for its own
 evidence could ask a different question than the page beside it.
 
-Nothing here is derived or judged. Every line comes from something that was
+Nothing here is derived or judged. Every value comes from something that was
 recorded while it was happening - which is the point: what happened was
 decided then, and a postmortem re-deciding it from conclusions would be
 writing a different incident.
@@ -28,15 +28,20 @@ from decimal import Decimal
 
 import psycopg
 import pytest
-from agent_postmortem import IncidentEvidence, Sources
+from agent_postmortem import CandidateRecord, IncidentEvidence, Sources
 from argus_core import connect_from_env, new_id, parse_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
+    ActionTaken,
     AlertAcknowledged,
+    ChangesRetrieved,
     FixAttempted,
+    FlagChangesRetrieved,
+    HypothesisFormed,
     IncidentEvent,
     LogsRetrieved,
     OnsetDetected,
+    PersonWrote,
     RecoveryChecked,
     StatusChanged,
 )
@@ -46,8 +51,11 @@ from argus_core.models import (
     REVERT_FEATURE_FLAG,
     ActionType,
     Alert,
+    ChangeEvent,
+    ChangeKind,
     FailureMode,
     FixOutcome,
+    FlagChange,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
@@ -55,6 +63,7 @@ from argus_core.models import (
     ModelPolicy,
     OpenedPullRequest,
     PostmortemDocument,
+    Reference,
     Report,
     ReportChannel,
     Standing,
@@ -66,6 +75,7 @@ from argus_core.models import (
     Verdict,
     Weighing,
     a_chat_message,
+    as_a_change,
 )
 from argus_core.replay import Replay
 from argus_incidents.repository import (
@@ -95,8 +105,13 @@ DONT_CARE_THRESHOLDS = AnomalyThresholds(
     recovery_fraction_of_the_rise=0.8
 )
 
+# How late the metrics source reports a minute. Unread here for the reason the
+# thresholds are, and without a default for the same one.
+DONT_CARE_REPORTING_LAG_MINUTES = 0
+
 # The flag the actions here act on. Any name does.
 SOME_FLAG = "monthly-spend-feature"
+SOME_OTHER_FLAG = "legacy-checkout-fallback"
 
 
 @pytest.mark.component
@@ -144,7 +159,81 @@ def test_the_evidence_carries_the_candidates_the_investigation_ranked(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _mentions_among(lambda evidence: evidence.candidates, some_cause)
+                _mentions_among(
+                    lambda evidence: [candidate.summary for candidate in evidence.candidates],
+                    some_cause
+                )
+            )
+
+
+@pytest.mark.component
+def test_a_candidate_carries_what_it_blamed_and_what_became_of_it(
+    a_clean_database: None
+) -> None:
+    # The trigger is the change the confirmed candidate blamed, so the
+    # candidate has to arrive as the values it was recorded with - its subject,
+    # the two ends of the change, and the verdict - rather than as a sentence
+    # the document would have to take apart again.
+    some_confidence = 0.8
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        a_candidate = Hypothesis(incident_id=incident_id,
+                                 summary="a flag change on account pages",
+                                 failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                                 confidence=some_confidence,
+                                 supporting_evidence=[],
+                                 subject=SOME_FLAG,
+                                 from_state="off",
+                                 to_state="on")
+        hypotheses.record(conn, a_candidate)
+
+        Scenario() \
+            .given(
+                calling(lambda: hypotheses.record_outcome(
+                    conn, a_candidate.id, tested=True, result=Verdict.CONFIRMED))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_candidates([CandidateRecord(
+                    summary="a flag change on account pages",
+                    failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                    confidence=some_confidence,
+                    subject=SOME_FLAG,
+                    from_state="off",
+                    to_state="on",
+                    tested=True,
+                    result=Verdict.CONFIRMED
+                )])
+            )
+
+
+@pytest.mark.component
+def test_a_line_that_formed_candidates_names_them_among_the_evidence_s_own(
+    a_clean_database: None
+) -> None:
+    # So the write-up can point at a candidate under its own label rather than
+    # say it twice. By the hypothesis each line formed, not by counting: the
+    # candidates are listed best first across every round, so a second round's
+    # best sits between the first round's two, and a count names the wrong one.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1)),
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=2)),
+                calling(lambda: events.record(conn, StatusChanged(
+                    incident_id=incident_id, to_status=IncidentStatus.INVESTIGATING))),
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_lines_name_the_candidates([[0, 2], [1]])
             )
 
 
@@ -176,6 +265,218 @@ def test_the_evidence_carries_the_log_lines_the_incident_read(a_clean_database: 
 
 
 @pytest.mark.component
+def test_a_line_read_again_by_a_wider_read_is_read_once(a_clean_database: None) -> None:
+    # An investigation that widens its window reads the minutes it has already
+    # read, and a line counted once per read is a failure counted twice. Each
+    # line is kept as often as one read returned it - so a re-read adds nothing
+    # and two replicas logging in one minute still count as two.
+    a_failure = "2026-09-02T12:04:00Z ERROR checkout: fallback unavailable"
+    another = "2026-09-02T12:05:00Z WARN checkout: error rate at 30.00%"
+    a_later_one = "2026-09-02T12:06:00Z ERROR checkout: fallback unavailable"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, LogsRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T12:00:00Z",
+                    window_end="2026-09-02T12:05:30Z",
+                    lines=[a_failure, a_failure, another]
+                ))),
+                calling(lambda: events.record(conn, LogsRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    lines=[a_failure, another, a_later_one]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_log_lines([a_failure, a_failure, another, a_later_one])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_the_changes_the_investigation_read(a_clean_database: None) -> None:
+    # What dates the trigger: the change the confirmed candidate blamed is one
+    # of these, and the moment it was made is the one the record holds - not a
+    # moment the document estimates.
+    some_change = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                              occurred_at="2026-09-02T11:49:52Z",
+                              reference=SOME_FLAG,
+                              summary="enabled at 40%")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T10:00:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[some_change]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_changes([some_change])
+            )
+
+
+@pytest.mark.component
+def test_a_change_two_reads_both_held_is_carried_once_where_it_was_first_read(
+        a_clean_database: None) -> None:
+    # One change is one change. A later round re-reads a window overlapping the
+    # first, and a change carried once per read gets a label per read - so the
+    # numbering would depend on whether the first read happened to reach it.
+    the_flip = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                           occurred_at="2026-09-02T11:49:52Z",
+                           reference=SOME_FLAG,
+                           summary="switched on")
+    the_revert = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                             occurred_at="2026-09-02T11:51:10Z",
+                             reference=SOME_FLAG,
+                             summary="switched off")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T10:00:00Z",
+                    window_end="2026-09-02T11:50:00Z",
+                    changes=[the_flip]
+                ))),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[the_flip, the_revert]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_changes([the_flip, the_revert])
+            )
+
+
+@pytest.mark.component
+def test_a_flag_change_only_the_walk_read_is_carried_once_in_its_place_in_time(
+        a_clean_database: None) -> None:
+    # The walk acts on the flag history it reads over a window of its own, and a
+    # write-up has to be able to cite the change Argus acted on - so a flag
+    # switched outside the investigation's window is carried too, where it falls
+    # in time among the rest; and a change both of them read is still one change.
+    the_flip = FlagChange(flag=SOME_FLAG, enabled=True, occurred_at="2026-09-02T11:49:52Z")
+    the_flip_only_the_walk_read = FlagChange(flag=SOME_OTHER_FLAG,
+                                             enabled=True,
+                                             occurred_at="2026-09-02T11:20:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[as_a_change(the_flip)]
+                ))),
+                calling(lambda: events.record(conn, FlagChangesRetrieved(
+                    incident_id=incident_id,
+                    changes=[the_flip_only_the_walk_read, the_flip]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_changes([as_a_change(the_flip_only_the_walk_read),
+                                      as_a_change(the_flip)])
+            )
+
+
+@pytest.mark.component
+def test_changes_a_later_read_reached_further_back_for_are_carried_in_time_order(
+        a_clean_database: None) -> None:
+    # A change is labelled by its place among the changes, and a later round
+    # re-reads a window reaching further back than the first one did. Carried in
+    # the order they were read, the change the first read found would keep its
+    # place only until something earlier turned up - and a write-up citing it by
+    # its label would then be naming another.
+    the_flip = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                           occurred_at="2026-09-02T11:49:52Z",
+                           reference=SOME_FLAG,
+                           summary="switched on")
+    an_earlier_flip = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                  occurred_at="2026-09-02T10:20:00Z",
+                                  reference=SOME_OTHER_FLAG,
+                                  summary="switched on")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[the_flip]
+                ))),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T10:00:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[an_earlier_flip, the_flip]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_changes([an_earlier_flip, the_flip])
+            )
+
+
+@pytest.mark.component
+def test_a_flag_change_from_once_the_walk_had_acted_is_not_carried(
+        a_clean_database: None) -> None:
+    # A later round reads the flag history again with its far end open, and from
+    # the first action on what it finds is the walk's own doing - told already
+    # as an action, and no cause of the incident it was acting on.
+    the_flip = FlagChange(flag=SOME_FLAG, enabled=True, occurred_at="2026-09-02T11:49:52Z")
+    first_acted_at = parse_iso("2026-09-02T11:52:00Z")
+    the_walks_own_revert = FlagChange(flag=SOME_FLAG,
+                                      enabled=False,
+                                      occurred_at="2026-09-02T11:52:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: _an_action_claimed_then_taken(conn, incident_id, first_acted_at)),
+                calling(lambda: events.record(conn, FlagChangesRetrieved(
+                    incident_id=incident_id,
+                    changes=[the_flip, the_walks_own_revert]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_changes([as_a_change(the_flip)])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_database: None) -> None:
     # The narration the document is written from - the same lines, from the same
     # renderer, as the page shows. Out of order it is a different incident: a
@@ -192,6 +493,66 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
                 _timeline_begins_with("Received the alert"),
                 _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
             ))
+
+
+@pytest.mark.component
+def test_a_line_written_outside_the_walk_is_carried_as_such(a_clean_database: None) -> None:
+    # The document numbers the walk's lines apart from these: where a person's
+    # message lands among the walk's is timing, and counted with them it
+    # renumbers every line of the walk after it.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                somebody_writing := PersonWrote(
+                    incident_id=incident_id,
+                    message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+                    person_id="some-person-id",
+                    text="looks fine to me")
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, somebody_writing)
+            ) \
+            .then(
+                _only_the_lines_dated_are_outside_the_walk([somebody_writing.at])
+            )
+
+
+@pytest.mark.component
+def test_a_wait_is_carried_once_by_the_look_that_settled_it(a_clean_database: None) -> None:
+    # Told look by look, the walk's lines number by how many looks a wait took
+    # and where a person's message fell among them - which is timing, not the
+    # incident. The last look is what the wait came to.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_looks = [
+            RecoveryChecked(incident_id=incident_id, at=parse_iso("2026-09-02T12:06:10Z"),
+                            minute="2026-09-02T12:06:00Z", recovered=False),
+            RecoveryChecked(incident_id=incident_id, at=parse_iso("2026-09-02T12:06:20Z"),
+                            minute="2026-09-02T12:06:00Z", recovered=False),
+            RecoveryChecked(incident_id=incident_id, at=parse_iso("2026-09-02T12:07:10Z"),
+                            minute="2026-09-02T12:07:00Z", recovered=True,
+                            recovered_minute="2026-09-02T12:06:00Z")
+        ]
+        somebody_writing = PersonWrote(
+            incident_id=incident_id,
+            at=parse_iso("2026-09-02T12:06:15Z"),
+            message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+            person_id="some-person-id",
+            text="looks fine to me")
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(
+                    conn, [the_looks[0], somebody_writing, the_looks[1], the_looks[2]]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_looks_carried_are(the_looks, [the_looks[-1]])
+            )
 
 
 @pytest.mark.component
@@ -384,6 +745,74 @@ def test_an_ending_argus_reached_itself_dates_no_recovery(a_clean_database: None
 
 
 @pytest.mark.component
+def test_an_incident_watched_and_never_seen_to_recover_says_so(a_clean_database: None) -> None:
+    # Not recovering while watched is an answer, not an absence of one. The
+    # document must not ask it again of its own window: on a service that flaps,
+    # that window shows a lull in one run and not in the next.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        events.record(conn, RecoveryChecked(incident_id=incident_id,
+                                            minute="2026-09-02T12:06:00Z",
+                                            recovered=False,
+                                            recovered_minute=None))
+
+        Scenario() \
+            .given(
+                a_later_look := RecoveryChecked(incident_id=incident_id,
+                                                minute="2026-09-02T12:09:00Z",
+                                                recovered=False,
+                                                recovered_minute=None)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, a_later_look)
+            ) \
+            .then(all_of(
+                _carries_no_recovery(),
+                _was_watched_and_never_recovered(True)
+            ))
+
+
+@pytest.mark.component
+def test_a_recovery_confirmed_without_a_minute_is_not_said_never_to_have_come(
+        a_clean_database: None) -> None:
+    # Confirmed on a window with nothing in it to date: the service came back,
+    # and the document dates it from the series.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn, incident_id, RecoveryChecked(incident_id=incident_id,
+                                                       minute="2026-09-02T12:09:00Z",
+                                                       recovered=True,
+                                                       recovered_minute=None))
+            ) \
+            .then(
+                _was_watched_and_never_recovered(False)
+            )
+
+
+@pytest.mark.component
+def test_an_incident_nobody_watched_is_not_said_never_to_have_recovered(
+        a_clean_database: None) -> None:
+    # Escalated before any action, or never mitigated: nobody looked, so the
+    # document measures its own answer from the series.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _was_watched_and_never_recovered(False)
+            )
+
+
+@pytest.mark.component
 def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_database: None) -> None:
     # After a resolution nothing is unwound, so a flag Argus turned off is off
     # when the document is written - and a responder reading it needs to know
@@ -401,7 +830,10 @@ def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_databas
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _mentions_among(lambda evidence: evidence.actions, "still in place")
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "still in place"
+                )
             )
 
 
@@ -421,7 +853,10 @@ def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: No
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _mentions_among(lambda evidence: evidence.actions, "put back")
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "put back"
+                )
             )
 
 
@@ -442,7 +877,79 @@ def test_an_action_with_no_way_back_is_said_to_leave_nothing_to_put_back(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _mentions_among(lambda evidence: evidence.actions, "nothing to put back")
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "nothing to put back"
+                )
+            )
+
+
+@pytest.mark.component
+def test_an_action_is_said_in_words(a_clean_database: None) -> None:
+    # The document's resolution, action items and timeline all read this, and
+    # a reader is not owed the action's tag.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.CONFIRMED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(
+                    lambda evidence: [action.action for action in evidence.actions],
+                    f"Reverted the feature flag {SOME_FLAG}"
+                )
+            )
+
+
+@pytest.mark.component
+def test_an_action_carries_the_verdict_it_reached(a_clean_database: None) -> None:
+    # The document numbers an action that brought recovery as an action item
+    # already done, so whether it did has to arrive as the verdict, not as a
+    # word somewhere in a sentence about it.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.CONFIRMED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_one_action_whose_verdict_was(Verdict.CONFIRMED)
+            )
+
+
+@pytest.mark.component
+def test_an_action_is_dated_by_when_it_was_taken_not_by_when_it_was_claimed(
+        a_clean_database: None) -> None:
+    # The row is a claim written before anything happens, so that a walk
+    # resumed inside the step is refused by the database. Dated by the claim,
+    # the action comes before the agent was even called in to take it.
+    some_taken_at = parse_iso("2026-10-11T23:44:44Z")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_claimed_then_taken(conn, incident_id, some_taken_at))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _dates_its_one_action_at(some_taken_at)
             )
 
 
@@ -563,6 +1070,41 @@ def test_the_evidence_carries_the_rule_that_paged(a_clean_database: None) -> Non
 
 
 @pytest.mark.component
+def test_the_evidence_carries_what_the_alert_said_it_found(a_clean_database: None) -> None:
+    # A check that reconciles stored figures says what it found - how many, by
+    # how much, since when. Without it the postmortem credits those figures to
+    # the investigation, or to nobody.
+    some_finding = "240 of 240 shopper totals do not reconcile"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, summary=some_finding)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_alert_finding(some_finding)
+            )
+
+
+@pytest.mark.component
+def test_an_alert_that_said_nothing_carries_no_finding(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_alert_finding(None)
+            )
+
+
+@pytest.mark.component
 def test_a_postmortem_is_written_from_the_sources_it_was_handed(
     a_clean_database: None
 ) -> None:
@@ -631,7 +1173,8 @@ def _sources_recording_into(
         metrics=lambda dont_care_start, dont_care_end, dont_care_rule: [],
         thresholds=DONT_CARE_THRESHOLDS,
         working_hours_a_year=DONT_CARE_WORKING_YEAR,
-        reporting_currency="USD"
+        reporting_currency="USD",
+        metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES
     )
 
 
@@ -764,6 +1307,43 @@ def _an_action_taken(conn: psycopg.Connection,
                          undo_descriptor=undo_descriptor)
 
 
+def _an_action_claimed_then_taken(conn: psycopg.Connection,
+                                  incident_id: str,
+                                  taken_at: datetime) -> None:
+    """One action whose row was claimed now and whose change the account says
+    was made at `taken_at` - the two moments a walk writes for every action."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.record(conn, incident_id,
+                         hypothesis_id=candidate.id,
+                         action_type=REVERT_FEATURE_FLAG,
+                         subject=SOME_FLAG,
+                         outcome=Verdict.CONFIRMED,
+                         undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True))
+    events.record(conn, ActionTaken(incident_id=incident_id,
+                                    hypothesis_id=candidate.id,
+                                    action_type=REVERT_FEATURE_FLAG,
+                                    subject=SOME_FLAG,
+                                    at=taken_at))
+
+
+def _dates_its_one_action_at(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        dated = [action.taken_at for action in evidence.actions]
+
+        if dated != [expected]:
+            raise AssertionError(
+                f"Expected one action dated [{expected}], got {dated}.")
+
+        return True
+
+    return assertion
+
+
 def _carries_no_recovery() -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.recorded_recovery_at is not None:
@@ -795,11 +1375,35 @@ def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _was_watched_and_never_recovered(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.watched_and_never_recovered != expected:
+            raise AssertionError(
+                f"Expected the evidence to say the incident was "
+                f"{'' if expected else 'not '}watched and never seen to recover, and "
+                f"it says it was{'' if evidence.watched_and_never_recovered else ' not'}.")
+
+        return True
+
+    return assertion
+
+
 def _carries_the_rule(expected: str) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.rule != expected:
             raise AssertionError(
                 f"Expected the rule that paged, [{expected}], got [{evidence.rule}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_alert_finding(expected: str | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.alert_finding != expected:
+            raise AssertionError(
+                f"Expected the alert's finding [{expected}], got [{evidence.alert_finding}].")
 
         return True
 
@@ -868,6 +1472,90 @@ def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvide
     return assertion
 
 
+def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -> str:
+    """One candidate as the walk leaves it: the row, and the line saying it was
+    formed - one hypothesis, seen twice."""
+    a_candidate = Hypothesis(incident_id=incident_id,
+                             summary="dont care",
+                             failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                             confidence=0.5,
+                             supporting_evidence=[],
+                             rank=rank)
+    hypotheses.record(conn, a_candidate)
+    events.record(conn, HypothesisFormed(incident_id=incident_id,
+                                         hypothesis_id=a_candidate.id,
+                                         summary=a_candidate.summary,
+                                         failure_mode=a_candidate.failure_mode,
+                                         confidence=a_candidate.confidence,
+                                         subject=None,
+                                         rank=rank))
+
+    return a_candidate.id
+
+
+def _the_lines_name_the_candidates(expected: list[list[int]]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        named = [entry.candidates for entry in evidence.timeline if entry.candidates]
+
+        if named != expected:
+            raise AssertionError(
+                f"Expected the lines to name the candidates at {expected}, got {named}.")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_candidates(expected: list[CandidateRecord]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.candidates != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry the candidates {expected}, and it "
+                f"carried {evidence.candidates}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _carries_the_log_lines(expected: list[str]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.log_lines != expected:
+            raise AssertionError(
+                f"Expected the log lines {expected}, got {evidence.log_lines}.")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_changes(expected: list[ChangeEvent]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.changes != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry the changes {expected}, and it "
+                f"carried {evidence.changes}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _carries_one_action_whose_verdict_was(expected: Verdict) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        verdicts = [action.verdict for action in evidence.actions]
+
+        if verdicts != [expected]:
+            raise AssertionError(
+                f"Expected one action, whose verdict was [{expected}], got {verdicts}.")
+
+        return True
+
+    return assertion
+
+
 def _a_message_understood_as(conn: psycopg.Connection,
                              incident_id: str,
                              meaning: Meaning,
@@ -886,7 +1574,9 @@ def _a_message_understood_as(conn: psycopg.Connection,
     return written.model_copy(update={"meaning": meaning})
 
 
-def _an_incident_that_ended(conn: psycopg.Connection, rule: str | None = None) -> str:
+def _an_incident_that_ended(conn: psycopg.Connection,
+                            rule: str | None = None,
+                            summary: str | None = None) -> str:
     """An incident with both a row and an account of itself.
 
     The events as well as the rows, because the document is written from the
@@ -894,7 +1584,7 @@ def _an_incident_that_ended(conn: psycopg.Connection, rule: str | None = None) -
     moved and whose story says nothing is one the postmortem has nothing to
     read.
     """
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule)
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary)
     incident_id = incidents.create(conn, some_alert)
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(
@@ -948,10 +1638,10 @@ def _ends_at(expected: object) -> Assertion[IncidentEvidence]:
 
 def _mentions_among(reading: Callable[[IncidentEvidence], list[str]],
                     expected: str) -> Assertion[IncidentEvidence]:
-    """One line of the bundle, whichever list it belongs in.
+    """One value of the bundle, whichever list it belongs in.
 
     The lists differ in what they hold and not in how they are checked, so the
-    test names the list and the line and nothing else.
+    test names what to read and the text and nothing else.
     """
     def assertion(evidence: IncidentEvidence) -> bool:
         lines = reading(evidence)
@@ -964,11 +1654,50 @@ def _mentions_among(reading: Callable[[IncidentEvidence], list[str]],
     return assertion
 
 
+def _only_the_lines_dated_are_outside_the_walk(expected: list[datetime]
+                                               ) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        outside = [entry.at for entry in evidence.timeline if entry.outside_the_walk]
+
+        if outside != expected:
+            raise AssertionError(
+                f"Expected only the lines dated {expected} carried as outside the walk, "
+                f"got {outside}.")
+
+        return True
+
+    return assertion
+
+
+def _the_looks_carried_are(looked: list[RecoveryChecked],
+                           expected: list[RecoveryChecked]) -> Assertion[IncidentEvidence]:
+    """Which of the looks the timeline tells, found by when each was taken."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        taken_at = {look.at for look in looked}
+        carried = [entry.at for entry in evidence.timeline if entry.at in taken_at]
+
+        if carried != [look.at for look in expected]:
+            raise AssertionError(
+                f"Expected the looks taken at {[look.at for look in expected]} carried, "
+                f"got {carried}.")
+
+        return True
+
+    return assertion
+
+
+def _recorded_in_order(conn: psycopg.Connection, account: list[IncidentEvent]) -> None:
+    for event in account:
+        events.record(conn, event)
+
+
 def _timeline_begins_with(expected: str) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
-        if not evidence.timeline or expected not in evidence.timeline[0]:
+        said = [entry.text for entry in evidence.timeline]
+
+        if not said or expected not in said[0]:
             raise AssertionError(
-                f"Expected the timeline to open on [{expected}], got {evidence.timeline}.")
+                f"Expected the timeline to open on [{expected}], got {said}.")
 
         return True
 
@@ -982,12 +1711,12 @@ def _timeline_ends_with(expected: str) -> Assertion[IncidentEvidence]:
     order trivially, and the order is the whole claim.
     """
     def assertion(evidence: IncidentEvidence) -> bool:
-        if not evidence.timeline or expected not in evidence.timeline[-1]:
+        said = [entry.text for entry in evidence.timeline]
+
+        if not said or expected not in said[-1]:
             raise AssertionError(
-                f"Expected the timeline to close on [{expected}], got {evidence.timeline}.")
+                f"Expected the timeline to close on [{expected}], got {said}.")
 
         return True
 
     return assertion
-
-

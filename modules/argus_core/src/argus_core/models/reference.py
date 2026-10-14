@@ -27,6 +27,17 @@ NOTIFICATION_KEY: Final = "notification-key"
 # is the platform's report channel, so two platforms' ids never meet.
 ON_CALL_INCIDENT: Final = "on-call-incident"
 
+# The kind of name one firing of one alert is: the monitor's identity for the
+# alert and the moment this firing of it started, which every notification
+# about it carries again - a reminder while it is still firing included. What
+# a notification is matched to the incident it belongs to by, where the
+# group's key cannot tell one firing of the group from the next.
+#
+# This kind, `NOTIFICATION_KEY` and `ON_CALL_INCIDENT` are the names several
+# incidents may hold at once, and the schema says which: the tools handing
+# them out cannot tell Argus's incidents apart.
+ALERT_FIRING: Final = "alert-firing"
+
 # The kinds of name a chat platform gives a place in the conversation about an
 # incident: the thread it is told in, a message a person wrote there, and an
 # offer Argus posted there - one kind per ending offered, because an incident

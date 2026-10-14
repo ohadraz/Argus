@@ -59,8 +59,6 @@ and decides for itself what it is looking at.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
@@ -84,6 +82,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
     argo_auto_sync_is_disabled,
     the_incidents_events,
     the_shops_window,
@@ -118,7 +117,8 @@ def test_a_shop_that_outgrew_its_capacity_is_scaled_out_and_left_mitigated() -> 
 
     Scenario() \
         .given(
-            calling(_the_shop_was_left_short_of_capacity()),
+            calling(a_scenario_was_seeded("cpu-saturation",
+                                          as_recorded_in=RECORDED_CPU_SATURATION)),
             calling(the_model_answers_from(RECORDED_CPU_SATURATION))
         ) \
         .when(
@@ -324,16 +324,3 @@ def _the_replicas_the_platform_reports() -> int:
     replicas: int = manifest["spec"]["replicas"]
 
     return replicas
-
-
-def _the_shop_was_left_short_of_capacity() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "cpu-saturation"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

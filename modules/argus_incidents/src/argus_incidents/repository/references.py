@@ -3,11 +3,14 @@
 A tool's later word about an incident - a person resolving it in the paging
 tool that woke them - arrives carrying that tool's names for it and none of
 Argus's. What this owes its readers is that a name, once given to an incident,
-finds that incident and no other, and that a name nobody gave finds nothing.
+finds that incident - and, for the kinds below that are shared, every other
+incident holding it - and that a name nobody gave finds nothing.
 
-Names are never moved, only added. A name already held is the same name
-arriving again - a re-fired alert, a webhook delivered twice - and the incident
-that had it keeps it.
+Names are never moved, only added. Most are one incident's alone, and one
+already held is the same name arriving again - a webhook delivered twice - so
+the incident that had it keeps it. Three kinds are shared by design (see the
+schema), because the tools handing them out cannot tell Argus's incidents
+apart, and a name of those kinds finds every incident holding it.
 """
 
 from __future__ import annotations
@@ -15,7 +18,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import psycopg
-from argus_core.models import Reference
+from argus_core.models import Incident, Reference
+from psycopg.rows import class_row
 
 _GIVE_A_NAME = (
     "INSERT INTO incident_reference (incident_id, source, kind, value) "
@@ -51,7 +55,7 @@ def add(conn: psycopg.Connection,
 def get_values_for(conn: psycopg.Connection, incident_id: str, kind: str) -> list[str]:
     """Every name of this kind the incident is known by.
 
-    The other direction from `get_incident_by_values`: what Argus asks another
+    The other direction from `get_incidents_by_values`: what Argus asks another
     tool with, where nothing has linked the tool's own incident to this one yet.
     """
     with conn.cursor() as cursor:
@@ -65,10 +69,10 @@ def get_values_for(conn: psycopg.Connection, incident_id: str, kind: str) -> lis
         return [str(value) for (value,) in cursor.fetchall()]
 
 
-def get_incident_by_values(conn: psycopg.Connection,
-                           kind: str,
-                           values: Iterable[str]) -> str | None:
-    """The incident holding any of these names of this kind, or `None`.
+def get_incidents_by_values(conn: psycopg.Connection,
+                            kind: str,
+                            values: Iterable[str]) -> list[Incident]:
+    """Every incident holding any of these names of this kind, in no order.
 
     Several values because a tool hands back every name its own incident
     carries, and only one of them need be Argus's. Matched within a kind, never
@@ -78,14 +82,20 @@ def get_incident_by_values(conn: psycopg.Connection,
     Any source, though. The kind says what the name is for - a key stamped on
     what was sent to a paging tool - and the paging tool cannot know which
     monitor stamped it.
+
+    Every holder rather than one, because some kinds have several: every
+    firing of an alert group pages under the group's one key. Which of them a
+    tool meant is the caller's to decide - from when each was going on, which
+    is why each comes back whole - and a lookup that picked one would decide
+    it by whichever row the database happened to read first.
     """
-    with conn.cursor() as cursor:
+    with conn.cursor(row_factory=class_row(Incident)) as cursor:
         cursor.execute(
-            "SELECT incident_id FROM incident_reference "
-            " WHERE kind = %s AND value = ANY(%s) "
-            " LIMIT 1",
+            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            "  FROM incident "
+            " WHERE id IN (SELECT incident_id FROM incident_reference "
+            "               WHERE kind = %s AND value = ANY(%s))",
             (kind, list(values))
         )
-        row = cursor.fetchone()
 
-    return str(row[0]) if row is not None else None
+        return cursor.fetchall()

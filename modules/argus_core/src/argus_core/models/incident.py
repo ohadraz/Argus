@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from argus_core.ids import UuidStr
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.lifespan import Lifespan
 
 
 class Incident(BaseModel):
@@ -20,3 +21,9 @@ class Incident(BaseModel):
     # The trace the alert arrived in, as the propagator wrote it, which every
     # walk of the incident continues. Empty for one started outside any trace.
     trace_context: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def lifespan(self) -> Lifespan:
+        """From the moment Argus heard of the incident to the moment it ended,
+        or to now while it is still being worked."""
+        return Lifespan(began_at=self.created_at, ended_at=self.ended_at)

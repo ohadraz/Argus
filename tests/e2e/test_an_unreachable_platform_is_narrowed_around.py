@@ -111,7 +111,8 @@ def test_a_platform_that_will_not_act_leaves_argus_the_one_action_it_still_has()
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(THE_SCENARIO)),
+            calling(a_scenario_was_seeded(THE_SCENARIO,
+                                          as_recorded_in=RECORDED_CONTROL_PLANE_UNREACHABLE)),
             calling(the_model_answers_from(RECORDED_CONTROL_PLANE_UNREACHABLE)),
             calling(the_deployment_was_staged(THE_MONTH_BOUNDARY_MOVED))
         ) \

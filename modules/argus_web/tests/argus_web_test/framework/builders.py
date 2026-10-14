@@ -15,7 +15,9 @@ def a_grafana_payload(service: str = "kukibuki",
                       rule_uid: str | None = None,
                       generator_url: str | None = None,
                       status: str = "firing",
-                      group_key: str | None = None) -> dict[str, Any]:
+                      group_key: str | None = None,
+                      fingerprint: str | None = None,
+                      starts_at: str = "2026-08-14T10:15:00Z") -> dict[str, Any]:
     """One alert, firing unless `status` says otherwise, nested the way Grafana nests it.
 
     The whole envelope rather than the fields Argus wants, because the nesting
@@ -47,6 +49,11 @@ def a_grafana_payload(service: str = "kukibuki",
 
     `group_key` is the alert group's key, on the envelope where Grafana puts it.
     Absent unless asked for, since the parser must take an alert without one.
+
+    `fingerprint` is Grafana's identity for the alert, on the alert, and
+    `starts_at` the moment this firing of it began; the two together name the
+    firing. The fingerprint is absent unless asked for, for the group key's
+    reason.
     """
     annotations = {"summary": f"Error rate above threshold on {service}"}
 
@@ -68,9 +75,12 @@ def a_grafana_payload(service: str = "kukibuki",
             "severity": "critical"
         },
         "annotations": annotations,
-        "startsAt": "2026-08-14T10:15:00Z",
+        "startsAt": starts_at,
         "endsAt": "0001-01-01T00:00:00Z"
     }
+
+    if fingerprint is not None:
+        alert["fingerprint"] = fingerprint
 
     if rule_uid is not None:
         alert["generatorURL"] = f"http://grafana.test/alerting/grafana/{rule_uid}/view?orgId=1"

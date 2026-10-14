@@ -16,7 +16,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from argus_core.models import Alert, IncidentStatus, PostmortemDocument
+from argus_core.models import Alert, IncidentStatus, PostmortemDocument, ReviewCriterion
 from argus_testkit import Assertion, Kept, Scenario, all_of
 from orchestrator.walk.closing import postmortem_node
 from orchestrator.walk.ports import RecordPostmortem, WritePostmortem
@@ -84,7 +84,8 @@ def test_a_partial_document_is_stored_rather_than_discarded() -> None:
         .when(
             lambda: postmortem_node(
                 a_resolved_incident,
-                write=_a_writer_producing(_a_document(checklist_complete=False)),
+                write=_a_writer_producing(_a_document(review=[
+                    ReviewCriterion(criterion="some criterion", met=False)])),
                 record=_a_recorder_into(stored))
         ) \
         .then(
@@ -101,7 +102,7 @@ def _an_incident_in(status: IncidentStatus, incident_id: str) -> IncidentState:
 
 
 def _a_document(root_cause: str = "dont care",
-                checklist_complete: bool = True) -> PostmortemDocument:
+                review: list[ReviewCriterion] | None = None) -> PostmortemDocument:
     return PostmortemDocument(
         root_cause=root_cause,
         executive_summary="dont care",
@@ -111,7 +112,7 @@ def _a_document(root_cause: str = "dont care",
         responders=2,
         tokens_spent=48_120,
         assumptions=[],
-        checklist_complete=checklist_complete
+        review=review if review is not None else []
     )
 
 

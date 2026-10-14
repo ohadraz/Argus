@@ -25,9 +25,6 @@ onset is rolled back. Both end the same way, which is why they are one file.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
-
 import httpx2
 import pytest
 from argus_core.events import ActionRecommended
@@ -37,7 +34,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from tests.e2e.framework.argus import (
     RECORDED_DEPLOY_CAUSED_CORRUPTION,
     RECORDED_SILENT_DATA_CORRUPTION,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -81,7 +77,8 @@ def test_an_incident_nothing_could_confirm_is_recommended_rather_than_acted_on()
     # of what is under test.
     Scenario() \
         .given(
-            calling(_the_totals_stopped_keeping_up()),
+            calling(a_scenario_was_seeded("silent-data-corruption",
+                                          as_recorded_in=RECORDED_SILENT_DATA_CORRUPTION)),
             calling(the_model_answers_from(RECORDED_SILENT_DATA_CORRUPTION))
         ) \
         .when(
@@ -119,7 +116,8 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
     # name a deploy it only inferred.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("monthly-totals-falling-behind")),
+            calling(a_scenario_was_seeded("monthly-totals-falling-behind",
+                                          as_recorded_in=RECORDED_DEPLOY_CAUSED_CORRUPTION)),
             calling(the_model_answers_from(RECORDED_DEPLOY_CAUSED_CORRUPTION)),
             calling(the_deployment_was_staged(THE_MONTH_STOPPED_BEING_CARRIED))
         ) \
@@ -178,16 +176,3 @@ def _argus_recommended_a_rollback_of(application: str) -> Assertion[httpx2.Respo
         return True
 
     return assertion
-
-
-def _the_totals_stopped_keeping_up() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "silent-data-corruption"},
-            timeout=10.0
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

@@ -12,61 +12,82 @@ from datetime import datetime
 from decimal import Decimal
 
 from argus_core.events import IncidentEvent, StatusChanged
-from argus_core.models import IncidentStatus, OpenedPullRequest, Postmortem, PostmortemLead
+from argus_core.models import (
+    ActionItem,
+    ChainStep,
+    ContributingFactor,
+    Detection,
+    HypothesisConsidered,
+    Impact,
+    IncidentStatus,
+    Lessons,
+    OpenedPullRequest,
+    Postmortem,
+    PostmortemLead,
+    ResolutionStep,
+    ReviewCriterion,
+    TimelineEntry,
+    Trigger,
+)
 from argus_narration import where_a_report_came_from
 from pydantic import BaseModel
 
 
 class PostmortemView(BaseModel):
     """The postmortem, served on its own because it is the largest body Argus
-    writes and the incident detail beside it is polled every two seconds."""
+    writes and the incident detail beside it is polled every two seconds.
+
+    Every field of the row but which row it is and which incident it belongs
+    to, which the page already knows, and what the response cost - stored,
+    and never shown, figure or range. Divided by the minutes beside it, any of
+    them is a rate of pay, and with one responder and their title on the page
+    it is that person's band.
+    """
 
     root_cause: str | None
+    executive_summary: str | None
+    symptom: str | None
     customer_loss_estimate: Decimal | None
     estimate_currency: str | None
     engineer_minutes: int | None
     responders: int | None
-    responder_titles: list[str] | None
-    responder_cost_estimate: Decimal | None
-    responder_cost_minimum: Decimal | None
-    responder_cost_maximum: Decimal | None
-    responder_cost_currency: str | None
+    responder_titles: list[str]
     tokens_spent: int | None
-    assumptions: list[str] | None
-    executive_summary: str | None
+    assumptions: list[str]
     # Where the fix can be read, for the incidents that produced one - the one
     # thing on this page a reader goes on to do something with. `None` for the
     # ordinary ending, where a flag went back and the code was left alone.
     pull_request: OpenedPullRequest | None
+    # What Argus worked out to do and declined, for a person to do instead.
+    # `None` for every ending Argus reached itself.
+    recommended_action: str | None
     # What people told the incident in its thread, what the investigation made
     # of each, and whether it changed what was done - the answer the person who
     # wrote one comes here for. Empty where nobody wrote.
     leads: list[PostmortemLead]
-    checklist_complete: bool
+    impact: Impact | None
+    detection: Detection | None
+    trigger: Trigger | None
+    resolution: list[ResolutionStep]
+    causal_chain: list[ChainStep]
+    contributing_factors: list[ContributingFactor]
+    hypotheses: list[HypothesisConsidered]
+    action_items: list[ActionItem]
+    lessons: Lessons | None
+    timeline: list[TimelineEntry]
+    evidence_read: int | None
+    review: list[ReviewCriterion]
     created_at: datetime
 
 
 def build_postmortem_view(postmortem: Postmortem) -> PostmortemView:
-    """Shapes the postmortem row for transport."""
-    return PostmortemView(
-        root_cause=postmortem.root_cause,
-        customer_loss_estimate=postmortem.customer_loss_estimate,
-        estimate_currency=postmortem.estimate_currency,
-        engineer_minutes=postmortem.engineer_minutes,
-        responders=postmortem.responders,
-        responder_titles=postmortem.responder_titles,
-        responder_cost_estimate=postmortem.responder_cost_estimate,
-        responder_cost_minimum=postmortem.responder_cost_minimum,
-        responder_cost_maximum=postmortem.responder_cost_maximum,
-        responder_cost_currency=postmortem.responder_cost_currency,
-        tokens_spent=postmortem.tokens_spent,
-        assumptions=postmortem.assumptions,
-        executive_summary=postmortem.executive_summary,
-        pull_request=postmortem.pull_request,
-        leads=postmortem.leads,
-        checklist_complete=postmortem.checklist_complete,
-        created_at=postmortem.created_at,
-    )
+    """Shapes the postmortem row for transport.
+
+    Filled by name from the row rather than field by field: a hand-written
+    mapping of thirty fields is thirty chances to cross two of them.
+    """
+    return PostmortemView.model_validate(
+        postmortem.model_dump(include=set(PostmortemView.model_fields)))
 
 
 class ResolutionView(BaseModel):

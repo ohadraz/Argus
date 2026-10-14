@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from http import HTTPStatus as HttpStatus
-from typing import Any
+from typing import Any, Final
 
 import httpx2
 import psycopg
@@ -33,6 +33,9 @@ from tests.e2e.framework.argus import (
     REQUEST_TIMEOUT_SECONDS,
     TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
+    stored_as,
+    the_anchor_file_for,
+    the_shop_stands_in,
 )
 
 # How close to the window's own quickest minute the last one has to be to count as
@@ -41,8 +44,16 @@ from tests.e2e.framework.argus import (
 # mitigation lands in is partly served each way.
 THE_QUIET_MINUTES_ARE_WITHIN = 2.0
 
+# How long a seed may take. The stand-in waits for the stack's clock to reach
+# the recorded anchor's place in its minute before it seeds - up to a minute on
+# a recording run's real clock - and the seed itself has always been given half
+# a minute.
+A_SEED_SECONDS: Final = 90.0
 
-def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
+
+def a_scenario_was_seeded(scenario_id: str,
+                          *,
+                          as_recorded_in: str | None = None) -> Callable[[], bool]:
     """Puts the shop into the state a scenario describes, or fails the case.
 
     Returned as a step rather than performed here, so a `Scenario`'s `given`
@@ -52,12 +63,19 @@ def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
     Raises rather than answering `False`, because `calling` discards what a step
     returns: a seed the shop refused went unnoticed, and the case went on to
     investigate a shop with nothing staged in it.
+
+    `as_recorded_in` names the recording the case replays, so the shop draws
+    the world that recording was answered about. See
+    `the_recorded_anchor_was_staged`.
     """
     def seed_scenario() -> bool:
+        if as_recorded_in is not None:
+            the_recorded_anchor_was_staged(as_recorded_in)
+
         response = httpx2.post(
             f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
             json={"scenario_id": scenario_id},
-            timeout=REQUEST_TIMEOUT_SECONDS
+            timeout=A_SEED_SECONDS
         )
 
         if response.status_code != HttpStatus.OK:
@@ -69,6 +87,51 @@ def a_scenario_was_seeded(scenario_id: str) -> Callable[[], bool]:
         return True
 
     return seed_scenario
+
+
+def the_recorded_anchor_was_staged(recording: str) -> None:
+    """Tells the shop's stand-in the instant `recording` was captured from, so
+    its next seed draws the world that recording saw.
+
+    The shop draws its per-minute noise by the minute it is in, so a log group,
+    a figure or a timeline line a recorded answer cites exists only in a world
+    seeded at the same point in the same minutes. Staged verbatim, as the
+    recorder wrote it: the stand-in reads the instant, and a copy reformatted
+    here would be a second opinion about it.
+
+    Nothing where the shop is the real one, which has no such door, or where the
+    set was captured before anchors were written.
+    """
+    anchor = the_anchor_file_for(stored_as(recording))
+
+    if not the_shop_stands_in() or not anchor.exists():
+        return
+
+    response = httpx2.post(
+        f"{TARGET_SERVICE_BASE_URL}/double-control/anchor",
+        json={"anchor": anchor.read_text(encoding="utf-8")},
+        timeout=REQUEST_TIMEOUT_SECONDS
+    )
+
+    if response.status_code != HttpStatus.OK:
+        raise AssertionError(
+            f"Expected the shop's stand-in to take set [{stored_as(recording)}]'s "
+            f"anchor, got [{response.status_code}]: {response.text}."
+        )
+
+
+def the_shops_stand_in_was_put_back() -> None:
+    """Nothing staged, and the shop's own draws.
+
+    An anchor staged by a case whose seed never ran would otherwise be used up
+    by the next case's seed, which then draws a world its own recording never
+    saw.
+    """
+    if the_shop_stands_in():
+        httpx2.post(
+            f"{TARGET_SERVICE_BASE_URL}/double-control/reset",
+            timeout=REQUEST_TIMEOUT_SECONDS
+        ).raise_for_status()
 
 
 def the_shops_window() -> list[dict[str, Any]]:

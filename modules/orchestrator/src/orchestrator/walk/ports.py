@@ -20,6 +20,7 @@ from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
+    EstablishedOnset,
     Findings,
     FlagChange,
     Hypothesis,
@@ -58,7 +59,8 @@ class Investigate(Protocol):
         publisher: Publisher = nobody,
         recorder: Recorder = records_nothing,
         still_wanted: StillWanted = ...,
-        leads: Leads = ...
+        leads: Leads = ...,
+        established_onset: EstablishedOnset | None = None
     ) -> Findings: ...
 
 
@@ -174,6 +176,10 @@ class TakeAction(Protocol):
     # handed says when the incident began - and `None`, which is every incident
     # whose onset was measured, leaves the judgement exactly as it was.
     #
+    # `incident_began` is the minute the investigation dated the incident from,
+    # which the recovery is dated after. Distinct from `onset` above, which only
+    # an alert states and which answers a different question.
+    #
     # `rule` is the alert rule that paged, for an alert about a series: the
     # action is judged by whether it stops firing. `None` leaves it to the
     # judgement it has without a rule - the levels, the readings returning, or
@@ -188,6 +194,7 @@ class TakeAction(Protocol):
         incident_id: str | None = None,
         publisher: Publisher = nobody,
         onset: datetime | None = None,
+        incident_began: str | None = None,
         rule: str | None = None
     ) -> Outcome: ...
 

@@ -43,9 +43,6 @@ and decides for itself what it is looking at.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
-
 import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
@@ -53,8 +50,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_CACHE_MISCONFIGURED,
-    REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -67,6 +62,7 @@ from tests.e2e.framework.argus import (
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.deployments import THE_CACHE_PORT_MOVED, the_deployment_was_staged
 from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
     argo_auto_sync_is_disabled,
     the_middle_of,
     the_shops_window,
@@ -102,7 +98,8 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
 
     Scenario() \
         .given(
-            calling(_the_cache_was_moved_out_of_reach()),
+            calling(a_scenario_was_seeded("cache-misconfigured",
+                                          as_recorded_in=RECORDED_CACHE_MISCONFIGURED)),
             calling(the_model_answers_from(RECORDED_CACHE_MISCONFIGURED)),
             calling(the_deployment_was_staged(THE_CACHE_PORT_MOVED))
         ) \
@@ -230,16 +227,3 @@ def _the_shop_is_reaching_its_cache_again() -> Assertion[httpx2.Response]:
         return True
 
     return assertion
-
-
-def _the_cache_was_moved_out_of_reach() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "cache-misconfigured"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

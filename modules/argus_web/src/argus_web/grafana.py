@@ -5,7 +5,7 @@ import logging
 from typing import Any, Final
 from urllib.parse import urlsplit
 
-from argus_core.models import NOTIFICATION_KEY, AlarmClaim, Alert, Reference
+from argus_core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,14 @@ GRAFANA_SOURCE: Final = "grafana"
 # Where Grafana puts the key of the alert group a notification is about: on the
 # envelope, not on any one alert.
 _GROUP_KEY: Final = "groupKey"
+
+# Where Grafana puts an alert's identity and the moment this firing of it began:
+# on each alert.
+_FINGERPRINT: Final = "fingerprint"
+_STARTS_AT: Final = "startsAt"
+# Between the two halves of a firing's name. A character neither a fingerprint
+# (hex) nor a timestamp (RFC 3339) carries.
+_FIRING_SEPARATOR: Final = "@"
 
 # How a list of cache keys is written into a single annotation. Grafana carries
 # annotations as text, so a check reporting many entries renders them as one
@@ -93,7 +101,8 @@ def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
         # The link to the rule, which is the only place the webhook names it:
         # Grafana's payload has no field for the rule that fired.
         rule=_the_rule_linked_from(alert.get("generatorURL")),
-        references=_the_names_grafana_pages_with(raw_payload.get(_GROUP_KEY))
+        references=(*_the_names_grafana_pages_with(raw_payload.get(_GROUP_KEY)),
+                    *_the_firings_in(alerts))
     )
 
 
@@ -155,6 +164,34 @@ def _the_names_grafana_pages_with(group_key: str | None) -> tuple[Reference, ...
         kind=NOTIFICATION_KEY,
         value=hashlib.sha256(group_key.encode()).hexdigest()
     ),)
+
+
+def _the_firings_in(alerts: list[dict[str, Any]]) -> tuple[Reference, ...]:
+    """Every firing the notification carries, as the names a later
+    notification about the same alerts will carry again.
+
+    A firing is an alert's fingerprint - Grafana's identity for it, a hash of
+    its labels - and the moment this firing of it started. The group key
+    cannot tell one firing from the next, because every firing of the group
+    pages under it; this pair can, and Grafana repeats it on every reminder
+    while the alert is still firing, in whatever order it lists the group's
+    alerts. Resolved alerts are named too: each is still a firing the incident
+    knew.
+
+    Spelled as Grafana sent both halves, never normalised, because it is
+    matched against what Grafana sends next. An alert with no fingerprint
+    names no firing: a start alone is shared by every alert that began in the
+    same second.
+    """
+    return tuple(
+        Reference(
+            source=GRAFANA_SOURCE,
+            kind=ALERT_FIRING,
+            value=f"{alert[_FINGERPRINT]}{_FIRING_SEPARATOR}{alert.get(_STARTS_AT, '')}"
+        )
+        for alert in alerts
+        if alert.get(_FINGERPRINT)
+    )
 
 
 def _the_claim_in(stated: str | None) -> AlarmClaim:

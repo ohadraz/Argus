@@ -32,18 +32,21 @@ from agent_postmortem import (
     EXCHANGE_RATE_ASSUMPTION_LABEL,
     EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
     NO_RATE_PUBLISHED_REASON,
+    NORMAL_VARIATION_ASSUMPTION_LABEL,
     ONSET_UNKNOWN_ASSUMPTION,
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     RATES_UNAVAILABLE_REASON,
     REVENUE_UNAVAILABLE_ASSUMPTION,
+    SHARED_PAGE_ASSUMPTION_LABEL,
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.assumptions import assumptions_of
+from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
-from agent_postmortem.sources import EngagedResponder, PayBand, RateTable
+from agent_postmortem.sources import EngagedResponder, NotPaged, PayBand, RateTable
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
@@ -133,6 +136,35 @@ def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> 
 
 
 @pytest.mark.unit
+def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
+    # A postmortem is read by the people it prices, and a pay band is not theirs
+    # to read in it. That a midpoint was used is the disclosure; the band's own
+    # figures are what a reader must not be handed.
+    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
+
+    Scenario() \
+        .given(
+            an_incident_whose_response_was_priced := a_measured_incident(
+                engaged=an_engagement_of([a_responder]),
+                bands={SOME_TITLE: SOME_BAND},
+                cost=DONT_CARE_PUBLISHED_COST)
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_whose_response_was_priced,
+                                   SOME_WORKING_YEAR_IN_HOURS)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, "midpoint"),
+                _says_nothing_about(str(SOME_BAND.minimum)),
+                _says_nothing_about(str(SOME_BAND.midpoint)),
+                _says_nothing_about(str(SOME_BAND.maximum))
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_title_two_people_held_is_disclosed_once() -> None:
     # Two people can hold one title, and both are paid for - but a reader
     # checking the figure needs the band once. The same sentence twice reads as
@@ -212,7 +244,10 @@ def test_every_conversion_is_disclosed_with_its_rate_and_the_day_it_was_publishe
             all_of(
                 _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL, str(some_rate)),
                 _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL,
-                                         some_rate_date.isoformat())
+                                         some_rate_date.isoformat()),
+                _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL,
+                                         f"{SOME_OTHER_CURRENCY.upper()} converted at "
+                                         f"{some_rate} per {SOME_CURRENCY.upper()}")
             )
         )
 
@@ -368,6 +403,73 @@ def test_an_incident_nobody_responded_to_apologises_for_nothing() -> None:
 
 
 @pytest.mark.unit
+def test_a_page_other_incidents_shared_is_disclosed_with_how_many() -> None:
+    # Argus said it mitigated the first incident and the alarm went on, so a
+    # second followed - while the on-call platform kept one page open across
+    # both. Its minutes are that page's whole response, reported in full on
+    # each write-up, and a reader adding the write-ups up counts them twice
+    # unless each says so.
+    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
+
+    Scenario() \
+        .given(
+            an_incident_whose_page_two_others_shared := a_measured_incident(
+                engaged=an_engagement_of([a_responder]).model_copy(
+                    update={"shared_with": 2}))
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_whose_page_two_others_shared,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _names_a_line_mentioning(SHARED_PAGE_ASSUMPTION_LABEL, "2 other incidents")
+        )
+
+
+@pytest.mark.unit
+def test_a_page_one_other_incident_shared_is_said_in_the_singular() -> None:
+    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
+
+    Scenario() \
+        .given(
+            an_incident_whose_page_one_other_shared := a_measured_incident(
+                engaged=an_engagement_of([a_responder]).model_copy(
+                    update={"shared_with": 1}))
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_whose_page_one_other_shared,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(SHARED_PAGE_ASSUMPTION_LABEL, "1 other incident"),
+                _says_nothing_about("1 other incidents")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_page_this_incident_had_alone_needs_no_such_disclosure() -> None:
+    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
+
+    Scenario() \
+        .given(
+            an_incident_paged_alone := a_measured_incident(
+                engaged=an_engagement_of([a_responder]))
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_paged_alone,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _says_nothing_about(SHARED_PAGE_ASSUMPTION_LABEL)
+        )
+
+
+@pytest.mark.unit
 def test_bands_that_could_not_be_read_are_disclosed_where_somebody_responded() -> None:
     # Two absences with one consequence, and they are not the same sentence: a
     # response nobody could measure is already disclosed as such, and adding
@@ -388,6 +490,112 @@ def test_bands_that_could_not_be_read_are_disclosed_where_somebody_responded() -
         ) \
         .then(
             _names(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
+        )
+
+
+@pytest.mark.unit
+def test_a_shortfall_within_what_the_shop_varies_by_is_disclosed_as_no_loss() -> None:
+    # A zero beside an incident that plainly took less reads as a figure nobody
+    # computed. Said with both amounts, it is a finding a reader can check.
+    Scenario() \
+        .given(
+            an_incident_within_the_shop_s_variation := a_measured_incident(
+                loss=Decimal(0)
+            ).model_copy(update={"shortfall": Decimal("200.00"),
+                                 "variation": Decimal("300.00")})
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_within_the_shop_s_variation,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(NORMAL_VARIATION_ASSUMPTION_LABEL, "200.00"),
+                _names_a_line_mentioning(NORMAL_VARIATION_ASSUMPTION_LABEL, "300.00")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_loss_beyond_what_the_shop_varies_by_needs_no_such_disclosure() -> None:
+    Scenario() \
+        .given(
+            an_incident_that_lost_money := a_measured_incident(
+                loss=Decimal("500.00")
+            ).model_copy(update={"shortfall": Decimal("500.00"),
+                                 "variation": Decimal("40.00")})
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_that_lost_money,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _says_nothing_about(NORMAL_VARIATION_ASSUMPTION_LABEL)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("an_incident", [
+    pytest.param(a_measured_incident(onset_at=None), id="no onset"),
+    pytest.param(a_measured_incident(
+        takings={SOME_OTHER_CURRENCY: Decimal("800")},
+        rates=RateTable(base=SOME_CURRENCY,
+                        on=ONSET.date(),
+                        per_unit={SOME_OTHER_CURRENCY: Decimal("0.80")})),
+        id="a conversion"),
+    pytest.param(a_measured_incident(left_out=[SOME_UNPRICED_CURRENCY]),
+                 id="a currency left out"),
+    pytest.param(a_measured_incident(loss=Decimal(0)).model_copy(
+        update={"shortfall": Decimal("200.00"), "variation": Decimal("300.00")}),
+        id="a shortfall within the shop's variation"),
+    pytest.param(a_measured_incident(baseline_revenue=None, takings=None),
+                 id="no revenue"),
+    pytest.param(a_measured_incident(engaged=None), id="no engagement"),
+    pytest.param(a_measured_incident().model_copy(update={"engaged": NotPaged()}),
+                 id="nobody paged"),
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE)]),
+        bands={SOME_TITLE: SOME_BAND},
+        cost=DONT_CARE_PUBLISHED_COST),
+        id="a priced response"),
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE_NO_BAND_COVERS)]),
+        bands={SOME_TITLE: SOME_BAND},
+        cost=None),
+        id="an unpriced title"),
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE)]),
+        bands=None,
+        cost=None),
+        id="no pay bands"),
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE)]).model_copy(
+            update={"shared_with": 1})),
+        id="a shared page")
+])
+
+
+def test_every_disclosure_argus_writes_begins_with_a_capital(an_incident: Measurements) -> None:
+    # Each is a line of its own on the page, read as a sentence. The model's
+    # own lines already open with a capital; Argus's beside them in lower case
+    # read as fragments of something cut off.
+    Scenario() \
+        .given(
+            an_incident
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _every_line_begins_with_a_capital()
         )
 
 
@@ -439,6 +647,21 @@ def _says_nothing_about(unexpected: str) -> Assertion[list[str]]:
         if any(unexpected in stated for stated in assumptions):
             raise AssertionError(
                 f"Expected no assumption about [{unexpected}], got {assumptions}")
+
+        return True
+
+    return assertion
+
+
+def _every_line_begins_with_a_capital() -> Assertion[list[str]]:
+    def assertion(assumptions: list[str]) -> bool:
+        if not assumptions:
+            raise AssertionError("Expected at least one assumption, got none.")
+
+        in_lower_case = [stated for stated in assumptions if not stated[:1].isupper()]
+        if in_lower_case:
+            raise AssertionError(
+                f"Expected every assumption to begin with a capital, got {in_lower_case}")
 
         return True
 

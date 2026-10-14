@@ -64,6 +64,19 @@ def test_a_clock_time_carrying_a_zone_loses_only_the_zone() -> None:
 
 
 @pytest.mark.unit
+def test_an_instant_on_another_day_than_the_one_beside_it_keeps_its_date() -> None:
+    # A clock time is read as the day of the line it sits on, so an instant a
+    # week before that line has to say which day it was.
+    some_claim_naming_an_instant_a_week_earlier = "The deploy at 2026-08-23T10:14:00Z broke it."
+
+    Scenario() \
+        .given(some_claim_naming_an_instant_a_week_earlier) \
+        .when(lambda: said_plainly(some_claim_naming_an_instant_a_week_earlier,
+                                   beside="2026-08-30T10:15:00Z")) \
+        .then(the_answer_was("The deploy at 23 Aug 10:14 broke it."))
+
+
+@pytest.mark.unit
 def test_a_clock_time_the_model_already_wrote_is_left_exactly_as_it_is() -> None:
     # The common case, and the one that needs no repair: the model writes for a
     # person more often than it quotes the wire. The expectation is the claim,

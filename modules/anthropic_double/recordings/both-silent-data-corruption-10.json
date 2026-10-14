@@ -2,36 +2,139 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I need to be careful not to invent numbers or overstate certainty\u2014duration should be framed as a lower bound, error rate as unknown, and the root cause tied to the flag toggle as only a probable correlation with limited confidence, since it was never actually tested. I'm now drafting the root cause, executive summary, and assumptions, trying to avoid naming specific components unless unavoidable, though the flag name itself may need to appear.\n\nI'm sketching out the impact section: incorrect stored spend totals, possible display errors on account pages, no operational degradation, and unknown error rates since metrics couldn't be read during the outage window. For mitigation, I want to note that nothing was auto-remediated\u2014the recommendation was to flip the flag off manually, with a draft fix opened but not merged, and that this stops further drift without fixing already-corrupted data, so a backfill would still be needed.\n\n",
+      "signature": "CAQS7BkKEAgSGAI4AUIIdGhpbmtpbmcSDOVt6puqws5+J4Q61xoMSa/ibiSVQgIsEPCPIjAdo7Ra6f2WHvlmp5RHlJJjspqPyoRHnVB+ZHoQnt9IwFxuI/672+SFEuMaCTGGbU4qiRkiL0EapsdjRRMx/jqAYi/WATazLfIzKYKHlGSxNKRlEBpyFLzXcbE0M2Sdb7JNuiMfLyt/r18R0LlKO4fgOjrsgNWH0mDDaNkpqmIZI06PwJFbgB0N21Clbi365JGC9RV07QvZ3qN5Axjp6Ux/8StkMGooJ7Bk1CbhuR6u0AAdtY2H3fm9JIYdjFGf6/A2D1frcWrH/C/IRn3SdHIuc93d5TUZx1JzxKelNUfVczAc5kP9dNe5NRYQvaWgW/9AmW9n4hWfYOUpQEkSnsR3AQWv/VURTBRy/28GV6+QFU3TNyCmxdGACy5TXlx2UDRqrgc4M3Br1DfoM5r9dy4xFLDJaHNUsdCzJdhP7R4NyKdY3/P0YInWdAXWq5qLJKnA2D3fyvlx9ehKGij1n38JixbjrPZLyhRiPRgJlFlAV4ildeKbvX9F32jEmHLtsvrd6dVxVJMUR03f7DN8THw/dggViahhjWMLqFE3E9i161kz0UE8caltX0cTPruTdKiQEJMC3brwBOih6tv9zRPQQkNNOA4V2aWK8sQpI3YZidPdkmOfN3PAAmaPACVb9wXFzD/Yk5j/TNo2nUV+Y9yScH2nglC9CY/7QMcMz0i05HoD63O0O/WdQYwWuq4vfgljn/0H617x6KJwmei3n3LBEQZDrdV9LZOufPRmhUDYGER2v6j9xqSbPPXFgz9NrtHqBwt2RrxeX6UPCmPp29lKswkjcn7pyczyAvz50VDNFXlsUAF8byUY1SOzNhp3ccblW0a/yWG0ORD1wPavXLNm3L/lVZLgdp4Zzk+SypV+L89wV4DzEY3PHa123Hj2yODg2hW1vSatGLd9D6qzaBphm0kINOZpHDVjxvPPabUtGFXexS7AWY6wdmjEw526/J1JXR6a1XRDRsRCIfrKlCLkVe7Ato+jerl7cv0vJVaGHw3tjBeuyb2Zg+U6Zjwj7JOYKQs6v57rmyn9dDVXEp2o6f/QeneBpWkfKUBuHUAUdM+uArau0KlUIuFZK02C/gEe4dDEZAdLQrlm71boukaMNNwgrwIixZl6HhtF44Jo1rEWVBrhyB3ANlS5B8hxb4BxjmcGgzcZXzksZ7vUVGZ9lK1OeRAXdXdni71aeycU5e1wp9vKY0BsWwiXpMZU74aNTHScUxE3sJk+D15OW2Gooo8m7/tIk2zTv+tN4Fx3en0brupdp0jQIoHrIqJOKYPbkr5t3fc3vZmEPYg0JjfkkuiZDogR2uaXrWBeP1q0hVhlCINwmChhhPwENx5sUaOh1OFW2UV3e7U4D2VwuBotUDATMdpW24a+ayKkrPvY+0vjGnrJUWGp3EISpe3CGdP4NI2vkvomPQo8P63fTSvsnm7W0qPFLIhANThcMTYYSTrQLl98Sc8+zMD1AveuCCzQHx/afoYdejzckD/Jds96txClqvCKNZ/KVv6yuUf8t7tRC+w1aMgReZGyO+Fo2qR500vPk/0lEKbakfLTDL/NAkZ6QAEKjh6UJuvmnI5bv0IK11oGFB4aizjEFlr//VcIqbVpo0ZwiredcX3yrdggNVH8ri7xwmSUS1Xh5HH2U9voQuSa2wXCAsTEP1aIhlHfRG8KxEO+UcGnZI21HvQjY4K6BaO5NdROr8AO/h9b4m7jhKGuZndQ1rgpsZ9U2asSeXCpQ2YsCrtG6QQa2lU/17/UAlS8fmdFBzs/waqTmJSvyQwxQ8uWHokxbI6U2fbAcGh0N35QUOTkwH7xWJsVdedc6cdAD0akiIozyhY5z0zWm7Ee1HJsPKenzZsIu26ILWS/8OKCiLDEURaNrrnSFlrePXt+CVYLJAohhDKW/5uPu1NgOASBiuCXZHzqf3wgt4T3Zus/C/xrtBD1q31WowHjmMZOEwyJZqOm5EZ09vR8d+A47O8Ll7glnyaF7bjA2ZCyrQSjyiXlGcQkxHCn/u6EYdzfAsr6aXIN+QsGH5jeNDkSgIk1ZHqx3ksRYPRcGNKTTccBD7jlHewwdTRUUr+NclVSRy+5DVH+5wic//uVWqxZpMSnrrV9aH3BbLsfwr1Q3rPp7MkDNkDQVe0LBtC5SIBHhoInrMLQNdxYB7jim0/HEcTk9xr99ctvTuDJBsoScbEUYiIzmoxb5YopEjlP4Iaa5uzaSbjfSADG2e2JXSeA3Oe8qCL/keBlxT2kvHUDQUKlIdxnNkQzDj6LRXn2qzC3qaUW++jG+lKbiukGaSSthwHQlCKrK2LGt4wIZLPefjw1StSJ0yzuBWAiCs6Ug1Fd0nNbxn4uEKNy0ECOsSXwHGWmdemhbEYWDu1rgbEcFPHA2gPAl1FX/QMBwLWnrdnoK7zDbVDZNWCTCfdwgtfb770B9SOJyBjfODhk4jgtKLjBnTP2scO/s9F8JkNjqEvUk3Q2Dn7Vr20Vg4tmW8ICnm12Wl+m7uiC1C91m8RRq8Cmg+D8Fe35l08u1zBGyJF3+TvwkYxLGJGFmHB4jIIDkVaRjUPaJuWx8vzLp6XLa0xxt0a4wigf8rL/6dGH8HvZCtDQ2HGlftv7tmbR1fRhrsRxRs8Oooaq175Vv09jtnJxZ1L+wEwrHp37NcEygoaOGdq3uwrzOPVdxLa0VU8av3Qylk6cHSQzS7lIywjzaEnlhHDis/QxxvsmaeCE9Dflv0D/TRttIg2EWQAplTOuhVMYZmqoCYG4F16XSgTqUrHWjiCYad3rN7bV1/XWjA5pcw6U5LnhFjVf1s6txgepZG/CJQJIec7zcVODipFzFBv47/62FHJ2jj09EwhAFQ/+ciHqyCUu58B9Gtmqh/afZ6Hc+rAE8pmi0DjKML0hA5cAbkT/o4mBvy+PraEOINfy/jSBKCHiGnxpCKuDijlOYyuMTW7deNfGOFuKCA8AClU96h7ftCTr2fGFIfqVZePD0gyTb+OOEr7sU0D9e1oJzqnW978pn/9H86tulS5WyShHGtQg+6gVTn9h+4foX4Ecm2bo+CVvclL5GHoLrfl8nIkgOXCdUfMpFup+pOQ4xdiEPKdfhhROuigRzo8bmnHIKUTY117vVRO3Pi9ds23a6jFbT65kjVw7L9yN0D5RK3KiMsPt75jC73wymvTSbe+ZTLKW0CHwyKYx64iuKcHemSM3FaU0ZpioiejM93ey9fp+nC0mDHgcC7l+Wb1ZI3DBpK5lJzGdkpE/AeUWMarUaOmtSfyAvQwCOg0UTutYU+VRgBNcX+0lIPLLa8dsDsfenZ1RTc3HwwlMU8BTp8cEmqf06/3FE050hTsktfSKaoikJdKTJu8C2RPVZLnb2fNhfBiEfaB+VOJ7sMpR1urBvajbL5tYyyMrPDO5BLy6zyzC5Mlg/CMKEClTOeVUQfK3NRipNlrjePZr5p/lW1Kqiw6SFjs7c4MYfUBJAuVlX7XX75dNrBbby/NNi6ow2OAaTJ2+ISJ/y8B/p3Qv6vQHlUQX5vaBW7x2YnSkiTh5/AOoQ07d9WXr3MrImXMO333OEXdqvYJ/Hdz13rchaQWf2Lwd2YgGk/gB84kHTBaGw8cTOJGMyhVKvDpwBDLFf4dl3zZwPO1N9Pzt1z9S+kY1qGwdxGDnjU0Pk4OIySisAVObagK1Iqd1kj8JntrpFoGvX7T1BVSy+8upvla1e5NfTRaYSf0tkeCB4wapW2+syWLRGbp+vV+ZRiwr4PlGzMWXygmXTJJohU3AfqzyA15ASrOHlF+vl4xVDAxj+eOqoLeDIPN5QRNGRKl9e0Oc+ajrvU8A89CBs0qiDt3rKzDpSDGCitKSVfQ81wKx14P5Om4OPI5gVo7VZpVdc8wRqKj7+kMFHJPTrfuRPF2hgc9eegDdecFAbO5JvOAxSeMLNY13quYnRa+vHZ2Q5zlZGLetEbiOgTXXQpjU7GB6qDtlYy6HcNsH993m5EvxTf0RPCnypQ04cQxR6d6N3TPzOd82Wr6UODmdzEtfDDIiUziOc4LdYDtjAP34sZSkQd98LF/qZHEPWxFyfRm60O4jjN31n+bvoXGmP5hm43fIq2UGxSESQmdp7miVK/0ZHcH5VIw4Goq9dOKA1xTIZBtC+aihsUFS/WRo46XKfyrUJi831H0tkydZWa82NlR02mZ6iRasrvkRqqPrSPQvivRF8xIleA/l5EPQXqMjobtgSTquaYkf0soa/T2bMKTpCeS4ly+84atfFjmy28OReWPleccMN09GSectKbXPZEWj24DHzqk6+ZJLmE8U8aY5vei3Vva8dpHkN6Be59RGwnIp8qaLRFwDZylqWllgevCuwD/MzBVGoVCOZxgB",
+      "thinking": "I need to draft the postmortem using placeholder names instead of actual figures\u2014things like {A1}, {duration}\u2014avoiding any real digits entirely. I'm starting to trace the chain of causation for why shopper totals didn't reconcile, using evidence labels rather than concrete numbers.\n\nService health logs stayed normal through the incident, so the issue wasn't an outage\u2014it was that totals got written incorrectly while everything else looked healthy. I'm matching the onset timing to when a flag got switched on, noting a slight discrepancy between two evidence sources but treating the earlier record as authoritative, and I'm careful to describe timing only in relative terms since I can't write actual timestamps. For the root cause, I'm concluding that enabling the monthly-spend-feature flag activated a spend-total computation path that produced wrong totals, though the exact mechanism remains unestablished\u2014a proposed fix exists but hasn't been verified yet, so I'm flagging that as inferred rather than confirmed, and moving on to contributing factors.\n\nI'm noting the detection check only runs periodically, creating a lag\u2014so I need new action items for running checks more frequently and after flag changes, gating flag rollouts behind staged rollout with reconciliation checks, and separately addressing repair of the already-corrupted totals through backfill/recompute, since existing action items don't cover that. I'm assembling these into labeled action items (detect, mitigate, prevent) while avoiding writing raw digits in the prose, and noting the assumptions underlying the causal inference\u2014particularly that the flag's role is inferred from timing correlation alone, with the timestamp discrepancy between sources left unresolved.\n\nFor the executive summary and lessons, I'm highlighting what went right\u2014the periodic check caught the issue even without user-visible errors, and Argus pinpointed the flag change quickly, limiting the shortfall\u2014versus what went wrong, namely the detection lag itself.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01AdBGszQL2Fvw3GJpnVcqFE",
+      "id": "toolu_0169Vyft3NLY6mYmf1mwc2M4",
       "input": {
-        "assumptions": [
-          "The start of impact is taken from the oldest purchase the reconciliation check flagged (22 Sep 15:00 UTC); it is the earliest known bad record, not a proven first moment of corruption.",
-          "The link between the feature flag and the bad totals rests on timing correlation alone. The flag was never turned off, so we do not know that doing so stops the drift, and no bad total was traced through the new code path.",
-          "The incident is treated as ongoing because the service had not recovered by the last minute of metrics available. The true duration and total record count are unknown and could be larger than anything stated here.",
-          "No error rate or volume figure is given: the metrics for the incident window could not be read. The ~0.5-2.5% account-page ClientDisconnected errors in the logs are ordinary background noise and are assumed unrelated to the reconciliation failure.",
-          "An alternative candidate - the io-summary-cache dependency that holds shopper spend figures - was considered and rated low (~0.15), partly because the service register says the page renders correctly without it. It was not ruled out by evidence, only deprioritised.",
-          "The 0.01 hours the automation held the incident measures how quickly it responded and triaged, not how long the service was broken; it should not be read as a resolution time.",
-          "Whether shoppers actually saw incorrect figures, or whether the corruption is confined to stored totals not yet surfaced, was not verified.",
-          "The draft pull request opened by the code-fix agent has not been reviewed or merged, and its correctness is unassessed."
+        "action_items": [
+          {
+            "item": "Run the spend-integrity check much more often, and trigger it automatically after any change to monthly-spend-feature or another flag touching spend totals, so drift is caught within minutes or hours rather than days.",
+            "type": "detect"
+          },
+          {
+            "item": "Recompute and repair the shopper totals already written wrongly since the onset, using the purchases as the source of truth, and confirm with the integrity check that none remain unreconciled.",
+            "type": "mitigate"
+          },
+          {
+            "item": "Require flags that change how persistent data is written to roll out in stages, with a reconciliation check on the exposed shoppers before widening.",
+            "type": "prevent"
+          }
         ],
-        "executive_summary": "A routine integrity check found that the stored monthly spend totals shown to shoppers did not add up against the underlying purchase records. The bad data appears to begin with a purchase recorded on 22 September at 15:00 UTC; the alert did not fire until 29 September at 14:58 UTC, and the condition had not been corrected as of the last data we can see, so the affected period runs from 22 September through at least 29 September and is a floor rather than a measured span \u2014 it may well continue past that point. Throughout this time the shop itself behaved normally: pages loaded, requests succeeded, and there was no slowdown or outage, which is why nothing was noticed for a week. The visible effect is on correctness of figures rather than availability: any shopper whose totals were written during this window may have been shown a wrong spend figure, and any internal or financial reporting drawn from those totals over the same period should be treated as suspect. We cannot say how many shoppers or records were affected \u2014 the metrics needed to quantify that could not be read during the investigation. The automated responder investigated within about a minute, identified a recently enabled feature as the probable cause, and deliberately did not act on its own: turning the feature off would not produce any signal fast enough for the system to confirm the fix worked, so it handed the change to a person as a recommendation and opened a draft code fix. As of this writing the recommended change had not been applied. Two follow-ups are outstanding regardless of who applies it: switching the feature off only stops new bad totals from being written, so the week of already-written totals still needs to be recomputed and corrected, and the fact that a week of incorrect financial figures produced no alert until a periodic check caught it is itself worth addressing.",
-        "root_cause": "Most likely cause, not confirmed: the `monthly-spend-feature` flag was switched on at 2026-09-22T14:58:50Z, enabling a new spend-total computation path, and the oldest purchase the reconciliation check flagged as wrong is dated 2026-09-22T15:00:00Z \u2014 essentially the same moment. The new path appears to have written incorrect spend totals while the service stayed healthy on every operational signal (flat per-minute metrics, no deploys in the lookback window), which is consistent with silent data corruption that only surfaces when a periodic integrity check runs. This is a correlation-based hypothesis (the investigator rated it ~0.78) and was never tested: no rollback was executed and no per-record comparison of old-path versus new-path totals was performed, so the causal link between the flag's logic and the bad totals remains unverified."
+        "causal_chain": [
+          {
+            "cites": [
+              "T1",
+              "T6"
+            ],
+            "step": "Shoppers' stored spend totals did not match their purchases. {A1} of {A2} totals were affected, the widest short by {A3}, and the oldest affected purchase was recorded at {A4}. The fault was still present at the last reading."
+          },
+          {
+            "cites": [
+              "G46bc",
+              "Gbac1",
+              "Gad41",
+              "T5"
+            ],
+            "step": "The wrong totals were written without any visible operational failure. The logs show only ordinary background noise, such as shoppers disconnecting, and normal page renders. Metrics show no departure around the onset, so nothing signalled the corruption except the integrity check."
+          },
+          {
+            "cites": [
+              "P1",
+              "Gce95",
+              "T9",
+              "C1"
+            ],
+            "step": "The onset coincides with the monthly-spend-feature flag being switched on by an admin just before the first affected purchase. The service logged the flag as on in its evaluations, and no deploy happened in the lookback. The timing, not a demonstrated mechanism, links the flag to the bad totals."
+          },
+          {
+            "cites": [
+              "C1",
+              "T21"
+            ],
+            "step": "The flag enabled a new spend-total computation path, which appears to write incorrect totals. The evidence stops here: the record does not show what is wrong inside that path. A draft fix has been proposed but is not yet verified."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-3"
+            ],
+            "factor": "The integrity check that compares totals with purchases runs only every {A5} days, so wrong totals can accumulate for that long before anyone is alerted."
+          },
+          {
+            "addressed_by": [
+              "AI-5"
+            ],
+            "factor": "A flag that changes how persistent data is written was switched on for everyone with no staged rollout and no reconciliation check afterwards."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "Putting the flag back only stops new bad totals. The totals already written stay wrong, and no repair is planned in the record."
+          },
+          {
+            "addressed_by": [
+              "AI-3",
+              "AI-2"
+            ],
+            "factor": "Argus could not confirm within its waiting time that putting the flag back worked, because no fast signal exists for total correctness. It therefore only recommended the action, and the rollback waited for a person."
+          }
+        ],
+        "executive_summary": "Shoppers' stored spend totals have been wrong since {began}. The integrity check found {A1} of {A2} totals not matching the purchases behind them, and the widest was short by {A3}. The service was still broken at the last reading, so the fault lasted at least {duration}. The service stayed fast and showed no unusual errors, so nobody noticed until the check ran, and it runs only every {A5} days. A feature flag for monthly spend had been switched on just before the first bad purchase, and that is the leading suspect. Argus took no action itself because it could not have told whether the fix worked within the time it waits. It recommended that a person put the flag back and proposed a draft code fix. Putting the flag back will stop new bad totals but will not repair the ones already written.",
+        "lessons": {
+          "got_lucky": [
+            "The account pages kept working and nothing visibly failed, so shoppers were not blocked, though their stored totals were wrong.",
+            "The flag change was recorded in the change history and its timing matched the first bad purchase, which gave a clear lead; without it the cause would have been hard to find."
+          ],
+          "went_well": [
+            "Argus raised the investigation straight away and reached a leading candidate, the flag change, within seconds of the alert.",
+            "Argus did not act on a fix it could not verify, and it handed the rollback to a person with a clear recommendation.",
+            "A draft pull request for a fix was proposed soon after."
+          ],
+          "went_wrong": [
+            "The corruption went undetected for at least {duration} because the only detector runs every {A5} days.",
+            "No metric moved, so ordinary monitoring could not see the fault, and there is no pre-onset baseline to compare against.",
+            "The rollback has not yet happened, so bad totals may still be accumulating."
+          ]
+        },
+        "root_cause": "Switching on the monthly-spend-feature flag put a new spend-total computation path into use, and from then on it wrote shopper totals that do not match the purchases behind them. The record does not show what is wrong inside that path, and nothing checked totals against purchases when the flag changed, so the fault went unseen until the periodic integrity check.",
+        "symptom": "Shopper spend totals were wrong"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_0127uWmG9ZCnMiEfxB5CraNj",
+      "input": {
+        "action_items": [],
+        "causal_chain": [],
+        "contributing_factors": [],
+        "executive_summary": "placeholder",
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [],
+          "went_wrong": []
+        },
+        "root_cause": "placeholder",
+        "symptom": "placeholder"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfXw4xUaycLpauX7Pof8N",
-  "model": "claude-opus-5",
+  "id": "msg_011CfyuV3sK31f8Z8NgGom9J",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -40,15 +143,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 30517
+      "ephemeral_5m_input_tokens": 2726
     },
-    "cache_creation_input_tokens": 30517,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 2726,
+    "cache_read_input_tokens": 1900,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 2040,
+    "input_tokens": 4,
+    "output_tokens": 3053,
     "output_tokens_details": {
-      "thinking_tokens": 629
+      "thinking_tokens": 1065
     },
     "service_tier": "standard"
   }

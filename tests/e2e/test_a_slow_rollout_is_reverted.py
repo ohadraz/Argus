@@ -39,9 +39,6 @@ means.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
-
 import httpx2
 import pytest
 from argus_core.models import FailureMode, IncidentStatus
@@ -50,8 +47,6 @@ from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from tests.e2e.framework.argus import (
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_SLOW_CANARY_ROLLOUT,
-    REQUEST_TIMEOUT_SECONDS,
-    TARGET_SERVICE_BASE_URL,
     THE_SERVICE_NAME,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
@@ -64,7 +59,7 @@ from tests.e2e.framework.flags import (
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
-from tests.e2e.framework.world import the_middle_of, the_shops_window
+from tests.e2e.framework.world import a_scenario_was_seeded, the_middle_of, the_shops_window
 
 # What the shop's own monitoring pages on here. A latency alert, as a bad
 # deployment and a misconfigured cache both raise - the three are told apart by
@@ -101,7 +96,8 @@ def test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back() ->
 
     Scenario() \
         .given(
-            calling(_a_slow_feature_went_out_to_a_few_percent()),
+            calling(a_scenario_was_seeded("slow-canary-rollout",
+                                          as_recorded_in=RECORDED_SLOW_CANARY_ROLLOUT)),
             calling(the_model_answers_from(RECORDED_SLOW_CANARY_ROLLOUT))
         ) \
         .when(
@@ -218,16 +214,3 @@ def _no_request_ever_failed() -> Assertion[httpx2.Response]:
         return True
 
     return assertion
-
-
-def _a_slow_feature_went_out_to_a_few_percent() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "slow-canary-rollout"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

@@ -30,6 +30,7 @@ from argus_core.events import Publisher, nobody
 from argus_core.models import (
     Alert,
     Attempt,
+    EstablishedOnset,
     Evidence,
     FailureMode,
     FlagChange,
@@ -669,7 +670,8 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
                     publisher: Publisher = nobody,
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
-                    leads: Leads = no_leads) -> Findings:
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None) -> Findings:
         return Findings(
             candidates=[candidate.model_copy(update={"incident_id": incident_id})
                         for candidate in candidates],
@@ -711,6 +713,7 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              incident_id: str | None = None,
              publisher: Publisher = nobody,
              onset: datetime | None = None,
+             incident_began: str | None = None,
              rule: str | None = None) -> Outcome:
         # Only one kind of action leaves anything behind, and the stand-in
         # hands back exactly what the real one would.
@@ -740,8 +743,7 @@ def _a_document() -> PostmortemDocument:
                               engineer_minutes=None,
                               responders=None,
                               tokens_spent=None,
-                              assumptions=[],
-                              checklist_complete=False)
+                              assumptions=[])
 
 
 def _the_walk_went(*expected: str) -> Assertion[Walked]:
@@ -924,7 +926,8 @@ def _an_investigation_whose_question_is_traced(asked: list[str],
                     publisher: Publisher = nobody,
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
-                    leads: Leads = no_leads) -> Findings:
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None) -> Findings:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -951,7 +954,8 @@ def _an_investigation_noting_what_it_was_told(told: list[list[ThreadMessage]]
                     publisher: Publisher = nobody,
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
-                    leads: Leads = no_leads) -> Findings:
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None) -> Findings:
         told.append(leads())
 
         return Findings(
@@ -974,7 +978,8 @@ def _an_investigation_weighing(weighed: list[ThreadMessage]) -> ports.Investigat
                     publisher: Publisher = nobody,
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
-                    leads: Leads = no_leads) -> Findings:
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None) -> Findings:
         return Findings(
             candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
                 update={"incident_id": incident_id}

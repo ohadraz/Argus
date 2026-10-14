@@ -2,29 +2,119 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "The real fix is to make record_purchase_deriving_the_month derive total_this_month_cents from the actual purchases and store it, so the stored value stays correct no matter what flag state is active. Let me check how monthly_statement reads this field.\n\nI'll also write a repair script that reloads accounts, recomputes their totals from purchase history, and saves the corrected values back since there's no existing storage abstraction to hook into. I'll place this at scripts/repair_monthly_totals.py with a `repaired(account)` function and a `repair_all(accounts, save)` driver, and add a test to tests/io_shop/test_purchase_ledger.py verifying the derived path keeps the stored monthly total reconciled.\n\nNow I'm fixing record_purchase_deriving_the_month so it derives total_this_month_cents by summing all purchases currently in the account that fall in the current month, rather than trusting a stale value, while keeping the same function name since only purchase_ledger calls it. I'll add tests covering both the derive path and record_a_purchase, then draft the repair script with a clear docstring warning it hasn't been run yet.\n\nWriting repair helper functions...\n\nI'll also add a main entry point that requires load/save callables to be wired in explicitly, so the script can't run against real data by accident.\n\n",
+      "signature": "CAQS7ggKEAgSGAI4AUIIdGhpbmtpbmcSDAtdCO4UTatjel3y6xoM/8tm9ekTNKNr5Un7IjDLEvZnvmynrm0KeRSJH5AKVsxFjmSXSYN30KoPc/+OcsWq/lteUFBj2fQFQd9htn4qiwhgENj9oefLZJcM9dr06ET8zm/IEiSvtzZkaUlUGKc3vDQBY4Jl+rEXsD4cb4hb1YJHJIkzXDLJexR5oJ0NOHiNi257yJVLKpEk5BqHPxrm21hox59bacW6UbyvhRbP/mJR3uDtkLgvL7iTm8U+7+e5pSjhc6BDcV8KIs2Wn1nzy7/N6MYGudlRaGI2de7StnPRfO7S/Z8SxZar7Z/9FqZE6vbnzTCpJdDVPVAg3ZbIQyYnVrKU1gTmt3E8GvtG5cTjIpvnr3ogMuBQGni1ZLZ3EFfdmS4ICxNKWGT/MeChia//PahCllpbY/wNRZLFBYwo5yZNv/B5chQf8sJCvcEIfasm4O6gNuv3vB5GWqrIgJh3TiQMeps2NkvDejIpTOiCZoCCziQXIJOeMOR8tgaR4jzmVEI+wfNn6ehddRCjGzqpCk4X8naF3YfXdZkBl+M/njvDT/rDD2MtLp6Wd3oqFmOIbZz/R97vk0+RjmYj0PgCqSABDQV0jWTZX/ZBoh8JIpfoxdOPqcy1mt+BkJQYhTs8MmUPUHMoURAQtmERazPiOOO1+3UGTp530R5vYJYF6X5uyIKO5BdCOeacw9O/t5CXNqiKc3QbMo+DeilbDIMYUl5Asje70Ln2Auk94J1MZyteKvJpjsaF9bOheUuYvelhZnGwBVXrMXu5T5ewqWG3/qqCltaSU6Y5WrXPz7azzj6/g/MbuMl/JI9RQpqYMhLr3UKkYeV7uaNn6Tn2y5CRgNnwDQeXlyGLuOhWPFNtr3je7pimFx/eR3usMnCOD1MSRcdzjSiG7h47aL/M6Py2MdVdR0QteMa/6D9rZQiPGq6nk5ReOKtqGT1w7zP0vM5oozKw/m5Mpa3gs8bPoO9i8MgD989029xT+2ryKYCbFkQjliZDwVl/MVw3QSYhsQmJNPydcTZ5c1Sh3puGVj2DWHP7PUSHro1hZc2ZVerRzA31Bnay6HglcTkJSvcOgIVYeAG7GfPL1gw7Z3M2N2SWr+9tN8W4Yms5yNLEiFQCU9iwMfKEJ2k3nSZLIy7IPJjIEQhLUvfdf32btUJR4gHR4n9tdq1IURkiYH/A+wVysBb73v3AfjJCcKuJ3eY35bgrLAB0BO5yInAXhjNCLJVJj04nCpCWsZMz/NbmMWtB8Cc6VkfYHpy1bL7N2JOVoL6j8TPGrTaRBesJJKqirfxGhYPoE0rxM7oV7I8zdaEG8T7NGSqUGW742S6nz4aRwZeWpgmkkS/AmM5cNl+9dUUsXKf/hxDED2l2pYq/aTcJJNiwjEkAD++JA0+KZFwPcN0iPm5kANRJ/vtISoaoUb1MkzWbm5llxnqpU5jJQ6kmzpvigSz21y9rroe1oWiEEcffwxRu49vKUPYYAQ==",
+      "thinking": "I should cite only T5, T6, T9, T11, P2, C1, C2 as evidence, and number the action items sequentially after the existing AI-1 and AI-2: mine will be AI-3 (detect), AI-4 (prevent via test), and AI-5 (mitigate via rewrite). I also need to remove the fabricated claim about \"no earlier run\" since it's not actually supported.\n\n",
       "type": "thinking"
-    },
-    {
-      "text": "I have the fault. Let me confirm the one other caller surface before patching.",
-      "type": "text"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01DpsH8eXbmCiyQAUy9X7JnJ",
+      "id": "toolu_01MyLhoeSYBPTPZ8xtJ7JZsN",
       "input": {
-        "path": "src/io_shop/rollout.py"
+        "action_items": [
+          {
+            "item": "Run the spend-integrity check far more often, for example after each deploy and on a short schedule, and page when any total diverges from its purchases. Do not wait for the periodic run.",
+            "type": "detect"
+          },
+          {
+            "item": "Add a test, run before release, that records purchases and asserts the account's total_this_month_cents equals the sum of its purchases. Require it to pass for any change to record_purchase.",
+            "type": "prevent"
+          },
+          {
+            "item": "Recompute total_this_month_cents for every affected shopper from their purchase history. Verify with the integrity check that all totals reconcile, and record the result.",
+            "type": "mitigate"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "T1",
+              "T5",
+              "C1"
+            ],
+            "step": "Shoppers' stored spend totals did not match the purchases behind them. The spend-integrity check found {A1} of {A2} totals wrong, the widest short by {A3}, with the oldest affected purchase at {A4}. The service stayed fast and error-free, and no metric series moved."
+          },
+          {
+            "cites": [
+              "C1",
+              "C2"
+            ],
+            "step": "New purchases were being recorded without the account's monthly total (total_this_month_cents) being updated, so each purchase widened the gap between the stored total and the real purchases."
+          },
+          {
+            "cites": [
+              "P2",
+              "P1",
+              "T6",
+              "T9",
+              "C1"
+            ],
+            "step": "The release deployed at the start of the affected period changed record_purchase in purchase_ledger.py so it no longer maintains that total. The onset Argus placed matches the time of this deploy. The earlier deploy was hours before the onset and does not line up with it."
+          },
+          {
+            "cites": [
+              "T5",
+              "T11",
+              "C1"
+            ],
+            "step": "The change stayed in production and was not noticed. No metric moved, and only the periodic reconciliation check saw the wrong totals. The evidence stops here: no logs or code diff were read, so why the change dropped the maintained total is not established."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-3"
+            ],
+            "factor": "The reconciliation check runs only periodically (every {A5} days), so data corruption with no latency or error signal could go undetected for up to that long. The fault ran from {began} until the alert at {alert_raised}."
+          },
+          {
+            "addressed_by": [
+              "AI-1",
+              "AI-4"
+            ],
+            "factor": "Nothing in review or testing caught that record_purchase no longer maintained the monthly total. No test or pre-release check ties the stored total to the purchases behind it."
+          },
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "Rollback was not taken automatically, because nothing would show within Argus's waiting time whether it worked. It was left for a person and was still open, so the drift could continue."
+          },
+          {
+            "addressed_by": [
+              "AI-5"
+            ],
+            "factor": "Rolling back or fixing the code does not repair totals already written. Those records need their own rewrite, and nothing in the record covers it."
+          }
+        ],
+        "executive_summary": "Shoppers' monthly spend totals stopped matching their actual purchases. A periodic integrity check found that {A1} of {A2} shopper totals were wrong, the widest short by {A3}. The fault began at {began}, shortly after a code release, and had not been fixed when the last metrics were read. So it lasted at least {duration}, and that figure is a lower bound. The service stayed fast and error-free, so no ordinary alert fired. Only the integrity check, which runs every {A5} days, caught it. Argus investigated, pointed to the release as the likely cause, and proposed a code fix as a draft pull request. It did not roll back on its own, because nothing would have shown inside its waiting time whether the rollback worked. It left the rollback for a person. Rolling back stops further drift but does not repair the totals already written, which need a separate rewrite.",
+        "lessons": {
+          "got_lucky": [
+            "The wrong totals caused no errors or outage, so nothing forced attention. The integrity check happened to catch it. Without it the drift would have continued."
+          ],
+          "went_well": [
+            "Argus picked up the alert at once, placed the onset at the deploy time and named the release as the leading candidate.",
+            "Argus did not take a rollback it could not verify, and recommended it instead.",
+            "A draft fix pull request was proposed within moments of the alert."
+          ],
+          "went_wrong": [
+            "The fault went undetected for a long time because only a periodic check could see it. Latency and error metrics showed nothing.",
+            "No metrics from before the onset were available, so no error-rate baseline could be built.",
+            "No logs were read, so the cause rests on timing and inference. Both candidates were never tried.",
+            "The rollback and fix were still open at the end of the response, so the drift had not stopped."
+          ]
+        },
+        "root_cause": "The later deploy (P2) changed record_purchase in purchase_ledger.py so it no longer maintains the account's total_this_month_cents. Every purchase recorded after the deploy left the shopper's stored total out of step with the purchases behind it. This is the leading candidate (C1, C2). No logs were read and no action was tried to confirm it.",
+        "symptom": "Shopper spend totals were wrong"
       },
-      "name": "read_repository_file",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfhCSGLzJvpV5pRiM2sYj",
-  "model": "claude-opus-5",
+  "id": "msg_011CfyugDM8YdmyZd6rKj3Nh",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -33,15 +123,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1503
+      "ephemeral_5m_input_tokens": 2478
     },
-    "cache_creation_input_tokens": 1503,
-    "cache_read_input_tokens": 10939,
+    "cache_creation_input_tokens": 2478,
+    "cache_read_input_tokens": 4036,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1047,
+    "output_tokens": 2084,
     "output_tokens_details": {
-      "thinking_tokens": 962
+      "thinking_tokens": 272
     },
     "service_tier": "standard"
   }

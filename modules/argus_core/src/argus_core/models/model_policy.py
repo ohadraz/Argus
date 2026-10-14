@@ -21,7 +21,7 @@ type Effort = Literal["low", "medium", "high", "xhigh", "max"]
 # SDK, so anything naming it drags Anthropic along, and configuration is read
 # by every module there is. A plain string and a `Literal` belong to neither
 # and can be named by both.
-DEFAULT_MODEL: Final = "claude-opus-5"
+DEFAULT_MODEL: Final = "claude-opus-5-5"
 
 # The API's own default, stated rather than relied on. A default that moved
 # under us would change what every agent costs and how long it takes with
@@ -87,8 +87,6 @@ class ModelPolicy(BaseModel):
     # sharing a channel with the evidence they are used to judge.
     #
     # Empty means an agent with nothing standing to say, and that is a real
-    # answer rather than an unset one: the postmortem is a single call per
-    # incident with every figure already measured, so there is nothing for a
-    # later request to reuse and a breakpoint there would buy a write premium
-    # against a prefix nothing reads.
+    # answer rather than an unset one: a brief written for the sake of having
+    # one would buy a write premium against a prefix nothing needed.
     brief: str = ""

@@ -95,7 +95,7 @@ jobs:
       - name: The demo's configuration
         run: cp .env.example .env
 
-      - name: Free contract (Slack workspace, Stripe sandbox, Frankfurter, Prometheus)
+      - name: Free contract (Slack workspace, Stripe sandbox, Frankfurter, Prometheus, the shop)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_WAR_ROOM_CHANNEL: ${{ vars.SLACK_WAR_ROOM_CHANNEL }}

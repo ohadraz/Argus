@@ -113,7 +113,8 @@ def test_a_cache_serving_figures_the_ledger_moved_past_is_discarded() -> None:
     # serves both: a recording is stored under the scenario it was captured from.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(RECORDED_STATE_DIVERGENCE)),
+            calling(a_scenario_was_seeded(RECORDED_STATE_DIVERGENCE,
+                                          as_recorded_in=RECORDED_STATE_DIVERGENCE)),
             calling(the_model_answers_from(RECORDED_STATE_DIVERGENCE))
         ) \
         .when(

@@ -10,7 +10,8 @@ partial.
 The invented figure is the subtler of the two. Columns are safe from the model
 by construction, but the executive summary is published as written, so a
 sentence claiming a number Argus never computed reaches the one reader least
-able to check it.
+able to check it. A figure the incident gives is named instead, and the answer
+kept has each name written in as this run measured it.
 
 The shape of the second ask is the other half of this file, and it is not a
 detail of wording. A submission is refused through the result of the call that
@@ -33,7 +34,15 @@ from agent_postmortem.prompting import (
     ROOT_CAUSE_FIELD,
     SubmittedPostmortem,
 )
-from argus_core.models import Ask, ToolDefinition, ToolResults, Transcript, Turn
+from argus_core.models import (
+    Ask,
+    ChangeEvent,
+    ChangeKind,
+    ToolDefinition,
+    ToolResults,
+    Transcript,
+    Turn,
+)
 from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.builders import (
@@ -47,14 +56,16 @@ from agent_postmortem_test.framework.builders import (
     an_evidence_bundle,
 )
 
-# The figure this file's incident was measured at, and the same figure as a
-# summary would write it. A stated amount is only checkable against a computed
-# one, so the two have to be the same number said two ways.
+# The figure this file's incident was measured at. The prose may not restate
+# it in digits, which is what the cases below hold it to.
 SOME_COMPUTED_LOSS = Decimal("500")
-SOME_SUMMARY_STATING_THE_FIGURE = "the outage cost roughly $500"
 
 SOME_INVENTED_FIGURE = "$1,200,000"
-SOME_SUMMARY_WITHOUT_A_FIGURE = "checkout failed for half an hour"
+SOME_SUMMARY_WITHOUT_A_FIGURE = "checkout failed for several minutes"
+
+# What a shop's integrity check reports, in its own words: one figure, which
+# the incident then gives the name A1.
+SOME_FINDING = "The widest total is short by 1,297.31."
 
 type Reading = tuple[SubmittedPostmortem, list[str]]
 
@@ -146,28 +157,105 @@ def test_a_summary_naming_a_figure_argus_never_computed_is_asked_for_again() -> 
 
 
 @pytest.mark.unit
-def test_a_summary_naming_the_computed_figure_is_accepted() -> None:
-    # The check is on figures Argus did not arrive at, not on figures. A
-    # summary forbidden to mention what the incident cost would be a summary
-    # written for nobody.
+def test_a_summary_saying_its_magnitudes_in_words_is_accepted() -> None:
+    # The answer the rule asks for, accepted the first time - otherwise there
+    # is no summary the model could write that would pass.
     asks: Kept[Transcript] = Kept()
 
     Scenario() \
         .given(
-            a_model_stating_the_computed_figure := a_model_answering_in_turn(
-                an_answer(executive_summary=SOME_SUMMARY_STATING_THE_FIGURE),
+            a_model_answering_in_words := a_model_answering_in_turn(
+                an_answer(executive_summary=SOME_SUMMARY_WITHOUT_A_FIGURE),
                 recording_into=asks)
         ) \
         .when(
-            lambda: answer_worth_writing(a_model_stating_the_computed_figure,
+            lambda: answer_worth_writing(a_model_answering_in_words,
                                          an_evidence_bundle(),
                                          a_measured_incident(loss=SOME_COMPUTED_LOSS))
         ) \
         .then(
             all_of(
                 _was_asked(asks),
+                _answered_with(EXECUTIVE_SUMMARY_FIELD, SOME_SUMMARY_WITHOUT_A_FIGURE),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_the_answer_names_is_written_in_as_the_incident_gave_it() -> None:
+    # In digits, exactly as measured - and the run's own figure, so an answer
+    # recorded in one run and replayed in another states the second run's.
+    Scenario() \
+        .given(
+            a_model_naming_a_figure := a_model_answering_in_turn(
+                an_answer(executive_summary="The widest was short by {A1}."))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_naming_a_figure,
+                an_evidence_bundle().model_copy(update={"alert_finding": SOME_FINDING}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _answered_with(EXECUTIVE_SUMMARY_FIELD, "The widest was short by 1,297.31."),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_the_evidence_states_is_written_in_as_the_evidence_gave_it() -> None:
+    # The model may say what its evidence said - when a change landed, how
+    # often a log line came - by the name the figure is shown with there.
+    Scenario() \
+        .given(
+            a_model_quoting_the_evidence := a_model_answering_in_turn(
+                an_answer(executive_summary="The deploy landed at {P1.1}."))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_quoting_the_evidence,
+                an_evidence_bundle(changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                                                        occurred_at="2026-09-02T11:59:00Z",
+                                                        reference="dont-care",
+                                                        summary="dont care")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
                 _answered_with(EXECUTIVE_SUMMARY_FIELD,
-                               SOME_SUMMARY_STATING_THE_FIGURE),
+                               "The deploy landed at Sep 02, 2026, 11:59:00 UTC."),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_the_incident_never_gave_is_asked_for_again_naming_it() -> None:
+    # Nothing in code can know which figure a name for nothing meant, so the
+    # model is asked - and what it names the second time is written in.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_naming_a_ghost_figure := a_model_answering_in_turn(
+                an_answer(executive_summary="The widest was short by {A9}."),
+                an_answer(executive_summary="The widest was short by {A1}."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_naming_a_ghost_figure,
+                an_evidence_bundle().model_copy(update={"alert_finding": SOME_FINDING}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "{A9}"),
+                _answered_with(EXECUTIVE_SUMMARY_FIELD, "The widest was short by 1,297.31."),
                 _found_no_fault()
             )
         )
@@ -330,6 +418,72 @@ def test_an_answer_silent_about_a_lead_is_asked_for_again_naming_it() -> None:
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, "[L2]"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_the_model_misremembered_is_written_as_the_one_it_meant() -> None:
+    # Corrected by code rather than refused: the revision meant is the one the
+    # incident read that it starts like, and a second call to put back one
+    # character would pay twice for what code can do.
+    some_revision_read = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_revision_a_character_off = some_revision_read[:7] + "3"
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_a_character_off := a_model_answering_in_turn(
+                an_answer(root_cause=f"revision {some_revision_a_character_off} broke it"),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_a_character_off,
+                an_evidence_bundle(changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                                                        occurred_at="2026-09-02T11:59:00Z",
+                                                        reference=some_revision_read,
+                                                        summary="dont care")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks),
+                _answered_with(ROOT_CAUSE_FIELD, f"revision {some_revision_read[:8]} broke it"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_the_incident_never_read_is_asked_for_again_naming_it() -> None:
+    # Nothing in code can know what a revision starting like none of them
+    # meant, so the model is asked - naming it, as every other fault is named.
+    some_revision_read = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_revision_nobody_read = "9999abcd"
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_naming_a_stranger := a_model_answering_in_turn(
+                an_answer(root_cause=f"revision {some_revision_nobody_read} broke it"),
+                an_answer(root_cause=f"revision {some_revision_read[:8]} broke it"),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_naming_a_stranger,
+                an_evidence_bundle(changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                                                        occurred_at="2026-09-02T11:59:00Z",
+                                                        reference=some_revision_read,
+                                                        summary="dont care")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, some_revision_nobody_read),
                 _found_no_fault()
             )
         )

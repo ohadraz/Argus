@@ -25,6 +25,19 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 from argus_core.ids import UuidStr
+from argus_core.models.postmortem_sections import (
+    ActionItem,
+    ChainStep,
+    ContributingFactor,
+    Detection,
+    HypothesisConsidered,
+    Impact,
+    Lessons,
+    ResolutionStep,
+    ReviewCriterion,
+    TimelineEntry,
+    Trigger,
+)
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.thread_message import Weighing
 
@@ -61,13 +74,17 @@ class PostmortemDocument(BaseModel):
     has not been written down yet, and an agent that filled either in would be
     an agent deciding something the database decides.
 
-    `checklist_complete` is the agent's own verdict on its output (spec §7.6) -
-    false is a legitimate outcome, not a failure, because an incident that is
+    `review` is the agent's own verdict on its output (spec §7.6) - a criterion
+    unmet is a legitimate outcome, not a failure, because an incident that is
     over is not improved by an agent that refuses to stop.
     """
 
     root_cause: str | None
     executive_summary: str | None
+    # What a reader saw go wrong, in the model's words and no more - "Account
+    # pages failed". The page puts the change it began with beside it from
+    # the trigger, which is the record's to say. `None` where unanswered.
+    symptom: str | None = None
     customer_loss_estimate: Decimal | None
     # What currency that figure is in, carried rather than looked up. The
     # reporting currency is configured, so a document that left a reader to
@@ -120,7 +137,23 @@ class PostmortemDocument(BaseModel):
     # where nobody wrote, which is an answer: the question of what people said
     # was asked of the record, and the record held nothing.
     leads: list[PostmortemLead] = []
-    checklist_complete: bool
+    # The template's sections (`postmortem_sections`). Each absent or empty
+    # where nothing wrote it, as every field above is: `None` for a section
+    # that is one value, an empty list for one that is many.
+    impact: Impact | None = None
+    detection: Detection | None = None
+    trigger: Trigger | None = None
+    resolution: list[ResolutionStep] = []
+    causal_chain: list[ChainStep] = []
+    contributing_factors: list[ContributingFactor] = []
+    hypotheses: list[HypothesisConsidered] = []
+    action_items: list[ActionItem] = []
+    lessons: Lessons | None = None
+    timeline: list[TimelineEntry] = []
+    # How many pieces of evidence the model was handed - the labels it could
+    # cite. `None` for a document written before anything was labelled.
+    evidence_read: int | None = None
+    review: list[ReviewCriterion] = []
 
 
 class Postmortem(PostmortemDocument):

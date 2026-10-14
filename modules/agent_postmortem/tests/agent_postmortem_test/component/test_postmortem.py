@@ -36,8 +36,9 @@ from agent_postmortem import (
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
-from agent_postmortem.prompting import ROOT_CAUSE_FIELD
+from agent_postmortem.prompting import CITES_FIELD, ROOT_CAUSE_FIELD, STEP_FIELD
 from agent_postmortem.sources import EngagedResponder, NotPaged, PayBand, Revenue
+from argus_core.models import Verdict
 from argus_testkit import Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (
@@ -66,16 +67,20 @@ from agent_postmortem_test.framework.builders import (
     SOME_OTHER_CURRENCY,
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
+    a_candidate,
     a_model_answering,
     a_model_answering_in_prose_then,
+    a_model_answering_in_turn,
     a_postmortem_written_with,
     a_revenue_source_that_cannot_answer,
+    an_answer,
     an_answer_without,
     an_engagement_source_reporting,
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
     hours_between,
+    metrics_that_recovered,
     rates_published,
     revenue_that_was,
     some_sources,
@@ -111,8 +116,8 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
     # multiplied by the count again would charge every minute to everybody.
     some_engaged_person_minutes = 25
     some_responders = 2
-    some_root_cause = "the checkout fallback was disabled by a flag toggle at 12:04"
-    some_summary = "Checkout failed for half an hour after a flag change; reverted."
+    some_root_cause = "the checkout fallback was disabled by a flag toggle at noon"
+    some_summary = "Checkout failed for several minutes after a flag change; reverted."
     some_tokens_spent = 48_120
     expected_loss = (
         Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(hours_between(ONSET, ENDED_AT)))
@@ -142,9 +147,33 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
                 states_the_estimate_is_in(SOME_CURRENCY),
                 reports_engineer_minutes_across(minutes=some_engaged_person_minutes,
                                                 responders=some_responders),
-                reports_tokens_spent(some_tokens_spent),
-                is_marked_complete()
+                reports_tokens_spent(some_tokens_spent)
             )
+        )
+
+
+@pytest.mark.component
+def test_a_complete_answer_about_an_incident_that_recovered_meets_every_check_it_can() -> None:
+    # Every module the review rests on, meeting on one document: the measuring
+    # that found the recovery, the labels the chain cites, the check that found
+    # nothing wrong, and the review reading all three back off the page.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care", tested=True, result=Verdict.CONFIRMED)
+            ])
+        ) \
+        .when(
+            lambda: a_postmortem_written_with(
+                evidence,
+                llm=a_model_answering_in_turn(an_answer(causal_chain=[
+                    {STEP_FIELD: "account pages failed", CITES_FIELD: ["T1"]},
+                    {STEP_FIELD: "the monthly average divided by zero", CITES_FIELD: ["C1"]}
+                ])),
+                sources=some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(
+            is_marked_complete()
         )
 
 

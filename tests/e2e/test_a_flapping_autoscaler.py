@@ -43,8 +43,6 @@ a whole mitigation attempt, so a capture bills for two.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
@@ -75,6 +73,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
     argo_auto_sync_is_disabled,
     the_incidents_events,
     the_shops_window,
@@ -109,7 +108,8 @@ def test_a_flapping_autoscaler_is_pinned_and_left_mitigated() -> None:
 
     Scenario() \
         .given(
-            calling(_the_shops_autoscaler_was_left_flapping()),
+            calling(a_scenario_was_seeded("autoscaler-flapping",
+                                          as_recorded_in=RECORDED_AUTOSCALER_FLAPPING)),
             calling(the_model_answers_from(RECORDED_AUTOSCALER_FLAPPING))
         ) \
         .when(
@@ -353,16 +353,3 @@ def _the_bounds_the_platform_reports() -> tuple[int, int]:
     ceiling: int = manifest["spec"]["maxReplicas"]
 
     return floor, ceiling
-
-
-def _the_shops_autoscaler_was_left_flapping() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "autoscaler-flapping"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario

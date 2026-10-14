@@ -18,7 +18,7 @@ import logging
 from collections.abc import Mapping
 
 from argus_core import Connections
-from argus_core.models import Alert
+from argus_core.models import ALERT_FIRING, Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 
 from argus_incidents.publishing import PublisherFor, acknowledge_alert
@@ -32,9 +32,10 @@ def start_incident(alert: Alert,
                    publisher_for: PublisherFor,
                    trace_context: Mapping[str, str] = incidents.NO_TRACE_CONTEXT) -> str:
     """The Orchestrator's entrypoint (spec §7.1): creates the `Incident` row
-    and puts its walk in line - or, for a rule whose incident is still open,
-    answers with that incident - called by `argus_web` (§7.9) with a normalized
-    `Alert` domain object - never a vendor's raw payload.
+    and puts its walk in line - or, for a rule whose incident is still open or
+    a firing an incident already holds, answers with that incident - called by
+    `argus_web` (§7.9) with a normalized `Alert` domain object - never a
+    vendor's raw payload.
 
     Returns as soon as the incident exists. An investigation that ran inside
     the request would hold the caller's connection - and one worker of a web
@@ -48,7 +49,8 @@ def start_incident(alert: Alert,
 
     `trace_context` is the trace the alert arrived in, kept with a new
     incident so that every walk of it continues that trace. An alert joining
-    an open incident keeps nothing: the incident's trace is the first alert's.
+    an incident - an open one, or one holding its firing - keeps nothing: the
+    incident's trace is the first alert's.
 
     Its lines name the incident themselves, under the key a walk's lines are
     stamped with: nothing is walking it yet, so there is no baggage to stamp
@@ -75,6 +77,33 @@ def start_incident(alert: Alert,
                 ARGUS_INCIDENT_ID: str(already_open.id), "rule": alert.rule
             })
             return str(already_open.id)
+
+    # A firing an incident already holds is the monitor reminding Argus of an
+    # alert it was told about, and is that incident however it ended - the
+    # alarm still going is what an escalation, a recommendation, a disproof or
+    # a person's ending each predicts. Except a mitigation: Argus said the
+    # symptom stopped, and an alarm still going is the world contradicting
+    # that, which is an incident to walk.
+    firings = [reference.value for reference in alert.references
+               if reference.kind == ALERT_FIRING]
+
+    if firings:
+        with connections() as conn:
+            belongs_to = incidents.get_newest_by_names_and_service(
+                conn, ALERT_FIRING, firings, alert.service
+            )
+
+        if belongs_to is not None and belongs_to.status != IncidentStatus.MITIGATED:
+            # A reminder can carry firings the first notification did not, and
+            # each is this incident's to be found by too.
+            with connections() as conn:
+                references.add(conn, str(belongs_to.id), alert.references)
+                conn.commit()
+
+            logger.info("alert joined the incident of its firing", extra={
+                ARGUS_INCIDENT_ID: str(belongs_to.id), "status": belongs_to.status
+            })
+            return str(belongs_to.id)
 
     # The row, the names other tools know it by, and the story's first line, in
     # one transaction. Published from here because by the time a node runs the

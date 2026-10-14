@@ -26,7 +26,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
-from argus_core.models import ReportChannel
+from argus_core.models import Lifespan, ReportChannel
 from argus_testkit import (
     Assertion,
     Kept,
@@ -48,7 +48,7 @@ from oncall_source.pagerduty_adapter import (
     NOTES_ON_AN_INCIDENT,
     RESOLUTION_NOTE_PREFIX,
     PagerDuty,
-    incident_for,
+    incidents_for,
     keys_of,
     pagerduty_from,
     reported_incident,
@@ -63,7 +63,7 @@ from oncall_source.pagerduty_webhooks import (
     SIGNATURE_HEADER,
     SIGNATURE_VERSION,
 )
-from oncall_source.platform import ResolvedWithoutAPerson
+from oncall_source.platform import PagedIncident, ResolvedWithoutAPerson
 from pagerduty import Error as PagerDutyError
 
 SOME_INCIDENT = "incident-1"
@@ -83,6 +83,9 @@ AT = "at"
 ACKNOWLEDGER = "acknowledger"
 ID = "id"
 JOB_TITLE = "job_title"
+# How the incident list is told to reach past its default of a month back.
+DATE_RANGE = "date_range"
+DATE_RANGE_ALL = "all"
 
 
 @pytest.mark.unit
@@ -254,24 +257,64 @@ def test_keys_the_provider_will_not_give_are_reported_unreadable() -> None:
 
 
 @pytest.mark.unit
-def test_the_incident_carrying_any_one_of_the_keys_is_found() -> None:
+def test_every_incident_carrying_any_one_of_the_keys_is_found_with_when_it_was_open() -> None:
     # PagerDuty finds an incident by any of its alerts' keys, resolved or not
-    # (checked against a real account).
+    # (checked against a real account). A key is the alert group's, so every
+    # firing of the group opened an incident under it - the last one resolved
+    # when its alert stopped, today's still open. Which one an Argus incident
+    # is, is told by when each was open, so that comes back with each.
     some_key = "k-1"
+    an_earlier_one_opened = datetime(2026, 10, 7, 9, 0, tzinfo=UTC)
+    an_earlier_one_resolved = an_earlier_one_opened + timedelta(hours=2)
+    todays_opened = datetime(2026, 10, 14, 16, 0, tzinfo=UTC)
 
     Scenario() \
         .given(
             a_provider := _a_provider_answering({}, by_incident_key={
-                some_key: [{ID: SOME_INCIDENT}]
+                some_key: [
+                    {ID: "incident-earlier", CREATED_AT: an_earlier_one_opened.isoformat(),
+                     RESOLVED_AT: an_earlier_one_resolved.isoformat()},
+                    {ID: "incident-today", CREATED_AT: todays_opened.isoformat(),
+                     RESOLVED_AT: None}
+                ]
             })
         ) \
         .when(
-            lambda: incident_for(["some-unknown-key", some_key],
-                                 settings=_settings_with(api_key="dont care"),
-                                 client_of=a_provider)
+            lambda: incidents_for(["some-unknown-key", some_key],
+                                  settings=_settings_with(api_key="dont care"),
+                                  client_of=a_provider)
         ) \
         .then(
-            _it_answers(SOME_INCIDENT)
+            _it_answers([
+                PagedIncident(id="incident-earlier",
+                              lifespan=Lifespan(began_at=an_earlier_one_opened,
+                                                ended_at=an_earlier_one_resolved)),
+                PagedIncident(id="incident-today",
+                              lifespan=Lifespan(began_at=todays_opened, ended_at=None))
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_carrying_several_of_the_keys_is_found_once() -> None:
+    # Incidents merged into it brought their alerts' keys with them.
+    some_opened = datetime(2026, 10, 14, 16, 0, tzinfo=UTC)
+    the_incident = {ID: SOME_INCIDENT, CREATED_AT: some_opened.isoformat()}
+
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({}, by_incident_key={
+                "k-1": [the_incident], "k-2": [the_incident]
+            })
+        ) \
+        .when(
+            lambda: incidents_for(["k-1", "k-2"],
+                                  settings=_settings_with(api_key="dont care"),
+                                  client_of=a_provider)
+        ) \
+        .then(
+            _it_answers([PagedIncident(id=SOME_INCIDENT,
+                                       lifespan=Lifespan(began_at=some_opened, ended_at=None))])
         )
 
 
@@ -282,12 +325,49 @@ def test_keys_no_incident_carries_find_none() -> None:
             a_provider := _a_provider_answering({})
         ) \
         .when(
-            lambda: incident_for(["some-unknown-key"],
-                                 settings=_settings_with(api_key="dont care"),
-                                 client_of=a_provider)
+            lambda: incidents_for(["some-unknown-key"],
+                                  settings=_settings_with(api_key="dont care"),
+                                  client_of=a_provider)
         ) \
         .then(
-            _it_answers(None)
+            _it_answers([])
+        )
+
+
+@pytest.mark.unit
+def test_incidents_under_a_key_are_looked_for_across_every_date() -> None:
+    # PagerDuty's list reaches back a month unless told otherwise, and an
+    # incident is written up whenever it ends - so one escalated six weeks ago
+    # and resolved today would be looked for where it is not.
+    Scenario() \
+        .given(
+            a_provider := _a_provider_answering({})
+        ) \
+        .when(
+            lambda: incidents_for(["some-key"],
+                                  settings=_settings_with(api_key="dont care"),
+                                  client_of=a_provider)
+        ) \
+        .then(
+            _every_list_asked_across(a_provider, DATE_RANGE_ALL)
+        )
+
+
+@pytest.mark.unit
+def test_incidents_the_provider_will_not_list_are_reported_unreadable() -> None:
+    # "Unreadable" and "none carry the key" are different answers: the first
+    # is "could not say", the second is an incident nobody was paged for.
+    Scenario() \
+        .given(
+            a_provider := _a_provider_failing_to_list()
+        ) \
+        .when(
+            attempting(lambda: incidents_for(["some-key"],
+                                             settings=_settings_with(api_key="dont care"),
+                                             client_of=a_provider))
+        ) \
+        .then(
+            _the_source_said_it_could_not_be_read()
         )
 
 
@@ -432,19 +512,45 @@ def _a_provider_answering(by_path: Mapping[str, Any],
     """
     incidents_by_key = by_incident_key or {}
 
-    def rget(path: str, *dont_care_args: Any,
-             params: Mapping[str, Any] | None = None, **dont_care_kwargs: Any) -> Any:
-        if path == INCIDENT_LIST and params is not None:
-            return incidents_by_key.get(params[INCIDENT_KEY], [])
-
+    def rget(path: str, *dont_care_args: Any, **dont_care_kwargs: Any) -> Any:
         if path not in by_path:
             raise _NotFound(f"nothing at {path}")
 
         return by_path[path]
 
-    client = Mock(rget=Mock(side_effect=rget))
+    def list_all(path: str, *dont_care_args: Any,
+                 params: Mapping[str, Any] | None = None, **dont_care_kwargs: Any) -> Any:
+        """The SDK's own read of an index, every page of it."""
+        if path != INCIDENT_LIST or params is None:
+            raise _NotFound(f"no index at {path}")
+
+        return incidents_by_key.get(params[INCIDENT_KEY], [])
+
+    client = Mock(rget=Mock(side_effect=rget), list_all=Mock(side_effect=list_all))
 
     return lambda *dont_care_args, **dont_care_kwargs: client
+
+
+def _a_provider_failing_to_list() -> Any:
+    client = Mock(list_all=Mock(side_effect=_NotFound("the list is unavailable")))
+
+    return lambda *dont_care_args, **dont_care_kwargs: client
+
+
+def _every_list_asked_across(provider: Any, date_range: str) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        asked = [kwargs.get("params", {}).get(DATE_RANGE)
+                 for _args, kwargs in provider().list_all.call_args_list]
+
+        if not asked or any(each != date_range for each in asked):
+            raise AssertionError(
+                f"Expected every list of incidents to be asked across [{date_range}], "
+                f"and they were asked across {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_answers(expected: object) -> Assertion[object]:

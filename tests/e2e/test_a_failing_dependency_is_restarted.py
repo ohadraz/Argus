@@ -38,8 +38,6 @@ model reads a real dependency failure and decides for itself whose it is.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
@@ -61,7 +59,11 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
-from tests.e2e.framework.world import latency_back_to_baseline, the_incidents_events
+from tests.e2e.framework.world import (
+    a_scenario_was_seeded,
+    latency_back_to_baseline,
+    the_incidents_events,
+)
 
 A_LATENCY_ALERT = "HighLatency"
 
@@ -86,7 +88,8 @@ def test_a_failing_dependency_is_restarted_rather_than_the_service_that_alerted(
 
     Scenario() \
         .given(
-            calling(_the_pricing_service_was_left_slow()),
+            calling(a_scenario_was_seeded("pricing-service-degraded",
+                                          as_recorded_in=RECORDED_PRICING_SERVICE_DEGRADED)),
             calling(the_model_answers_from(RECORDED_PRICING_SERVICE_DEGRADED))
         ) \
         .when(
@@ -226,19 +229,6 @@ def _the_shops_window() -> list[dict[str, Any]]:
         )
 
     return window
-
-
-def _the_pricing_service_was_left_slow() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "pricing-service-degraded"},
-            timeout=REQUEST_TIMEOUT_SECONDS
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario
 
 
 def _the_fix_proposed_bounds_the_pricing_call() -> Assertion[httpx2.Response]:

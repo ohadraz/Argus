@@ -65,7 +65,8 @@ def test_a_replica_rescheduled_onto_a_card_that_rounds_is_pinned_back() -> None:
     # The scenario's id is also the recording's name, so one constant serves both.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(RECORDED_ACCELERATOR_HETEROGENEITY)),
+            calling(a_scenario_was_seeded(RECORDED_ACCELERATOR_HETEROGENEITY,
+                                          as_recorded_in=RECORDED_ACCELERATOR_HETEROGENEITY)),
             calling(the_model_answers_from(RECORDED_ACCELERATOR_HETEROGENEITY))
         ) \
         .when(

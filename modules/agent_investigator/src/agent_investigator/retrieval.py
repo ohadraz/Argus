@@ -6,11 +6,11 @@ from typing import Protocol
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     ChangeEvent,
-    ChangeKind,
     FlagChange,
     MetricBucket,
     PodPlacement,
     ServiceDependency,
+    as_a_change,
 )
 from read_mcp_client import (
     get_change_events,
@@ -346,36 +346,9 @@ def fetch_change_events(service: str,
     # flipped after the incident began would be offered as something that might
     # have caused it.
     toggles = [
-        _as_a_change(toggle)
+        as_a_change(toggle)
         for toggle in get_recent_flag_changes(window_start)
         if toggle.occurred_at <= window_end
     ]
 
     return sorted([*deploys, *toggles], key=lambda change: change.occurred_at)
-
-
-def _as_a_change(toggle: FlagChange) -> ChangeEvent:
-    """One flag toggle, as the change channel's own shape.
-
-    The direction is spelled out rather than left to the reader of a boolean:
-    both are real - a feature is put back by switching it off, a withdrawn
-    fallback by switching it on - and "the flag changed" leaves the model
-    unable to say which state is now in effect.
-
-    The flag's own name becomes the `reference`, verbatim. It is what
-    identifies the change to everything downstream, and something acts on that
-    name afterwards; a name Argus invented identifies nothing.
-
-    The actor is carried across because it is load-bearing rather than
-    decorative: Argus writes under a credential of its own, and this is what
-    tells its own revert from a human's - which is what stops it offering its
-    own action as a cause of the incident it was acting on.
-    """
-    return ChangeEvent(
-        kind=ChangeKind.FLAG_TOGGLE,
-        occurred_at=toggle.occurred_at,
-        reference=toggle.flag,
-        summary=f"feature flag {toggle.flag} was switched "
-                f"{'on' if toggle.enabled else 'off'}",
-        actor=toggle.actor
-    )

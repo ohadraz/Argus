@@ -10,12 +10,15 @@ one of the two importing the other across a boundary.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from argus_core.models import (
     Action,
     Alert,
     Attempt,
     ChangeEvent,
     Disproof,
+    EstablishedOnset,
     FlagChange,
     Hypothesis,
     IncidentStatus,
@@ -69,6 +72,17 @@ class IncidentState(BaseModel):
     # that investigated found them. `True` until an investigation says otherwise,
     # which is what every incident before a window could stop was.
     readings_cover_the_incident: bool = True
+    # The minute the investigation dated the incident from, and how it is known,
+    # as the first round that had one found it. Carried because Mitigation dates
+    # the incident's end against it, and an end found by re-reading where the
+    # incident began from another window can belong to an earlier episode of a
+    # service that flaps - an incident that recovered before it started.
+    #
+    # The first round's stands, as it does for the postmortem, and is handed to
+    # every later round: a later round re-reads a window Argus has since acted
+    # on, and an onset found there dates whatever the action left behind rather
+    # than the incident.
+    onset: EstablishedOnset | None = None
     # How many times this incident has been investigated. What bounds the walk,
     # because what buys a later round is the refutation rather than the window:
     # an attempt that failed is evidence no amount of reading produces, and a
@@ -119,6 +133,12 @@ class IncidentState(BaseModel):
     # passed between the two, because a gate the acting node could bypass by
     # re-deriving the action would guard nothing.
     proposed_action: Action | None = None
+    # When that action was taken, as the walk announced it. Carried because the
+    # node that remembers the attempt runs after the wait for the service to
+    # answer, and a later round reads the attempt beside the flag provider's
+    # record of the same change - dated by when the walk moved on, the two
+    # disagree by the length of that wait.
+    acted_at: datetime | None = None
     # What Argus worked out to do and declined to do, because nothing would say
     # afterwards whether it worked. The one thing a `recommended` incident is
     # for saying, and the reason that status is not escalation: a reader learns

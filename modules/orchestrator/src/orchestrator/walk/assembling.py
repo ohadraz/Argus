@@ -46,13 +46,13 @@ from agent_mitigation import (
     rules_read_over,
     take_action,
 )
+from agent_postmortem import postmortem_policy
 from argus_core import Connections, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
 from argus_core.llm import build_llm_client
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ModelPolicy
 from argus_core.replay import Recorder
 from argus_incidents import (
     EndedByAPerson,
@@ -358,21 +358,20 @@ def against(connections: Connections,
         actions_taken=records.actions_taken,
         recall_similar=_recalling(memory, store),
         remember_incident=_remembering(memory, store),
-        write_postmortem=lambda incident_id: write_postmortem_for(
-            incident_id,
+        write_postmortem=partial(
+            write_postmortem_for,
             connections=connections,
             sources=sources,
             # The postmortem's own model and effort, bound here because
             # this is where an agent is assembled. It is the cheapest of
             # the three to serve and the clearest candidate for a lower
             # effort: one piece of prose, every figure already measured,
-            # and no tools to explore with.
+            # and no tools to explore with. The brief is the agent's, and
+            # arrives inside the policy it hands out.
             client_for=partial(
                 build_llm_client,
-                policy=ModelPolicy(
-                    model=settings.postmortem_model,
-                    effort=settings.postmortem_effort
-                )
+                policy=postmortem_policy(settings.postmortem_model,
+                                         settings.postmortem_effort)
             ),
             recorder=recorder),
         record_postmortem=records.postmortem,

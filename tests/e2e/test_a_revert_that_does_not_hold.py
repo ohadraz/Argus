@@ -54,7 +54,8 @@ def test_a_revert_the_shop_goes_on_flapping_after_is_refuted() -> None:
     # The scenario's id is also the recording's name, so one constant serves both.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(RECORDED_FLAG_REVERT_LEAVES_A_FLAP)),
+            calling(a_scenario_was_seeded(RECORDED_FLAG_REVERT_LEAVES_A_FLAP,
+                                          as_recorded_in=RECORDED_FLAG_REVERT_LEAVES_A_FLAP)),
             calling(the_model_answers_from(RECORDED_FLAG_REVERT_LEAVES_A_FLAP))
         ) \
         .when(

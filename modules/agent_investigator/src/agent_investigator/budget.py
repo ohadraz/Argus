@@ -40,6 +40,10 @@ class InvestigationSettings(SettingsSlice):
     log_initial_lookahead_minutes: int
     log_max_window_minutes: int
     change_lookback_minutes: int
+    # How often the metrics are read again while the minute the alert fired in
+    # has not been reported yet, and how long before giving up on it.
+    metrics_recheck_interval_seconds: float
+    metrics_recheck_max_wait_seconds: float
 
 
 def a_budget_for(settings: InvestigationSettings,

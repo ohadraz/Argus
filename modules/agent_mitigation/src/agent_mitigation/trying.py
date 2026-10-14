@@ -146,6 +146,7 @@ def take_action(action: Action,
                 publisher: Publisher = nobody,
                 *,
                 onset: datetime | None = None,
+                incident_began: str | None = None,
                 rule: str | None = None,
                 read_rule: RuleReader | None = None,
                 writes: PerformingWrites,
@@ -186,6 +187,13 @@ def take_action(action: Action,
     production is in. A tier that answered and said the action has nowhere left to
     go is `NOT_ATTEMPTED`, and the walk moves to its next candidate: a bound Argus
     holds is not a reason to wake somebody.
+
+    `incident_began` is the minute the investigation dated the incident from, and
+    is what the recovery is dated after - not to be confused with `onset`, which
+    is a minute the *alert* stated and answers whether the incident's minutes
+    were ever published. A recovery found by re-reading where the incident began
+    from the window being polled can be the end of an earlier episode of a
+    service that flaps, which would date this incident's end before its start.
 
     `incident_id` is optional because an `Action` is not incident-scoped and
     neither is this call - a caller with no incident to attribute the wait to
@@ -312,7 +320,8 @@ def take_action(action: Action,
             partial(read_rule, rule)
             if rule is not None and read_rule is not None
             else None
-        )
+        ),
+        incident_began=incident_began
     )
 
     if settled.verdict is Verdict.CONFIRMED:
@@ -630,7 +639,8 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                                        onset: datetime | None = None,
                                        read_the_rule: (
                                            Callable[[], AlertRuleStanding] | None
-                                       ) = None) -> _Settled:
+                                       ) = None,
+                                       incident_began: str | None = None) -> _Settled:
     """What the service did once the change was in force, within the time the
     recovery it is waiting for needs.
 
@@ -901,7 +911,10 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 standing.evaluated_at - timedelta(seconds=standing.range_seconds)
                 >= arrived_at
             )
-            came_back_at = find_recovery(buckets, thresholds) if resolved else None
+            came_back_at = (
+                find_recovery(buckets, thresholds, since=incident_began)
+                if resolved else None
+            )
 
             if incident_id is not None:
                 say(RecoveryChecked(
@@ -1019,7 +1032,10 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # in it has no recovery to report. The postmortem computes its own
         # answer where this is absent, so an undatable confirmation costs the
         # document nothing.
-        came_back_at = find_recovery(buckets, thresholds) if recovered else None
+        came_back_at = (
+            find_recovery(buckets, thresholds, since=incident_began)
+            if recovered else None
+        )
 
         if incident_id is not None:
             say(RecoveryChecked(

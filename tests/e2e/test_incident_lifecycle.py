@@ -8,6 +8,7 @@ from argus_testkit import Scenario, all_of, calling, eventually
 
 from tests.e2e.framework.argus import (
     RECORDED_ABSENCE_OF_EVIDENCE,
+    RECORDED_ALARM_DISPROVEN,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_created_a_postmortem_for_the_incident,
@@ -105,9 +106,10 @@ def test_an_alarm_the_metrics_contradict_is_closed_as_disproven() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("silent-data-corruption")),
+            calling(a_scenario_was_seeded("silent-data-corruption",
+                                          as_recorded_in=RECORDED_ALARM_DISPROVEN)),
             calling(_the_shop_is_reporting),
-            calling(the_model_answers_from(RECORDED_ABSENCE_OF_EVIDENCE))
+            calling(the_model_answers_from(RECORDED_ALARM_DISPROVEN))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)

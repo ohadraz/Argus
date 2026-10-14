@@ -14,14 +14,26 @@ would be describing a different incident.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Mapping
 from datetime import datetime
+from typing import get_args
 
 import psycopg
-from agent_postmortem import IncidentEvidence, Sources, write_postmortem
-from argus_core import Connections, parse_iso, to_iso
+from agent_postmortem import (
+    ActionRecord,
+    CandidateRecord,
+    IncidentEvidence,
+    Sources,
+    write_postmortem,
+)
+from argus_core import Connections, parse_iso
 from argus_core.events import (
     ActionRecommended,
+    ActionTaken,
+    ChangesRetrieved,
     FixAttempted,
+    FlagChangesRetrieved,
     LogsRetrieved,
     OnsetDetected,
     RecoveryChecked,
@@ -29,12 +41,17 @@ from argus_core.events import (
 )
 from argus_core.llm import ClientFor
 from argus_core.models import (
+    ActionType,
     Alert,
+    ChangeEvent,
+    Hypothesis,
     IncidentStatus,
     OpenedPullRequest,
     PostmortemDocument,
     TakenAction,
+    TimelineEntry,
     Verdict,
+    as_a_change,
 )
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
@@ -46,7 +63,13 @@ from argus_incidents.repository import (
     replay,
     taken_actions,
 )
-from argus_narration import build_narration, what_the_action_does
+from argus_narration import (
+    build_narration,
+    each_wait_told_once,
+    said_in_full,
+    what_the_action_does,
+    what_was_done,
+)
 
 
 def write_postmortem_for(incident_id: str,
@@ -97,18 +120,25 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
             f"worked has no duration to report"
         )
 
+    # Read once, because two things are made of it - the candidates, and the
+    # lines saying which of them each formed - and two reads could disagree.
+    considered = hypotheses.get_all_by_incident(conn, incident_id)
+
     return IncidentEvidence(
         incident_id=incident_id,
         started_at=incident.created_at,
         ended_at=incident.ended_at,
         onset_at=_when_it_actually_began(conn, incident_id),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
+        watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
         rule=_the_rule_that_paged(incident.alert_payload),
-        alert_summary=_what_was_alerted(incident.alert_payload),
-        timeline=_what_happened(conn, incident_id),
-        candidates=_what_was_considered(conn, incident_id),
+        alert_title=_what_was_alerted(incident.alert_payload),
+        alert_finding=_what_the_alert_found(incident.alert_payload),
+        timeline=_what_happened(conn, incident_id, [hypothesis.id for hypothesis in considered]),
+        candidates=_what_was_considered(considered),
         actions=_what_was_done(conn, incident_id),
         log_lines=_what_was_read(conn, incident_id),
+        changes=_what_changed(conn, incident_id),
         tokens_spent=replay.get_tokens_spent(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
         recommended_action=_what_is_still_owed(conn, incident_id),
@@ -235,6 +265,29 @@ def _when_it_came_back(conn: psycopg.Connection,
     return resolved_by_a_person[-1] if resolved_by_a_person else None
 
 
+def _it_was_watched_and_never_came_back(conn: psycopg.Connection,
+                                        incident_id: str) -> bool:
+    """Whether Mitigation looked for the recovery and never once saw it.
+
+    The negative of the minute above, and read off the account for the same
+    reason: the party that was watching at the time answered, and the document
+    asking again of its own window would be one rule over different minutes. On
+    a service that flaps, that is a lull read as a recovery in one run and not
+    in the next.
+
+    Any look that saw the service back makes this false, dated or not - a
+    confirmation with nothing to date it by is a recovery the document dates
+    from the series. So does no look at all: an incident that escalated before
+    it acted, or one nobody mitigated, was never watched, and the series is the
+    only answer there is.
+    """
+    looks = [event.recovered
+             for event in events.get_by_incident(conn, incident_id)
+             if isinstance(event, RecoveryChecked)]
+
+    return bool(looks) and not any(looks)
+
+
 def _the_rule_that_paged(alert_payload: dict[str, object]) -> str | None:
     """The rule the alert named, read back through the alert's own model.
 
@@ -260,7 +313,18 @@ def _what_was_alerted(alert_payload: dict[str, object]) -> str:
     return f"{alert_payload.get('alert_name')} on {alert_payload.get('service')}"
 
 
-def _what_happened(conn: psycopg.Connection, incident_id: str) -> list[str]:
+def _what_the_alert_found(alert_payload: dict[str, object]) -> str | None:
+    """The alert's own summary, as its sender wrote it - one field by name, for
+    `_what_was_alerted`'s reason: the payload also holds `stale_entry_keys`,
+    which no prompt should carry."""
+    summary = alert_payload.get("summary")
+
+    return summary if isinstance(summary, str) else None
+
+
+def _what_happened(conn: psycopg.Connection,
+                   incident_id: str,
+                   considered: list[str]) -> list[TimelineEntry]:
     """The narration, as the page shows it: who did what, in order.
 
     The page's own renderer rather than a second one written here. The
@@ -268,17 +332,35 @@ def _what_happened(conn: psycopg.Connection, incident_id: str) -> list[str]:
     are two stories - the one a reader was shown while the incident ran, and a
     different one in the document written about it afterwards.
 
-    Flattened to a line of text because that is what the model is handed. The
-    structure a page uses to mark a flag or link a minute has no meaning in a
-    prompt, and the sentence is the part that carries the account.
+    Each line's moment, speaker and sentence, and nothing of how the page sets
+    a word apart: that structure belongs to a page, and the sentence is the
+    part that carries the account. Said in full, so what the page shows beside
+    a sentence - the move, the candidates - is in the sentence here.
+
+    A line that formed candidates also says where they sit in `considered`,
+    the hypotheses in the order the document lists them. By id rather than by
+    counting: that list is best first across every round, so a second round's
+    best sits between the first round's own.
+
+    Two things the page does not need and a document citing lines by number
+    does: each wait told once, by the look that settled it, and every line
+    saying whether it is the walk's own. Both are timing - how many looks a
+    wait took, and where a person's message fell - and a document numbering
+    by either would number one walk differently on every telling.
     """
     return [
-        f"{to_iso(line.at)} {line.who}: {line.text}"
-        for line in build_narration(events.get_by_incident(conn, incident_id))
+        TimelineEntry(at=line.at,
+                      who=line.who,
+                      text=said_in_full(line),
+                      candidates=[considered.index(candidate.hypothesis_id)
+                                  for candidate in line.candidates
+                                  if candidate.hypothesis_id in considered],
+                      outside_the_walk=line.outside_the_walk)
+        for line in each_wait_told_once(build_narration(events.get_by_incident(conn, incident_id)))
     ]
 
 
-def _what_was_considered(conn: psycopg.Connection, incident_id: str) -> list[str]:
+def _what_was_considered(considered: list[Hypothesis]) -> list[CandidateRecord]:
     """Every candidate ranked, tried or not.
 
     The untried ones are half of what a walk has to say: an investigation that
@@ -286,27 +368,126 @@ def _what_was_considered(conn: psycopg.Connection, incident_id: str) -> list[str
     what was left on the list.
     """
     return [
-        f"{hypothesis.summary} [{hypothesis.failure_mode}, confidence "
-        f"{hypothesis.confidence}, "
-        f"{hypothesis.result if hypothesis.tested else 'never tried'}]"
-        for hypothesis in hypotheses.get_all_by_incident(conn, incident_id)
+        CandidateRecord(summary=hypothesis.summary,
+                        failure_mode=hypothesis.failure_mode,
+                        confidence=hypothesis.confidence,
+                        subject=hypothesis.subject,
+                        from_state=hypothesis.from_state,
+                        to_state=hypothesis.to_state,
+                        tested=hypothesis.tested,
+                        result=hypothesis.result)
+        for hypothesis in considered
     ]
 
 
-def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[str]:
+def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[ActionRecord]:
     """Every action, with what it came to and whether it still stands.
 
     Whether it still stands because a person who resolved the incident left
     every change in place, so a flag Argus turned off is off when this is
     written - and a responder reading the document has to know there is a
     change of Argus's standing in production.
+
+    Dated by the account's line saying the change was made, not by the row:
+    the row is a claim written before anything happens, and dated by it the
+    action comes before the agent was even called in to take it. Said in the
+    account's words for the same reason: the line is the action as a reader
+    met it, where the row holds only its tag. The row stands only where the
+    account holds no such line.
     """
+    said = {event.hypothesis_id: event
+            for event in events.get_by_incident(conn, incident_id)
+            if isinstance(event, ActionTaken) and event.hypothesis_id is not None}
+
     return [
-        f"{taken_action.type} on {taken_action.subject} - "
-        f"{taken_action.outcome or 'no verdict recorded'}, "
-        f"{_what_became_of(taken_action)}"
+        ActionRecord(taken_at=_when_it_was_taken(taken_action, said),
+                     action=_what_it_did(taken_action, said),
+                     reversible=taken_action.has_a_way_back,
+                     verdict=taken_action.outcome,
+                     standing=_what_became_of(taken_action))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
+
+
+def _when_it_was_taken(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> datetime:
+    line = said.get(taken_action.hypothesis_id or "")
+
+    return line.at if line is not None else taken_action.taken_at
+
+
+def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> str:
+    """The action in the account's words, read off its line where there is one
+    and off the row's tag where the tag is one Argus still knows. A row written
+    under a tag since renamed keeps its tag: history is not rewritten."""
+    line = said.get(taken_action.hypothesis_id or "")
+    if line is not None:
+        return what_was_done(line.action_type, line.subject or "")
+
+    known = next((tag for tag in get_args(ActionType.__value__) if tag == taken_action.type), None)
+    if known is not None:
+        return what_was_done(known, taken_action.subject or "")
+
+    return f"{taken_action.type} on {taken_action.subject}"
+
+
+def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEvent]:
+    """Every change the walk read, in the order they were made: the
+    investigation's, and each flag change the walk read for itself that the
+    investigation did not.
+
+    The flags too, because the walk acts on what it read of them, and a
+    write-up has to be able to cite the change Argus acted on. The model's own
+    reading of the changes is over a window it chose, and a flag switched a
+    moment past that window's end is one it never saw - while the walk, reading
+    over a window of its own, did, and turned it back.
+
+    In time rather than in the order they were read, because a change is
+    labelled by its place among the rest. A later round re-reads a window that
+    can reach further back than the first, and a change carried where it was
+    read would move down a place for everything earlier that turned up - so one
+    run's write-up would name another run's changes. Changes made at the same
+    instant keep the order they were read in.
+
+    Each change once. A change carried once per read takes a label per read, so
+    the numbering would turn on whether the first read happened to reach it.
+
+    Only toggles from before the walk first acted. A later round re-reads the
+    flag history with its far end open, and from the first action on, what it
+    finds is the walk's own doing - already told as an action, and no cause of
+    the incident it was acting on.
+    """
+    recorded = events.get_by_incident(conn, incident_id)
+    read: list[ChangeEvent] = []
+    for event in recorded:
+        if isinstance(event, ChangesRetrieved):
+            for change in event.changes:
+                if not any(_the_same_change(change, seen) for seen in read):
+                    read.append(change)
+    first_acted = next(
+        (event.at for event in recorded if isinstance(event, ActionTaken)), None
+    )
+
+    for event in recorded:
+        if isinstance(event, FlagChangesRetrieved):
+            for toggle in event.changes:
+                if first_acted is not None and parse_iso(toggle.occurred_at) >= first_acted:
+                    continue
+
+                change = as_a_change(toggle)
+                if not any(_the_same_change(change, seen) for seen in read):
+                    read.append(change)
+
+    return sorted(read, key=lambda change: parse_iso(change.occurred_at))
+
+
+def _the_same_change(one: ChangeEvent, other: ChangeEvent) -> bool:
+    """Whether two readings are of one change: the same thing, moved the same
+    way, at the same instant - compared as instants, since two channels may
+    spell one differently."""
+    return (one.kind == other.kind
+            and one.reference == other.reference
+            and one.summary == other.summary
+            and parse_iso(one.occurred_at) == parse_iso(other.occurred_at))
 
 
 def _what_became_of(taken_action: TakenAction) -> str:
@@ -332,10 +513,16 @@ def _what_was_read(conn: psycopg.Connection, incident_id: str) -> list[str]:
     From the published account rather than from the log store, which has moved
     on since. A postmortem explaining lines Argus never read would be
     explaining a different incident, fluently.
+
+    Each line as often as one read returned it, and no more. An investigation
+    that widens its window reads again the minutes it has read, and a line
+    kept once per read is a failure counted twice - while two replicas logging
+    the same line in one minute are two failures, and one read returns both.
     """
-    return [
-        line
-        for event in events.get_by_incident(conn, incident_id)
-        if isinstance(event, LogsRetrieved)
-        for line in event.lines
-    ]
+    kept: dict[str, int] = {}
+    for event in events.get_by_incident(conn, incident_id):
+        if isinstance(event, LogsRetrieved):
+            for line, copies in Counter(event.lines).items():
+                kept[line] = max(kept.get(line, 0), copies)
+
+    return [line for line, copies in kept.items() for _ in range(copies)]

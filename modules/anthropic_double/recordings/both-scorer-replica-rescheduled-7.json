@@ -2,35 +2,143 @@
   "container": null,
   "content": [
     {
-      "signature": "CAISlQoKwAIIEhgCKkBXgxodfmp78cD5eEZkV2a04mnfBO/Q33Tr4kPdd6gCKlxGU+MHoM6rvUM+q4P8i5ZwJ9hOM/SfWe5raWGANyn3Mg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiRjNmJkM2FkZC1hY2EzLTQ5NzUtODFmNC0yMWNhZTBmMDJlMTKaAQ8KDWNsYXVkZS1vcHVzLTWoAZbDm9YGwgE6CAQQABoMAkaTA083BTVtBCatIAEyBBJxzyU6BDgzI4pCBMz0wwJKBCJaML1QAVoE2QXhVmACaAFwANoBYAoWcHJlZml4X2JlZm9yZV9ibG9ja192MRIgz2i7d900Cg6rKAtvKLNDeYYLUeUPGkgake5K4W4UCpMiADIgwsATyGqckuIvlm89hhd2j4t6RMkCrcwJe/oeCYr7Th9IAxIMVlVe1O0ZZ3iIhGUZGgxmMIsjdiwi9DSmlEAiMAHyAdgcabSqGTubwRNODXRlIduuikGwwg7ajzGogZhhRQ3guwF6cpqOwDh5chePQiqBB0c4vDbRdHwQRJyIvty33mzTzZHMOP8Q6uGaavZ8PzvUFlj+ICvfU7FyBuABefmDcbAfwBaqDwb60mhHrLLjyLEl9p8Tawb7vyflZtnjYOAMUXAvggSHIOTvp8xmYjQR7m/pTArpW8P/fpOWX4+xTvXxO4JSFjsCh1++mA85f5J3e8C7TTCUBhYsU7PfKRfELC2YmN1vbBuXQMdQtYB8y+b31zZmQ5gHWOwSGnv9ZJUrrsTYVsppU2FpUQPY7u3B6DKw5nGsga6FdpwkML9vRnaUCz7aPnTwSEfhIs0hADy/8cYvIY8SkGeVQsjiUIg8CYnmedLRdQ7g2sFwsKR4OtW7gZHg6H0cmASKb95kJaXhA2dfwcJambULL+R77Ua0qXILyZcwei6fk7Yi3kTLRKABX7R4OhwnJ21TYfuWfaUfKsNXdOxlkEdsF+0B6i6LHKL9v5xLGjAJzIMNnC0mzAi5LicLW0LqCybpN/9NrQKgd9nKN1+C3cbpubdQ8KF5BLAvhOxICwhkl/lGleWHgu+tnpa5mbayHUOCT+3tV5iLuLc6pVLiWX2X/xhipfHGrr+9Z9ubTHLrkfFGZsXaF2UNywh1kSdObU2a2mVJx9/24vdyJQvOKOK2PZYwSeTZsWkdP7KRihqX1yl2ef6n5Yl3GmUstboXhz0VaOsFWNzXxc+lXDm95XdWSF/0Ul1OGWc6ycIIJOfhrPYcmzGNYwMMoZ68mUwLp/6dtl1sAJ4SABBS6nPHEVnjyo9v6/gQUDxkCWq+K2Gh2O7+nCfwaDTtPIF/Y4zSZDXEMg2XYWlNxL5cXPO8t+knz9mKAq4gG/MZ2jLT4+oKTd27RQOPY1DSuyC6DPVh53JksaTEugDfG77s86DJABvVdA6n7DyuquOoE0HkkgHfHYL1hK3MCFf+9FbyQ9RVKApkb8Gark9ptPqFxFpDpxf9RS4ff6bproGB+voDl1UeiOK2nNvbRB0gFaIWPbJ1z0xxxj4LJkBIekL+tVAS1cndq2n1wxvKRpkroOsbql7e1OlUdwv3FtpkLqmh8ec4s+wgH2Wlkq6L08tuEejGkMYjEd1XKRVWuQ+Eq4vuiL7l72/PoYFyI41IKq9xl4DEwhoTpBsbyDwFNODf7vOLH1XzIwadrmqe1pLoopDJp0of3lQt2uDWMy6klGyYVOD35VUC7i/C4pF8uBgB",
-      "thinking": "I should draft the root cause, executive summary, and assumptions carefully, making sure not to mischaracterize the Argus hold time as the outage duration while keeping the given 6-minute outage window (00:10\u201300:16) as stated. I need to flag clearly that the link between accelerator placement and the fraud-hold quality shift is correlational rather than proven, that the return to baseline after pinning supports but doesn't confirm causality, and that the error rate movement appears unrelated to baseline.\n\nFor the executive summary, I'll avoid naming specific components and instead describe the issue generally: the shop's fraud-check screening behaved differently for about 6 minutes, causing more orders to be held for review and more legitimate transactions flagged.\n\n",
+      "signature": "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",
+      "thinking": "I need to write the postmortem without inserting any actual figures myself, using placeholders like {duration} and {began} instead. Labels such as T2, C1, or AI-2 are fine, but I should avoid specific hardware names with digits like \"A100\" or \"V100,\" opting instead for a generic description like \"the newer accelerator card.\"\n\nFor the symptom description, I should describe it simply as \"orders were flagged for fraud holds more often\" without citing numbers, referencing the FraudHoldsHigh alert. Then I'll build out the causal chain: the fraud-hold series rose while error rates stayed flat, pointing to the fraud scorer behaving differently on a new pod, which traces back to replicas being placed on a different accelerator type at onset without pinning \u2014 all tied to evidence labels like T1, T6, T7, and Gd066.\n\nRoot cause is that pods weren't constrained to a specific accelerator type, so the scheduler placed a new replica on a different GPU model whose scorer output diverged from the others; I'm treating the model-behavior mechanism as inferred but the mitigation (pinning to older cards) is confirmed by the recovery timing lining up closely with the action taken. I'm noting contributing factors \u2014 no accelerator constraint, no alerting on mixed accelerator types or scorer divergence, and no pre-release verification on new hardware \u2014 and drafting action items (AI-2 through AI-3+) including making the accelerator constraint permanent and reviewing the fix PR whose contents I don't actually know yet.\n\nI'm flagging that error-rate-based alerting wouldn't have caught this since the error rate never rose, and the alert title is misleading, so I'm drafting action items: AI-3 pin accelerator type permanently in the pod spec and verify it's declarative, AI-4 add detection for replicas running on mismatched accelerator models or diverging scorer output, AI-5 require validation of the fraud model on new hardware before node pool rollout, and possibly AI-6 fix the alert text \u2014 trying to keep this to 3-4 items. For lessons learned, I'm noting the fast 2-minute response after alert as a win, but the hold wasn't applied until several minutes of impact had passed, and we got lucky that the error rate didn't spike since that's the only thing being monitored; I'm also noting C2 was never attempted, and starting to draft an executive summary of the incident timeline and duration.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01T9oHoseE4cfT1yihAfr3kG",
+      "id": "toolu_01WBSRmYux5ToBvb4cBqtuZG",
       "input": {
-        "assumptions": [
-          "Causality between the new accelerator and the shifted fraud-hold signal is inferred from timing (the device log line and the signal departure land in the same minute) and from recovery after pinning; the model's outputs on the two card types were not directly compared.",
-          "The recovery is attributed to the pin action, but the fault window had already closed at 00:16 and some of the improvement could be coincidental; no control was run.",
-          "The alternative explanation \u2014 fraud-scoring output quality degrading for an unrelated reason \u2014 was rated low confidence and never tested, so it is not ruled out.",
-          "Customer impact (orders held for review) is inferred from what the fraud-hold quality signal measures; no order-level or manual-review data was examined.",
-          "The ClientDisconnected errors in the logs are treated as pre-existing background noise unrelated to the incident, since they appear before onset and request-level metrics stayed at baseline.",
-          "The change log being empty for the 135 minutes before the alert is taken to mean no deploy or config change contributed; changes older than that window were not checked.",
-          "Why the replica was rescheduled onto a different card type (eviction, node turnover, scheduler choice) was not established."
+        "action_items": [
+          {
+            "item": "Make the accelerator constraint permanent in the io-shop deployment spec, using a node selector or affinity for the validated card type. Confirm that rescheduling and scale-up cannot place pods on other models.",
+            "type": "prevent"
+          },
+          {
+            "item": "Before any new accelerator model is allowed for io-shop, run the fraud scorer on it and compare its outputs and hold rate with the current card. Admit the model only if they are equivalent.",
+            "type": "process"
+          },
+          {
+            "item": "Add a check that alerts when replicas of one service run on different accelerator models. Also compare the fraud-hold rate per replica so a single divergent replica is visible. Correct the FraudHoldsHigh alert description so it does not say 'error rate'.",
+            "type": "detect"
+          }
         ],
-        "executive_summary": "Early on 8 October, the shop's automated fraud screening briefly started judging orders differently from normal, holding a higher share of them for review. The change began at 00:10 UTC and the behaviour was back to normal by 00:16 UTC, about six minutes later. Nothing was released or reconfigured; the cause was that one of the machines running the shop had been replaced with one using a different type of hardware accelerator, and the fraud-scoring model gave different answers on it. Checkout stayed up throughout \u2014 page speed, traffic and the share of failed requests were unchanged, so the practical effect was limited to some legitimate orders being flagged for manual review during those minutes. On-call automation detected the alert, identified the mismatched hardware, and restricted the shop's workloads to the hardware type the rest of the fleet uses, which restored normal scoring. A draft code change has been opened to prevent a recurrence.",
-        "root_cause": "At 00:10:00Z a replacement replica of io-shop (io-shop-7d9c4f8b6-x2k9p) was scheduled onto an NVIDIA-A100-SXM4-40GB node while the other two serving replicas remained on Tesla-V100-SXM2-16GB cards; the fraud-scorer model produced materially different output on the A100, which pushed the fraud-hold quality series the paging rule watches off its baseline from exactly that minute. No deploy, rollout or feature-flag change landed in the window \u2014 the trigger was purely the heterogeneous accelerator placement, and pinning the service's pods back to the V100 card type returned the signal to baseline."
+        "causal_chain": [
+          {
+            "cites": [
+              "T1",
+              "T6"
+            ],
+            "step": "Shoppers saw the fraud-hold measure that paged rise from {series_before} to {series_while_broken} on average, peaking at {series_at_worst}, from {began} until {recovered}. Request failures did not rise: the error rate was {errors_before} before and {errors_while_broken} during. So the harm was altered fraud-scoring outcomes (probably extra fraud holds), not failed pages."
+          },
+          {
+            "cites": [
+              "Gd066",
+              "T7",
+              "C1"
+            ],
+            "step": "The fraud scorer on a newly started replica answered differently from the other replicas. The log shows it serving on the newer accelerator card at the minute the measure stepped up, and only that replica was on the new card."
+          },
+          {
+            "cites": [
+              "T7",
+              "T22"
+            ],
+            "step": "The new replica started on a different accelerator model from the other two replicas, which run on the older card. Nothing constrained the service to one card type, as the mitigation record shows the pods were held to no card."
+          },
+          {
+            "cites": [
+              "T9",
+              "T14"
+            ],
+            "step": "No deploy, release, config or flag change explains the shift. The change log and flag history were empty, so the trigger was ordinary scheduling placing a replica on available hardware, not a change by anyone."
+          },
+          {
+            "cites": [
+              "T17",
+              "T20",
+              "T21"
+            ],
+            "step": "Holding the pods to the older card type was followed by the measure returning to baseline and the rule that paged stopping. This supports accelerator type as the cause, although the model-level reason for the different answers was not investigated."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-1",
+              "AI-3"
+            ],
+            "factor": "The accelerator type is not part of the service's declared requirements, so the scheduler may mix card models. The hold applied during the incident is a mitigation and is not yet a lasting rule."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "Nothing checks that the fraud-scoring model gives equivalent results on every accelerator model it might run on. A different card changed its behaviour unnoticed."
+          },
+          {
+            "addressed_by": [
+              "AI-5"
+            ],
+            "factor": "Detection relied on a downstream fraud-hold quality measure. The alert text says 'error rate', yet request errors were flat, and nothing flagged mixed card types across replicas at the onset. The alert fired only after the onset."
+          },
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "The proposed code fix has not been reviewed. How it relates to the accelerator placement is unclear from the record."
+          }
+        ],
+        "executive_summary": "For {duration}, from {began} to {recovered}, the shop's fraud-hold measure ran well above its usual level. It averaged {series_while_broken} against {series_before} beforehand and peaked at {series_at_worst}. Requests did not fail more than normal. The error rate stayed near its usual level, so pages loaded and orders went through. The change was in how the fraud scoring behaved, so some shoppers were probably held for fraud review when they would not normally have been. A new copy of the service had started on a different type of accelerator card from the other copies, and the fraud model answers differently on it. Argus restricted the service to the older card type. The measure returned to baseline and the alert stopped firing. Argus held the incident for {held}. A draft fix has been proposed and is awaiting review.",
+        "lessons": {
+          "got_lucky": [
+            "Request errors, latency and volume stayed at baseline, so the fault affected only fraud scoring and nothing failed outright.",
+            "Only one of three replicas was on the new card. If more replicas had been rescheduled onto it, a larger share of scoring could have shifted."
+          ],
+          "went_well": [
+            "Argus took the alert, built two candidate causes and acted within seconds. The leading candidate was tied to a replica placement and a log line at the onset.",
+            "The mitigation was narrow and reversible, and its effect was checked against the metrics before it was judged confirmed."
+          ],
+          "went_wrong": [
+            "The service could be placed on mixed accelerator models, and nothing flagged that until the quality measure moved.",
+            "The fraud-hold measure was elevated for {duration} before recovery. The impact was a change in scoring outcomes, which the error-rate and latency series could not show.",
+            "The alert text described an error rate although request errors never rose, which is misleading for whoever is paged."
+          ]
+        },
+        "root_cause": "The shop's pods were not restricted to one accelerator model. At {began} the scheduler placed a new replica on a different, newer GPU model than the two serving replicas. The fraud-scoring model gives different answers on that card, and fraud holds rose even though no deploy or config change had landed.",
+        "symptom": "Fraud holds ran higher than normal"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_018yykEGoG9WdCuP4pERQAHq",
+      "input": {
+        "action_items": [],
+        "causal_chain": [],
+        "contributing_factors": [],
+        "executive_summary": "placeholder",
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [],
+          "went_wrong": []
+        },
+        "root_cause": "placeholder",
+        "symptom": "placeholder"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cfop2Vq9QvHektnFHgeHt",
-  "model": "claude-opus-5",
+  "id": "msg_011Cfywa3qDBASamrDCfSCVE",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -39,15 +147,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3666
+      "ephemeral_5m_input_tokens": 2813
     },
-    "cache_creation_input_tokens": 3666,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 2813,
+    "cache_read_input_tokens": 1900,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1279,
+    "input_tokens": 4,
+    "output_tokens": 3398,
     "output_tokens_details": {
-      "thinking_tokens": 293
+      "thinking_tokens": 1260
     },
     "service_tier": "standard"
   }

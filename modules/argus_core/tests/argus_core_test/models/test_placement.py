@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core.models import PodPlacement, RecordedPlacement
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, the_answer_was
 
 THE_ONSET = datetime(2026, 10, 8, 9, 30, tzinfo=UTC)
 DONT_CARE_NODE = "gpu-v100-1"
@@ -103,6 +103,25 @@ def test_a_pod_placed_after_the_onset_started_at_it() -> None:
             a_placement.started_at_the_onset()
         )) \
         .then(_before_and_at_are([], ["later"]))
+
+
+@pytest.mark.unit
+def test_a_pod_placed_more_than_a_minute_after_the_onset_started_after_it() -> None:
+    # Still one of those started at the onset for the rule: it has only ever
+    # served during the incident. But a pod placed six days after an onset was
+    # not placed at it, and the timeline and the model's message say which.
+    # The same minute's grace either side of the onset.
+    Scenario() \
+        .given(
+            a_placement := _a_placement_of(
+                _a_pod("settled", started=THE_ONSET - timedelta(hours=12)),
+                _a_pod("moved", started=THE_ONSET + timedelta(minutes=1)),
+                _a_pod("later", started=THE_ONSET + timedelta(seconds=61))
+            )
+        ) \
+        .when(lambda: [pod.pod for pod in a_placement.started_after_the_onset()]) \
+        .then(the_answer_was(["later"]))
+
 
 
 @pytest.mark.unit

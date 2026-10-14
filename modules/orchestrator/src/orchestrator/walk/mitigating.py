@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from datetime import datetime
 from functools import partial
 
 from agent_mitigation import Verdict
+from argus_core import utc_now
 from argus_core.events import (
     ActionTaken,
     AgentInvoked,
@@ -60,7 +63,8 @@ def mitigation_node(
     still_wanted: IsStillWanted,
     take: TakeAction,
     change_landed: ChangeLanded,
-    publisher: Publisher = nobody
+    publisher: Publisher = nobody,
+    now: Callable[[], datetime] = utc_now
 ) -> StateDelta:
     """Performs the action the gate admitted, and records what came of it
     (spec §7.3, §11.1).
@@ -73,6 +77,9 @@ def mitigation_node(
 
     The row records the descriptor the *write tier returned* rather than the
     one proposed, since that is the account of what actually changed.
+
+    `now` is the clock the action is dated by, and the walk carries that date
+    on to the attempt it remembers.
     """
     # Both, because an action is taken *for* a candidate: one without the other
     # is not an attempt this node can account for, and recording it would leave
@@ -112,20 +119,19 @@ def mitigation_node(
     # incident-scoped: neither `take_action` nor `Action` carries an incident,
     # and threading one through an agent purely so it can narrate would put a
     # field in the domain for the account's benefit.
-    publish(
-        ActionTaken(
-            incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            action_type=state.proposed_action.action_type,
-            subject=the_subject_of(state.proposed_action),
-            enabled=the_direction_of(state.proposed_action),
-            a_dependency_of=_whose_dependency_was_acted_on(
-                state.proposed_action, state.alert.service
-            ),
-            accelerator=the_accelerator_of(state.proposed_action)
+    announced = ActionTaken(
+        incident_id=state.incident_id,
+        hypothesis_id=state.hypothesis.id,
+        action_type=state.proposed_action.action_type,
+        subject=the_subject_of(state.proposed_action),
+        enabled=the_direction_of(state.proposed_action),
+        a_dependency_of=_whose_dependency_was_acted_on(
+            state.proposed_action, state.alert.service
         ),
-        publisher
+        accelerator=the_accelerator_of(state.proposed_action),
+        at=now()
     )
+    publish(announced, publisher)
 
     # The incident and the publisher travel with the action, so the wait for
     # the service to answer - the longest silence in an incident - is narrated
@@ -143,6 +149,9 @@ def mitigation_node(
         incident_id=state.incident_id,
         publisher=publisher,
         onset=state.alert.stated_onset,
+        # The minute the investigation dated the incident from, so the recovery
+        # is never dated before it.
+        incident_began=state.onset.minute if state.onset is not None else None,
         # The rule that paged, where the alert is about a series - the action is
         # judged by whether it stops firing. A finding's check runs on its own
         # schedule, so it keeps the confirmation it has.
@@ -240,12 +249,14 @@ def mitigation_node(
 
         return StateDelta(
             action_outcome=outcome,
+            acted_at=announced.at,
             unreachable_platforms=[*state.unreachable_platforms, platform],
             narration=Narration(action="mitigation attempted", detail=result.detail)
         )
 
     return StateDelta(
         action_outcome=outcome,
+        acted_at=announced.at,
         narration=Narration(action="mitigation attempted", detail=result.detail)
     )
 
@@ -348,7 +359,7 @@ def _what_the_earlier_attempt_left(state: IncidentState,
             )
         )
 
-    if outcome is not None:
+    if claimed is not None and outcome is not None:
         # The account of the gap, and not of the verdict: that was published by
         # the walk that reached it, in the transaction that recorded it. This
         # says a second walk picked the incident up and read the answer back,
@@ -367,8 +378,11 @@ def _what_the_earlier_attempt_left(state: IncidentState,
             publisher
         )
 
+        # The moment the claim was written, just before the action was taken.
+        # The walk that announced it is gone, and the row is all that is left.
         return StateDelta(
             action_outcome=outcome,
+            acted_at=claimed.claimed_at,
             narration=Narration(
                 action="mitigation resumed",
                 detail=f"an earlier attempt already acted on this explanation: "

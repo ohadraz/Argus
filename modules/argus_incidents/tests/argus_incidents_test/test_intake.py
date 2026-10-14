@@ -1,9 +1,13 @@
-"""How an incident starts: a new one, or the one its rule already has open.
+"""How an incident starts: a new one, or the one the alert already belongs to.
 
 A rule that fires again while Argus is still on its incident is that incident
-going on, not a second one beside it. Everything else is a new incident - a
-rule whose incident ended, a rule firing for another service, and an alert
-naming no rule at all, which has nothing to be joined by.
+going on, not a second one beside it. So is a reminder of a firing an incident
+already holds - the monitor saying again that an alert it told Argus about is
+still firing - however that incident ended, unless Argus said it mitigated it:
+an alarm still going contradicts that, and the contradiction is a new incident.
+Everything else is a new incident - a rule whose incident ended firing anew, a
+rule firing for another service, and an alert naming neither a rule nor a
+firing, which has nothing to be joined by.
 
 A new incident keeps the trace its alert arrived in. Every walk of it, every
 unwind and every withdrawal continues that trace, so the incident's whole story
@@ -16,7 +20,7 @@ import logging
 
 import pytest
 from argus_core import connect_from_env
-from argus_core.models import Alert, Reference
+from argus_core.models import ALERT_FIRING, Alert, IncidentStatus, Reference
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import events_into_connection, start_incident
 from argus_incidents.repository import incidents, references
@@ -30,6 +34,10 @@ SOME_TRACE_CONTEXT = {
 SOME_OTHER_TRACE_CONTEXT = {
     "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 }
+
+# One firing of one alert, as a monitor names it.
+SOME_FIRING = Reference(source="some-monitor", kind=ALERT_FIRING,
+                        value="fp-1@2026-10-14T15:59:00Z")
 
 
 @pytest.mark.component
@@ -112,6 +120,160 @@ def test_alerts_naming_no_rule_each_open_their_own_incident() -> None:
             _it_is_not(first),
             _incidents_were_opened_for(some_service, count=2)
         ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("ending", [IncidentStatus.DISPROVEN,
+                                    IncidentStatus.WITHDRAWN,
+                                    IncidentStatus.ESCALATED,
+                                    IncidentStatus.RECOMMENDED,
+                                    IncidentStatus.RESOLVED])
+def test_a_reminder_of_a_firing_joins_the_incident_it_opened_however_it_ended(
+        ending: IncidentStatus) -> None:
+    # None of these endings says the alarm stopped, so the alarm still going
+    # is what each predicts - and a second walk would pay again for an answer
+    # the incident already has.
+    some_service = "kuki-service"
+    some_alert = _a_reminder_of(SOME_FIRING, service=some_service)
+
+    Scenario() \
+        .given(
+            first := _an_incident_ended_as(ending, some_alert)
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(all_of(
+            _it_is(first),
+            _incidents_were_opened_for(some_service, count=1)
+        ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("still", [IncidentStatus.ACKNOWLEDGED,
+                                   IncidentStatus.INVESTIGATING,
+                                   IncidentStatus.MITIGATING,
+                                   IncidentStatus.FIXING])
+def test_a_reminder_of_a_firing_joins_the_incident_it_opened_while_it_is_still_going(
+        still: IncidentStatus) -> None:
+    # A reminder names no rule, so only its firing can join it - and the
+    # incident walking that firing is the one it is about.
+    some_service = "kuki-service"
+    some_alert = _a_reminder_of(SOME_FIRING, service=some_service)
+
+    Scenario() \
+        .given(
+            first := _an_incident_walked_to(still, some_alert)
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(all_of(
+            _it_is(first),
+            _incidents_were_opened_for(some_service, count=1)
+        ))
+
+
+@pytest.mark.component
+def test_a_reminder_of_a_firing_argus_said_it_mitigated_opens_a_new_incident() -> None:
+    # Argus said the symptom stopped, and the alarm says it has not.
+    some_service = "kuki-service"
+    some_alert = _a_reminder_of(SOME_FIRING, service=some_service)
+
+    Scenario() \
+        .given(
+            first := _an_incident_ended_as(IncidentStatus.MITIGATED, some_alert)
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(all_of(
+            _it_is_not(first),
+            _incidents_were_opened_for(some_service, count=2)
+        ))
+
+
+@pytest.mark.component
+def test_a_reminder_after_a_mitigation_was_contradicted_joins_the_incident_that_followed() -> None:
+    # The firing is held by the incident Argus mitigated and by the one its
+    # reminder opened. The later incident is the latest word about it, and it
+    # was escalated, which the alarm going on does not contradict.
+    some_service = "kuki-service"
+    some_alert = _a_reminder_of(SOME_FIRING, service=some_service)
+
+    Scenario() \
+        .given(
+            _an_incident_ended_as(IncidentStatus.MITIGATED, some_alert),
+            second := _an_incident_ended_as(IncidentStatus.ESCALATED, some_alert)
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(all_of(
+            _it_is(second),
+            _incidents_were_opened_for(some_service, count=2)
+        ))
+
+
+@pytest.mark.component
+def test_a_firing_held_by_another_services_incident_opens_this_services_own() -> None:
+    # One alert group spans every service its rule watches, so an incident
+    # holds firings its notification carried for other services.
+    some_other_service = "buki-service"
+
+    Scenario() \
+        .given(
+            first := _an_incident_ended_as(IncidentStatus.ESCALATED,
+                                           _a_reminder_of(SOME_FIRING, service="kuki-service"))
+        ) \
+        .when(
+            lambda: _started(_a_reminder_of(SOME_FIRING, service=some_other_service))
+        ) \
+        .then(all_of(
+            _it_is_not(first),
+            _incidents_were_opened_for(some_other_service, count=1)
+        ))
+
+
+@pytest.mark.component
+def test_a_reminder_joining_the_incident_it_belongs_to_gives_it_its_names_too() -> None:
+    # A reminder can carry firings the first notification did not - an alert
+    # of the group that started since - and the group's key with them.
+    the_later_firing = Reference(source="some-monitor", kind=ALERT_FIRING,
+                                 value="fp-2@2026-10-14T17:20:00Z")
+
+    Scenario() \
+        .given(
+            first := _an_incident_ended_as(IncidentStatus.ESCALATED, _a_reminder_of(SOME_FIRING))
+        ) \
+        .when(
+            lambda: _started(_a_reminder_of(SOME_FIRING, the_later_firing))
+        ) \
+        .then(all_of(
+            _it_is(first),
+            _it_is_found_by(the_later_firing)
+        ))
+
+
+@pytest.mark.component
+def test_a_reminder_joining_the_incident_it_belongs_to_is_logged(
+        caplog: pytest.LogCaptureFixture) -> None:
+    # The alert opened nothing, and somebody asking where it went needs the
+    # incident it went to - and why an ended one, which is the firing.
+    some_alert = _a_reminder_of(SOME_FIRING)
+
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            _an_incident_ended_as(IncidentStatus.ESCALATED, some_alert)
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(
+            _it_was_logged_naming_it(caplog, "alert joined the incident of its firing",
+                                     status=IncidentStatus.ESCALATED)
+        )
 
 
 @pytest.mark.component
@@ -252,11 +414,11 @@ def _it_is_found_by(reference: Reference) -> Assertion[str]:
     """That a tool using this name for the incident would reach it."""
     def assertion(incident_id: str) -> bool:
         with connect_from_env() as conn:
-            found = references.get_incident_by_values(
+            found = [incident.id for incident in references.get_incidents_by_values(
                 conn, reference.kind, [reference.value]
-            )
+            )]
 
-        if found != incident_id:
+        if found != [incident_id]:
             raise AssertionError(
                 f"Expected the name {reference} to find the incident "
                 f"[{incident_id}], and it found [{found}]."
@@ -285,11 +447,49 @@ def _an_incident_that_ended(alert: Alert) -> str:
     return incident_id
 
 
+def _a_reminder_of(*firings: Reference, service: str = "kuki-service") -> Alert:
+    """An alert naming no rule - so nothing but its firings can join it to an
+    incident - carrying these firings as the monitor stamped them."""
+    return Alert(service=service, alert_name="HighErrorRate", references=firings)
+
+
+def _an_incident_walked_to(status: IncidentStatus, alert: Alert) -> str:
+    """An incident `alert` opened, which the walk has since moved to `status`
+    - or left where intake put it, where that is `status` already."""
+    incident_id = _started(alert)
+
+    if status != IncidentStatus.ACKNOWLEDGED:
+        with connect_from_env() as conn:
+            incidents.transition(conn, incident_id, status)
+            conn.commit()
+
+    return incident_id
+
+
+def _an_incident_ended_as(status: IncidentStatus, alert: Alert) -> str:
+    """An incident `alert` opened, ended as `status` through the door that
+    ending comes through: a person's through theirs, Argus's through the
+    walk's."""
+    incident_id = _started(alert)
+
+    with connect_from_env() as conn:
+        match status:
+            case IncidentStatus.RESOLVED:
+                incidents.resolve(conn, incident_id)
+            case IncidentStatus.WITHDRAWN:
+                incidents.withdraw(conn, incident_id)
+            case _:
+                incidents.transition(conn, incident_id, status)
+                conn.commit()
+
+    return incident_id
+
+
 def _it_is(expected: str) -> Assertion[str]:
     def assertion(incident_id: str) -> bool:
         if incident_id != expected:
             raise AssertionError(
-                f"Expected the alert to join the open incident [{expected}], got "
+                f"Expected the alert to join the incident [{expected}], got "
                 f"[{incident_id}]."
             )
 

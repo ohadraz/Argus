@@ -108,6 +108,48 @@ def test_a_run_still_being_walked_is_not_taken_from_its_worker() -> None:
             )
 
 
+@pytest.mark.integration
+def test_only_runs_waiting_or_being_walked_are_unsettled() -> None:
+    # Asked by whoever is about to change what a walk acts on: whether any walk
+    # is still live. A run waiting to be taken is as live as one being walked -
+    # a worker takes it the moment one is free - and a run that finished or
+    # failed acts on nothing again.
+    dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    dont_care_reason = "the walk ran out of tool calls"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                a_finished_run := _a_claimed_run_for(conn, dont_care_alert),
+                a_failed_run := _a_claimed_run_for(conn, dont_care_alert),
+                a_run_being_walked := _a_claimed_run_for(conn, dont_care_alert),
+                a_waiting_incident_id := _an_enqueued_run_for(conn, dont_care_alert),
+                calling(lambda: runs.finish(conn, a_finished_run.id)),
+                calling(lambda: runs.fail(conn, a_failed_run.id, dont_care_reason))
+            ) \
+            .when(
+                lambda: runs.get_unsettled_runs(conn)
+            ) \
+            .then(
+                _the_runs_are_for({a_run_being_walked.incident_id, a_waiting_incident_id})
+            )
+
+
+def _the_runs_are_for(incident_ids: set[str]) -> Assertion[Any]:
+    def assertion(unsettled: Any) -> bool:
+        found = {run.incident_id for run in unsettled}
+
+        if found != incident_ids:
+            raise AssertionError(
+                f"Expected the unsettled runs to be for incidents "
+                f"{sorted(incident_ids)}, got {sorted(found)}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_run_was_claimed() -> Assertion[Any]:
     def assertion(claimed: Any) -> bool:
         if claimed is None:
@@ -221,6 +263,15 @@ def _an_enqueued_run_for(conn: psycopg.Connection, alert: Alert) -> str:
     runs.enqueue(conn, incident_id)
 
     return incident_id
+
+
+def _a_claimed_run_for(conn: psycopg.Connection, alert: Alert) -> runs.Run:
+    """An incident whose run a worker has taken and is walking."""
+    _an_enqueued_run_for(conn, alert)
+    claimed = runs.claim(conn, "worker-that-took-it", A_GENEROUS_LEASE)
+    assert claimed is not None
+
+    return claimed
 
 
 def _exactly_one_worker_claimed_it() -> Assertion[Any]:

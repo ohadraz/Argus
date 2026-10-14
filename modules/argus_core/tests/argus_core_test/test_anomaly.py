@@ -1126,6 +1126,34 @@ def test_find_recovery_reports_the_minute_the_incident_fell_away_and_stayed_away
 
 
 @pytest.mark.unit
+def test_a_recovery_is_never_dated_before_the_incident_it_ends_began() -> None:
+    # On a service that flaps, a window re-read for where the incident began
+    # finds the first persisted run it holds - an earlier episode - and that
+    # episode's end is a recovery from an incident that had not yet begun. Where
+    # the incident began was decided once, by the investigation, and its end is
+    # looked for after that.
+    some_steady_rate = 0.01
+    earlier_episode = [some_steady_rate * 9, some_steady_rate * 18, some_steady_rate * 18]
+    the_incident = [some_steady_rate * 4] * 3
+    some_window = a_window_of(
+        [some_steady_rate] * CALM_MINUTES
+        + earlier_episode
+        + [some_steady_rate] * 4
+        + the_incident
+        + [some_steady_rate] * 6
+    )
+
+    the_incident_began = some_window[CALM_MINUTES + 3 + 4]
+    first_calm_minute_after_it = some_window[CALM_MINUTES + 3 + 4 + 3]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_recovery(some_window, SOME_THRESHOLDS,
+                                    since=the_incident_began.bucket_id)) \
+        .then(_the_recovery_is(first_calm_minute_after_it.bucket_id))
+
+
+@pytest.mark.unit
 def test_a_signal_departing_every_other_minute_has_no_recovery_to_report() -> None:
     # Where the incident began is asked of the departure bar, and the bar alone
     # does not say whether anything persisted. The vector of minutes at the

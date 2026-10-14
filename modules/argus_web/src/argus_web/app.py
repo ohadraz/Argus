@@ -10,7 +10,14 @@ from typing import Annotated, Any, Final
 import psycopg
 from argus_core import Connections, DatabaseSettings, get_settings, open_pool
 from argus_core.events import Publisher
-from argus_core.models import IncidentStatus, Reference, Report, ReportChannel, ThreadMessage
+from argus_core.models import (
+    Incident,
+    IncidentStatus,
+    Reference,
+    Report,
+    ReportChannel,
+    ThreadMessage,
+)
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import (
@@ -38,6 +45,7 @@ from opentelemetry.trace import SpanKind, Tracer
 
 from argus_web import reads
 from argus_web.chat import receive_chat_delivery
+from argus_web.formatting import as_money, as_revision, as_span, with_references
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 from argus_web.oncall import OnCallDeliverySettings, receive_delivery
 from argus_web.pushes import (
@@ -213,6 +221,10 @@ def _on_the_clock(moment: datetime, pattern: str = "%H:%M:%S") -> str:
 
 templates.env.filters["utc"] = _in_utc
 templates.env.filters["clock"] = _on_the_clock
+templates.env.filters["money"] = as_money
+templates.env.filters["span"] = as_span
+templates.env.filters["revision"] = as_revision
+templates.env.filters["references"] = with_references
 
 
 @app.post("/webhooks/alerts", status_code=202)
@@ -458,8 +470,16 @@ class _TheIncidentRecord:
         self._tracer = tracer
 
     def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
+        """The one incident holding these names, for a kind only one incident
+        ever holds - a thread, a message, an offer."""
+        found = self.incidents_known_as(kind, values)
+
+        # One holder or none: a name several incidents hold names none of them.
+        return found[0].id if len(found) == 1 else None
+
+    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[Incident]:
         with self._connections() as conn:
-            return references.get_incident_by_values(conn, kind, values)
+            return references.get_incidents_by_values(conn, kind, values)
 
     def know_it_as(self, incident_id: str, reference: Reference) -> None:
         with self._connections() as conn:

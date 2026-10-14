@@ -1,33 +1,57 @@
 """The postmortem row, shaped for transport.
 
 Nothing here is derived, judged or rounded: every field is one the Postmortem
-agent wrote down, carried across unchanged. Which makes the only thing that can
-go wrong a hand-written mapping of fifteen fields getting two of them crossed -
-so these do not check the fields one at a time, they check the mapping.
+agent wrote down, carried across unchanged. Which makes the only things that
+can go wrong a field crossed with another, a field the page is never told, and
+a field it is told that it must not show - so these check the mapping, the set
+of fields, and the one exclusion.
 
 Every figure in the built row is distinct, and distinct in the way that matters:
-the three responder costs are the pair most easily swapped, and three equal
-Decimals would let a swap pass. The comparison is against the row itself rather
-than against literals restated here, so a field added to both sides is covered
-the day it is added.
+two equal values would let a swap pass. The comparison is against the row itself
+rather than against literals restated here, so a field added to both sides is
+covered the day it is added.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from argus_core import new_id
 from argus_core.models import (
+    ActionItem,
+    ActionItemStatus,
+    ActionItemType,
+    ChainStep,
+    CitedEvidence,
+    ContributingFactor,
+    Detection,
+    HypothesisConsidered,
+    Impact,
+    ImpactExtent,
+    Lessons,
     OpenedPullRequest,
     Postmortem,
     PostmortemLead,
+    ResolutionStep,
+    ReviewCriterion,
     Standing,
+    TimelineEntry,
+    TimelineMarker,
+    Trigger,
     Weighing,
 )
 from argus_testkit import Assertion, Scenario
 from argus_web.views.postmortems import PostmortemView, build_postmortem_view
+
+SOME_MOMENT = datetime(2026, 8, 30, 10, 0, tzinfo=UTC)
+
+# What the row has that the page is not told: which row it is, which incident
+# it belongs to - the page already knows both - and the response cost's range,
+# which with the minutes beside it reveals a pay band.
+NOT_FOR_THE_PAGE = {"id", "incident_id", "responder_cost_estimate", "responder_cost_currency",
+                    "responder_cost_minimum", "responder_cost_maximum"}
 
 
 @pytest.mark.unit
@@ -56,10 +80,35 @@ def test_a_postmortem_that_costed_nothing_comes_across_costing_nothing() -> None
 
 
 @pytest.mark.unit
+def test_the_page_is_told_every_section_the_document_has() -> None:
+    # The field-by-field check reads the view's own fields, so it passes a view
+    # that never had one. This is the other direction: every field of the row
+    # reaches the page but the ones it must not have.
+    some_postmortem = _a_postmortem_with_a_distinct_value_in_every_field()
+
+    Scenario() \
+        .given(some_postmortem) \
+        .when(lambda: build_postmortem_view(some_postmortem)) \
+        .then(_it_is_told_every_field_of_the_row_but(NOT_FOR_THE_PAGE))
+
+
+@pytest.mark.unit
+def test_the_page_is_never_told_what_the_response_cost() -> None:
+    # Stored, and never shown: divided by the minutes beside it, any figure for
+    # what the response cost is a rate of pay - and with one responder and
+    # their title on the page, it is that person's band.
+    some_postmortem = _a_postmortem_with_a_distinct_value_in_every_field()
+
+    Scenario() \
+        .given(some_postmortem) \
+        .when(lambda: build_postmortem_view(some_postmortem)) \
+        .then(_it_is_not_told("responder_cost_estimate", "responder_cost_currency",
+                              "responder_cost_minimum", "responder_cost_maximum"))
+
+
+@pytest.mark.unit
 def test_the_page_is_told_where_the_proposed_fix_can_be_read() -> None:
-    # The one thing on this page a reader acts on. Named explicitly rather than
-    # left to the field-by-field check above, which reads the view's own fields
-    # and so would pass a view that had quietly dropped this one.
+    # The one thing on this page a reader acts on, named explicitly.
     some_postmortem = _a_postmortem_with_a_distinct_value_in_every_field()
 
     Scenario() \
@@ -70,9 +119,6 @@ def test_the_page_is_told_where_the_proposed_fix_can_be_read() -> None:
 
 @pytest.mark.unit
 def test_the_page_is_told_what_people_told_the_incident() -> None:
-    # Named explicitly for the pull request's reason: the field-by-field check
-    # reads the view's own fields, and would pass a view that never had this
-    # one.
     some_postmortem = _a_postmortem_with_a_distinct_value_in_every_field()
 
     Scenario() \
@@ -97,7 +143,8 @@ def _a_postmortem_with_a_distinct_value_in_every_field() -> Postmortem:
     """One postmortem whose fields cannot be confused with one another.
 
     Every number differs from every other, so a mapping that read the minimum
-    where it meant the maximum fails rather than agreeing with itself.
+    where it meant the maximum fails rather than agreeing with itself - and
+    every section is filled, so one the page was never told is missed by name.
     """
     return Postmortem(
         id=new_id(),
@@ -128,7 +175,71 @@ def _a_postmortem_with_a_distinct_value_in_every_field() -> Postmortem:
             weighing=Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
             effect="it named the flag that was reverted"
         )],
-        checklist_complete=True,
+        impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                      peak_error_rate=0.42),
+        detection=Detection(alerted_at=SOME_MOMENT + timedelta(minutes=2),
+                            rule="HighErrorRate",
+                            onset_at=SOME_MOMENT,
+                            gap=timedelta(minutes=2)),
+        trigger=Trigger(subject="monthly-spend-feature", from_state="off", to_state="on",
+                        changed_at=SOME_MOMENT - timedelta(seconds=8)),
+        resolution=[ResolutionStep(at=SOME_MOMENT + timedelta(minutes=5),
+                                   action="turned monthly-spend-feature off",
+                                   by="Argus",
+                                   reversible=True,
+                                   outcome="recovered, still in place",
+                                   label="M1")],
+        causal_chain=[ChainStep(
+            text="the monthly average divides by the items bought this month",
+            cites=[CitedEvidence(label="E3", text="ZeroDivisionError in monthly_average")]
+        )],
+        contributing_factors=[ContributingFactor(text="the canary started at full traffic",
+                                                 addressed_by=["AI-2"])],
+        hypotheses=[HypothesisConsidered(summary="a flag change on account pages",
+                                         confidence=0.8,
+                                         result="confirmed",
+                                         label="C1")],
+        action_items=[ActionItem(number="AI-1",
+                                 text="turn the flag off",
+                                 type=ActionItemType.MITIGATE,
+                                 owner="Argus",
+                                 tracking=None,
+                                 status=ActionItemStatus.DONE)],
+        lessons=Lessons(went_well=["the alert fired within minutes"],
+                        went_wrong=["no test exercised an empty month"],
+                        got_lucky=["the fault was behind a flag"]),
+        timeline=[TimelineEntry(at=SOME_MOMENT,
+                                who=None,
+                                text="the service began to fail",
+                                marker=TimelineMarker.IMPACT_BEGINS)],
+        evidence_read=14,
+        review=[ReviewCriterion(criterion="some criterion", met=True)],
+        created_at=datetime(2026, 8, 30, 11, 2, tzinfo=UTC)
+    )
+
+
+def _a_postmortem_with_nothing_filled_in() -> Postmortem:
+    """One postmortem the agent could put no figure in.
+
+    `created_at` is not optional and so is still said: the row exists, which is
+    itself the fact that the rest is missing rather than unasked.
+    """
+    return Postmortem(
+        id=new_id(),
+        incident_id=new_id(),
+        root_cause=None,
+        customer_loss_estimate=None,
+        estimate_currency=None,
+        engineer_minutes=None,
+        responders=None,
+        responder_titles=[],
+        responder_cost_estimate=None,
+        responder_cost_minimum=None,
+        responder_cost_maximum=None,
+        responder_cost_currency=None,
+        tokens_spent=None,
+        assumptions=[],
+        executive_summary=None,
         created_at=datetime(2026, 8, 30, 11, 2, tzinfo=UTC)
     )
 
@@ -168,32 +279,31 @@ def _it_proposes_no_fix() -> Assertion[PostmortemView]:
     return assertion
 
 
-def _a_postmortem_with_nothing_filled_in() -> Postmortem:
-    """One postmortem the agent could put no figure in.
+def _it_is_told_every_field_of_the_row_but(withheld: set[str]) -> Assertion[PostmortemView]:
+    def assertion(view: PostmortemView) -> bool:
+        told = set(view.model_dump())
+        owed = set(Postmortem.model_fields) - withheld
 
-    `checklist_complete` and `created_at` are not optional and so are still
-    said: the row exists, which is itself the fact that the rest is missing
-    rather than unasked.
-    """
-    return Postmortem(
-        id=new_id(),
-        incident_id=new_id(),
-        root_cause=None,
-        customer_loss_estimate=None,
-        estimate_currency=None,
-        engineer_minutes=None,
-        responders=None,
-        responder_titles=[],
-        responder_cost_estimate=None,
-        responder_cost_minimum=None,
-        responder_cost_maximum=None,
-        responder_cost_currency=None,
-        tokens_spent=None,
-        assumptions=[],
-        executive_summary=None,
-        checklist_complete=False,
-        created_at=datetime(2026, 8, 30, 11, 2, tzinfo=UTC)
-    )
+        if told != owed:
+            raise AssertionError(
+                f"Expected the page told every field of the row but {sorted(withheld)}; "
+                f"never told {sorted(owed - told)}, told besides {sorted(told - owed)}.")
+
+        return True
+
+    return assertion
+
+
+def _it_is_not_told(*fields: str) -> Assertion[PostmortemView]:
+    def assertion(view: PostmortemView) -> bool:
+        told = sorted(set(fields) & set(view.model_dump()))
+
+        if told:
+            raise AssertionError(f"Expected the page never told {told}, and it was.")
+
+        return True
+
+    return assertion
 
 
 def _it_carries_every_field_of(postmortem: Postmortem) -> Assertion[PostmortemView]:

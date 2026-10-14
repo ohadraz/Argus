@@ -7,6 +7,7 @@ from statistics import median
 from typing import NamedTuple
 
 from argus_core.models.metrics import RULE_READING_FIELD, MetricBucket, RuleReading
+from argus_core.timestamps import parse_iso
 
 # Five of a bucket's series are judged here - the error rate, the median, the
 # 95th, the 99th and the memory in use - and the rest are retrieved without being
@@ -422,7 +423,8 @@ def minutes_a_recovery_must_hold(buckets: Sequence[MetricBucket],
 
 
 def find_recovery(buckets: Sequence[MetricBucket],
-                  thresholds: AnomalyThresholds) -> str | None:
+                  thresholds: AnomalyThresholds,
+                  since: str | None = None) -> str | None:
     """The `bucket_id` of the minute the incident ended, or `None` when the
     window ends with the service still in it (spec §16).
 
@@ -483,11 +485,28 @@ def find_recovery(buckets: Sequence[MetricBucket],
     would not see it. What makes that safe is recurrence rather than a boundary:
     the clear stretch a recovery is itself accruing happens once, so it cannot
     inflate the number it is being judged against.
+
+    `since` is the incident's onset, where the caller holds it, and no end is
+    dated before it. Where the incident began was decided once, by the
+    investigation, and a window re-read for its start finds whichever persisted
+    run it opens on - on a service that flaps, an earlier episode, whose end then
+    dates a recovery from an incident that had not yet begun. The levels are
+    still read off the whole window, that episode included: how far this
+    service falls and how long it pauses are about the service, not about where
+    the scan starts.
     """
     began = _where_the_incident_persisted_from(buckets, thresholds)
 
     if began is None:
         return None
+
+    if since is not None:
+        onset = parse_iso(since)
+        began = max(
+            began,
+            next((index for index, bucket in enumerate(buckets)
+                  if parse_iso(bucket.bucket_id) >= onset), len(buckets))
+        )
 
     for index in range(began + 1, len(buckets)):
         still_the_incident = _minutes_still_at_the_incidents_level(

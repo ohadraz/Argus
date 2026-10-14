@@ -43,7 +43,8 @@ def test_a_finding_nobody_can_date_is_walked_from_the_minute_it_paged() -> None:
     # The scenario's id is also the recording's name.
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(RECORDED_UNDATED_STATE_DIVERGENCE)),
+            calling(a_scenario_was_seeded(RECORDED_UNDATED_STATE_DIVERGENCE,
+                                          as_recorded_in=RECORDED_UNDATED_STATE_DIVERGENCE)),
             calling(the_model_answers_from(RECORDED_UNDATED_STATE_DIVERGENCE))
         ) \
         .when(

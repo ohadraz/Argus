@@ -1,0 +1,17 @@
+# The Target Service as a replay sees it: the shop's own image and settings,
+# serving through `target_service_double` instead of directly (spec §15). Laid
+# over `docker-compose.yml` by the replay and record sessions only - the paid
+# end-to-end run and the stack serve the real shop, unchanged.
+#
+# A second file rather than a service of its own: the shop's container is
+# declared in the Target Environment's repo, and keeping its image, flags,
+# clock and health check exactly as declared there is the point. Only what the
+# container runs changes, and where the stand-in's code is found.
+services:
+  target-service:
+    command: ["uv", "run", "python", "-m", "target_service_double.serve"]
+    environment:
+      # The stand-in's own package, beside the shop's in the shop's environment.
+      PYTHONPATH: "/stand-in"
+    volumes:
+      - ./modules/target_service_double/src:/stand-in:ro

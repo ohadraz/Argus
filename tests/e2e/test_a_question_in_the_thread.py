@@ -63,7 +63,8 @@ def test_a_question_asked_after_the_incident_ended_is_answered_in_its_thread() -
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
             calling(the_intent_agent_answers_from(RECORDED_INTENT_QUESTION))
         ) \

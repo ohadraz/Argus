@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import partial
 
@@ -41,7 +41,7 @@ from argus_core import Connections, Settings, to_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.mcp_transport import McpClient
 from argus_core.models import NOTIFICATION_KEY, ON_CALL_INCIDENT, MetricBucket, Reference
-from argus_incidents.repository import exchange_rates, references
+from argus_incidents.repository import exchange_rates, incidents, references
 from exchange_rate_source.frankfurter import (
     ExchangeRateSettings,
     rates_published_for,
@@ -113,9 +113,11 @@ def the_real_sources(settings: Settings,
         engagement=partial(_who_responded, platform=oncall, connections=connections),
         bands=partial(_what_a_title_is_worth,
                       settings=ResponderRateSettings.of(settings)),
-        metrics=partial(_metrics_between, client=read),
+        metrics=partial(_metrics_between, client=read,
+                        served=timedelta(minutes=settings.metrics_window_minutes)),
         working_hours_a_year=settings.working_hours_a_year,
-        reporting_currency=settings.reporting_currency
+        reporting_currency=settings.reporting_currency,
+        metrics_reporting_lag_minutes=settings.metrics_reporting_lag_minutes
     )
 
 
@@ -182,18 +184,27 @@ def _who_responded(incident_id: str,
         return None
 
     try:
-        platform_incident = _the_platform_incident_of(incident_id, platform, connections)
+        platform_incidents = _the_platform_incidents_of(incident_id, platform, connections)
     except OnCallUnavailable:
         logger.warning("engagement could not be read", exc_info=True)
 
         return None
 
-    if platform_incident is None:
+    if not platform_incidents:
         logger.info("no on-call incident linked")
 
         return NotPaged()
 
-    engaged = engagement_with(platform_incident, reported=platform.reported_incident)
+    if len(platform_incidents) > 1:
+        # Nothing here can say which page's minutes were spent on this
+        # incident, and summing them would count one response twice.
+        logger.warning("several on-call incidents match", extra={
+            "platform_incidents": platform_incidents
+        })
+
+        return None
+
+    engaged = engagement_with(platform_incidents[0], reported=platform.reported_incident)
 
     if engaged is None:
         logger.warning("engagement could not be read")
@@ -205,31 +216,59 @@ def _who_responded(incident_id: str,
                             titles=engaged.titles,
                             engaged=[EngagedResponder(minutes=responder.minutes,
                                                       job_title=responder.job_title)
-                                     for responder in engaged.engaged])
+                                     for responder in engaged.engaged],
+                            shared_with=_the_others_paged_under(platform_incidents[0],
+                                                                incident_id, connections))
 
 
-def _the_platform_incident_of(incident_id: str,
-                              platform: OnCallPlatform,
-                              connections: Connections) -> str | None:
-    """The platform's incident this one is, or `None` where none is.
+def _the_others_paged_under(platform_incident: str,
+                            incident_id: str,
+                            connections: Connections) -> int:
+    """How many other Argus incidents the platform's incident is linked to.
 
-    The platform's id where a person's resolution there already linked the
-    two; otherwise whichever platform incident carries a key the monitor paged
-    under, recorded once found so the next question goes straight to it.
+    Linked is what the record knows: a person's resolution links every
+    incident the page was open for, and engagement links the one it found.
+    An incident still to come is not counted - nothing can be - which is why
+    the one written last is the one that can say most.
+    """
+    with connections() as conn:
+        linked = references.get_incidents_by_values(conn, ON_CALL_INCIDENT, [platform_incident])
+
+    return len([incident for incident in linked if incident.id != incident_id])
+
+
+def _the_platform_incidents_of(incident_id: str,
+                               platform: OnCallPlatform,
+                               connections: Connections) -> list[str]:
+    """The platform's incidents this one may be: none, one, or - where
+    nothing can tell them apart - several.
+
+    The platform's ids where a person's resolution there already linked the
+    two. Otherwise the platform incidents carrying a key the monitor paged
+    under that were open while this incident was going on: a key is an alert
+    group's, and every firing of the group opened a page under it, so a page
+    that closed before this incident began was another firing's. One found is
+    recorded, so the next question goes straight to it; several are not, since
+    recording them would be choosing.
     """
     with connections() as conn:
         linked = references.get_values_for(conn, incident_id, ON_CALL_INCIDENT)
         keys = references.get_values_for(conn, incident_id, NOTIFICATION_KEY)
+        incident = incidents.get(conn, incident_id)
 
     if linked:
-        return linked[0]
+        return linked
 
-    found = platform.incident_for(keys) if keys else None
+    if not keys or incident is None:
+        return []
 
-    if found is not None:
+    found = [paged.id for paged in platform.incidents_for(keys)
+             if paged.lifespan.overlaps(incident.lifespan)]
+
+    if len(found) == 1:
         with connections() as conn:
             references.add(conn, incident_id, [
-                Reference(source=platform.channel, kind=ON_CALL_INCIDENT, value=found)
+                Reference(source=platform.channel, kind=ON_CALL_INCIDENT, value=found[0])
             ])
             conn.commit()
 
@@ -267,11 +306,31 @@ def _metrics_between(window_start: datetime,
                      window_end: datetime,
                      rule: str | None,
                      *,
-                     client: McpClient) -> list[MetricBucket]:
+                     client: McpClient,
+                     served: timedelta) -> list[MetricBucket]:
     """The metrics channel, asked for a window spanning the whole incident and
     for the rule that paged, so the document's figures are read off the series
-    the walk's were."""
-    return get_metrics_summary(window_start=to_iso(window_start),
-                               window_end=to_iso(window_end),
-                               rule=rule,
-                               client=client)
+    the walk's were.
+
+    In consecutive windows no wider than the tier serves whole. Its ceiling
+    bounds what a model is handed, and cuts a wider window down from the start;
+    the postmortem is code, and a week-long incident read as its first six hours
+    is one whose recovery, and most of whose failing, was never seen.
+
+    A range read answers for both its ends, so the minute two windows share
+    comes back from each - and is kept once, or it would weigh double in every
+    level the document reports.
+    """
+    read: dict[str, MetricBucket] = {}
+    start = window_start
+
+    while start < window_end:
+        end = min(start + served, window_end)
+        for bucket in get_metrics_summary(window_start=to_iso(start),
+                                          window_end=to_iso(end),
+                                          rule=rule,
+                                          client=client):
+            read.setdefault(bucket.bucket_id, bucket)
+        start = end
+
+    return list(read.values())

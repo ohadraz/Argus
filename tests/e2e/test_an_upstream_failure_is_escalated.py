@@ -15,8 +15,6 @@ stopped it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from http import HTTPStatus as HttpStatus
 from typing import Any
 
 import httpx2
@@ -37,6 +35,7 @@ from tests.e2e.framework.argus import (
 )
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import THE_DEMO_FLAG, the_flag_provider_reports
+from tests.e2e.framework.world import a_scenario_was_seeded
 
 # How many of the last minute's requests still have to be failing for this to
 # count as "nothing helped". Far below what the scenario actually produces -
@@ -59,7 +58,8 @@ def test_an_incident_arriving_from_outside_is_named_and_handed_to_a_person() -> 
 
     Scenario() \
         .given(
-            calling(_the_payment_provider_stopped_answering()),
+            calling(a_scenario_was_seeded("upstream-dependency-failure",
+                                          as_recorded_in=RECORDED_UPSTREAM_DEPENDENCY_FAILURE)),
             calling(the_model_answers_from(RECORDED_UPSTREAM_DEPENDENCY_FAILURE))
         ) \
         .when(
@@ -77,19 +77,6 @@ def test_an_incident_arriving_from_outside_is_named_and_handed_to_a_person() -> 
                 timeout=WALK_TIMEOUT_SECONDS
             )
         )
-
-
-def _the_payment_provider_stopped_answering() -> Callable[[], bool]:
-    def seed_scenario() -> bool:
-        response = httpx2.post(
-            f"{TARGET_SERVICE_BASE_URL}/scenario/seed",
-            json={"scenario_id": "upstream-dependency-failure"},
-            timeout=10.0
-        )
-
-        return response.status_code == HttpStatus.OK
-
-    return seed_scenario
 
 
 def _the_service_is_still_failing() -> Assertion[Any]:

@@ -18,16 +18,31 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from agent_postmortem import IncidentEvidence, write_postmortem
+from agent_postmortem import (
+    ActionRecord,
+    CandidateRecord,
+    IncidentEvidence,
+    write_postmortem,
+)
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
+    ACTION_ITEMS_FIELD,
     ASSUMPTIONS_FIELD,
+    CAUSAL_CHAIN_FIELD,
+    CITES_FIELD,
+    CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
+    GOT_LUCKY_FIELD,
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
+    LESSONS_FIELD,
     ROOT_CAUSE_FIELD,
+    STEP_FIELD,
+    SYMPTOM_FIELD,
+    WENT_WELL_FIELD,
+    WENT_WRONG_FIELD,
     SubmittedPostmortem,
 )
 from agent_postmortem.responder_cost import ResponderCost
@@ -46,6 +61,7 @@ from agent_postmortem.sources import (
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import LLMClient
 from argus_core.models import (
+    ChangeEvent,
     Meaning,
     MetricBucket,
     OpenedPullRequest,
@@ -53,6 +69,7 @@ from argus_core.models import (
     ReportChannel,
     RuleReading,
     ThreadMessage,
+    TimelineEntry,
     ToolCall,
     ToolDefinition,
     Transcript,
@@ -110,6 +127,7 @@ DONT_CARE_REVENUE_DURING_THE_INCIDENT = Decimal("100.00")
 DONT_CARE_ENGAGED_MINUTES = 25
 DONT_CARE_RESPONDERS = 2
 DONT_CARE_WORKING_YEAR = 2080.0
+DONT_CARE_REPORTING_LAG_MINUTES = 0
 DONT_CARE_RATE_DATE = date(2026, 9, 2)
 DONT_CARE_BASELINE_ERROR_RATE = 0.02
 DONT_CARE_ERROR_RATE_DURING_THE_INCIDENT = 0.30
@@ -144,16 +162,18 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        ended_at: datetime = ENDED_AT,
                        onset_at: datetime | None = ONSET,
                        recorded_recovery_at: datetime | None = None,
-                       alert_summary: str = "dont care",
-                       timeline: list[str] | None = None,
-                       candidates: list[str] | None = None,
-                       actions: list[str] | None = None,
+                       alert_title: str = "dont care",
+                       timeline: list[TimelineEntry] | None = None,
+                       candidates: list[CandidateRecord] | None = None,
+                       actions: list[ActionRecord] | None = None,
                        log_lines: list[str] | None = None,
+                       changes: list[ChangeEvent] | None = None,
                        tokens_spent: int = DONT_CARE_TOKENS_SPENT,
                        pull_request: OpenedPullRequest | None = None,
                        recommended_action: str | None = None,
                        rule: str | None = None,
-                       leads: list[ThreadMessage] | None = None
+                       leads: list[ThreadMessage] | None = None,
+                       watched_and_never_recovered: bool = False
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -175,7 +195,9 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     own series could be read.
 
     Nobody wrote in the thread by default, which is most incidents - and the
-    one whose request must not change because the field exists.
+    one whose request must not change because the field exists. No change was
+    read by default either: a change is evidence of a cause, and a bundle
+    carrying one as standard would hand every test a trigger.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -183,17 +205,60 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         ended_at=ended_at,
         onset_at=onset_at,
         recorded_recovery_at=recorded_recovery_at,
-        alert_summary=alert_summary,
-        timeline=timeline if timeline is not None else ["dont care"],
-        candidates=candidates if candidates is not None else ["dont care"],
-        actions=actions if actions is not None else ["dont care"],
+        alert_title=alert_title,
+        timeline=timeline if timeline is not None else [a_timeline_entry("dont care")],
+        candidates=candidates if candidates is not None else [a_candidate("dont care")],
+        actions=actions if actions is not None else [an_action("dont care")],
         log_lines=log_lines if log_lines is not None else ["dont care"],
+        changes=changes if changes is not None else [],
         tokens_spent=tokens_spent,
         pull_request=pull_request,
         recommended_action=recommended_action,
         rule=rule,
-        leads=leads if leads is not None else []
+        leads=leads if leads is not None else [],
+        watched_and_never_recovered=watched_and_never_recovered
     )
+
+
+def a_timeline_entry(text: str,
+                     at: datetime = STARTED_AT,
+                     who: str = "dont care",
+                     outside_the_walk: bool = False) -> TimelineEntry:
+    """One line of the narration, as the page said it - the walk's own, unless
+    a test says it was written outside the walk."""
+    return TimelineEntry(at=at, who=who, text=text, outside_the_walk=outside_the_walk)
+
+
+def a_candidate(summary: str,
+                subject: str | None = None,
+                from_state: str | None = None,
+                to_state: str | None = None,
+                tested: bool = False,
+                result: str | None = None,
+                confidence: float | None = 0.8) -> CandidateRecord:
+    """One candidate the investigation ranked - never tried, unless a test
+    says what became of it."""
+    return CandidateRecord(summary=summary,
+                           failure_mode="feature-flag-toggle",
+                           confidence=confidence,
+                           subject=subject,
+                           from_state=from_state,
+                           to_state=to_state,
+                           tested=tested,
+                           result=result)
+
+
+def an_action(action: str,
+              verdict: str | None = None,
+              standing: str = "still in place",
+              reversible: bool = True,
+              taken_at: datetime = STARTED_AT + timedelta(minutes=2)) -> ActionRecord:
+    """One action Argus took - with no verdict, unless a test names one."""
+    return ActionRecord(taken_at=taken_at,
+                        action=action,
+                        reversible=reversible,
+                        verdict=verdict,
+                        standing=standing)
 
 
 def a_lead(words: str,
@@ -269,7 +334,8 @@ def some_sources(revenue: Revenue | None = None,
                  metrics: Metrics | None = None,
                  thresholds: AnomalyThresholds = SOME_THRESHOLDS,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
-                 reporting_currency: str = SOME_CURRENCY) -> Sources:
+                 reporting_currency: str = SOME_CURRENCY,
+                 metrics_reporting_lag_minutes: int = DONT_CARE_REPORTING_LAG_MINUTES) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
 
     A test names only the source it is about and leaves the other five alone,
@@ -291,7 +357,8 @@ def some_sources(revenue: Revenue | None = None,
         metrics=metrics if metrics is not None else metrics_showing_a_rise(),
         thresholds=thresholds,
         working_hours_a_year=working_hours_a_year,
-        reporting_currency=reporting_currency
+        reporting_currency=reporting_currency,
+        metrics_reporting_lag_minutes=metrics_reporting_lag_minutes
     )
 
 
@@ -632,16 +699,34 @@ def a_bucket(at: datetime,
 def an_answer(root_cause: str = "dont care",
               executive_summary: str = "dont care",
               assumptions: list[str] | None = None,
-              lead_effects: Mapping[str, str] | None = None) -> dict[str, Any]:
+              lead_effects: Mapping[str, str] | None = None,
+              causal_chain: list[dict[str, Any]] | None = None,
+              contributing_factors: list[dict[str, Any]] | None = None,
+              action_items: list[dict[str, Any]] | None = None,
+              lessons: dict[str, Any] | None = None,
+              symptom: str = "dont care") -> dict[str, Any]:
     """The arguments of a submission that would be accepted as it stands.
 
     Saying what each lead changed only where a test hands it leads to say it
     of, because an incident nobody wrote about is never asked.
+
+    A chain of one step citing the first label by default, because every
+    bundle carries at least one line of narration and a chain citing nothing
+    is refused. No factors and no proposals, which is an answer: the record's
+    own items stand alone. Three empty lessons, which is an answer too.
     """
     answer: dict[str, Any] = {
+        SYMPTOM_FIELD: symptom,
         ROOT_CAUSE_FIELD: root_cause,
         EXECUTIVE_SUMMARY_FIELD: executive_summary,
-        ASSUMPTIONS_FIELD: assumptions if assumptions is not None else []
+        ASSUMPTIONS_FIELD: assumptions if assumptions is not None else [],
+        CAUSAL_CHAIN_FIELD: (causal_chain if causal_chain is not None
+                             else [{STEP_FIELD: "dont care", CITES_FIELD: ["T1"]}]),
+        CONTRIBUTING_FACTORS_FIELD: (contributing_factors if contributing_factors is not None
+                                     else []),
+        ACTION_ITEMS_FIELD: action_items if action_items is not None else [],
+        LESSONS_FIELD: (lessons if lessons is not None
+                        else {WENT_WELL_FIELD: [], WENT_WRONG_FIELD: [], GOT_LUCKY_FIELD: []})
     }
 
     if lead_effects is not None:

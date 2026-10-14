@@ -1,13 +1,16 @@
 """What the incident cost the business, and the arithmetic behind it.
 
-    loss = what the calm hour predicted - what actually came in
+    shortfall = what the shop took over the incident's own hours whole weeks
+                earlier - what actually came in
+    loss      = the shortfall, where it is larger than the shop varies on its own
 
-Both terms are money the payment provider reported, over two windows: the hour
-before the onset, and the stretch the service was broken for (spec §21.3). A
-provider cannot say how many people were affected - a guest checkout is
-attached to no customer at all - and does not have to, because it can say what
-the shop took. The one thing it cannot report is the sale that never happened,
-which is exactly the difference between the two windows.
+Every term is money the payment provider reported, over windows as long as the
+incident (spec §21.3): the incident itself, the same hours whole weeks earlier,
+and the same hours as far back again, whose difference from the second is how
+much the shop varies over those hours anyway. A provider cannot say how many people were
+affected - a guest checkout is attached to no customer at all - and does not
+have to, because it can say what the shop took. The one thing it cannot report
+is the sale that never happened, which is exactly the shortfall.
 
 Every window here is bounded by the signal and never by the workflow. The
 caller supplies both ends, and both are read off the metrics: an incident's
@@ -25,9 +28,11 @@ one, for the same reason and with the same three levels.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
+from enum import StrEnum
 
 from argus_core import parse_iso
 from argus_core.models import MetricBucket, WorseWhen
@@ -35,15 +40,15 @@ from pydantic import BaseModel
 
 from agent_postmortem.sources import RateTable
 
-# How far before the incident to ask what the service normally takes. An hour
-# is long enough that a quiet minute does not become the baseline, and short
-# enough to still be the same day's trade.
-BASELINE_WINDOW_HOURS = 1.0
+# How far before the incident the metrics are read, for the calm level the
+# error rate and the rule's series are measured against. An hour is long enough
+# that a quiet minute does not become the baseline, and short enough to still be
+# the same day's traffic. Not the revenue's: takings are compared over stretches
+# as long as the incident, because an hour scaled to a week turns an ordinary
+# hour's variation into six figures.
+BASELINE_WINDOW = timedelta(hours=1)
 
-# The same window as a span, for the callers that subtract it from an instant
-# rather than divide by it. Derived rather than written twice, so the two can
-# never say different things about how long "before" is.
-BASELINE_WINDOW = timedelta(hours=BASELINE_WINDOW_HOURS)
+_A_WEEK = timedelta(weeks=1)
 
 
 def duration_in_hours(from_when: datetime, until: datetime) -> float:
@@ -76,6 +81,10 @@ class ErrorRates(BaseModel):
     baseline: float
     while_broken: float
     at_its_worst: float
+    # How many requests failed over the broken stretch - each broken minute's
+    # requests at that minute's rate. What a reader asks after how long and how
+    # bad. `None` where it was not counted.
+    failed_requests: int | None = None
 
     @property
     def rise(self) -> float:
@@ -114,22 +123,66 @@ def error_rates_over(buckets: list[MetricBucket],
     mean, and the worst of them.
 
     `None` when either side is missing, because a measurement against nothing
-    is not a small one - it is an unanswered question.
+    is not a small one - it is an unanswered question. Which side, and why, is
+    `why_no_error_rates`.
     """
-    before = [bucket.error_rate for bucket in buckets
-              if parse_iso(bucket.bucket_id) < began]
-    while_broken = [bucket.error_rate for bucket in buckets
-                    if began <= parse_iso(bucket.bucket_id)
-                    and (until is None or parse_iso(bucket.bucket_id) < until)]
+    before, broken = _either_side_of(buckets, began, until)
+    while_broken = [bucket.error_rate for bucket in broken]
 
     if not before or not while_broken:
         return None
 
     return ErrorRates(
-        baseline=_mean(before),
+        baseline=_mean([bucket.error_rate for bucket in before]),
         while_broken=_mean(while_broken),
-        at_its_worst=max(while_broken)
+        at_its_worst=max(while_broken),
+        failed_requests=round(sum(bucket.request_volume * bucket.error_rate for bucket in broken))
     )
+
+
+class Unmeasured(StrEnum):
+    """Why the error rates could not be measured.
+
+    Three gaps that read alike as an absent figure and are not alike: a read
+    that came back empty is an outage of the metrics, while a read that never
+    reached the calm before a week-old onset is the metrics doing their job
+    over a shorter memory than the fault's.
+    """
+
+    NOTHING_READ = "nothing-read"
+    NO_MINUTE_BEFORE_THE_ONSET = "no-minute-before-the-onset"
+    NO_MINUTE_WHILE_BROKEN = "no-minute-while-broken"
+
+
+def why_no_error_rates(buckets: list[MetricBucket],
+                       began: datetime,
+                       until: datetime | None) -> Unmeasured | None:
+    """Why `error_rates_over` measured nothing, over the same stretch and by
+    the same rules - or `None` where it measured something."""
+    if not buckets:
+        return Unmeasured.NOTHING_READ
+
+    before, broken = _either_side_of(buckets, began, until)
+
+    if not before:
+        return Unmeasured.NO_MINUTE_BEFORE_THE_ONSET
+
+    if not broken:
+        return Unmeasured.NO_MINUTE_WHILE_BROKEN
+
+    return None
+
+
+def _either_side_of(buckets: list[MetricBucket],
+                    began: datetime,
+                    until: datetime | None) -> tuple[list[MetricBucket], list[MetricBucket]]:
+    """The calm minutes before `began`, and the broken ones up to `until`."""
+    before = [bucket for bucket in buckets if parse_iso(bucket.bucket_id) < began]
+    broken = [bucket for bucket in buckets
+              if began <= parse_iso(bucket.bucket_id)
+              and (until is None or parse_iso(bucket.bucket_id) < until)]
+
+    return before, broken
 
 
 class RuleSeriesLevels(BaseModel):
@@ -219,30 +272,36 @@ def in_the_reporting_currency(taken: Mapping[str, Decimal],
     return total, excluded
 
 
-def loss_between(taken_before: Decimal,
-                 over_hours: float,
-                 taken_during: Decimal,
-                 for_hours: float) -> Decimal:
-    """What the calm hour predicted, less what actually came in.
+def weeks_back_for(span: timedelta) -> timedelta:
+    """How far back the takings an incident of `span` is compared with lie.
 
-    Both terms are money the payment provider reported; the only arithmetic is
-    scaling the first to the length of the second, because a baseline hour and
-    a ten-minute incident are not comparable until they are.
-
-    Never negative. A shop that took more while it was broken than its calm
-    hour predicted lost nothing measurable - a busier afternoon, or a
-    promotion that began with the outage - and a negative loss is not a
-    smaller loss, it is a category error. Zero is the honest floor, and it is
-    a measurement rather than an absence.
-
-    Deliberately not rounded to a currency's smallest unit. Rounding would
-    imply the figure is accurate to that unit, and a figure resting on a
-    baseline hour standing in for the incident's own is not accurate to the
-    cent. Presentation is the reader's, and the reader is a page.
+    Whole weeks, so the comparison falls on the same hours of the same weekday
+    and a shop's daily and weekly rhythm cancels out: an incident one morning
+    against the night before it is a loss the morning rush invented. As few
+    weeks as clear the incident, so the stretch compared never overlaps it.
     """
-    predicted = taken_before / Decimal(str(over_hours)) * Decimal(str(for_hours))
+    return _A_WEEK * max(1, math.ceil(span / _A_WEEK))
 
-    return max(predicted - taken_during, Decimal(0))
+
+def beyond_the_variation(shortfall: Decimal, variation: Decimal) -> Decimal:
+    """The shortfall, where it is larger than the shop varies on its own, and
+    nothing where it is not.
+
+    `variation` is how far two calm stretches the incident's length apart
+    differ from each other. A shortfall inside that is the shop being the shop,
+    and reported as a loss it is noise given a currency. Zero rather than
+    nothing: the takings were read, and showed no loss anyone can tell from
+    an ordinary day. In full where it is larger - the variation decides whether
+    anything was lost, and the shortfall says how much.
+
+    Never negative. A shop that took more while it was broken lost nothing
+    measurable - a busier afternoon, or a promotion that began with the outage -
+    and a negative loss is not a smaller loss, it is a category error.
+
+    Deliberately not rounded to a currency's smallest unit: presentation is
+    the reader's, and the reader is a page.
+    """
+    return shortfall if shortfall > variation else Decimal(0)
 
 
 def _mean(values: list[float]) -> float:

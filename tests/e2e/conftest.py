@@ -25,6 +25,7 @@ from tests.e2e.framework.flags import (
     the_flag_provider_forgot_every_change,
 )
 from tests.e2e.framework.worker import the_worker_resumes
+from tests.e2e.framework.world import the_shops_stand_in_was_put_back
 
 # The one table that is not the suite's to empty. The rates are fetched from
 # outside and cached here, and they do not change between cases - a teardown
@@ -86,6 +87,9 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
 
     - the Target Service's scenario is reset, which ends whatever condition it
       was staging and has the last word on the flags it owns;
+    - where the shop is served through its stand-in, that stand-in forgets any
+      anchor a case staged and never seeded from, so the next case's seed draws
+      the world its own recording saw;
     - the repository double is put back to one branch holding the fixture, with
       nothing proposed and nothing staged. It is the one party here that is not
       Argus and not the Target Environment, and it accumulates three kinds of
@@ -114,6 +118,14 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     left queued would never stop, the wait below would time out on it, and every
     later case would have nobody to walk it.
 
+    And after all of it, the case fails if any walk it started failed. A case
+    asserts what it is about and stops, which is usually before its walk ends -
+    so a walk that went on to fail afterwards, in a write-up refused and never
+    answered again, failed inside a passing case and said so only in the
+    worker's log. Read once the runs have stopped, so a walk failing in its last
+    node is not missed, and raised only once the world is put back, so a failed
+    walk costs its own case and never the next one.
+
     Teardown rather than setup, so a failing case leaves nothing behind for a
     human to clear before rerunning.
     """
@@ -122,16 +134,24 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     the_worker_resumes()
     _every_live_incident_was_withdrawn()
     _every_run_came_to_a_stop()
+    failed = _the_runs_that_failed()
     _every_reader_caught_up()
     _every_table_was_emptied()
     _long_term_memory_was_forgotten()
     _the_target_service_scenario_was_reset()
+    the_shops_stand_in_was_put_back()
     _the_repository_double_was_put_back()
     _the_on_call_double_was_put_back()
 
     the_boot_flags_were_put_back()
     only_the_boot_flags_were_left_in_the_provider()
     the_flag_provider_forgot_every_change()
+
+    if failed:
+        raise AssertionError(
+            f"Expected every walk this case started to end without failing, and "
+            f"[{len(failed)}] failed: {failed}."
+        )
 
 
 def _every_live_incident_was_withdrawn() -> None:
@@ -199,6 +219,22 @@ def _the_runs_still_going() -> list[str]:
         )
 
         return [str(run_id) for (run_id,) in cursor.fetchall()]
+
+
+def _the_runs_that_failed() -> list[str]:
+    """Each failed run, as its incident and the reason it was failed with.
+
+    The reason as the worker recorded it, so the case that fails here says what
+    went wrong without anybody opening the worker's log.
+    """
+    with connect_from_env() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT incident_id, failure_reason FROM incident_run WHERE state = %s",
+            (RunState.FAILED,)
+        )
+
+        return [f"incident [{incident_id}]: {reason}"
+                for incident_id, reason in cursor.fetchall()]
 
 
 def _every_reader_caught_up() -> None:

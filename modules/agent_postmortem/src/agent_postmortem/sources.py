@@ -135,6 +135,12 @@ class EngagementAnswer(BaseModel):
     # total rather than instead of it: a reader wants the total, and anything
     # pricing the response cannot use it.
     engaged: list[EngagedResponder] = []
+    # How many other incidents the same on-call incident was also about. A
+    # page can stay open across two of Argus's incidents - one it said it
+    # mitigated while the alarm went on, and the one that followed - and its
+    # response is then reported in full on each, which is only honest while
+    # each says it was shared.
+    shared_with: int = 0
 
 
 class NotPaged(BaseModel):
@@ -190,3 +196,8 @@ class Sources:
     thresholds: AnomalyThresholds
     working_hours_a_year: float
     reporting_currency: str
+    # How many minutes behind the clock the metrics source reports, on the
+    # same terms as `thresholds`: a property of the source, read from the same
+    # deployment. It decides the newest minute a read could hold, and a minute
+    # not yet reported is no evidence that nobody was watching.
+    metrics_reporting_lag_minutes: int

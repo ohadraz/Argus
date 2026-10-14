@@ -30,6 +30,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
     ChangesRetrieved,
@@ -96,8 +97,14 @@ from argus_core.models import (
     Verdict,
     the_actions_through,
 )
-from argus_narration.narrating import NarrationLine, build_narration
-from argus_testkit import Assertion, Scenario, all_of
+from argus_narration.narrating import (
+    NarrationLine,
+    build_narration,
+    each_wait_told_once,
+    said_in_full,
+    what_was_done,
+)
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 
@@ -160,6 +167,24 @@ def test_a_retrieval_line_names_the_channel_and_the_window_it_asked_about() -> N
         .then(all_of(_the_only_line_mentions("log"),
                      _the_only_line_mentions("1 minute"),
                      _the_only_line_mentions(SOME_MINUTE[11:16])))
+
+
+@pytest.mark.unit
+def test_a_retrieval_line_dates_a_window_from_another_day() -> None:
+    # Asked today about a minute a week ago: said as a clock time alone, the
+    # reader takes the minute for today's.
+    some_request = RetrievalRequested(
+        incident_id=new_id(),
+        channel=RetrievalChannel.LOGS,
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        at=datetime(2026, 9, 6, 10, 14, tzinfo=UTC)
+    )
+
+    Scenario() \
+        .given(some_request) \
+        .when(lambda: build_narration([some_request])) \
+        .then(_the_only_line_mentions("30 Aug 10:14"))
 
 
 @pytest.mark.unit
@@ -271,6 +296,45 @@ def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
         .given(some_finding) \
         .when(lambda: build_narration([some_finding])) \
         .then(_the_only_line_offers_the_causes([some_cause]))
+
+
+@pytest.mark.unit
+def test_a_candidate_carries_the_hypothesis_it_was_recorded_as() -> None:
+    # So whatever lays the candidates out somewhere else - the write-up, under
+    # labels of its own - can tell which line formed which.
+    some_finding = _a_hypothesis(summary="dont care", rank=1)
+
+    Scenario() \
+        .given(some_finding) \
+        .when(lambda: [candidate.hypothesis_id
+                       for candidate in build_narration([some_finding])[0].candidates]) \
+        .then(the_answer_was([some_finding.hypothesis_id]))
+
+
+@pytest.mark.unit
+def test_a_candidate_quoting_an_instant_on_another_day_keeps_its_date() -> None:
+    # Said beside the line it was formed on: a deploy a week before that line,
+    # written as a clock time alone, reads as one this morning.
+    some_finding = _a_hypothesis(summary="The deploy at 2026-08-23T10:14:00Z broke it",
+                                 rank=1).model_copy(update={"at": _OPENED_AT})
+
+    Scenario() \
+        .given(some_finding) \
+        .when(lambda: build_narration([some_finding])) \
+        .then(_the_only_line_offers_the_causes(["The deploy at 23 Aug 10:14 broke it"]))
+
+
+@pytest.mark.unit
+def test_an_onset_on_another_day_is_placed_with_its_date() -> None:
+    # A fault found a week after it began - a total that drifted all week - and
+    # its onset as a clock time alone reads as this morning.
+    some_onset = OnsetDetected(incident_id=new_id(), onset="2026-08-23T10:14:00Z",
+                               at=_OPENED_AT)
+
+    Scenario() \
+        .given(some_onset) \
+        .when(lambda: build_narration([some_onset])) \
+        .then(_the_only_line_mentions("at 23 Aug 10:14"))
 
 
 @pytest.mark.unit
@@ -454,6 +518,102 @@ def test_an_action_line_marks_the_flag_and_shows_the_move() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_said_in_full_says_which_way_the_flag_moved() -> None:
+    # A destination with no flag table to strike a state through - a document,
+    # a message - still owes the reader the move, in words.
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        action_type="revert-feature-flag",
+        subject=SOME_FLAG,
+        enabled=False
+    )
+
+    Scenario() \
+        .given(
+            some_line := _the_only(build_narration([some_action]))
+        ) \
+        .when(
+            lambda: said_in_full(some_line)
+        ) \
+        .then(
+            _ends_with("moved from ON to OFF")
+        )
+
+
+@pytest.mark.unit
+def test_the_candidates_said_in_full_are_named_after_the_count() -> None:
+    # "best first:" introduces the list a page lays out beneath the line. Said
+    # alone, the colon has to be followed by what it promised.
+    some_cause = "legacy-checkout-fallback was enabled"
+    some_finding = _a_hypothesis(summary=some_cause, rank=1)
+
+    Scenario() \
+        .given(
+            some_line := _the_only(build_narration([some_finding]))
+        ) \
+        .when(
+            lambda: said_in_full(some_line)
+        ) \
+        .then(
+            _ends_with(f"best first: {some_cause}")
+        )
+
+
+@pytest.mark.unit
+def test_one_production_change_is_one_change() -> None:
+    some_deploy = ChangeEvent(
+        kind=ChangeKind.DEPLOY,
+        occurred_at=SOME_MINUTE,
+        reference="abc1234",
+        summary="dont care"
+    )
+    some_read = ChangesRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        changes=[some_deploy]
+    )
+
+    Scenario() \
+        .given(
+            some_read
+        ) \
+        .when(
+            lambda: _the_only(build_narration([some_read])).text
+        ) \
+        .then(
+            _ends_with("Read back 1 production change")
+        )
+
+
+def _ends_with(expected: str) -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        if not said.endswith(expected):
+            raise AssertionError(f"Expected a sentence ending [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
+def test_an_action_done_is_said_in_words_rather_than_by_its_tag() -> None:
+    # A document lists what was done long after anybody reads the action's
+    # tag, so it says it the way the account's own line does.
+    Scenario() \
+        .given(
+            SOME_FLAG
+        ) \
+        .when(
+            lambda: what_was_done("revert-feature-flag", SOME_FLAG)
+        ) \
+        .then(
+            _ends_with(f"Reverted the feature flag {SOME_FLAG}")
+        )
+
+
+@pytest.mark.unit
 def test_a_status_change_marks_the_status_it_moved_to() -> None:
     # The word a reader scanning from across a room finds first. Split into
     # three plain strings rather than marked up here: a view that returned HTML
@@ -560,6 +720,29 @@ def test_a_refusal_marks_why_the_action_was_not_taken() -> None:
         .then(all_of(
             _the_only_line_marks("is not a mitigation Argus may take unasked"),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("refusal", [
+    Refusal.NOT_A_GENERIC_MITIGATION,
+    Refusal.ALREADY_TRIED_ENOUGH,
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+    Refusal.NOTHING_COULD_CONFIRM_IT
+])
+def test_a_refusal_said_of_the_action_names_the_action_as_its_subject(refusal: Refusal) -> None:
+    # These four reasons are about the action rather than the investigation,
+    # and each opens on its verb. After "Refused to act - " alone the sentence
+    # has no subject: "Refused to act - is sound, and nothing would have said".
+    some_refusal = ActionRefused(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        refusal=refusal
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(_the_only_line_says("Refused to act - the action "))
 
 
 @pytest.mark.unit
@@ -1223,6 +1406,132 @@ def test_only_an_expiry_expires_the_offers(event: IncidentEvent, expires: bool) 
         .given(event) \
         .when(lambda: build_narration([event])) \
         .then(_the_only_line_expires_the_offers(expires))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("event", [
+    PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="rolled the flag back by hand, we're fine"
+    ),
+    StatusChanged(incident_id=new_id(), to_status=IncidentStatus.RESOLVED,
+                  reported=Report(by="some person", channel=ReportChannel.SLACK)),
+    MessageUnderstood(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        meaning=Meaning.RESOLVE
+    ),
+    ResolutionOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="rolled the flag back by hand, we're fine"
+    ),
+    WithdrawalOffered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        person_name="some person",
+        said="stop, I've got this"
+    ),
+    OfferExpired(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message")
+    ),
+    QuestionAnswered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        answer="Argus reverted the checkout flag at 10:16"
+    ),
+    CommunicationFailed(
+        incident_id=new_id(),
+        channel="#some-channel",
+        refusal="some_refusal",
+        about_kind="verdict-reached"
+    )
+], ids=["person-wrote", "status-reported", "message-understood", "resolution-offered",
+        "withdrawal-offered", "offer-expired", "question-answered", "communication-failed"])
+def test_a_line_written_outside_the_walk_says_so(event: IncidentEvent) -> None:
+    # Written because somebody wrote in the thread or pressed on a page, or by
+    # the relay posting to Slack - never by the walk, so where one lands among
+    # the walk's lines is a matter of timing. A destination numbering the walk's
+    # lines numbers these apart, or a person writing a second earlier renumbers
+    # every line of the walk after it.
+    Scenario() \
+        .given(event) \
+        .when(lambda: build_narration([event])) \
+        .then(_the_only_line_is_outside_the_walk(True))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("event", [
+    StatusChanged(incident_id=new_id(), to_status=IncidentStatus.MITIGATED),
+    OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE),
+    LeadWeighed(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        standing=Standing.SUPPORTED,
+        reason="the checkout flag moved at the onset"
+    )
+], ids=["status-changed", "onset-detected", "lead-weighed"])
+def test_a_line_the_walk_wrote_says_so(event: IncidentEvent) -> None:
+    # A lead weighed among them: it answers what a person wrote, and it is still
+    # the walk's line, taken at the walk's own step.
+    Scenario() \
+        .given(event) \
+        .when(lambda: build_narration([event])) \
+        .then(_the_only_line_is_outside_the_walk(False))
+
+
+@pytest.mark.unit
+def test_each_wait_is_told_once_by_the_look_that_settled_it() -> None:
+    # For a destination that numbers the walk's lines. How many looks a wait
+    # took, and which of them a person's message fell between, is timing: told
+    # look by look, one walk numbers differently from one run to the next. The
+    # last look is the one that says what the wait came to, and a line outside
+    # the walk stays where it fell without ending the wait around it.
+    some_incident = new_id()
+    a_look_while_it_was_not_back = RecoveryChecked(
+        incident_id=some_incident, at=datetime(2026, 8, 30, 10, 16, 10, tzinfo=UTC),
+        minute=SOME_MINUTE, recovered=False
+    )
+    somebody_writing = PersonWrote(
+        incident_id=some_incident, at=datetime(2026, 8, 30, 10, 16, 15, tzinfo=UTC),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id", text="looks fine to me"
+    )
+    the_look_that_ended_the_first_wait = RecoveryChecked(
+        incident_id=some_incident, at=datetime(2026, 8, 30, 10, 16, 20, tzinfo=UTC),
+        minute=SOME_MINUTE, recovered=False
+    )
+    the_second_wait = AwaitingRecovery(
+        incident_id=some_incident, at=datetime(2026, 8, 30, 10, 17, 0, tzinfo=UTC),
+        from_minute=SOME_MINUTE, seconds_allowed=180.0
+    )
+    another_look_while_it_was_not_back = RecoveryChecked(
+        incident_id=some_incident, at=datetime(2026, 8, 30, 10, 17, 10, tzinfo=UTC),
+        minute=SOME_MINUTE, recovered=False
+    )
+    the_look_that_found_it_back = RecoveryChecked(
+        incident_id=some_incident, at=datetime(2026, 8, 30, 10, 18, 10, tzinfo=UTC),
+        minute=SOME_MINUTE, recovered=True, recovered_minute=SOME_MINUTE
+    )
+
+    Scenario() \
+        .given(the_narration := build_narration([a_look_while_it_was_not_back,
+                                                 somebody_writing,
+                                                 the_look_that_ended_the_first_wait,
+                                                 the_second_wait,
+                                                 another_look_while_it_was_not_back,
+                                                 the_look_that_found_it_back])) \
+        .when(lambda: each_wait_told_once(the_narration)) \
+        .then(_the_lines_are_dated([somebody_writing.at,
+                                    the_look_that_ended_the_first_wait.at,
+                                    the_second_wait.at,
+                                    the_look_that_found_it_back.at]))
 
 
 @pytest.mark.unit
@@ -1931,6 +2240,48 @@ def test_a_placement_whose_every_pod_started_at_the_onset_marks_them_all() -> No
 
 
 @pytest.mark.unit
+def test_a_pod_placed_long_after_the_onset_is_said_to_have_started_after_it() -> None:
+    # Placed six days after the onset, on an incident nothing about the pods
+    # explains: "started at the onset" would be false, and would mark it as a
+    # suspect it is not.
+    some_time_days_after_the_onset = datetime(2026, 9, 5, 10, 13, tzinfo=UTC)
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", some_time_days_after_the_onset),)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says("after the onset: io-shop-a on Tesla-T4"),
+            _the_only_line_does_not_say("at the onset")
+        ))
+
+
+@pytest.mark.unit
+def test_a_pod_placed_after_the_onset_is_said_with_when_it_started() -> None:
+    # "After the onset" alone reads as any time after it, and a reader took a
+    # pod placed a week later for the rollout that began the incident.
+    some_time_days_after_the_onset = datetime(2026, 9, 5, 10, 13, 7, tzinfo=UTC)
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", some_time_days_after_the_onset),)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at 05 Sep 10:13:07"))
+
+
+@pytest.mark.unit
 def test_a_placement_of_no_pods_says_the_platform_reported_none() -> None:
     # A tree with no pods in it is an answer, and a different one from a
     # platform that would not answer: said as nothing at all, the line ends on
@@ -2209,6 +2560,18 @@ def _the_only_line_stands_for(expected: int) -> Assertion[list[NarrationLine]]:
     return assertion
 
 
+def _the_lines_are_dated(expected: list[datetime]) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        dated = [line.at for line in narration]
+
+        if dated != expected:
+            raise AssertionError(f"Expected the lines dated {expected}, got {dated}.")
+
+        return True
+
+    return assertion
+
+
 def _the_lines_each_stand_for(expected: list[int]) -> Assertion[list[NarrationLine]]:
     def assertion(narration: list[NarrationLine]) -> bool:
         counted = [line.repeated for line in narration]
@@ -2350,6 +2713,21 @@ def _the_only_line_expires_the_offers(expected: bool) -> Assertion[list[Narratio
             raise AssertionError(
                 f"Expected the line {'' if expected else 'not '}to expire the "
                 f"incident's offers, it says [{line.expires_the_offers}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_is_outside_the_walk(expected: bool) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.outside_the_walk != expected:
+            raise AssertionError(
+                f"Expected the line {'' if expected else 'not '}to be written outside "
+                f"the walk, it says [{line.outside_the_walk}]."
             )
 
         return True

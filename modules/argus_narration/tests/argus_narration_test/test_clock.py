@@ -92,6 +92,33 @@ def test_a_log_lines_own_stamp_is_kept_to_the_second() -> None:
 
 
 @pytest.mark.unit
+def test_a_moment_beside_another_on_the_same_day_needs_no_date() -> None:
+    some_instant = "2026-08-30T19:16:07Z"
+    another_instant_that_day = "2026-08-30T10:13:00Z"
+    the_second_it_reads_as = some_instant[11:19]
+
+    Scenario() \
+        .given(some_instant) \
+        .when(lambda: a_moment(some_instant, beside=another_instant_that_day)) \
+        .then(the_answer_was(the_second_it_reads_as))
+
+
+@pytest.mark.unit
+def test_a_moment_beside_one_on_another_day_carries_its_date() -> None:
+    # A pod placed a week after the onset, said as a time of day alone, reads
+    # as one placed the same day.
+    some_instant = "2026-09-05T10:13:07Z"
+    an_instant_days_before = "2026-08-30T10:13:00Z"
+    the_date_it_falls_on = "05 Sep"
+    the_second_it_reads_as = some_instant[11:19]
+
+    Scenario() \
+        .given(some_instant) \
+        .when(lambda: a_moment(some_instant, beside=an_instant_days_before)) \
+        .then(the_answer_was(f"{the_date_it_falls_on} {the_second_it_reads_as}"))
+
+
+@pytest.mark.unit
 def test_a_timestamp_is_recognised_as_one() -> None:
     # What tells a log line's stamp from the first word of its message.
     some_instant = "2026-08-30T10:14:00Z"
@@ -144,6 +171,21 @@ def test_a_window_of_whole_hours_is_said_in_hours() -> None:
 
 
 @pytest.mark.unit
+def test_a_window_on_another_day_from_its_line_carries_its_date() -> None:
+    # A line written today about an hour a week ago: both ends fall on one day,
+    # and said as a clock time alone the reader takes the hour for today's.
+    some_end = datetime(2026, 10, 5, 12, 29, tzinfo=UTC)
+    some_start = some_end - timedelta(hours=1)
+    the_line_s_moment = some_end + timedelta(days=7)
+
+    Scenario() \
+        .given(some_start) \
+        .when(lambda: a_window(to_iso(some_start), to_iso(some_end),
+                               beside=to_iso(the_line_s_moment))) \
+        .then(the_answer_was(f"the 1 hour before {some_end:%d %b %H:%M}"))
+
+
+@pytest.mark.unit
 def test_a_window_anchored_on_one_end_says_only_that_end() -> None:
     # A metrics read is anchored rather than bounded (spec §16), so it has one
     # end - and saying "to now" for the other would put a bound in the account
@@ -168,6 +210,30 @@ def test_a_window_with_only_an_end_says_what_it_reached_up_to() -> None:
         .given(some_instant) \
         .when(lambda: a_window(None, some_instant)) \
         .then(the_answer_was(f"up to {the_clock_time_it_reads_as}"))
+
+
+@pytest.mark.unit
+def test_a_window_anchored_on_another_day_from_its_line_carries_its_date() -> None:
+    # A metrics read is anchored on the onset, and an onset a week before the
+    # line asking about it is not that line's 11:58.
+    some_anchor = datetime(2026, 10, 5, 11, 58, tzinfo=UTC)
+    the_line_s_moment = some_anchor + timedelta(days=7)
+
+    Scenario() \
+        .given(some_anchor) \
+        .when(lambda: a_window(to_iso(some_anchor), None, beside=to_iso(the_line_s_moment))) \
+        .then(the_answer_was(f"anchored on {some_anchor:%d %b %H:%M}"))
+
+
+@pytest.mark.unit
+def test_a_window_reaching_up_to_another_day_from_its_line_carries_its_date() -> None:
+    some_end = datetime(2026, 10, 5, 12, 29, tzinfo=UTC)
+    the_line_s_moment = some_end + timedelta(days=7)
+
+    Scenario() \
+        .given(some_end) \
+        .when(lambda: a_window(None, to_iso(some_end), beside=to_iso(the_line_s_moment))) \
+        .then(the_answer_was(f"up to {some_end:%d %b %H:%M}"))
 
 
 @pytest.mark.unit

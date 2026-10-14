@@ -58,7 +58,7 @@ from argus_core.models.alert import AlarmClaim, Alert
 from argus_core.models.alert_rule import AlertRuleStanding
 from argus_core.models.attempt import Attempt
 from argus_core.models.candidate import WhatWouldBeTried
-from argus_core.models.change_event import ChangeEvent, ChangeKind
+from argus_core.models.change_event import ChangeEvent, ChangeKind, as_a_change
 from argus_core.models.circumstances import Circumstances
 from argus_core.models.code_search import CodeSearch
 from argus_core.models.disproof import Disproof
@@ -70,6 +70,7 @@ from argus_core.models.flag_change import FlagChange
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
+from argus_core.models.lifespan import Lifespan
 from argus_core.models.meaning import Meaning
 from argus_core.models.metrics import (
     RULE_READING_FIELD,
@@ -82,12 +83,32 @@ from argus_core.models.model_policy import (
     Effort,
     ModelPolicy,
 )
+from argus_core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from argus_core.models.placement import PodPlacement, RecordedPlacement
 from argus_core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
+from argus_core.models.postmortem_sections import (
+    ActionItem,
+    ActionItemStatus,
+    ActionItemType,
+    ChainStep,
+    CitedEvidence,
+    ContributingFactor,
+    Detection,
+    HypothesisConsidered,
+    Impact,
+    ImpactExtent,
+    Lessons,
+    ResolutionStep,
+    ReviewCriterion,
+    TimelineEntry,
+    TimelineMarker,
+    Trigger,
+)
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
 from argus_core.models.reading import Reading, RetrievalChannel
 from argus_core.models.reference import (
+    ALERT_FIRING,
     CHAT_MESSAGE,
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
@@ -183,9 +204,11 @@ __all__ = [
     "FailureMode",
     "ChangeEvent",
     "ChangeKind",
+    "as_a_change",
     "Circumstances",
     "CodeSearch",
     "Disproof",
+    "EstablishedOnset",
     "Evidence",
     "Exchange",
     "Findings",
@@ -200,9 +223,11 @@ __all__ = [
     "DiscardCacheEntries",
     "FlagUndo",
     "Hypothesis",
+    "HowTheMinuteIsKnown",
     "Incident",
     "IncidentStatus",
     "Leads",
+    "Lifespan",
     "Meaning",
     "MetricBucket",
     "LARGEST_UNSTREAMED_ANSWER",
@@ -213,12 +238,29 @@ __all__ = [
     "OpenedPullRequest",
     "Outcome",
     "Ownership",
+    "ActionItem",
+    "ActionItemStatus",
+    "ActionItemType",
+    "ChainStep",
+    "CitedEvidence",
+    "ContributingFactor",
+    "Detection",
+    "HypothesisConsidered",
+    "Impact",
+    "ImpactExtent",
+    "Lessons",
+    "ResolutionStep",
+    "ReviewCriterion",
+    "TimelineEntry",
+    "TimelineMarker",
+    "Trigger",
     "Postmortem",
     "PostmortemDocument",
     "PostmortemLead",
     "PublishedRates",
     "RatesUnavailable",
     "Reading",
+    "ALERT_FIRING",
     "NOTIFICATION_KEY",
     "ON_CALL_INCIDENT",
     "CHAT_MESSAGE",

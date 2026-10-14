@@ -77,7 +77,7 @@ def test_a_revision_that_slowed_every_page_is_ended_by_rolling_the_deployment_ba
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(THE_SCENARIO)),
+            calling(a_scenario_was_seeded(THE_SCENARIO, as_recorded_in=RECORDED_BAD_DEPLOYMENT)),
             calling(the_model_answers_from(RECORDED_BAD_DEPLOYMENT)),
             calling(the_deployment_was_staged(THE_AVERAGE_SLOWED))
         ) \

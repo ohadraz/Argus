@@ -11,6 +11,8 @@ Argus created for it.
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -20,12 +22,12 @@ from typing import Any, Final
 
 import httpx2
 import psycopg
+from agent_codefix.prompting import FILES_FIELD, SUBMIT_FIX
 from agent_investigator.tools.answer import ANSWER_TOOL
-from agent_investigator.tools.windows import WINDOW_END_ARG, WINDOW_START_ARG
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_core import get_settings, parse_iso, to_iso
+from argus_core import get_settings, parse_iso
 from argus_core.events import ActionTaken, ChangesRetrieved, FixAttempted, StatusChanged
 from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
@@ -34,7 +36,8 @@ from argus_core.models import (
     IncidentStatus,
 )
 from argus_core.replay import CallType
-from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay
+from argus_incidents.repository import events, hypotheses, incidents, postmortems, replay, runs
+from argus_incidents.repository.runs import RunState
 from argus_testkit import Assertion, all_of
 
 from tests.framework.assertions import (
@@ -45,6 +48,9 @@ from tests.framework.assertions import (
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
 TARGET_SERVICE_BASE_URL = "http://localhost:8080"
 DATABASE_URL = get_settings().database_url
+
+# Set to `1` by the sessions that serve the shop through its stand-in.
+THE_SHOP_STANDS_IN: Final = "TARGET_SERVICE_DOUBLE"
 
 WEBHOOK_PATH = "/webhooks/alerts"
 
@@ -90,6 +96,11 @@ RECORDED_FLAG_TOGGLE = "feature-flag-toggle"
 RECORDED_BAD_DEPLOYMENT = "bad-deployment"
 RECORDED_FALLBACK_DISABLED = "fallback-disabled"
 RECORDED_ABSENCE_OF_EVIDENCE = "no-evidence"
+RECORDED_ALARM_DISPROVEN = "alarm-disproven"
+# The flag toggle, reported over by a person part of the way through it.
+RECORDED_RESOLVED_FROM_THE_PAGE = "flag-toggle-resolved-from-the-page"
+RECORDED_RESOLVED_IN_PAGERDUTY = "flag-toggle-resolved-in-pagerduty"
+RECORDED_RESOLVED_FROM_SLACK = "flag-toggle-resolved-from-slack"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
 RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
 RECORDED_RESOURCE_LEAK = "resource-leak"
@@ -143,6 +154,20 @@ THE_SERVICE_NAME = "io-shop"
 # imported: it is not on any of the kernel's front doors, and
 # `scripts/seed_a_rehearsal.py` spells it locally for the same reason.
 TOOL_USE_TYPE: Final = "tool_use"
+
+# And its word for a block of plain prose, for the same reason.
+TEXT_TYPE: Final = "text"
+
+# A clock time as a recorded answer writes one: a whole instant, a date alone,
+# or a time of day alone. The instant is tried first, so its time is never read
+# a second time as a time of day standing on its own.
+_A_CLOCK_TIME: Final = re.compile(
+    r"(?<!\d)(?P<date>\d{4}-\d{2}-\d{2})"
+    r"(?:(?P<between>[T ])(?P<time>\d{2}:\d{2}(?::\d{2})?)(?P<fraction>\.\d+)?"
+    r"(?P<zone>Z|\+00:00)?)?"
+    r"(?![\d:])"
+    r"|(?<![\d:.])(?P<time_of_day>\d{2}:\d{2}(?::\d{2})?)(?![\d:])"
+)
 
 # The extension a set's capture instant is stored under, beside the recordings.
 ANCHOR_SUFFIX: Final = ".anchor"
@@ -296,6 +321,8 @@ def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx2
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
 
+        _unless_its_walk_failed(incident_id)
+
         with psycopg.connect(DATABASE_URL) as conn:
             incident = incidents.get(conn, incident_id)
 
@@ -311,6 +338,28 @@ def argus_ended_with_status(expected_status: IncidentStatus) -> Assertion[httpx2
         return True
 
     return assertion
+
+
+class TheWalkFailed(Exception):
+    """A case's walk ended in a failed run, so nothing it waits for will come.
+
+    Not an `AssertionError`, deliberately: `eventually` retries those until its
+    deadline, and a run the worker marked failed is never taken up again - so a
+    case waiting on one sat out the whole walk timeout before saying anything.
+    Raised as anything else, it ends the wait at once, with the reason.
+    """
+
+
+def _unless_its_walk_failed(incident_id: str) -> None:
+    """Raises `TheWalkFailed`, quoting why, where the incident's run failed."""
+    with psycopg.connect(DATABASE_URL) as conn:
+        run = runs.get_run_for_incident(conn, incident_id)
+
+    if run is not None and run.state is RunState.FAILED:
+        raise TheWalkFailed(
+            f"The walk of incident [{incident_id}] failed, so it will never end "
+            f"where this case expects: {run.failure_reason}"
+        )
 
 
 def argus_went_through_statuses(*expected: IncidentStatus) -> Assertion[httpx2.Response]:
@@ -512,6 +561,7 @@ def argus_registered_an_incident_for_the_alert(
 def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx2.Response]:
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
+        _unless_its_walk_failed(incident_id)
 
         with psycopg.connect(DATABASE_URL) as conn:
             postmortem = postmortems.get_by_incident(conn, incident_id)
@@ -560,6 +610,7 @@ def argus_wrote_a_postmortem() -> Assertion[httpx2.Response]:
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
+        _unless_its_walk_failed(incident_id)
 
         with psycopg.connect(DATABASE_URL) as conn:
             postmortem = postmortems.get_by_incident(conn, incident_id)
@@ -572,7 +623,10 @@ def argus_wrote_a_postmortem() -> Assertion[httpx2.Response]:
     return assertion
 
 
-def the_model_answers_from(recording: str, *, less_code_fix: bool = False) -> Callable[[], bool]:
+def the_model_answers_from(recording: str,
+                           *,
+                           less_code_fix: bool = False,
+                           less_postmortem: bool = False) -> Callable[[], bool]:
     """A `given` step naming the stored answers the model gives for this case.
 
     The counterpart to seeding the Target Service's scenario: one says what the
@@ -610,11 +664,15 @@ def the_model_answers_from(recording: str, *, less_code_fix: bool = False) -> Ca
     Code-Fix because a person resolved the incident first. The double serves in
     order and never looks at the request, so those answers left in would be
     handed to the postmortem.
+
+    `less_postmortem` leaves the write-up out, for re-recording the postmortem
+    alone: everything before it replays, rebased as any replay is, and the
+    double forwards the one call nothing answers to the real model.
     """
     def step() -> bool:
         with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
             control.post("/double-control/reset").raise_for_status()
-            _seed_the_answers(control, recording, less_code_fix)
+            _seed_the_answers(control, recording, less_code_fix, less_postmortem)
 
         return True
 
@@ -689,13 +747,23 @@ def the_held_call_arrived() -> None:
     )
 
 
-def _seed_the_answers(control: httpx2.Client, recording: str, less_code_fix: bool) -> None:
+def _seed_the_answers(control: httpx2.Client,
+                      recording: str,
+                      less_code_fix: bool,
+                      less_postmortem: bool = False) -> None:
     """Queues every answer recorded for this case, in order, each once."""
     stored = stored_as(recording)
-    shift = _how_far_the_world_has_moved_since(stored)
+    _unless_the_shop_drew_another_world(stored)
+    shift =_how_far_the_world_has_moved_since(stored)
     answers = the_answers_recorded_for(stored, control)
 
-    for answered_once in _less_code_fix(answers) if less_code_fix else answers:
+    if less_code_fix:
+        answers = _less_code_fix(answers)
+
+    if less_postmortem:
+        answers = _less_postmortem(answers)
+
+    for answered_once in answers:
         control.post(
             "/double-control/seed",
             json={"recording": answered_once, "repeat": 1}
@@ -715,6 +783,50 @@ def the_anchor_file_for(recording: str) -> Path:
     recording nobody can replay.
     """
     return RECORDINGS_DIR / f"{recording}{ANCHOR_SUFFIX}"
+
+
+def the_shop_stands_in() -> bool:
+    """Whether the shop this stack serves is `target_service_double`.
+
+    Said by the session that brought the stack up, as `CODE_SEARCH` is: only
+    the replay and record sessions serve the stand-in, and only the stand-in
+    has an anchor to stage or a seed to report.
+    """
+    return os.environ.get(THE_SHOP_STANDS_IN) == "1"
+
+
+def _unless_the_shop_drew_another_world(recording: str) -> None:
+    """Fails the case where the shop drew a world other than the one
+    `recording` was answered about.
+
+    A recorded answer cites log groups, figures and timeline lines by the names
+    the shop's draws gave them, and the stand-in draws them again only when it
+    seeded from the set's own anchor. A case that seeded without staging it,
+    or staged another set's, replays answers about a world that is not there -
+    and the walk fails on a refused citation that reads as an agent bug.
+
+    Nothing to check where the shop is the real one, or where the set was
+    captured before anchors were written.
+    """
+    anchor = the_anchor_file_for(recording)
+
+    if not the_shop_stands_in() or not anchor.exists():
+        return
+
+    response = httpx2.get(
+        f"{TARGET_SERVICE_BASE_URL}/double-control/state", timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    seeded_from = response.json()["last_seeded_from"]
+    recorded = parse_iso(anchor.read_text(encoding="utf-8").strip())
+
+    if seeded_from is None or parse_iso(seeded_from) != recorded:
+        raise AssertionError(
+            f"Expected the shop to have been seeded from set [{recording}]'s anchor "
+            f"[{recorded.isoformat()}], and it was last seeded from [{seeded_from}] - "
+            f"so its answers cite a world this run did not draw. Seed the scenario "
+            f"with `as_recorded_in=` naming this set."
+        )
 
 
 def _how_far_the_world_has_moved_since(recording: str) -> timedelta | None:
@@ -749,7 +861,13 @@ def _how_far_the_world_has_moved_since(recording: str) -> timedelta | None:
     if seeded_now is None:
         return None
 
-    return seeded_now - parse_iso(anchor.read_text(encoding="utf-8").strip())
+    recorded = parse_iso(anchor.read_text(encoding="utf-8").strip())
+
+    # Between the two seedings' minutes. The service floors its seed instant
+    # to the minute before it hangs anything off it, so a shift carrying the
+    # seconds too lands every replayed time that many seconds off the record.
+    return (seeded_now.replace(second=0, microsecond=0)
+            - recorded.replace(second=0, microsecond=0))
 
 
 def _the_instant_this_run_was_seeded() -> datetime | None:
@@ -771,32 +889,97 @@ def _the_instant_this_run_was_seeded() -> datetime | None:
 
 
 def _rebased(answer: dict[str, Any], shift: timedelta) -> dict[str, Any]:
-    """One recorded answer with its retrieval windows moved into this run's world.
+    """One recorded answer with every clock time in it moved into this run's world.
 
-    The two window arguments and nothing else, which is a limit rather than a
-    first pass. What the model *said* - the summaries, the evidence it quotes,
-    the postmortem - names instants too, and rewriting those would make the
-    stored answer something Anthropic never returned. So the replayed prose
-    goes on naming the hour it was captured in, no case asserts on it, and the
-    paid run is where those times are real.
+    Not the retrieval windows alone. A walk replayed in front of a live model -
+    the write-up recorded afresh behind it - hands that model the
+    Investigator's summaries and the instants its evidence is dated at, and a
+    time left in the world it was captured in reads as a deploy hours before
+    the onset it caused. The model believed it, and wrote lessons about it. So
+    every string a tool was called with moves, and every block of prose, by the
+    one shift the windows move by.
+
+    Never a thinking block: its signature is Anthropic's, over the text as it
+    was written, and nothing reads a time from it. Never a fix's files either:
+    they are the source a pull request is opened with, and a time inside code
+    is part of the code.
+
+    What this cannot tell apart, and moves or leaves regardless:
+    - a time of day is read as UTC and moved round the clock, so a duration
+      written like one - `00:10` - moves as though it were a time;
+    - a date written in words - `28 September` - is not seen, and stays;
+    - a date alone moves as its midnight would, so a shift of a day and a half
+      moves it by one.
     """
     content = []
 
     for block in answer.get("content", []):
-        arguments = block.get("input") if block.get("type") == TOOL_USE_TYPE else None
-
-        if not arguments:
+        if block.get("type") == TOOL_USE_TYPE:
+            content.append({**block, "input": _the_arguments_moved(block, shift)})
+        elif block.get("type") == TEXT_TYPE:
+            content.append({**block, "text": _moved_in(block.get("text", ""), shift)})
+        else:
             content.append(block)
-            continue
-
-        moved = {
-            name: to_iso(parse_iso(bound) + shift)
-            for name, bound in arguments.items()
-            if name in (WINDOW_START_ARG, WINDOW_END_ARG) and isinstance(bound, str)
-        }
-        content.append({**block, "input": {**arguments, **moved}} if moved else block)
 
     return {**answer, "content": content}
+
+
+def _the_arguments_moved(block: dict[str, Any], shift: timedelta) -> dict[str, Any]:
+    return {
+        name: value if block.get("name") == SUBMIT_FIX.name and name == FILES_FIELD
+        else _moved_in(value, shift)
+        for name, value in (block.get("input") or {}).items()
+    }
+
+
+def _moved_in(value: Any, shift: timedelta) -> Any:
+    """Any value a recorded answer holds, with each clock time in its strings
+    moved - however deep inside lists and objects it sits."""
+    if isinstance(value, str):
+        return _A_CLOCK_TIME.sub(lambda found: _moved(found, shift), value)
+
+    if isinstance(value, list):
+        return [_moved_in(item, shift) for item in value]
+
+    if isinstance(value, dict):
+        return {name: _moved_in(item, shift) for name, item in value.items()}
+
+    return value
+
+
+def _moved(found: re.Match[str], shift: timedelta) -> str:
+    """One clock time moved, written back in the shape it was found in - with
+    the seconds, fraction and zone it had, and nothing it did not.
+
+    Something shaped like a time that is not one - `27:90` - is left as it was.
+    """
+    try:
+        return _moved_or_refused(found, shift)
+    except ValueError:
+        return found[0]
+
+
+def _moved_or_refused(found: re.Match[str], shift: timedelta) -> str:
+    if found["time_of_day"] is not None:
+        return _a_time_of_day(
+            datetime.fromisoformat(f"2000-01-01T{found['time_of_day']}") + shift,
+            with_seconds=found["time_of_day"].count(":") == 2
+        )
+
+    if found["time"] is None:
+        return (datetime.fromisoformat(found["date"]) + shift).date().isoformat()
+
+    fraction = found["fraction"] or ""
+    moved = datetime.fromisoformat(f"{found['date']}T{found['time']}{fraction}") + shift
+
+    return (f"{moved.date().isoformat()}{found['between']}"
+            f"{_a_time_of_day(moved, with_seconds=found['time'].count(':') == 2)}"
+            f"{f'.{moved.microsecond:06d}'[:len(fraction)] if fraction else ''}"
+            f"{found['zone'] or ''}")
+
+
+def _a_time_of_day(moment: datetime, with_seconds: bool) -> str:
+    return moment.strftime("%H:%M:%S" if with_seconds else "%H:%M")
 
 
 def the_answers_recorded_for(recording: str, control: httpx2.Client) -> list[str]:
@@ -868,6 +1051,19 @@ def _less_code_fix(answers: list[str]) -> list[str]:
                         if SUBMIT_TOOL_NAME in called)
 
     return answers[:the_investigations_end + 1] + answers[the_write_up:]
+
+
+def _less_postmortem(answers: list[str]) -> list[str]:
+    """A walk's answers up to the write-up, and not the write-up itself.
+
+    For re-recording the postmortem alone: everything before it replays, and
+    the one call nothing answers goes to the real model.
+    """
+    tools = [_the_tools_called_in(load(name)) for name in answers]
+    the_write_up = next(position for position, called in enumerate(tools)
+                        if SUBMIT_TOOL_NAME in called)
+
+    return answers[:the_write_up]
 
 
 def _the_tools_called_in(answer: dict[str, Any]) -> list[str]:

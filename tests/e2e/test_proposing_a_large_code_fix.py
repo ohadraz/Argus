@@ -105,7 +105,8 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_repository() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded(THE_LARGE_FILE_SCENARIO)),
+            calling(a_scenario_was_seeded(THE_LARGE_FILE_SCENARIO,
+                                          as_recorded_in=RECORDED_LARGE_CODE_FIX)),
             calling(the_model_answers_from(RECORDED_LARGE_CODE_FIX))
         ) \
         .when(

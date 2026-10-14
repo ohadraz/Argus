@@ -59,7 +59,8 @@ def test_slack_hears_an_incident_open_work_and_end() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE)),
             said_before := _what_slack_already_holds()
         ) \

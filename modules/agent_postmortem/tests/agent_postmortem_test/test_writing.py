@@ -1,26 +1,33 @@
 """Arrangement, and nothing else.
 
-Three collaborators do the work - one measures the incident, one asks the model
-for prose, one turns both into the sentences the document discloses - and this
-module puts what they return onto a page. So all three are mocked here, and
-what is asserted is that each was given what it needs and that what it answered
-reached the document unaltered.
+Four collaborators do the work - one measures the incident, one asks the model
+for prose, one turns both into the sentences the document discloses, and one
+reviews the result - and this module puts what they return onto a page. So all
+four are mocked here, and what is asserted is that each was given what it needs
+and that what it answered reached the document unaltered.
+
+The sections code writes from the record are not mocked: each is a value
+computed from the evidence, and what is asserted is that it lands in its own
+column. What each section says is `test_sections`'s subject.
 
 None of the figures are recomputed here. `test_measuring` says what the numbers
 are, `test_assumptions` says what the disclosures are, `test_conversation` says
-what a usable answer is, and `component/test_postmortem` runs the three for
-real against a document. Asserting an exchange rate in this file would be
-testing `measuring` through two layers of indirection, and it would still pass
-if `writing` put the figure in the wrong column.
+what a usable answer is, `test_reviewing` says what the review makes of a
+document, and `component/test_postmortem` runs them for real against a
+document. Asserting an exchange rate in this file would be testing `measuring`
+through two layers of indirection, and it would still pass if `writing` put the
+figure in the wrong column.
 
 The one judgement `writing` makes is what an unusable answer means: faults do
-not stop a document being written, they make it say on its face that it is
-partial.
+not stop a document being written, they go to the review with it, so the page
+says on its face that it is partial.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from datetime import timedelta
 from decimal import Decimal
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -29,15 +36,40 @@ import pytest
 from agent_postmortem import write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
+from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.prompting import SubmittedPostmortem
+from agent_postmortem.prompting import (
+    SubmittedFactor,
+    SubmittedItem,
+    SubmittedPostmortem,
+    SubmittedStep,
+)
 from agent_postmortem.responder_cost import ResponderCost
+from agent_postmortem.reviewing import review_of
+from agent_postmortem.sections import (
+    detection_of,
+    hypotheses_of,
+    impact_of,
+    record_action_items_of,
+    resolution_of,
+    timeline_of,
+    trigger_of,
+)
 from agent_postmortem.sources import EngagedResponder
 from argus_core.models import (
+    ActionItem,
+    ActionItemStatus,
+    ActionItemType,
+    ChainStep,
+    CitedEvidence,
+    ContributingFactor,
+    Lessons,
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
+    ReviewCriterion,
     Standing,
+    Verdict,
     Weighing,
 )
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
@@ -45,8 +77,6 @@ from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from agent_postmortem_test.framework.assertions import (
     _it_says_what_is_still_owed,
     estimates_a_loss_of,
-    is_marked_complete,
-    is_marked_incomplete,
     proposes_the_fix_at,
     reports_a_cost_ranging_from,
     reports_a_responder_cost_of,
@@ -63,10 +93,15 @@ from agent_postmortem_test.framework.assertions import (
     states_the_estimate_is_in,
 )
 from agent_postmortem_test.framework.builders import (
+    RECOVERED_AT,
     SOME_CURRENCY,
+    a_candidate,
     a_lead,
     a_measured_incident,
     a_submitted_answer,
+    a_timeline_entry,
+    an_action,
+    an_answer,
     an_engagement_of,
     an_evidence_bundle,
     some_sources,
@@ -74,6 +109,7 @@ from agent_postmortem_test.framework.builders import (
 
 SOME_TITLE = "Senior Kuki"
 SOME_OTHER_TITLE = "Site Reliability Engineer"
+SOME_FLAG = "monthly-spend-feature"
 
 DONT_CARE_WORKING_YEAR = 2080.0
 
@@ -110,11 +146,37 @@ def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
 
 
 @pytest.mark.unit
+def test_the_symptom_the_model_named_is_the_document_s() -> None:
+    # What a reader sees first and remembers the incident by. Prose, so the
+    # model's words, crossing unaltered for the reason the root cause does.
+    some_symptom = "Account pages failed"
+
+    Scenario() \
+        .given(
+            a_model_that_answered := _asking_that_answers(
+                SubmittedPostmortem.model_validate(an_answer(symptom=some_symptom)))
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=a_model_that_answered,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _reports_symptom(some_symptom)
+        )
+
+
+@pytest.mark.unit
 def test_a_field_the_answer_never_carried_is_absent_rather_than_empty() -> None:
     # An answer nothing could be read out of - a model that wrote prose, or
     # called the wrong tool. The document is still written, and the field it
     # could not fill has to be absent: an empty string on a page reads as a
-    # root cause somebody wrote and left blank.
+    # root cause somebody wrote and left blank. A section that is many things
+    # is the exception, and is empty: there is no list to be absent from.
     Scenario() \
         .given(
             an_answer_carrying_nothing := _asking_that_answers(SubmittedPostmortem())
@@ -129,7 +191,13 @@ def test_a_field_the_answer_never_carried_is_absent_rather_than_empty() -> None:
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            reports_no_root_cause()
+            all_of(
+                reports_no_root_cause(),
+                _publishes("the lessons", lambda document: document.lessons, None),
+                _publishes("the causal chain", lambda document: document.causal_chain, []),
+                _publishes("the contributing factors",
+                           lambda document: document.contributing_factors, [])
+            )
         )
 
 
@@ -235,34 +303,19 @@ def test_the_disclosures_produced_are_the_disclosures_listed() -> None:
 
 
 @pytest.mark.unit
-def test_an_answer_nothing_was_wrong_with_is_written_down_as_complete() -> None:
-    Scenario() \
-        .given(
-            an_answer_with_no_faults := _asking_that_answers(a_submitted_answer(), faults=[])
-        ) \
-        .when(
-            lambda: write_postmortem(an_evidence_bundle(),
-                                     some_sources(),
-                                     _dont_care_llm(),
-                                     measure=_measuring_that_returns(
-                                         a_measured_incident()),
-                                     ask=an_answer_with_no_faults,
-                                     disclose=_disclosing_that_returns([]))
-        ) \
-        .then(
-            is_marked_complete()
-        )
-
-
-@pytest.mark.unit
-def test_an_answer_still_carrying_a_fault_is_written_down_as_incomplete() -> None:
+def test_the_review_is_of_the_document_as_written_with_the_faults_still_in_it() -> None:
     # The one judgement this module makes. The faults do not stop a document
     # being written - the incident is over and a partial account is worth more
-    # than none - so the document says on its face what it is.
+    # than none - so they go to the review beside the document they are about,
+    # and the page says on its face what it is.
+    some_faults = ["the field [root_cause] was missing"]
+    some_review = [ReviewCriterion(criterion="some criterion", met=False)]
+    reviewing = _reviewing_that_returns(some_review)
+
     Scenario() \
         .given(
-            an_answer_still_wrong := _asking_that_answers(
-                a_submitted_answer(), faults=["the field [root_cause] was missing"])
+            an_answer_still_wrong := _asking_that_answers(a_submitted_answer(),
+                                                          faults=some_faults)
         ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
@@ -271,10 +324,263 @@ def test_an_answer_still_carrying_a_fault_is_written_down_as_incomplete() -> Non
                                      measure=_measuring_that_returns(
                                          a_measured_incident()),
                                      ask=an_answer_still_wrong,
+                                     disclose=_disclosing_that_returns([]),
+                                     review=reviewing)
+        ) \
+        .then(
+            all_of(
+                _publishes("the review", lambda document: document.review, some_review),
+                _reviewed_as_written(reviewing, some_faults)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_sections_the_record_holds_are_the_sections_published() -> None:
+    # Each written by code from the record, and never asked of the model.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("a flag change", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                actions=[an_action(f"revert_feature_flag on {SOME_FLAG}",
+                                   verdict=Verdict.CONFIRMED)])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            is_marked_incomplete()
+            all_of(
+                _publishes("the detection",
+                           lambda document: document.detection, detection_of(evidence)),
+                _publishes("the trigger",
+                           lambda document: document.trigger, trigger_of(evidence)),
+                _publishes("the resolution",
+                           lambda document: document.resolution, resolution_of(evidence)),
+                _publishes("the hypotheses",
+                           lambda document: document.hypotheses, hypotheses_of(evidence))
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_impact_is_the_incident_as_measured() -> None:
+    Scenario() \
+        .given(
+            measured := a_measured_incident()
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the impact", lambda document: document.impact, impact_of(measured))
+        )
+
+
+@pytest.mark.unit
+def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
+    # Not where the record put it. The document's duration ends at the
+    # measured recovery, and a timeline ending somewhere else would contradict
+    # the figure printed beside it.
+    some_measured_recovery = RECOVERED_AT
+    some_recorded_recovery = RECOVERED_AT + timedelta(minutes=7)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=some_recorded_recovery)
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident(
+                                             recovered_at=some_measured_recovery)),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the timeline",
+                       lambda document: document.timeline,
+                       timeline_of(evidence, some_measured_recovery))
+        )
+
+
+@pytest.mark.unit
+def test_the_model_s_proposals_are_numbered_after_the_record_s_own_items() -> None:
+    # The record's items were numbered before the model was asked, so its
+    # factors could name them; its own proposals follow on, in the order it
+    # gave them. Open and nobody's: Argus edits no item after the document is
+    # written, so whoever takes one on does so somewhere else.
+    evidence = an_evidence_bundle(pull_request=OpenedPullRequest(
+        number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"))
+
+    Scenario() \
+        .given(
+            a_model_proposing_two := _asking_that_answers(
+                a_submitted_answer().model_copy(update={"action_items": [
+                    SubmittedItem(item="test an empty month", type=ActionItemType.PREVENT),
+                    SubmittedItem(item="alert on account pages", type=ActionItemType.DETECT)
+                ]}))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=a_model_proposing_two,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the action items", lambda document: document.action_items, [
+                *record_action_items_of(evidence),
+                ActionItem(number="AI-2", text="test an empty month",
+                           type=ActionItemType.PREVENT, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN),
+                ActionItem(number="AI-3", text="alert on account pages",
+                           type=ActionItemType.DETECT, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
+    # The label means nothing outside the prompt it was given in, and the
+    # stored document is read without one.
+    the_log_line = "ZeroDivisionError in monthly_average"
+    its_label = grouped([the_log_line])[0].label
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[the_log_line])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(
+                                         a_submitted_answer().model_copy(update={
+                                             "causal_chain": [SubmittedStep(
+                                                 step="the monthly average divided by zero",
+                                                 cites=[its_label])]
+                                         })),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the causal chain", lambda document: document.causal_chain, [
+                ChainStep(text="the monthly average divided by zero",
+                          cites=[CitedEvidence(label=its_label, text=the_log_line)])
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
+    # The check has named it already, and the review holds it against the
+    # analysis. Kept, it would be a citation a reader can follow nowhere.
+    the_log_line = "ZeroDivisionError in monthly_average"
+    its_label = grouped([the_log_line])[0].label
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[the_log_line])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(
+                                         a_submitted_answer().model_copy(update={
+                                             "causal_chain": [SubmittedStep(
+                                                 step="the monthly average divided by zero",
+                                                 cites=[its_label, "T99"])]
+                                         }),
+                                         faults=["the step cites [T99], which was never shown"]),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the causal chain", lambda document: document.causal_chain, [
+                ChainStep(text="the monthly average divided by zero",
+                          cites=[CitedEvidence(label=its_label, text=the_log_line)])
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_the_factors_and_lessons_the_model_wrote_are_the_ones_published() -> None:
+    some_lessons = Lessons(went_well=["the alert fired within minutes"],
+                           went_wrong=["no test exercised an empty month"],
+                           got_lucky=["the fault was behind a flag"])
+
+    Scenario() \
+        .given(
+            a_model_that_answered := _asking_that_answers(
+                a_submitted_answer().model_copy(update={
+                    "contributing_factors": [SubmittedFactor(
+                        factor="the canary started at full traffic",
+                        addressed_by=["AI-1"])],
+                    "lessons": some_lessons
+                }))
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=a_model_that_answered,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            all_of(
+                _publishes("the contributing factors",
+                           lambda document: document.contributing_factors,
+                           [ContributingFactor(text="the canary started at full traffic",
+                                               addressed_by=["AI-1"])]),
+                _publishes("the lessons", lambda document: document.lessons, some_lessons)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_evidence_read_is_every_piece_the_model_was_shown() -> None:
+    # Two lines of narration, three of logs, one candidate, one action.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("dont care"), a_timeline_entry("dont care")],
+                log_lines=["one message", "another message", "a third message"],
+                candidates=[a_candidate("dont care")],
+                actions=[an_action("dont care")])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the evidence read", lambda document: document.evidence_read, 7)
         )
 
 
@@ -573,6 +879,17 @@ def _measuring_that_returns(measured: Measurements) -> MagicMock:
     return cast(MagicMock, measuring)
 
 
+def _reports_symptom(expected: str) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.symptom != expected:
+            raise AssertionError(
+                f"Expected the symptom [{expected}], got [{document.symptom}].")
+
+        return True
+
+    return assertion
+
+
 def _asking_that_answers(answer: SubmittedPostmortem,
                          faults: list[str] | None = None) -> MagicMock:
     asking = create_autospec(answer_worth_writing)
@@ -588,6 +905,13 @@ def _disclosing_that_returns(assumptions: list[str]) -> MagicMock:
     return cast(MagicMock, disclosing)
 
 
+def _reviewing_that_returns(review: list[ReviewCriterion]) -> MagicMock:
+    reviewing = create_autospec(review_of)
+    reviewing.return_value = review
+
+    return cast(MagicMock, reviewing)
+
+
 def _dont_care_llm() -> MagicMock:
     """A model nothing here ever reaches.
 
@@ -597,6 +921,22 @@ def _dont_care_llm() -> MagicMock:
     here rather than in production.
     """
     return cast(MagicMock, create_autospec(_dont_care_llm))
+
+
+def _publishes(what: str,
+               read: Callable[[PostmortemDocument], object],
+               expected: object) -> Assertion[PostmortemDocument]:
+    """One section of the document, read off it by `read`, is `expected`."""
+    def assertion(document: PostmortemDocument) -> bool:
+        published = read(document)
+
+        if published != expected:
+            raise AssertionError(
+                f"Expected the document to publish {what} as {expected}, got {published}.")
+
+        return True
+
+    return assertion
 
 
 def _reports_the_leads(expected: list[PostmortemLead]) -> Assertion[PostmortemDocument]:
@@ -632,6 +972,29 @@ def _lists_exactly(expected: list[str]) -> Assertion[PostmortemDocument]:
         if document.assumptions != expected:
             raise AssertionError(
                 f"Expected the document to list {expected}, got {document.assumptions}")
+
+        return True
+
+    return assertion
+
+
+def _reviewed_as_written(reviewing: MagicMock,
+                         faults: list[str]) -> Assertion[PostmortemDocument]:
+    """The review was of this document - every section but the review itself -
+    and of the faults the answer still carried."""
+    def assertion(document: PostmortemDocument) -> bool:
+        reviewed, reviewed_with = reviewing.call_args.args
+        as_written = document.model_copy(update={"review": []})
+
+        if reviewed != as_written:
+            raise AssertionError(
+                f"Expected the review to be of the document as written, got "
+                f"[{reviewed}].")
+
+        if reviewed_with != faults:
+            raise AssertionError(
+                f"Expected the review to be given the faults {faults}, got "
+                f"{reviewed_with}.")
 
         return True
 

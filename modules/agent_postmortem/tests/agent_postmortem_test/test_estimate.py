@@ -19,12 +19,14 @@ import pytest
 from agent_postmortem.estimate import (
     ErrorRates,
     RuleSeriesLevels,
+    Unmeasured,
+    beyond_the_variation,
     error_rates_over,
-    loss_between,
     rule_series_over,
+    why_no_error_rates,
 )
 from argus_core.models import MetricBucket, RuleReading
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, the_answer_was
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 INCIDENT_END = INCIDENT_START + timedelta(minutes=30)
@@ -124,6 +126,26 @@ def test_minutes_after_the_service_recovered_are_not_counted() -> None:
 
 
 @pytest.mark.unit
+def test_the_requests_that_failed_are_counted_over_the_broken_minutes() -> None:
+    # What a reader asks after how long and how bad: how many it hit. Each
+    # broken minute's requests at that minute's rate, and no calm minute's.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2), error_rate=0.02),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), error_rate=0.30),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), error_rate=0.25)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _counts_failed_requests(550)
+        )
+
+
+@pytest.mark.unit
 def test_a_calm_stretch_noisier_than_the_broken_one_reports_a_negative_rise() -> None:
     # Deliberately not clamped. Once the window is bounded by the signal
     # rather than by the workflow, a negative rise is no longer an artefact of
@@ -191,6 +213,70 @@ def test_a_window_with_no_minutes_inside_the_broken_stretch_measures_nothing() -
         ) \
         .then(
             _nothing_could_be_measured()
+        )
+
+
+@pytest.mark.unit
+def test_a_read_that_returned_no_minute_is_unmeasured_for_want_of_any() -> None:
+    # The rates can be missing for three reasons, and a reader is owed which: a
+    # read that came back empty is an outage of the metrics, not of the shop.
+    Scenario() \
+        .given(
+            buckets := list[MetricBucket]()
+        ) \
+        .when(
+            lambda: why_no_error_rates(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            the_answer_was(Unmeasured.NOTHING_READ)
+        )
+
+
+@pytest.mark.unit
+def test_no_minute_before_the_onset_is_unmeasured_for_want_of_a_calm_stretch() -> None:
+    # A fault found a week after it began: the read reaches back only so far,
+    # every minute it holds is after the onset, and nothing is left to call
+    # normal. The metrics were read - they did not reach.
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START + timedelta(minutes=5))]
+        ) \
+        .when(
+            lambda: why_no_error_rates(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            the_answer_was(Unmeasured.NO_MINUTE_BEFORE_THE_ONSET)
+        )
+
+
+@pytest.mark.unit
+def test_no_minute_inside_the_broken_stretch_is_unmeasured_for_want_of_one() -> None:
+    # Metrics that stop before the incident starts: a calm hour, and nothing
+    # read of the trouble itself.
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START - timedelta(minutes=2))]
+        ) \
+        .when(
+            lambda: why_no_error_rates(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            the_answer_was(Unmeasured.NO_MINUTE_WHILE_BROKEN)
+        )
+
+
+@pytest.mark.unit
+def test_rates_that_could_be_measured_are_missing_for_no_reason() -> None:
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START - timedelta(minutes=2)),
+                        _a_bucket(at=INCIDENT_START + timedelta(minutes=5))]
+        ) \
+        .when(
+            lambda: why_no_error_rates(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            the_answer_was(None)
         )
 
 
@@ -376,52 +462,53 @@ def test_a_rules_series_with_no_calm_reading_measures_none() -> None:
 
 
 @pytest.mark.unit
-def test_the_loss_is_the_shortfall_against_what_the_calm_period_predicted() -> None:
-    # The whole estimate: the calm rate scaled to the length of the incident,
-    # less what actually came in while it was broken.
-    some_baseline_revenue = Decimal("4800")
-    some_baseline_span_in_hours = 1.0
-    some_incident_span_in_hours = 0.5
-    some_revenue_during_the_incident = Decimal("900")
-    expected_loss = (
-        some_baseline_revenue
-        / Decimal(str(some_baseline_span_in_hours))
-        * Decimal(str(some_incident_span_in_hours))
-        - some_revenue_during_the_incident
-    )
+def test_a_shop_that_took_more_than_before_lost_nothing_rather_than_less_than_nothing() -> None:
+    # A quiet stretch before a busy incident. The subtraction goes negative and
+    # the answer does not: a negative loss is not a small loss, it is a
+    # category error, and zero here is a measurement rather than an absence.
+    some_busier_incident_s_shortfall = Decimal("-800")
+    some_shop_that_never_varies = Decimal(0)
 
     Scenario() \
         .when(
-            lambda: loss_between(some_baseline_revenue,
-                                 over_hours=some_baseline_span_in_hours,
-                                 taken_during=some_revenue_during_the_incident,
-                                 for_hours=some_incident_span_in_hours)
+            lambda: beyond_the_variation(some_busier_incident_s_shortfall,
+                                         some_shop_that_never_varies)
         ) \
         .then(
-            _estimates(expected_loss)
+            _estimates(Decimal(0))
         )
 
 
 @pytest.mark.unit
-def test_a_shop_that_took_more_than_predicted_lost_nothing_rather_than_less_than_nothing() -> None:
-    # A quiet baseline hour against a busy incident. The subtraction goes
-    # negative and the answer does not: a negative loss is not a small loss,
-    # it is a category error, and zero here is a measurement rather than an
-    # absence.
-    some_baseline_revenue = Decimal("100")
-    some_baseline_span_in_hours = 1.0
-    some_incident_span_in_hours = 0.5
-    some_busy_revenue_during_the_incident = Decimal("900")
+def test_a_shortfall_no_larger_than_the_shop_s_own_variation_is_no_loss() -> None:
+    # Two calm stretches back to back differ by some amount on their own. A
+    # shortfall inside that is the shop being the shop - and scaled out over a
+    # week it became six figures nobody lost.
+    some_variation = Decimal("300")
+    some_shortfall_within_it = Decimal("250")
 
     Scenario() \
         .when(
-            lambda: loss_between(some_baseline_revenue,
-                                 over_hours=some_baseline_span_in_hours,
-                                 taken_during=some_busy_revenue_during_the_incident,
-                                 for_hours=some_incident_span_in_hours)
+            lambda: beyond_the_variation(some_shortfall_within_it, some_variation)
         ) \
         .then(
             _estimates(Decimal(0))
+        )
+
+
+@pytest.mark.unit
+def test_a_shortfall_beyond_the_shop_s_own_variation_is_lost_in_full() -> None:
+    # Not less the variation: the variation says whether anything was lost,
+    # and the shortfall says how much.
+    some_variation = Decimal("300")
+    some_shortfall_beyond_it = Decimal("4500")
+
+    Scenario() \
+        .when(
+            lambda: beyond_the_variation(some_shortfall_beyond_it, some_variation)
+        ) \
+        .then(
+            _estimates(some_shortfall_beyond_it)
         )
 
 
@@ -451,6 +538,18 @@ def _a_bucket(at: datetime,
         cpu_limit_cores=3.0,
         rule_reading=rule_reading
     )
+
+
+def _counts_failed_requests(expected: int) -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        if measured is None or measured.failed_requests != expected:
+            raise AssertionError(
+                f"Expected [{expected}] failed requests, got "
+                f"[{measured.failed_requests if measured else None}].")
+
+        return True
+
+    return assertion
 
 
 def _is_a_rise_of(expected: float) -> Assertion[ErrorRates | None]:

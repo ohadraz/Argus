@@ -32,13 +32,14 @@ from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
+    EstablishedOnset,
     Leads,
     MetricBucket,
     PodPlacement,
     ServiceDependency,
     no_leads,
 )
-from argus_testkit import raising, returning
+from argus_testkit import dont_care_sleep, raising, returning
 
 from agent_investigator_test.framework.builders.budget import a_budget
 from agent_investigator_test.framework.builders.configuration import (
@@ -70,7 +71,9 @@ class Investigation(NamedTuple):
                     settings: InvestigationSettings | None = None,
                     conversations: Conversations | None = None,
                     still_wanted: StillWanted = wanted_throughout,
-                    leads: Leads = no_leads) -> Findings:
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None,
+                    sleep: Callable[[float], None] = dont_care_sleep) -> Findings:
         """The loop, run with whatever this investigation was built around.
 
         `conversations` is the one argument here that changes which seam is
@@ -100,11 +103,23 @@ class Investigation(NamedTuple):
             already_read=already_read,
             publisher=publisher,
             still_wanted=still_wanted,
-            leads=leads
+            leads=leads,
+            established_onset=established_onset,
+            sleep=sleep
         )
 
     def metrics_showed(self, buckets: list[MetricBucket]) -> Callable[[], None]:
         return returning(self.metrics_fetcher, buckets)
+
+    def metrics_showed_in_turn(self,
+                               *windows: list[MetricBucket] | Exception
+                               ) -> Callable[[], None]:
+        """Each read of the metrics answered with the next window, in order - or
+        failed, where the next is an error."""
+        def step() -> None:
+            self.metrics_fetcher.side_effect = list(windows)
+
+        return step
 
     def logs_showed(self, lines: list[str]) -> Callable[[], None]:
         return returning(self.log_fetcher, lines)

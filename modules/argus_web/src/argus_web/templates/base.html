@@ -475,6 +475,74 @@
                  color: var(--gold); text-decoration: none;
                  border: 1px solid var(--line); border-radius: 4px;
                  padding: 1px 6px; }
+  .incident-id a { color: inherit; text-decoration: none; }
+  .document-title { font-size: 1.6em; font-weight: 600; margin: 18px 0 6px; }
+  .document-title a { color: inherit; text-decoration: none; }
+  .document-title code { font-family: ui-monospace, monospace; font-size: .92em; }
+  /* The badge's own .78em, taken from the body rather than from the title's
+     1.6em - so it is the badge the walk's page shows. */
+  .document-title .status { font-size: calc(.7em / 1.6); font-weight: 400; vertical-align: middle;
+                            margin-left: 8px; }
+  /* The postmortem is read top to bottom as a document, so each section is a
+     signpost: a rule between sections, a heading clearly larger than the text
+     under it, and more room above the heading than below - so it reads as the
+     start of what follows rather than the end of what came before. */
+  section[data-section] { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 22px; }
+  section[data-section] > h2 { font-size: 1.05em; margin: 0 0 .6em; color: var(--eye); opacity: 1; }
+  /* In the same hand as a table's column headings, the other kind of label
+     inside a section. */
+  section[data-section] h3 { font-size: .78em; font-weight: 400; text-transform: uppercase;
+                             letter-spacing: .1em; margin: 1.4em 0 .5em; }
+  /* The four markers are the timeline's spine - began, detected, mitigated,
+     ended - so their rows stand out from the narration between them. */
+  section[data-section] h2 .zone { font-size: .75em; text-transform: none; letter-spacing: 0;
+                                   opacity: .6; font-weight: 400; }
+  .postmortem-timeline table.timeline td { padding: 9px 14px; border-bottom: 1px solid var(--muted);
+                                                vertical-align: top; }
+  .postmortem-timeline table.timeline td:first-child { font-family: ui-monospace, monospace;
+                                                            white-space: nowrap; opacity: .75;
+                                                            padding-right: 36px; }
+  .postmortem-timeline tr.marker td { font-weight: 600; }
+  .postmortem-timeline tr.marker td:first-child { opacity: 1; }
+  /* Coloured by what each marker means for the service: broken, seen, put
+     right, over. */
+  .postmortem-timeline span.marker { font-family: ui-monospace, monospace;
+                                          font-size: .85em; letter-spacing: .06em; margin-right: .5em; }
+  .postmortem-timeline span.marker.impact-begins { color: var(--bad); }
+  .postmortem-timeline span.marker.detected { color: var(--amber); }
+  .postmortem-timeline span.marker.mitigated,
+  .postmortem-timeline span.marker.impact-ends { color: var(--good); }
+  /* Who did it, apart from what they did. */
+  .postmortem-timeline .who { color: var(--eye); font-weight: 600; margin-right: .3em; }
+  .checks li { display: flex; gap: 14px; align-items: baseline; margin: 6px 0; }
+  .checks .tick { width: 1em; text-align: center; font-weight: 600; }
+  .checks [data-met="yes"] .tick { color: var(--good); }
+  .checks [data-met="no"] .tick, .checks [data-met="left"] .tick { color: var(--bad); }
+  .lessons { display: grid; grid-template-columns: repeat(auto-fit, minmax(16em, 1fr)); gap: 0 80px; }
+  .lessons h3 { margin-top: .4em; }
+  .lessons ul { list-style: disc; padding-left: 1.2em; }
+  .lessons li { margin-bottom: .5em; }
+  .action-items .status-done { color: var(--good); }
+  .action-items .status-open { color: var(--gold); }
+  .action-items .unassigned { color: var(--bad); }
+  ol.chain { list-style: none; padding: 0; margin: 0; }
+  ol.chain > li { display: grid; grid-template-columns: 6.5em 1fr; gap: 0 14px;
+                  padding: 12px 0; border-bottom: 1px solid var(--muted); }
+  ol.chain .why { font-family: ui-monospace, monospace; font-size: .85em; color: var(--eye);
+                  padding-top: .2em; }
+  ol.chain .claim { margin: 0 0 4px; }
+  ol.chain .evidence { display: block; margin: 0; font-size: .82em; opacity: .65; }
+  ol.chain .cited { display: block; font-family: ui-monospace, monospace; font-size: .95em; }
+  .state-from { color: #9aa0a6; text-decoration: line-through; }
+  .state-to { color: var(--gold); }
+  .impact-cards { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0; }
+  .impact-cards .card { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
+                        min-width: 9.5em; display: flex; flex-direction: column; gap: 8px; }
+  .impact-cards .value { font-family: ui-monospace, monospace; font-size: 1.35em; }
+  .impact-cards .label { font-size: .82em; opacity: .7; }
+  .head { display: grid; grid-template-columns: max-content 1fr; gap: 6px 22px; margin: 14px 0; }
+  .head dt { opacity: .7; }
+  .head dd { margin: 0; }
   .idle { opacity: .8; padding: 40px 0; font-size: 1.15em; }
 
   /* Each table gets its own bounded, scrollable frame. The three of them are

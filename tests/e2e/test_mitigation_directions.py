@@ -103,7 +103,8 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("flag-toggle-red-herring")),
+            calling(a_scenario_was_seeded("flag-toggle-red-herring",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_RED_HERRING)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
         ) \
         .when(
@@ -122,4 +123,4 @@ def test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back() -> N
 
 
 def _a_fallback_flag_was_switched_off() -> Callable[[], bool]:
-    return a_scenario_was_seeded("fallback-disabled")
+    return a_scenario_was_seeded("fallback-disabled", as_recorded_in=RECORDED_FALLBACK_DISABLED)

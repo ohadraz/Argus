@@ -56,7 +56,8 @@ def test_an_incident_over_a_trading_window_costs_a_measured_amount() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -130,7 +131,7 @@ def _the_conversion_was_disclosed() -> Assertion[httpx2.Response]:
 
         disclosed = [stated for stated in postmortem.assumptions or []
                      if EXCHANGE_RATE_ASSUMPTION_LABEL in stated
-                     and SOME_SECOND_CURRENCY in stated]
+                     and SOME_SECOND_CURRENCY.upper() in stated]
 
         if not disclosed:
             raise AssertionError(

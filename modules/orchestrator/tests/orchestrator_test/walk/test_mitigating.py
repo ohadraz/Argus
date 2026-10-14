@@ -36,7 +36,9 @@ from argus_core.models import (
     Action,
     AlarmClaim,
     Alert,
+    EstablishedOnset,
     FlagUndo,
+    HowTheMinuteIsKnown,
     Hypothesis,
     IncidentStatus,
     Outcome,
@@ -71,6 +73,7 @@ SOME_FLAG_THE_CANDIDATE_BLAMES = "monthly-spend-feature"
 SOME_MOMENT_THE_CLAIM_WAS_WRITTEN = datetime(2026, 9, 4, 22, 15, tzinfo=UTC)
 SOME_ONSET_THE_ALERT_STATED = datetime(2026, 9, 4, 21, 48, tzinfo=UTC)
 SOME_ACCELERATOR = "Tesla-V100-SXM2-16GB"
+DONT_CARE_MOMENT_IT_WAS_TAKEN = datetime(2026, 9, 4, 22, 16, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -655,6 +658,42 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
 
 
 @pytest.mark.unit
+def test_the_moment_an_action_was_taken_travels_with_the_walk(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # A later round is told when each attempt was made, beside the flag
+    # provider's record of the same change. Dated by the moment the walk moved
+    # on from it - after the wait for the service to answer - the two disagreed
+    # by the length of that wait, and the round read two changes where there
+    # was one.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, Verdict.REFUTED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(_the_walk_carries_the_moment_the_action_was_announced(published))
+
+
+@pytest.mark.unit
 def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
     take: MagicMock,
     record_action: MagicMock,
@@ -688,6 +727,38 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
         .then(all_of(_the_action_was_not_taken(take),
                      _nothing_was_completed(complete_action),
                      _the_verdict_reported_is(the_outcome_the_first_attempt_recorded)))
+
+
+@pytest.mark.unit
+def test_a_walk_resumed_after_the_action_carries_the_moment_it_was_claimed(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The worker that acted is gone, and announced the action in a walk this
+    # one cannot see. The claim is the moment the row keeps: written just
+    # before the action was taken.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, Verdict.REFUTED,
+                written_at=SOME_MOMENT_THE_CLAIM_WAS_WRITTEN)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_walk_carries(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN))
 
 
 @pytest.mark.unit
@@ -1216,6 +1287,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
     still_wanted: MagicMock
 ) -> None:
     # The account is never part of the work, at this level as at every other.
+    # One clock for both runs, because when the action was taken is part of it.
     def run(publisher: Publisher) -> StateDelta:
         return mitigation_node(
             _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor()),
@@ -1226,7 +1298,8 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
             record_outcome=record_outcome,
             already_taken=already_taken,
             still_wanted=still_wanted,
-            publisher=publisher
+            publisher=publisher,
+            now=lambda: DONT_CARE_MOMENT_IT_WAS_TAKEN
         )
 
     Scenario() \
@@ -1449,6 +1522,66 @@ def _the_onset_handed_over_is(expected: datetime | None,
 
 
 @pytest.mark.unit
+def test_the_minute_the_investigation_dated_the_incident_from_reaches_the_agent(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Mitigation looks for the service's recovery after the incident began, or a
+    # service that flapped before it is credited with a recovery from an incident
+    # that had not yet begun. Where it began is the investigation's to say, and
+    # nothing else the agent is handed says it.
+    the_incident_began = "2026-09-04T21:48:00Z"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_incident_the_investigation_dated := _a_mitigating_incident_begun_at(
+                the_incident_began
+            )
+        ) \
+        .when(lambda: mitigation_node(an_incident_the_investigation_dated,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_beginning_handed_over_is(the_incident_began, take))
+
+
+def _a_mitigating_incident_begun_at(minute: str) -> IncidentState:
+    """A mitigating incident whose investigation dated it from `minute`."""
+    state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
+
+    return state.model_copy(update={"onset": EstablishedOnset(
+        minute=minute, how_known=HowTheMinuteIsKnown.MEASURED
+    )})
+
+
+def _the_beginning_handed_over_is(expected: str | None,
+                                  take: MagicMock) -> Assertion[object]:
+    """Which minute the agent was told the incident began in, or none."""
+    def assertion(_: object) -> bool:
+        handed_over = take.call_args.kwargs.get("incident_began")
+
+        if handed_over != expected:
+            raise AssertionError(
+                f"Expected the agent to be handed incident_began [{expected}], and "
+                f"it was handed [{handed_over}] - so a recovery can be dated before "
+                f"the incident it ends began."
+            )
+
+        return True
+
+    return assertion
+
+
+@pytest.mark.unit
 def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
     take: MagicMock,
     record_action: MagicMock,
@@ -1619,6 +1752,33 @@ def _the_verdict_reported_is(expected: Verdict) -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the verdict [{expected}], the node reported [{reported}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_walk_carries_the_moment_the_action_was_announced(
+        published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        announced = [event.at for event in published if isinstance(event, ActionTaken)]
+
+        if announced != [updates.acted_at]:
+            raise AssertionError(
+                f"Expected the walk to carry the moment its one action was announced, "
+                f"{announced}, got [{updates.acted_at}].")
+
+        return True
+
+    return assertion
+
+
+def _the_walk_carries(expected: datetime) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.acted_at != expected:
+            raise AssertionError(
+                f"Expected the walk to carry the moment the action was taken, "
+                f"[{expected}], got [{updates.acted_at}].")
 
         return True
 

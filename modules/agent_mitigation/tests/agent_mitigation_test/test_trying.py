@@ -69,6 +69,7 @@ from agent_mitigation_test.framework.builders import (
     FAILING_MINUTES,
     FAILING_RATE,
     THE_ONSET,
+    WINDOW_START,
     a_clock_frozen_at,
     a_clock_reading_at,
     a_clock_that_runs_out_after_one_look,
@@ -76,6 +77,7 @@ from agent_mitigation_test.framework.builders import (
     a_recovered_window,
     a_still_failing_window,
     a_window_ending_at_the_action,
+    a_window_of,
     a_window_of_minutes,
     a_window_recovered_before_the_action,
     a_window_that_keeps_flapping,
@@ -103,6 +105,14 @@ _SOME_INCIDENT_ID = new_id()
 # ACTION_TIME falls at 11:10:30, so the first minute that wholly follows it is
 # 11:11 - the earliest one a verdict may be read off.
 _THE_FIRST_WHOLE_MINUTE_AFTER = "2026-08-20T11:11:00Z"
+
+# Where the incident's own minutes begin in
+# `_a_window_that_flapped_before_the_incident` - after the calm, the earlier
+# episode's three and four calm again - and the action, taken in its last minute.
+_THE_INCIDENTS_FIRST_MINUTE = CALM_MINUTES + 3 + 4
+_ACTED_IN_THE_INCIDENTS_LAST_MINUTE = WINDOW_START + timedelta(
+    minutes=_THE_INCIDENTS_FIRST_MINUTE + 2, seconds=30
+)
 
 SOME_COUNT_IT_WAS_RUNNING = 3
 SOME_APPLICATION = "io-shop"
@@ -1207,6 +1217,96 @@ def test_a_service_that_came_back_before_the_action_is_recorded_at_that_minute()
             the_verdict_is(Verdict.CONFIRMED),
             _the_recovery_was_recorded_at(published, the_minute_it_came_back)
         ))
+
+
+@pytest.mark.unit
+def test_a_recovery_is_recorded_after_the_minute_the_incident_began() -> None:
+    # On a service that flapped before this incident, the first persisted run in
+    # the window is the earlier episode, and its end is a recovery from an
+    # incident that had not yet begun - credited to an action taken minutes
+    # later. Where the incident began was decided by the investigation, and the
+    # recovery is looked for after it.
+    window = _a_window_that_flapped_before_the_incident()
+    the_incident_began = window[_THE_INCIDENTS_FIRST_MINUTE].bucket_id
+    the_minute_it_came_back = window[_THE_INCIDENTS_FIRST_MINUTE + 3].bucket_id
+
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(window),
+                now=a_clock_frozen_at(_ACTED_IN_THE_INCIDENTS_LAST_MINUTE),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG),
+                publisher=published.append,
+                incident_began=the_incident_began
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_recovery_was_recorded_at(published, the_minute_it_came_back)
+        ))
+
+
+@pytest.mark.unit
+def test_a_recovery_the_rule_confirmed_is_recorded_after_the_minute_the_incident_began() -> None:
+    # The same where the rule that paged is what confirms the action: the minute
+    # recorded is still read off the metrics, and still after the incident began.
+    window = _a_window_that_flapped_before_the_incident()
+    the_incident_began = window[_THE_INCIDENTS_FIRST_MINUTE].bucket_id
+    the_minute_it_came_back = window[_THE_INCIDENTS_FIRST_MINUTE + 3].bucket_id
+    the_rule_was_normal_at = _ACTED_IN_THE_INCIDENTS_LAST_MINUTE + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(window),
+                now=a_clock_frozen_at(_ACTED_IN_THE_INCIDENTS_LAST_MINUTE),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG),
+                publisher=published.append,
+                rule=SOME_RULE,
+                read_rule=_a_rule_reading(
+                    _a_rule_standing(True, evaluated_at=the_rule_was_normal_at)
+                ),
+                incident_began=the_incident_began
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_recovery_was_recorded_at(published, the_minute_it_came_back)
+        ))
+
+
+def _a_window_that_flapped_before_the_incident() -> list[MetricBucket]:
+    """Calm, an earlier episode - higher than this incident, and over - calm
+    again, then the incident, then calm from the action on."""
+    return a_window_of(
+        [CALM_RATE] * CALM_MINUTES
+        + [CALM_RATE * 9, CALM_RATE * 18, CALM_RATE * 18]
+        + [CALM_RATE] * 4
+        + [CALM_RATE * 4] * 3
+        + [CALM_RATE] * 6
+    )
 
 
 @pytest.mark.unit

@@ -120,6 +120,9 @@ class _State:
         # A hold asked for and not yet caught, and a call caught and waiting.
         self.holding: bool = False
         self.held: bool = False
+        # A hold for the first call the queue cannot answer, asked for and not
+        # yet caught.
+        self.holding_when_dry: bool = False
 
     def reset(self) -> None:
         self.seeds.clear()
@@ -127,6 +130,7 @@ class _State:
         self.recorded = 0
         self.holding = False
         self.held = False
+        self.holding_when_dry = False
 
     def catches(self) -> bool:
         """Whether the hold catches the call now arriving - the first to arrive
@@ -136,12 +140,29 @@ class _State:
         while recording: it is empty on every call there, and full from the
         start of a replay, so a hold read off it would catch different calls
         in the two - and a recording is only worth replaying if it was
-        captured in the order its case drives.
+        captured in the order its case drives. That hold is a different one,
+        asked for by name - see `catches_when_dry`.
         """
         if not self.holding:
             return False
 
         self.holding = False
+        self.held = True
+        return True
+
+    def catches_when_dry(self) -> bool:
+        """Whether the hold-when-dry catches the call now arriving - the first
+        to find the queue empty.
+
+        For a replay that leaves its last answer to the real model: every call
+        before it is answered from the queue, and the one nothing answers is
+        held before it is forwarded, so whoever asked can look at the world the
+        replay built and decide whether that call is worth paying for.
+        """
+        if not self.holding_when_dry or self.seeds:
+            return False
+
+        self.holding_when_dry = False
         self.held = True
         return True
 
@@ -221,6 +242,23 @@ def hold() -> dict[str, bool]:
     return {"holding": True}
 
 
+@app.post("/double-control/hold-when-dry")
+def hold_when_dry() -> dict[str, bool]:
+    """Holds the first call to find the queue empty, until a release.
+
+    For a replay whose last answer is recorded afresh: the walk's own answers
+    are seeded, and the call none of them answers is the one that would be
+    forwarded and paid for. Held, it can be looked at first - and refused with
+    a reset, which costs nothing, where a forwarded call has already been paid.
+
+    A hold of its own rather than `hold` read differently: `hold` catches the
+    next call whatever is queued, for the reason `_State.catches` gives, and a
+    case relying on that must not find it changed.
+    """
+    _state.holding_when_dry = True
+    return {"holding_when_dry": True}
+
+
 @app.post("/double-control/release")
 def release() -> dict[str, bool]:
     """Lets the held call go, and with it any hold not yet caught.
@@ -231,6 +269,7 @@ def release() -> dict[str, bool]:
     """
     released = _state.held
     _state.holding = False
+    _state.holding_when_dry = False
     _state.held = False
     return {"released": released}
 
@@ -265,6 +304,7 @@ def state() -> dict[str, Any]:
         "recording_as": _state.record_as,
         "recorded": _state.recorded,
         "holding": _state.holding,
+        "holding_when_dry": _state.holding_when_dry,
         "held": _state.held,
         "available_recordings": recordings.available(),
     }
@@ -385,7 +425,7 @@ async def messages(request: Request) -> Response:
     # Held: wait for the test to release - or reset, which releases too. The
     # answer is chosen only after, so a seed queued while waiting is the one
     # this call takes.
-    if _state.catches():
+    if _state.catches() or _state.catches_when_dry():
         while _state.held:
             await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
 

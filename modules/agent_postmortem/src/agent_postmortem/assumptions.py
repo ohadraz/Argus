@@ -24,6 +24,9 @@ decides to say it are kept in one file rather than one apiece.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+from agent_postmortem.estimate import weeks_back_for
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import unpriced_titles
@@ -35,13 +38,13 @@ from agent_postmortem.sources import EngagementAnswer, NotPaged
 # assumption looking undisclosed. Money taken abroad
 # reaches the estimate through a rate, and a figure converted at a rate nobody
 # can see is a figure nobody can check.
-EXCHANGE_RATE_ASSUMPTION_LABEL = "exchange rate"
+EXCHANGE_RATE_ASSUMPTION_LABEL = "Exchange rate"
 
 # How money left out of the figure announces itself. A shop can be paid in a
 # currency the rate source prices nothing for, and the estimate then covers
 # some of what was taken rather than all of it - which is a real answer, but
 # only while the document says which part is missing.
-EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "excluded currency"
+EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "Excluded currency"
 
 # Why that currency was left out. Two reasons rather than one, because they
 # send a reader to two different places: a provider that publishes no rate for
@@ -51,45 +54,60 @@ EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "excluded currency"
 NO_RATE_PUBLISHED_REASON = "no rate was published for it"
 RATES_UNAVAILABLE_REASON = "the exchange rate source could not be read"
 
+# How a zero that is the shop's own variation announces itself. Takings that
+# fell short by less than two calm stretches differ by on their own are no loss
+# anyone can tell from an ordinary day - and a zero beside an incident that
+# plainly took less reads as a figure nobody computed unless both amounts are
+# said.
+NORMAL_VARIATION_ASSUMPTION_LABEL = "Normal variation"
+
 # Said when a figure is missing because nobody could answer, so that the gap
 # reads as an unanswered question rather than as a measurement of nothing.
 #
 # Only the takings can cost the document its estimate. A rate table that never
 # arrived leaves the money that needed no rate, which is a partial figure and
 # not an absent one - so it is disclosed a currency at a time, above.
-REVENUE_UNAVAILABLE_ASSUMPTION = "no loss estimate: the revenue source could not be read"
+REVENUE_UNAVAILABLE_ASSUMPTION = "No loss estimate: the revenue source could not be read"
 ONSET_UNKNOWN_ASSUMPTION = (
-    "no loss estimate: no minute departed from the baseline, so there is no "
+    "No loss estimate: no minute departed from the baseline, so there is no "
     "measured incident to attribute a loss to"
 )
 ENGAGEMENT_UNAVAILABLE_ASSUMPTION = (
-    "no engineer minutes: no source could say when a person engaged"
+    "No engineer minutes: no source could say when a person engaged"
 )
 # Said when nobody was paged at all, which is neither of the absences above or
 # below: the on-call source answered, and no incident of its own was this one.
 NOT_PAGED_ASSUMPTION = (
-    "no engineer minutes: no on-call incident was linked to this one, so nobody "
+    "No engineer minutes: no on-call incident was linked to this one, so nobody "
     "was paged to respond"
 )
 PAY_BANDS_UNAVAILABLE_ASSUMPTION = (
-    "no responder cost: the pay band source could not be read"
+    "No responder cost: the pay band source could not be read"
 )
 
 # How the divisor behind the response cost announces itself. An annual band
 # becomes a per-minute rate only by being divided by a working year, and that
 # year is a convention somebody configured rather than anything measured - so a
 # reader reproducing the figure needs it stated beside the figure.
-WORKING_YEAR_ASSUMPTION_LABEL = "working year"
+WORKING_YEAR_ASSUMPTION_LABEL = "Working year"
 
 # How each band the figure rests on announces itself, one line per title. The
-# published figure is a midpoint, which is a range collapsed to a point: naming
-# the range is what stops the point being read as a measurement.
-PAY_BAND_ASSUMPTION_LABEL = "pay band"
+# published figure is a midpoint, which is a range collapsed to a point: saying
+# so is what stops the point being read as a measurement. The band's own
+# figures are not said - the document is read by the people it prices.
+PAY_BAND_ASSUMPTION_LABEL = "Pay band"
+
+# How a response shared with other incidents announces itself. One on-call
+# incident can be about several of Argus's, and its minutes are then reported
+# in full on each - not split, because nothing says how the people on it divided
+# their attention - so a reader adding the documents up counts them twice
+# unless each says so.
+SHARED_PAGE_ASSUMPTION_LABEL = "Shared page"
 
 # How a title nothing could price announces itself. The cost is absent rather
 # than short, and the absence is only honest while the document can say which
 # title caused it.
-UNPRICED_TITLE_ASSUMPTION_LABEL = "unpriced title"
+UNPRICED_TITLE_ASSUMPTION_LABEL = "Unpriced title"
 
 
 def assumptions_of(answer: SubmittedPostmortem,
@@ -97,8 +115,9 @@ def assumptions_of(answer: SubmittedPostmortem,
                    working_hours_a_year: float) -> list[str]:
     """Everything the document assumed, in the order a reader meets it.
 
-    The conversions come first - they are the only step between the money the
-    provider reported and the figure published - then the pricing, then
+    The conversions come first - they stand between the money the provider
+    reported and the figure published, with the comparison against how much
+    the shop varies on its own - then the pricing, then
     whatever the model says it assumed in its prose, then the absences, each
     saying which question went unanswered.
     """
@@ -109,8 +128,10 @@ def assumptions_of(answer: SubmittedPostmortem,
 
     assumptions.extend(_rates_applied(measured))
     assumptions.extend(_currencies_left_out_of(measured))
+    assumptions.extend(_within_the_shop_s_variation(measured))
 
     assumptions.extend(_the_pricing_behind(measured, working_hours_a_year))
+    assumptions.extend(_a_response_shared_with_others(measured))
 
     assumptions.extend(answer.assumptions)
 
@@ -127,6 +148,26 @@ def assumptions_of(answer: SubmittedPostmortem,
         assumptions.append(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
 
     return assumptions
+
+
+def _within_the_shop_s_variation(measured: Measurements) -> list[str]:
+    """The line saying a shortfall was the shop's own variation, where it was.
+
+    Only where something fell short and the figure is zero for it: a loss
+    published in full needs no apology for its baseline, and a shop that took
+    more has no shortfall to explain.
+    """
+    shortfall, variation = measured.shortfall, measured.variation
+
+    if measured.loss != 0 or shortfall is None or variation is None or shortfall <= 0:
+        return []
+
+    weeks = weeks_back_for(timedelta(hours=measured.duration_in_hours)) // timedelta(weeks=1)
+    earlier = f"{weeks} week{'s' if weeks != 1 else ''} earlier"
+
+    return [f"{NORMAL_VARIATION_ASSUMPTION_LABEL}: takings fell {shortfall:,.2f} short of "
+            f"the same hours {earlier}, no more than the {variation:,.2f} those hours "
+            f"differ by from the same hours {earlier} again, so no loss is reported"]
 
 
 def _currencies_left_out_of(measured: Measurements) -> list[str]:
@@ -176,10 +217,23 @@ def _the_pricing_behind(measured: Measurements,
         f"{WORKING_YEAR_ASSUMPTION_LABEL}: annual pay bands divided by "
         f"{working_hours_a_year:g} hours",
         *(f"{PAY_BAND_ASSUMPTION_LABEL}: {title} priced at the midpoint of "
-          f"{bands[title].minimum} to {bands[title].maximum} "
-          f"{bands[title].currency} a year"
+          f"the title's band"
           for title in _the_titles_priced(engaged))
     ]
+
+
+def _a_response_shared_with_others(measured: Measurements) -> list[str]:
+    """The line saying the response was also other incidents', where it was."""
+    engaged = measured.engaged
+    if not isinstance(engaged, EngagementAnswer) or engaged.shared_with == 0:
+        return []
+
+    others = engaged.shared_with
+
+    return [f"{SHARED_PAGE_ASSUMPTION_LABEL}: the on-call incident this one was paged "
+            f"under was also about {others} other incident{'s' if others != 1 else ''}, "
+            f"so the engineer minutes are its whole response rather than this "
+            f"incident's share"]
 
 
 def _the_titles_priced(engaged: EngagementAnswer) -> list[str]:
@@ -209,8 +263,8 @@ def _rates_applied(measured: Measurements) -> list[str]:
         return []
 
     return [
-        f"{EXCHANGE_RATE_ASSUMPTION_LABEL}: {currency} converted at "
-        f"{rates.per_unit[currency]} per {rates.base}, published "
+        f"{EXCHANGE_RATE_ASSUMPTION_LABEL}: {currency.upper()} converted at "
+        f"{rates.per_unit[currency]} per {rates.base.upper()}, published "
         f"{rates.on.isoformat()}"
         for currency in taken
         if currency != rates.base and currency in rates.per_unit

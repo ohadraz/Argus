@@ -79,7 +79,8 @@ def test_a_diagnosed_flag_toggle_is_mitigated_and_the_world_changed() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \
         .when(
@@ -124,7 +125,8 @@ def test_a_flag_the_provider_did_not_record_changing_is_not_reverted() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_UNCORROBORATED)),
             calling(the_flag_provider_forgot_every_change),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_UNCORROBORATED))
         ) \
@@ -163,7 +165,8 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
 
     Scenario() \
         .given(
-            calling(a_scenario_was_seeded("feature-flag-toggle")),
+            calling(a_scenario_was_seeded("feature-flag-toggle",
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
             calling(another_flag_was_toggled_on(SOME_UNRELATED_FLAG)),
             calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
         ) \

@@ -4,30 +4,35 @@ The model is asked for prose and answers with a tool call. Everything here is
 about that call arriving in the shape the document needs - asked once, refused
 once where it did not, and read for an answer either way.
 
-Nothing here computes a figure. The estimate travels through only so the check
-can catch prose that names a different number from the one Argus measured.
+Nothing here computes a figure, and the prose writes none: it names the figures
+the incident gave, and the answer kept has each written in as this run
+measured it (`figures`).
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from decimal import Decimal
 
 from argus_core.llm import LLMClient
 from argus_core.models import ThreadMessage, Transcript, Turn
 
-from agent_postmortem.checking import faults_in
+from agent_postmortem.checking import Given, faults_in
 from agent_postmortem.evidence import IncidentEvidence
+from agent_postmortem.figures import Figure, with_figures_written
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
+    figures_shown,
     opening_ask,
     opening_ask_again,
     rejecting,
     submit_postmortem_for,
+    the_evidence_labelled,
 )
+from agent_postmortem.revisions import revisions_of, with_revisions_corrected
+from agent_postmortem.sections import record_action_items_of
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +56,12 @@ def answer_worth_writing(llm: LLMClient,
     # The tool for this incident, which asks what each lead changed only where
     # people wrote any.
     submit = submit_postmortem_for(evidence.leads)
+    # Every figure the answer may name, each written in as this run measured it.
+    figures = figures_shown(evidence, measured)
+    given = _what_was_given(evidence, figures)
     submitted = llm.converse(asked, [submit])
 
-    first = _reading_of(submitted, measured.loss, evidence.leads)
+    first = _reading_of(submitted, evidence.leads, given, figures)
     _, faults = first
     if not faults:
         return first
@@ -61,8 +69,21 @@ def answer_worth_writing(llm: LLMClient,
     logger.warning("postmortem answer rejected", extra={"faults": faults})
 
     return _reading_of(llm.converse(_asking_again(asked, submitted, faults), [submit]),
-                       measured.loss,
-                       evidence.leads)
+                       evidence.leads,
+                       given,
+                       figures)
+
+
+def _what_was_given(evidence: IncidentEvidence, figures: dict[str, Figure]) -> Given:
+    """What the answer is held to: the labels it could cite, the items already
+    on the record, the revisions the incident read, and the figures it may
+    name."""
+    return Given(
+        labels=frozenset(cited.label for cited in the_evidence_labelled(evidence)),
+        items_on_record=len(record_action_items_of(evidence)),
+        revisions=revisions_of(evidence),
+        figures=figures
+    )
 
 
 def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Transcript:
@@ -81,19 +102,23 @@ def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Tran
 
 
 def _reading_of(turn: Turn,
-                estimate: Decimal | None,
-                leads: Sequence[ThreadMessage]
+                leads: Sequence[ThreadMessage],
+                given: Given,
+                figures: dict[str, Figure]
                 ) -> tuple[SubmittedPostmortem, list[str]]:
     """What one turn amounts to: its answer and whatever is wrong with it.
 
-    The estimate is no longer computed from anything the model said, so it is
-    passed in rather than derived here - the only thing a turn can still get
-    wrong about it is naming a different number in its prose. The leads go
-    with it, because whether every one was answered is a fault of the turn too.
-    """
-    answer = _answer_from(turn)
+    The leads go with it, because whether every one was answered is a fault of
+    the turn too, and what was given, because a citation is checked against it.
+    A revision a few characters off is written as the real one first, since
+    code knows which it was; only one starting like none is left to refuse.
 
-    return answer, faults_in(answer, estimate, leads)
+    The figures are written in last, after the check: it reads the names, and
+    a figure written in before it would read as one the model wrote in digits.
+    """
+    answer = with_revisions_corrected(_answer_from(turn), given.revisions)
+
+    return with_figures_written(answer, figures), faults_in(answer, leads, given=given)
 
 
 def _answer_from(turn: Turn) -> SubmittedPostmortem:
@@ -101,8 +126,8 @@ def _answer_from(turn: Turn) -> SubmittedPostmortem:
 
     A turn carrying no call to the tool it was offered is an answer in the
     wrong shape rather than a failure to answer, and it is read as an empty
-    one: the document is then written incomplete, which is what
-    `checklist_complete` exists to say.
+    one: the document is then written incomplete, which is what its review
+    exists to say.
     """
     for call in turn.tool_calls:
         if call.name == SUBMIT_TOOL_NAME:
