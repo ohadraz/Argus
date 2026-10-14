@@ -73,4 +73,4 @@ renderer, page, route, e2e.
       missing, redundant or weak; design and specs match what was built.
 - [x] 7.4 Gates: module suites, typecheck, lint, layering
 - [x] 7.5 `e2e_replay(mode='both')` agrees with the run before the change
-- [ ] 7.6 Specs synced on archive
+- [x] 7.6 Specs synced on archive
