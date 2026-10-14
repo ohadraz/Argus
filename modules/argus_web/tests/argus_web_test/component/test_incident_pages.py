@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from http import HTTPStatus as HttpStatus
 
+import httpx2
 import psycopg
 import pytest
 from argus_core import connect_from_env
@@ -427,6 +428,107 @@ def test_an_incident_with_no_postmortem_says_so_rather_than_failing() -> None:
 
 
 @pytest.mark.component
+def test_the_postmortem_page_offers_the_document_as_a_pdf() -> None:
+    # The same words in a file a reader keeps, forwards and attaches.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_shows("postmortem-pdf", f"/incidents/{incident_id}/postmortem.pdf")
+        )
+
+
+@pytest.mark.component
+def test_an_incident_with_no_postmortem_offers_no_pdf_of_one() -> None:
+    # A download of nothing would be a file that fails to open.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _the_page_shows_no("postmortem-pdf")
+        )
+
+
+@pytest.mark.component
+def test_the_postmortem_downloads_as_a_pdf_named_for_its_incident() -> None:
+    # Saved among others like it, a file is found again by its name.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{incident_id}/postmortem.pdf")
+            ) \
+            .then(
+                _a_pdf_to_save_as(f"argus-postmortem-{incident_id}.pdf")
+            )
+
+
+@pytest.mark.component
+def test_an_incident_with_no_postmortem_has_no_pdf_of_one() -> None:
+    # The page says so in words; a file has no words to say it with.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{incident_id}/postmortem.pdf")
+            ) \
+            .then(
+                the_response_was(HttpStatus.NOT_FOUND)
+            )
+
+
+@pytest.mark.component
+def test_an_unknown_incident_has_no_pdf() -> None:
+    a_nonexistent_id = "00000000-0000-0000-0000-000000000000"
+
+    with TestClient(app) as client:
+        Scenario() \
+            .given(
+                a_nonexistent_id
+            ) \
+            .when(
+                lambda: client.get(f"/incidents/{a_nonexistent_id}/postmortem.pdf")
+            ) \
+            .then(
+                the_response_was(HttpStatus.NOT_FOUND)
+            )
+
+
+@pytest.mark.component
 def test_a_running_incident_can_be_withdrawn_from_its_page() -> None:
     # The first button anybody wants during an incident, and the only thing on
     # this screen that acts rather than reports.
@@ -586,6 +688,35 @@ def test_the_postmortem_page_says_who_resolved_the_incident_and_what_they_said()
         .then(all_of(
             the_page_says(some_person),
             the_page_says("the Argus UI"),
+            the_page_says(some_note)
+        ))
+
+
+@pytest.mark.component
+def test_an_incident_a_person_resolved_before_any_postmortem_says_who_on_its_page() -> None:
+    # The document may never come - the walk can end without one - and the
+    # person who ended the incident is owed the line either way.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_person = "Kuki Buki"
+    some_note = "rolled the flag back by hand"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        events.record(conn, StatusChanged(
+            incident_id=incident_id,
+            to_status=IncidentStatus.RESOLVED,
+            reported=Report(by=some_person, channel=ReportChannel.ARGUS_UI, note=some_note)
+        ))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_shows("resolution", some_person),
             the_page_says(some_note)
         ))
 
@@ -1701,6 +1832,24 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
         symptom=symptom,
         trigger=trigger
     )
+
+
+def _a_pdf_to_save_as(filename: str) -> Assertion[httpx2.Response]:
+    """A PDF, handed over as a file to save under `filename` rather than shown
+    in the browser's tab."""
+    def assertion(response: httpx2.Response) -> bool:
+        got = (response.status_code, response.headers.get("content-type"),
+               response.headers.get("content-disposition"), response.content[:5])
+        expected = (HttpStatus.OK, "application/pdf", f'attachment; filename="{filename}"',
+                    b"%PDF-")
+
+        if got != expected:
+            raise AssertionError(f"Expected the status, type, disposition and first bytes "
+                                 f"{expected}, got {got}.")
+
+        return True
+
+    return assertion
 
 
 def _the_page_shows_no(name: str) -> Assertion[str]:

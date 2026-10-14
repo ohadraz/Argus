@@ -20,6 +20,8 @@ dependencies = [
     # delivered here, and only the adapter can tell a person's reply from
     # anything else the platform sends.
     "argus-chat_platform",
+    # What the postmortem says, in the words the PDF says it in, and the PDF.
+    "argus-postmortem_rendering",
     "fastapi>=0.115",
     "jinja2>=3.1",
     "markupsafe>=3.0",
@@ -48,6 +50,7 @@ argus-argus_telemetry = { workspace = true }
 argus-code_index = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-chat_platform = { workspace = true }
+argus-postmortem_rendering = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

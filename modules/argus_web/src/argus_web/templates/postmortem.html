@@ -2,11 +2,10 @@
 {% block title %}Argus - postmortem{% endblock %}
 {% block strapline %}what it made of it afterwards{% endblock %}
 
-{# A moment as this document says every one: its date spelled once, in UTC,
-   and handed to the reader's own clock to say again (the script below). #}
-{% macro when(moment) -%}
-{{ moment | clock("%b %d, %Y, %H:%M") }} UTC <span class="local" data-local-at="{{ moment | clock('%Y-%m-%dT%H:%M:%SZ') }}"></span>
-{%- endmacro %}
+{# Every word on this page is `postmortem_rendering`'s, worked out once for the
+   page and the PDF; what is decided here is only what each part is wrapped
+   in. A line comes as runs, each with the part it plays, and `said` turns the
+   part into markup. #}
 
 {# A line of Argus's own narration with each status and verdict it names in the
    colour the walk's page gives it. Safe on this text and on no other: the
@@ -32,45 +31,34 @@
 {{ line.said }}
 {%- endmacro %}
 
-{# Who ended the incident, where a person did - read from the record when the
-   page is shown, because a postmortem written before the report is not
-   rewritten and would otherwise say nothing of it. #}
-{% macro person_who_resolved(resolution) %}
-<p class="resolution" data-resolution="{{ resolution.by }}">
-  Resolved by <strong>{{ resolution.by }}</strong> from {{ resolution.channel }},
-  {{ when(resolution.at) }}{% if resolution.note %} - <q>{{ resolution.note }}</q>{% endif %}
-</p>
-{% endmacro %}
+{# A line's runs in markup. The model's prose links every label it cites to the
+   row of that name, where the page has one; a moment is said again on the
+   reader's own clock (the script below); `link` names the `data-` attribute a
+   link carries its address in, and `status` the class a status is set in. #}
+{% macro said(line, labels=[], link=none, status="status", fix_url=none) -%}
+{%- for run in line.runs -%}
+  {%- if run.role == "prose" -%}{{ run.text | references(labels) }}
+  {%- elif run.role == "narration" -%}{{ coloured(run.text, fix_url) }}
+  {%- elif run.role == "code" -%}<code>{{ run.text }}</code>
+  {%- elif run.role == "strong" -%}<strong>{{ run.text }}</strong>
+  {%- elif run.role == "from-state" -%}<span class="state-from" data-from-state="{{ run.text | lower }}">{{ run.text }}</span>
+  {%- elif run.role == "to-state" -%}<span class="state-to" data-to-state="{{ run.text | lower }}">{{ run.text }}</span>
+  {%- elif run.role == "status" -%}<span class="{{ status }}">{{ run.text }}</span>
+  {%- elif run.role == "quote" -%}<q>{{ run.text }}</q>
+  {%- elif run.role == "link" -%}<a href="{{ run.address }}"{% if link %} data-{{ link }}="{{ run.address }}"{% endif %} target="_blank" rel="noopener noreferrer">{{ run.text }}</a>
+  {%- elif run.role == "moment" -%}{{ run.text }}
+    {%- if run.until %} <span class="local" data-local-from="{{ run.at | clock('%Y-%m-%dT%H:%M:%SZ') }}" data-local-to="{{ run.until | clock('%Y-%m-%dT%H:%M:%SZ') }}"></span>
+    {%- else %} <span class="local" data-local-at="{{ run.at | clock('%Y-%m-%dT%H:%M:%SZ') }}"></span>{% endif -%}
+  {%- else -%}{{ run.text }}
+  {%- endif -%}
+{%- endfor -%}
+{%- endmacro %}
 
 {% block content %}
 {% set the_incident = url_for("incident_page", incident_id=incident.id) | string %}
-{# The title is the way back to the incident it is about: the symptom in the
-   model's words, and the change it began with in the record's. A document
-   that names no symptom - one written before the model was asked for it, or
-   none at all yet - is titled by the alert that opened the incident. #}
-{# A suspected trigger stays out of the title: it is the one line read by
-   everybody who reads nothing else, and there it would say the change did it. #}
-{% set trigger = postmortem.trigger if postmortem else none %}
-{% set began_with = trigger and trigger.to_state and not trigger.suspected %}
-{# A deployment's subject is the service and its state a revision, so it is
-   said as the service running that revision rather than as a flag's "was". #}
-{% set deployed = trigger and trigger.kind and trigger.kind.value == "deploy" %}
-{% set changed = incident.alert.service if deployed else (trigger.subject if trigger else "") %}
-{% set was = " ran " if deployed else " was " %}
-{% set became = (trigger.to_state | revision) if deployed and trigger.to_state else (trigger.to_state if trigger else none) %}
-{% if postmortem and postmortem.symptom %}
-  {% set title = postmortem.symptom ~ (" while " ~ changed ~ was ~ became if began_with else "") %}
-{% else %}
-  {% set title = incident.alert.alert_name ~ " on " ~ incident.alert.service %}
-{% endif %}
-<p class="document-title" data-title="{{ title }}">
-  <a href="{{ the_incident }}" data-incident-link="{{ the_incident }}">
-  {%- if postmortem and postmortem.symptom -%}
-    {{ postmortem.symptom }}{% if began_with %} while <code>{{ changed }}</code>{{ was }}{% if deployed %}<code>{{ became }}</code>{% else %}{{ became }}{% endif %}{% endif %}
-  {%- else -%}
-    {{ incident.alert.alert_name }} on {{ incident.alert.service }}
-  {%- endif -%}
-  </a>
+{# The title is the way back to the incident it is about. #}
+<p class="document-title" data-title="{{ title.said }}">
+  <a href="{{ the_incident }}" data-incident-link="{{ the_incident }}">{{ said(title) }}</a>
   <span class="status {{ incident.status }}">{{ incident.status }}</span>
 </p>
 
@@ -78,75 +66,35 @@
    for most of their lives, and answering the ordinary case with an error
    teaches a reader to ignore errors. #}
 {% if postmortem is none %}
-{% if resolution %}{{ person_who_resolved(resolution) }}{% endif %}
+{% if resolved %}<p class="resolution" data-resolution="{{ resolved_by }}">{{ said(resolved) }}</p>{% endif %}
 <p class="empty">No postmortem has been written for this incident.</p>
 {% else %}
+{% set head = postmortem.head %}
+{% set fix_url = postmortem.actions_taken.fix.action.runs[-1].address if postmortem.actions_taken.fix else none %}
 
-{# The sections follow Google's template (spec §7.6), in its order: what
-   happened and for how long before why. A section with nothing in it says so
-   rather than being left out - a missing heading reads as one nobody thought
-   to write - except what people told the incident, which an incident nobody
-   wrote in has none of. #}
-{% set began = postmortem.timeline | selectattr("marker", "equalto", "impact begins") | first %}
-{% set ended = postmortem.timeline | selectattr("marker", "equalto", "impact ends") | first %}
+{# Every row the model's prose may cite, by the label it cites it by, so a
+   citation links to its row - and one naming a row this page does not have
+   stays plain. #}
+{% set labels = postmortem.labels %}
 
-{% set done = postmortem.action_items | selectattr("status.value", "equalto", "done") | list | length %}
-{% set left_for_people = postmortem.review | selectattr("met", "none") | list %}
-{% set last_step = postmortem.resolution | last if postmortem.resolution else none %}
-
-{# Every row the model's prose may cite, by the label it cites it by. Each
-   prose field goes through `references` with these, so a citation links to
-   its row - and one naming a row this page does not have stays plain. #}
-{% set labels = (postmortem.hypotheses | map(attribute="label") | list)
-              + (postmortem.resolution | map(attribute="label") | list)
-              + (postmortem.action_items | map(attribute="number") | list)
-              + (postmortem.timeline | selectattr("label") | map(attribute="label") | list) %}
-
-{# What a reader asks before reading any of it: which incident, when, how
-   finished the document is, who wrote it, and who ended the incident. Times in
-   UTC, each end also handed to the reader's own clock (the script below). The
-   two times a reader most easily takes for each other - when the service was
-   broken, and when this was written about it - sit in separate rows. #}
+{# What a reader asks before reading any of it, each row under the label the
+   document gives it. The two times a reader most easily takes for each other -
+   when the service was broken, and when this was written about it - are
+   marked as which. #}
+{% set rows = [("incident", head.incident), ("date", head.date), ("status", head.status),
+               ("written-by", head.written_by), ("ended-by", head.ended_by)] %}
+{# The same document as a file to keep, forward and attach - offered only here,
+   where there is a document to make one of. #}
+{% set the_pdf = "/incidents/%s/postmortem.pdf" | format(incident.id) %}
 <div class="document-head" data-postmortem-of="{{ incident.id }}">
   <p class="incident-id"><a href="{{ the_incident }}">{{ incident.id }}</a></p>
+  <p class="download"><a class="download-pdf" href="{{ the_pdf }}" data-postmortem-pdf="{{ the_pdf }}" download>download pdf</a></p>
   <dl class="head">
-    <dt data-head="incident">Incident</dt>
-    <dd><span class="mono">{{ incident.alert.alert_name }}</span> on
-      <span class="mono">{{ incident.alert.service }}</span> ·
-      <a href="{{ the_incident }}">incident page</a></dd>
-
-    <dt data-head="date" data-time="incident">Date</dt>
-    <dd>
-      {%- if began %}{{ began.at | clock("%b %d, %Y, %H:%M") }}
-        {%- if ended %} to {{ ended.at | clock("%H:%M" if ended.at.date() == began.at.date() else "%b %d, %Y, %H:%M") }} UTC
-          <span class="local" data-local-from="{{ began.at | clock('%Y-%m-%dT%H:%M:%SZ') }}"
-                data-local-to="{{ ended.at | clock('%Y-%m-%dT%H:%M:%SZ') }}"></span>
-        {%- else %} UTC, no recovery seen
-          <span class="local" data-local-from="{{ began.at | clock('%Y-%m-%dT%H:%M:%SZ') }}"></span>
-        {%- endif %}
-      {%- else %}onset unknown{% endif -%}
-    </dd>
-
-    <dt data-head="status">Status</dt>
-    {# Final once a person has reviewed it, and a draft until then - Google's
-       convention, and the only honest word for a document nobody who could
-       disagree with it has read. #}
-    <dd>{{ "Final." if postmortem.review and not left_for_people else "Draft." }} {% if postmortem.action_items -%}
-      {{ done }} of {{ postmortem.action_items | length }} action items are done.
-      {%- else %}No action items.{% endif %}</dd>
-
-    <dt data-head="written-by" data-time="written">Written by</dt>
-    <dd>Argus Postmortem agent, {{ postmortem.created_at | clock("%b %d, %Y, %H:%M") }} UTC
-      <span class="local" data-local-at="{{ postmortem.created_at | clock('%Y-%m-%dT%H:%M:%SZ') }}"></span>.
-      {{ "Reviewed." if postmortem.review and not left_for_people else "Not reviewed yet." }}</dd>
-
-    <dt data-head="ended-by">Ended by</dt>
-    <dd>
-      {%- if resolution %}<span data-ended-by="{{ resolution.by }}">{{ resolution.by }}</span>
-        from {{ resolution.channel }}, {{ when(resolution.at) }}{% if resolution.note %} - <q>{{ resolution.note }}</q>{% endif %}
-      {%- elif last_step %}<span data-ended-by="{{ last_step.by }}">{{ last_step.by }}</span>: {{ last_step.action[:1] | lower }}{{ last_step.action[1:] }} - {{ last_step.outcome }}
-      {%- else %}Not recorded.{% endif -%}
-    </dd>
+  {% for key, line in rows %}
+    <dt data-head="{{ key }}"{% if key == "date" %} data-time="incident"{% elif key == "written-by" %} data-time="written"{% endif %}>{{ head.labels[loop.index0] }}</dt>
+    <dd{% if key == "ended-by" and head.ended_by_whom %} data-ended-by="{{ head.ended_by_whom }}"{% endif %}>{{ said(line) }}
+      {%- if key == "incident" %} · <a href="{{ the_incident }}">incident page</a>{% endif %}</dd>
+  {% endfor %}
   </dl>
 </div>
 <script>
@@ -168,280 +116,202 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+{# The sections in the order the document gives them. A section with nothing
+   in it says so rather than being left out - a missing heading reads as one
+   nobody thought to write - except what people told the incident, which the
+   document leaves out where nobody wrote. #}
+{% set headings = postmortem.headings %}
+
 <section data-section="summary">
-<h2>Summary</h2>
-{% if postmortem.executive_summary %}
-<p class="executive-summary">{{ postmortem.executive_summary | references(labels) }}</p>
+<h2>{{ headings["summary"] }}</h2>
+{% if postmortem.summary %}
+<p class="executive-summary">{{ said(postmortem.summary, labels) }}</p>
 {% else %}
-<p class="empty">No summary was written.</p>
+<p class="empty">{{ postmortem.summary_absent }}</p>
 {% endif %}
 </section>
 
+{% set impact = postmortem.impact %}
 <section data-section="impact">
-<h2>Impact</h2>
+<h2>{{ headings["impact"] }}</h2>
 {# One card per figure, the figure first: a reader scanning for how bad it was
    reads the numbers across before reading what any of them is. #}
 <div class="impact-cards">
+{% for card in impact.cards %}
   <div class="card">
-    <span class="value">
-    {%- if postmortem.impact -%}
-      {% if postmortem.impact.extent.value == "at least" %}at least {% endif %}{{ postmortem.impact.duration | span }}
-    {%- else -%}not measured{%- endif -%}
-    </span>
-    <span class="label">onset to recovery</span>
+    <span class="value"{% if card.loss_is %} data-loss-is="{{ card.loss_is }}"{% endif %}>{{ card.value }}</span>
+    <span class="label">{{ card.label }}</span>
   </div>
-  <div class="card">
-    <span class="value">
-    {%- if postmortem.impact and postmortem.impact.peak_error_rate is not none -%}
-      {{ "%.1f%%" | format(postmortem.impact.peak_error_rate * 100) }}
-    {%- else -%}not measured{%- endif -%}
-    </span>
-    <span class="label">peak error rate</span>
-  </div>
-  <div class="card">
-    <span class="value">
-    {%- if postmortem.impact and postmortem.impact.requests_failed is not none -%}
-      {{ "{:,}".format(postmortem.impact.requests_failed) }}
-    {%- else -%}not counted{%- endif -%}
-    </span>
-    <span class="label">requests failed</span>
-  </div>
-  {# At least, where the incident never ended: the takings were counted up to
-     where the metrics stopped, with the incident still going there. #}
-  {% set a_lower_bound = postmortem.impact and postmortem.impact.extent.value != "measured" %}
-  <div class="card">
-    <span class="value"
-      {%- if postmortem.customer_loss_estimate is not none %} data-loss-is="{{ 'a lower bound' if a_lower_bound else 'measured' }}"{% endif %}>
-    {#- No loss is said as none rather than as an amount: "at least 0.00" is
-        true and reads as a figure nobody filled in. "So far" keeps what the
-        "at least" says of an incident still going when the takings were
-        counted. -#}
-    {%- if postmortem.customer_loss_estimate is not none and postmortem.customer_loss_estimate == 0 -%}
-      none{% if a_lower_bound %} so far{% endif %}
-    {%- elif postmortem.customer_loss_estimate is not none -%}
-      {% if a_lower_bound %}at least {% endif %}{{ postmortem.customer_loss_estimate | money }} {{ (postmortem.estimate_currency or '')|upper }}
-    {%- else -%}not estimated{%- endif -%}
-    </span>
-    <span class="label">customer loss (estimated)</span>
-  </div>
+{% endfor %}
 </div>
-{# The alert's own measurement, beside the cards: where the damage is not a
-   rate - totals written wrong rather than requests failed - the cards have
-   nothing to say, and this is the one measurement there is. #}
-{% if incident.alert.summary %}
-<p class="alert-finding">What the alert found: {{ incident.alert.summary }}</p>
-{% endif %}
-{% if postmortem.impact and postmortem.impact.extent.value == "unobserved" %}
-<p class="unobserved">Unobserved after a point - the metrics stopped, so the duration is how long nobody could see.</p>
-{% endif %}
+{% if impact.finding %}<p class="alert-finding">{{ impact.finding }}</p>{% endif %}
+{% if impact.unobserved %}<p class="unobserved">{{ impact.unobserved }}</p>{% endif %}
 </section>
 
+{% set cause = postmortem.cause %}
 <section data-section="cause">
-<h2>Root cause and contributing factors</h2>
-{% if postmortem.root_cause %}
-<p class="root-cause">{{ postmortem.root_cause | references(labels) }}</p>
-{% endif %}
-<h3>Causal chain</h3>
-{% if postmortem.causal_chain %}
-{# Each step beside its place in the chain - the symptom first, then each why
-   asked of the one before - and what it rests on under it, quieter than the
-   claim. Without the prompt's labels: they named the evidence for the model,
-   and mean nothing to a reader. #}
+<h2>{{ headings["cause"] }}</h2>
+{% if cause.root_cause %}<p class="root-cause">{{ said(cause.root_cause, labels) }}</p>{% endif %}
+<h3>{{ cause.chain_heading }}</h3>
+{% if cause.chain %}
+{# Each step beside its place in the chain, and what it rests on under it,
+   quieter than the claim. #}
 <ol class="chain">
-{% for step in postmortem.causal_chain %}
+{% for link in cause.chain %}
   <li>
-    <span class="why">{{ "symptom" if loop.first else "why " ~ loop.index }}</span>
+    <span class="why">{{ link.place }}</span>
     <div>
-      <p class="claim">{{ step.text | references(labels) }}</p>
-      {% if step.cites %}<p class="evidence">Evidence:
-        {% for cited in step.cites %}<span class="cited">{{ cited.text }}</span>{% endfor %}</p>{% endif %}
+      <p class="claim">{{ said(link.claim, labels) }}</p>
+      {% if link.evidence %}<p class="evidence">{{ cause.evidence_label }}
+        {% for cited in link.evidence %}<span class="cited">{{ cited }}</span>{% endfor %}</p>{% endif %}
     </div>
   </li>
 {% endfor %}
 </ol>
 {% else %}
-<p class="empty">No causal chain was written.</p>
+<p class="empty">{{ cause.chain_absent }}</p>
 {% endif %}
-<h3>Contributing factors</h3>
-{% if postmortem.contributing_factors %}
+<h3>{{ cause.factors_heading }}</h3>
+{% if cause.factors %}
 <ul class="factors">
-{% for factor in postmortem.contributing_factors %}
-  <li>{{ factor.text | references(labels) }}{% if factor.addressed_by %} <span class="addressed-by">({{ factor.addressed_by | join(", ") | references(labels) }})</span>{% endif %}</li>
+{% for factor in cause.factors %}
+  <li>{{ said(factor.text, labels) }}{% if factor.addressed_by %} <span class="addressed-by">{{ said(factor.addressed_by, labels) }}</span>{% endif %}</li>
 {% endfor %}
 </ul>
 {% else %}
-<p class="empty">No contributing factors were named.</p>
+<p class="empty">{{ cause.factors_absent }}</p>
 {% endif %}
 </section>
 
+{% set hypotheses = postmortem.hypotheses %}
 <section data-section="hypotheses">
-<h2>Hypotheses considered</h2>
-{% if postmortem.hypotheses %}
+<h2>{{ headings["hypotheses"] }}</h2>
+{% if hypotheses.rows %}
 <table class="hypotheses">
-  <thead><tr><th></th><th>Hypothesis</th><th>Confidence</th><th>Result</th></tr></thead>
+  <thead><tr>{% for heading in hypotheses.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
-  {% for hypothesis in postmortem.hypotheses %}
-    <tr id="{{ hypothesis.label }}"><td class="label">{{ hypothesis.label }}</td><td>{{ hypothesis.summary }}</td>
-      <td>{{ "%.2f" | format(hypothesis.confidence) if hypothesis.confidence is not none else "-" }}</td>
-      <td>{{ hypothesis.result }}</td></tr>
+  {% for row in hypotheses.rows %}
+    <tr id="{{ row.label }}"><td class="label">{{ row.label }}</td><td>{{ row.summary }}</td>
+      <td>{{ row.confidence }}</td><td>{{ row.result }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 {% else %}
-<p class="empty">No hypotheses were ranked.</p>
+<p class="empty">{{ hypotheses.absent }}</p>
 {% endif %}
 </section>
 
+{% set trigger = postmortem.trigger %}
 <section data-section="trigger">
-<h2>Trigger</h2>
-{% if postmortem.trigger %}
-{# Suspected where nothing tested it: the leading candidate's change, which an
-   action only recommended would have confirmed or refuted. Said first, so it
-   is read before the change is. #}
-<p data-trigger="{{ 'suspected' if postmortem.trigger.suspected else 'confirmed' }}">
-  {% if postmortem.trigger.suspected %}<strong>Suspected, not confirmed:</strong> {% endif %}
-  {# The state it left struck through, the state it went to in gold - whichever
-     way round they are: what matters is which one it moved away from. A flag's
-     states are words and shown in capitals; a deployment's are revisions, shown
-     as written, since a revision is an identifier and not a word. #}
-  <span class="mono">{{ changed }}</span>
-  {%- if postmortem.trigger.kind and postmortem.trigger.kind.value == "flag-toggle" %} flag{% endif %}
-  {%- if postmortem.trigger.from_state or postmortem.trigger.to_state %} {{ "was deployed" if deployed else "went" }} from
-    <span class="state-from{{ ' mono' if deployed else '' }}" data-from-state="{{ postmortem.trigger.from_state or '' }}">{{ postmortem.trigger.from_state | revision if deployed and postmortem.trigger.from_state else (postmortem.trigger.from_state or "unknown") | upper }}</span>
-    to <span class="state-to{{ ' mono' if deployed else '' }}" data-to-state="{{ postmortem.trigger.to_state or '' }}">{{ postmortem.trigger.to_state | revision if deployed and postmortem.trigger.to_state else (postmortem.trigger.to_state or "unknown") | upper }}</span>{% endif %}
-  {%- if postmortem.trigger.changed_at %} at {{ when(postmortem.trigger.changed_at) }}{% endif %}
-  {%- if postmortem.trigger.actor %}, by {{ postmortem.trigger.actor }}{% endif %}.
-</p>
+<h2>{{ headings["trigger"] }}</h2>
+{% if trigger.line %}
+<p data-trigger="{{ 'suspected' if trigger.suspected else 'confirmed' }}"{% if trigger.states_are_revisions %} class="revisions"{% endif %}>{{ said(trigger.line) }}</p>
 {% else %}
-<p class="empty">No trigger was established.</p>
+<p class="empty">{{ trigger.absent }}</p>
 {% endif %}
 </section>
 
+{% set taken = postmortem.actions_taken %}
 <section data-section="resolution">
-<h2>Resolution</h2>
-{% if resolution %}{{ person_who_resolved(resolution) }}{% endif %}
-{# The fix beside the actions: the mitigation ended the symptom, the fix is
-   what ends the cause, and a resolution without it reads as finished while
-   the one thing still owed sits in a list further down. Dated by the
-   narration that recorded it, where that line is there to read. #}
-{% if postmortem.resolution or postmortem.pull_request %}
-{% set proposed = postmortem.timeline | selectattr("who", "equalto", "Code-Fix Agent") | first %}
+<h2>{{ headings["resolution"] }}</h2>
+{% if taken.person %}<p class="resolution" data-resolution="{{ taken.resolved_by }}">{{ said(taken.person) }}</p>{% endif %}
+{% if taken.steps or taken.fix %}
 <table class="resolution-steps">
-  <thead><tr><th>Time (UTC)</th><th>Action</th><th>By</th><th>Kind</th><th>Outcome</th></tr></thead>
+  <thead><tr>{% for heading in taken.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
-  {% for step in postmortem.resolution %}
-    <tr id="{{ step.label }}"><td>{{ step.at | clock }}</td><td>{{ step.action }}</td><td>{{ step.by }}</td>
-      <td>{{ "reversible" if step.reversible else "irreversible" }}</td><td>{{ step.outcome }}</td></tr>
+  {% for step in taken.steps %}
+    <tr id="{{ step.label }}"><td>{{ step.at }}</td><td>{{ said(step.action) }}</td><td>{{ step.by }}</td>
+      <td>{{ step.kind }}</td><td>{{ step.outcome }}</td></tr>
   {% endfor %}
-  {% if postmortem.pull_request %}
-    <tr><td>{{ proposed.at | clock if proposed else "-" }}</td>
-      <td>proposed a fix: <a data-resolution-fix="{{ postmortem.pull_request.url }}" href="{{ postmortem.pull_request.url }}"
-          target="_blank" rel="noopener noreferrer">PR #{{ postmortem.pull_request.number }}</a></td>
-      <td>Code-Fix Agent</td><td>needs a person to merge</td><td class="draft">draft - not merged</td></tr>
+  {% if taken.fix %}
+    <tr><td>{{ taken.fix.at }}</td><td>{{ said(taken.fix.action, link="resolution-fix") }}</td>
+      <td>{{ taken.fix.by }}</td><td>{{ taken.fix.kind }}</td><td class="draft">{{ taken.fix.outcome }}</td></tr>
   {% endif %}
   </tbody>
 </table>
-{% elif not resolution %}
-<p class="empty">Nothing was done to end it.</p>
+{% elif taken.absent %}
+<p class="empty">{{ taken.absent }}</p>
 {% endif %}
 </section>
 
+{% set detection = postmortem.detection %}
 <section data-section="detection">
-<h2>Detection</h2>
-{% if postmortem.detection %}
-<p>
-  {% if postmortem.detection.onset_at %}The incident on <span class="mono">{{ incident.alert.service }}</span> began at {{ when(postmortem.detection.onset_at) }}.
-  {% else %}The onset is unknown.{% endif %}
-  {{ incident.alert.alert_name }} fired at {{ when(postmortem.detection.alerted_at) }}
-  {%- if postmortem.detection.gap is not none %}, {{ postmortem.detection.gap | span }} later{% endif %}.
-</p>
+<h2>{{ headings["detection"] }}</h2>
+{% if detection.line %}
+<p>{{ said(detection.line) }}</p>
 {% else %}
-<p class="empty">How it was detected was not recorded.</p>
+<p class="empty">{{ detection.absent }}</p>
 {% endif %}
 </section>
 
-{# Argus edits no item after the document is written, so an open item has no
-   owner until a person takes it on somewhere else. #}
+{% set items = postmortem.action_items %}
 <section data-section="action-items">
-<h2>Action items</h2>
-{% if postmortem.action_items %}
+<h2>{{ headings["action-items"] }}</h2>
+{% if items.rows %}
 <table class="action-items">
-  <thead><tr><th>Item</th><th>Action</th><th>Type</th><th>Owner</th><th>Tracking</th><th>Status</th></tr></thead>
+  <thead><tr>{% for heading in items.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
-  {% for item in postmortem.action_items %}
-    <tr id="{{ item.number }}"><td>{{ item.number }}</td><td>{{ item.text | references(labels) }}</td><td>{{ item.type.value }}</td>
-      <td{% if not item.owner %} class="unassigned"{% endif %}>{{ item.owner or "unassigned" }}</td>
-      <td>{% if item.tracking %}<a href="{{ item.tracking }}" target="_blank" rel="noopener noreferrer">{{ item.tracking }}</a>{% else %}-{% endif %}</td>
-      <td class="status-{{ item.status.value }}">{{ item.status.value }}</td></tr>
+  {% for row in items.rows %}
+    <tr id="{{ row.number }}"><td>{{ row.number }}</td><td>{{ said(row.text, labels) }}</td><td>{{ row.type }}</td>
+      <td{% if row.unassigned %} class="unassigned"{% endif %}>{{ row.owner }}</td>
+      <td>{{ said(row.tracking) }}</td>
+      <td class="status-{{ row.status }}">{{ row.status }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 {% else %}
-<p class="empty">No action items.</p>
+<p class="empty">{{ items.absent }}</p>
 {% endif %}
-{% if postmortem.recommended_action %}
-<p class="recommended">Argus declined to act, and recommends: {{ postmortem.recommended_action | references(labels) }}</p>
-{% endif %}
+{% if items.recommended %}<p class="recommended">{{ said(items.recommended, labels) }}</p>{% endif %}
 </section>
 
 <section data-section="lessons">
-<h2>Lessons learned</h2>
+<h2>{{ headings["lessons"] }}</h2>
 {# The three lists side by side, so a reader weighs what went well against what
    went wrong in one glance rather than three screens. #}
-{% set lessons = postmortem.lessons %}
 <div class="lessons">
-{% for heading, said in [("What went well", lessons.went_well if lessons else []),
-                         ("What went wrong", lessons.went_wrong if lessons else []),
-                         ("Where it got lucky", lessons.got_lucky if lessons else [])] %}
+{% for lessons in postmortem.lessons %}
 <div>
-<h3>{{ heading }}</h3>
-{% if said %}
-<ul>{% for lesson in said %}<li>{{ lesson | references(labels) }}</li>{% endfor %}</ul>
+<h3>{{ lessons.heading }}</h3>
+{% if lessons.items %}
+<ul>{% for lesson in lessons.items %}<li>{{ said(lesson, labels) }}</li>{% endfor %}</ul>
 {% else %}
-<p class="empty">Nothing.</p>
+<p class="empty">{{ lessons.absent }}</p>
 {% endif %}
 </div>
 {% endfor %}
 </div>
 </section>
 
+{% set timeline = postmortem.timeline %}
 <section class="postmortem-timeline" data-section="timeline">
-<h2>Timeline <small class="zone">(UTC)</small></h2>
-{% if postmortem.timeline %}
+<h2>{{ headings["timeline"] }} <small class="zone">{{ timeline.zone }}</small></h2>
+{% if timeline.rows %}
 <table class="timeline">
   <tbody>
-  {% for entry in postmortem.timeline %}
-    {#- The date where the day changes, and only there: a time of day alone
-        reads in order within one day, and an incident spanning days would read
-        as time running backwards. -#}
-    {%- set new_day = loop.first or (entry.at | clock("%Y-%m-%d")) != (loop.previtem.at | clock("%Y-%m-%d")) %}
-    <tr{% if entry.label %} id="{{ entry.label }}"{% endif %}{% if entry.marker %} class="marker"{% endif %}><td>{% if new_day %}{{ entry.at | clock("%b %d") }} {% endif %}{{ entry.at | clock }}</td>
-      <td>{% if entry.marker %}<span class="marker {{ entry.marker.value | replace(' ', '-') }}">{{ entry.marker.value | upper }}</span> {% endif %}
-        {%- if entry.who %}<span class="who">{{ entry.who }}</span> {% endif %}{{ coloured(entry.text, postmortem.pull_request.url if postmortem.pull_request else none) }}</td></tr>
+  {% for row in timeline.rows %}
+    <tr{% if row.label %} id="{{ row.label }}"{% endif %}{% if row.marker %} class="marker"{% endif %}><td>{{ row.at }}</td>
+      <td>{% if row.marker %}<span class="marker {{ row.marker | lower | replace(' ', '-') }}">{{ row.marker }}</span> {% endif %}
+        {%- if row.who %}<span class="who">{{ row.who }}</span> {% endif %}{{ said(row.text, fix_url=fix_url) }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 {% else %}
-<p class="empty">No timeline was recorded.</p>
+<p class="empty">{{ timeline.absent }}</p>
 {% endif %}
 </section>
 
 {# What people told the incident, each with what the investigation made of it
-   and whether it changed anything - one answer to the person who wrote it, so
-   the three stay together. Absent where nobody wrote. #}
-{% if postmortem.leads %}
+   and whether it changed anything - one answer to the person who wrote it. #}
+{% if "leads" in headings %}
 <section data-section="leads">
-<h2>What people told Argus</h2>
+<h2>{{ headings["leads"] }}</h2>
 <ul class="leads">
 {% for lead in postmortem.leads %}
   <li data-lead="{{ lead.person_id }}">
-    <q>{{ lead.text }}</q> - {{ lead.person_name or lead.person_id }}, {{ when(lead.written_at) }}
-    {% if lead.weighing %}
-      <span class="standing {{ lead.weighing.standing.value }}">{{ lead.weighing.standing.value }}</span>: {{ lead.weighing.reason }}
-    {% else %}
-      <span class="standing">never weighed</span>
-    {% endif %}
-    {% if lead.effect %}<p class="effect">{{ lead.effect | references(labels) }}</p>{% endif %}
+    {{ said(lead.said) }}
+    {{ said(lead.weighing, status="standing") }}
+    {% if lead.effect %}<p class="effect">{{ said(lead.effect, labels) }}</p>{% endif %}
   </li>
 {% endfor %}
 </ul>
@@ -449,72 +319,52 @@ document.addEventListener('DOMContentLoaded', function () {
 {% endif %}
 
 <section data-section="response-cost">
-<h2>Cost of the response</h2>
-{# The same cards as the impact, figure first. What the minutes cost in pay is
-   not here: divided by the minutes, it is a responder's rate of pay. #}
+<h2>{{ headings["response-cost"] }}</h2>
+{# The same cards as the impact, figure first. #}
 <div class="impact-cards">
+{% for card in postmortem.cost %}
   <div class="card">
-    <span class="value">
-    {%- if postmortem.engineer_minutes is not none %}{{ postmortem.engineer_minutes }} min{% else %}not recorded{% endif -%}
-    </span>
-    <span class="label">engineer time
-      {%- if postmortem.responders %}, {{ postmortem.responders }} responder{{ '' if postmortem.responders == 1 else 's' }}{% endif %}
-      {%- if postmortem.responder_titles %} ({{ postmortem.responder_titles | join(', ') }}){% endif %}</span>
+    <span class="value">{{ card.value }}</span>
+    <span class="label">{{ card.label }}</span>
   </div>
-  <div class="card">
-    <span class="value">
-    {%- if postmortem.tokens_spent is not none %}{{ "{:,}".format(postmortem.tokens_spent) }}{% else %}not recorded{% endif -%}
-    </span>
-    <span class="label">tokens spent by Argus</span>
-  </div>
+{% endfor %}
 </div>
 </section>
 
+{% set supporting = postmortem.supporting %}
 <section data-section="supporting">
-<h2>Supporting information</h2>
-{# Every address in full: the document is read away from the screen it came
-   from, where an address relative to nothing leads nowhere. Not its own
-   address: a page linking to itself is a link nobody follows. #}
-{% set the_walk = url_for("incident_page", incident_id=incident.id) | string %}
+<h2>{{ headings["supporting"] }}</h2>
 <ul class="supporting">
-  <li>The incident's walk: <a data-link="{{ the_walk }}" href="{{ the_walk }}">{{ the_walk }}</a></li>
-  {# The one thing on this page a reader acts on. #}
-  {% if postmortem.pull_request %}
-  <li class="proposed-fix">The fix it proposed:
-    <a class="went" data-link="{{ postmortem.pull_request.url }}" href="{{ postmortem.pull_request.url }}" target="_blank" rel="noopener noreferrer">#{{ postmortem.pull_request.number }} {{ postmortem.pull_request.url }}</a>
-    <span class="draft">draft - nobody has merged it</span></li>
-  {% endif %}
-  <li>Evidence read:
-    {{ postmortem.evidence_read if postmortem.evidence_read is not none else 'not counted' }}</li>
+{% for line in supporting.links %}
+  <li>{{ said(line, link="link", status="draft") }}</li>
+{% endfor %}
 </ul>
-<h3>Assumptions</h3>
-{% if postmortem.assumptions %}
+<h3>{{ supporting.assumptions_heading }}</h3>
+{% if supporting.assumptions %}
 <ul class="assumptions">
-{% for assumption in postmortem.assumptions %}
-  <li>{{ assumption | references(labels) }}</li>
+{% for assumption in supporting.assumptions %}
+  <li>{{ said(assumption, labels) }}</li>
 {% endfor %}
 </ul>
 {% else %}
-<p class="empty">None.</p>
+<p class="empty">{{ supporting.assumptions_absent }}</p>
 {% endif %}
 </section>
 
 {# A tick for what is met, a cross for what is not yet - including the two only
-   people can meet, which stay crossed until a person does. Which of the two
-   kinds a cross is rides on its title and on `data-met`. #}
+   people can meet, which stay crossed until a person does. #}
+{% set review = postmortem.review %}
 <section data-section="review">
-<h2>Review checklist</h2>
-{% if postmortem.review %}
+<h2>{{ headings["review"] }}</h2>
+{% if review.rows %}
 <ul class="checks">
-{% for check in postmortem.review %}
-  <li data-met="{{ 'left' if check.met is none else ('yes' if check.met else 'no') }}">
-    <span class="tick" title="{{ 'for a person' if check.met is none else ('met' if check.met else 'not met') }}">
-      {{- "✓" if check.met else "✗" -}}</span>
+{% for check in review.rows %}
+  <li data-met="{{ check.met }}"><span class="tick" title="{{ check.meaning }}">{{ check.mark }}</span>
     {{ check.criterion }}</li>
 {% endfor %}
 </ul>
 {% else %}
-<p class="empty">Not reviewed.</p>
+<p class="empty">{{ review.absent }}</p>
 {% endif %}
 </section>
 {% endif %}

@@ -142,6 +142,7 @@ root_packages = [
     "metrics_source",
     "oncall_source",
     "orchestrator",
+    "postmortem_rendering",
     "read_mcp_client",
     "read_mcp_server",
     "repository_source",
@@ -332,6 +333,23 @@ ignore_imports = [
 unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
+name = "postmortem_rendering says what a postmortem says from values it is handed"
+type = "forbidden"
+source_modules = ["postmortem_rendering"]
+forbidden_modules = ["*"]
+# The kernel and the narration, and nothing else. The page and the Communicator
+# both read this, so whatever it imports both install: an agent here is one
+# the web process may not have and the Communicator may not name, and the
+# incident record here is a second module opening a connection to rows its
+# caller has already read.
+ignore_imports = [
+    "postmortem_rendering.** -> argus_core",
+    "postmortem_rendering.** -> argus_core.**",
+    "postmortem_rendering.** -> argus_narration",
+]
+unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
 name = "argus_web serves HTML without installing an agent"
 type = "forbidden"
 source_modules = ["argus_web"]
@@ -347,6 +365,7 @@ ignore_imports = [
     "argus_web.** -> argus_incidents",
     "argus_web.** -> argus_incidents.**",
     "argus_web.** -> argus_narration",
+    "argus_web.** -> postmortem_rendering",
     # The watermark, and nothing else of the index. `code_index.records` is
     # Postgres alone - one row saying where the repository is - where
     # `code_index.store` and `code_index.embedding` are a vector store and an

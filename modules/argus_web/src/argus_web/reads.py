@@ -19,19 +19,21 @@ from argus_incidents.repository import (
     postmortems,
     taken_actions,
 )
+from postmortem_rendering import (
+    RenderedPostmortem,
+    ReportedResolution,
+    render,
+    the_reported_resolution,
+)
 
 from argus_web.views import (
     IncidentDetail,
     IncidentSummary,
     LiveIncident,
-    PostmortemView,
-    ResolutionView,
     Story,
     build_incident_detail,
     build_incident_summary,
     build_live_incident,
-    build_postmortem_view,
-    build_resolution_view,
     build_story,
 )
 
@@ -99,13 +101,23 @@ def read_story(conn: psycopg.Connection, incident_id: str) -> Story:
     return build_story(events.get_by_incident(conn, incident_id))
 
 
-def read_postmortem(conn: psycopg.Connection, incident_id: str) -> PostmortemView | None:
-    """The postmortem, where one has been written."""
-    postmortem = postmortems.get_by_incident(conn, incident_id)
+def read_postmortem(conn: psycopg.Connection,
+                    incident: IncidentDetail,
+                    incident_address: str) -> RenderedPostmortem | None:
+    """The postmortem as it is read, where one has been written.
 
-    return build_postmortem_view(postmortem) if postmortem is not None else None
+    Rendered here, from the row and the incident's events, so the page and the
+    PDF are handed the same document. `incident_address` is the incident
+    page's full address, which only the request knows.
+    """
+    postmortem = postmortems.get_by_incident(conn, incident.id)
+    if postmortem is None:
+        return None
+
+    return render(postmortem, incident.alert, events.get_by_incident(conn, incident.id),
+                  incident_address)
 
 
-def read_resolution(conn: psycopg.Connection, incident_id: str) -> ResolutionView | None:
+def read_resolution(conn: psycopg.Connection, incident_id: str) -> ReportedResolution | None:
     """Who resolved the incident, where a person did."""
-    return build_resolution_view(events.get_by_incident(conn, incident_id))
+    return the_reported_resolution(events.get_by_incident(conn, incident_id))

@@ -476,6 +476,14 @@
                  border: 1px solid var(--line); border-radius: 4px;
                  padding: 1px 6px; }
   .incident-id a { color: inherit; text-decoration: none; }
+  /* Shaped like the resolve button, and as quiet: something to press, beside
+     a document that is the thing to read. */
+  .download { margin: 8px 0 0; }
+  .download-pdf { display: inline-block; padding: 4px 14px; border-radius: 3px;
+                  font-size: .72em; letter-spacing: .12em; text-transform: uppercase;
+                  color: #e8e8ea; background: rgba(255,255,255,.07);
+                  text-decoration: none; }
+  .download-pdf:hover, .download-pdf:focus-visible { background: var(--gold); color: #111; }
   .document-title { font-size: 1.6em; font-weight: 600; margin: 18px 0 6px; }
   .document-title a { color: inherit; text-decoration: none; }
   .document-title code { font-family: ui-monospace, monospace; font-size: .92em; }
@@ -535,6 +543,10 @@
   ol.chain .cited { display: block; font-family: ui-monospace, monospace; font-size: .95em; }
   .state-from { color: #9aa0a6; text-decoration: line-through; }
   .state-to { color: var(--gold); }
+  /* A deployment's two ends are revisions, which a reader may copy - so in the
+     fixed-width face the rest of the page sets copyable things in. */
+  .revisions .state-from, .revisions .state-to { font-family: ui-monospace, monospace;
+                                                 font-size: .92em; }
   .impact-cards { display: flex; flex-wrap: wrap; gap: 12px; margin: 6px 0; }
   .impact-cards .card { border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px;
                         min-width: 9.5em; display: flex; flex-direction: column; gap: 8px; }

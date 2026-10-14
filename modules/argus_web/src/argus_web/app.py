@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Final
 
@@ -42,10 +41,17 @@ from oncall_source.pagerduty_adapter import pagerduty_from
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
+from postmortem_rendering import (
+    a_title,
+    as_pdf,
+    in_utc,
+    on_the_clock,
+    the_person_who_resolved,
+)
 
 from argus_web import reads
 from argus_web.chat import receive_chat_delivery
-from argus_web.formatting import as_money, as_revision, as_span, with_references
+from argus_web.formatting import with_references
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 from argus_web.oncall import OnCallDeliverySettings, receive_delivery
 from argus_web.pushes import (
@@ -193,37 +199,11 @@ app.mount(
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
-def _in_utc(moment: datetime, pattern: str = "%Y-%m-%d %H:%M") -> str:
-    """A moment, rendered in UTC and saying so.
-
-    The zone is written out rather than assumed. The Target Service's console
-    stamps its minutes in UTC and labels them; an unlabelled time on this
-    screen reads as local, and beside that console it looks as though the two
-    disagree about when the incident happened.
-
-    Converted rather than trusted: the value arrives from a `TIMESTAMPTZ` in
-    whatever zone the connection is set to, and formatting it as it comes would
-    make the label a guess.
-    """
-    return f"{moment.astimezone(UTC).strftime(pattern)} UTC"
-
-
-def _on_the_clock(moment: datetime, pattern: str = "%H:%M:%S") -> str:
-    """A moment in UTC, unlabelled - for a column whose heading says UTC once.
-
-    The same conversion `_in_utc` does and none of its suffix: a table that
-    repeats the zone on every row of forty spends a column's width saying one
-    thing forty times, and on a screen being read from across a room that width
-    is the message column's.
-    """
-    return moment.astimezone(UTC).strftime(pattern)
-
-
-templates.env.filters["utc"] = _in_utc
-templates.env.filters["clock"] = _on_the_clock
-templates.env.filters["money"] = as_money
-templates.env.filters["span"] = as_span
-templates.env.filters["revision"] = as_revision
+# A time written the way the PDF writes it, so the pages and the file a manager
+# is sent never show one moment two ways. Every other figure the postmortem
+# shows arrives already written, in `postmortem_rendering`'s values.
+templates.env.filters["utc"] = in_utc
+templates.env.filters["clock"] = on_the_clock
 templates.env.filters["references"] = with_references
 
 
@@ -738,16 +718,48 @@ def postmortem_page(request: Request,
     one written before the report is not rewritten, and the person who ended
     the incident is part of what a reader of its write-up is owed.
     """
+    address = str(request.url_for("incident_page", incident_id=incident_id))
     with connections() as conn:
         incident = _an_incident_or_404(conn, incident_id)
-        postmortem = reads.read_postmortem(conn, incident_id)
+        postmortem = reads.read_postmortem(conn, incident, address)
         resolution = reads.read_resolution(conn, incident_id)
 
+    # Where nothing has been written, the page still names the incident and who
+    # ended it, in the words the document would have used.
     return templates.TemplateResponse(
         request,
         "postmortem.html",
-        {"incident": incident, "postmortem": postmortem, "resolution": resolution},
+        {"incident": incident,
+         "postmortem": postmortem,
+         "title": postmortem.title if postmortem else a_title(None, incident.alert),
+         "resolved": (the_person_who_resolved(resolution)
+                      if postmortem is None and resolution else None),
+         "resolved_by": resolution.by if resolution else None},
     )
+
+
+@app.get("/incidents/{incident_id}/postmortem.pdf")
+def postmortem_pdf(request: Request,
+                   incident_id: str,
+                   connections: UsingConnections) -> Response:
+    """The postmortem as a file to save: the page's words, printed.
+
+    Made from the row each time it is asked for, never stored - so it carries
+    whatever the page would show now, a person's resolution included. A 404
+    where nothing has been written, unlike the page: a download of nothing has
+    nothing to send.
+    """
+    address = str(request.url_for("incident_page", incident_id=incident_id))
+    with connections() as conn:
+        incident = _an_incident_or_404(conn, incident_id)
+        postmortem = reads.read_postmortem(conn, incident, address)
+
+    if postmortem is None:
+        raise HTTPException(status_code=404, detail=f"incident {incident_id} has no postmortem")
+
+    return Response(as_pdf(postmortem), media_type="application/pdf",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="argus-postmortem-{incident_id}.pdf"'})
 
 
 def _an_incident_or_404(conn: psycopg.Connection, incident_id: str) -> IncidentDetail:
