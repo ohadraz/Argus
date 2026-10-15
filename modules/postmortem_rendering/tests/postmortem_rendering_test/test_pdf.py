@@ -40,6 +40,7 @@ from argus_testkit import Assertion, Scenario, all_of
 from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import render
 from pypdf import PageObject, PdfReader
+from pypdf.generic import ContentStream
 
 from postmortem_rendering_test.framework.builders import (
     a_marker,
@@ -308,6 +309,22 @@ def test_an_action_item_too_long_for_one_line_wraps_inside_its_cell() -> None:
         .then(all_of(
             _set_lower_than("warned.", "Add a deploy-time check"),
             _a_link_lands_on("C7 A flag change on account pages")))
+
+
+@pytest.mark.unit
+def test_no_cell_is_painted_over_the_words_written_into_it() -> None:
+    # An action item's text is written into the cell the table leaves for it;
+    # a table that then fills the cell paints the words out, and the column
+    # reads empty while the file still holds every word of it.
+    Scenario() \
+        .given(
+            some_rendered := render(_every_section_filled(), an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _nothing_set_is_painted_over())
 
 
 @pytest.mark.unit
@@ -622,6 +639,44 @@ def _a_link_lands_on(expected: str) -> Assertion[bytes]:
         if not any(expected in text for text in landed_on):
             raise AssertionError(f"Expected a link inside the PDF to land on [{expected}], "
                                  f"and its links land on {landed_on}.")
+
+        return True
+
+    return assertion
+
+
+def _nothing_set_is_painted_over() -> Assertion[bytes]:
+    """No filled shape is drawn, later in a page, over where a piece of text
+    was set on it - which the text read back cannot show, since words painted
+    out are still in the file.
+
+    Where each piece of text is set is where `Td` moves to; a filled shape is
+    each rectangle `re` lays out before the fill that paints them."""
+    def assertion(pdf: bytes) -> bool:
+        reader = PdfReader(io.BytesIO(pdf))
+        covered: list[tuple[int, float, float]] = []
+
+        for number, page in enumerate(reader.pages, start=1):
+            texts: list[tuple[float, float]] = []
+            rectangles: list[tuple[float, float, float, float]] = []
+            for operands, operator in ContentStream(page.get_contents(), reader).operations:
+                if operator == b"Td":
+                    texts.append((float(operands[0]), float(operands[1])))
+                elif operator == b"re":
+                    x, y, width, height = (float(each) for each in operands)
+                    rectangles.append((min(x, x + width), max(x, x + width),
+                                       min(y, y + height), max(y, y + height)))
+                elif operator in (b"f", b"F", b"f*", b"B", b"B*"):
+                    covered += [(number, x, y) for x, y in texts
+                                for left, right, bottom, top in rectangles
+                                if left <= x <= right and bottom <= y <= top]
+                    rectangles = []
+                elif operator in (b"S", b"n"):
+                    rectangles = []
+
+        if covered:
+            raise AssertionError(f"Expected no text painted over once set, and text set at "
+                                 f"(page, x, y) {covered} is.")
 
         return True
 

@@ -453,11 +453,15 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
     `landings` is the label each row goes by, `None` for a row without one.
 
     A cell given as a line is left empty, as tall as the line needs, and the
-    line written into it as its row is drawn."""
+    line written into it as its row is drawn.
+
+    The fill colour is put back to the default first, because the table fills
+    every cell in any other: it takes the colour in force as its own, and the
+    fill comes after the line written into the cell, painting it out."""
     pdf.set_font(_BODY, "", _TABLE_PT)
     pdf.set_text_color(*_INK)
     pdf.set_draw_color(*_RULE)
-    pdf.set_fill_color(255, 255, 255)
+    pdf.set_fill_color(pdf.DEFAULT_FILL_COLOR)
     pdf.set_line_width(0.26)
     aligned = list(align) if align else ["L"] * len(widths)
     layout = _RuledAcross(pdf, {(place, column): (cell, widths[column])
