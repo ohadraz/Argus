@@ -91,6 +91,7 @@ class _Sheet(FPDF):
                         if run.role is Role.MOMENT), "")
         self._written = f"Argus postmortem · written {written}"
         self.labels = rendered.labels
+        self.addresses = rendered.supporting.revision_addresses
         self._citations: dict[str, int] = {}
 
     def citation(self, label: str) -> int:
@@ -270,9 +271,10 @@ def _a_subheading(pdf: _Sheet, heading: str, space_above: float = 3.6) -> None:
 
 def _cited(pdf: _Sheet, runs: Sequence[Run]) -> Iterator[Run]:
     """The runs with every label the prose cites cut out as a citation of the
-    row it names."""
+    row it names, and every revision it names as a link to where it opens."""
     for run in runs:
-        yield from run.with_citations(pdf.labels) if run.role is Role.PROSE else (run,)
+        yield from (run.with_references(pdf.labels, pdf.addresses) if run.role is Role.PROSE
+                    else (run,))
 
 
 def _link(pdf: _Sheet, run: Run) -> str | int:
@@ -348,7 +350,7 @@ def _beneath(pdf: _Sheet, runs: Sequence[Run], indent: float, colour: tuple[int,
     pdf.set_x(left + indent)
     for run in _cited(pdf, runs):
         pdf.set_font(_BODY, "B" if run.role is Role.STATUS else "", size)
-        pdf.set_text_color(*(_LINK if run.role is Role.CITATION else colour))
+        pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else colour))
         pdf.write(height, run.text, link=_link(pdf, run))
     pdf.ln(height + after)
     pdf.set_left_margin(left)

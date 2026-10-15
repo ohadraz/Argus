@@ -102,6 +102,26 @@ def test_a_deploy_read_is_a_row_naming_its_revision_short_then_whole_each_a_link
 
 
 @pytest.mark.unit
+def test_each_revision_a_change_read_names_leads_where_it_opens_short_and_whole() -> None:
+    # The prose names a deploy by its revision - short, as it is told to write
+    # one, or whole - and a reader follows either to the commit. A flag toggle
+    # has nowhere to open, so nothing it names leads anywhere.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P2"),
+                                                          a_change_read("P1")])
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).revision_addresses
+        ) \
+        .then(
+            the_answer_was({SOME_DEPLOYED_REVISION[:7]: commit, SOME_DEPLOYED_REVISION: commit}))
+
+
+@pytest.mark.unit
 def test_a_change_with_nowhere_to_open_names_what_it_changed_in_code_and_who_nobody_named() -> None:
     # A flag toggle, or a deploy from a host whose pages are not known: its
     # reference is a name, said as one, and a change no one is named for is

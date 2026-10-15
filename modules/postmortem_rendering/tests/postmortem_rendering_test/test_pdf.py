@@ -191,6 +191,31 @@ def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory(
 
 
 @pytest.mark.unit
+def test_a_revision_the_prose_names_links_out_to_its_commit() -> None:
+    # "The deploy of revision 7c3ca00": a reader of the file opens the commit
+    # from the prose that names it, not only from the row listing the change -
+    # which links it already, so the claim is one link more than without it.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+
+    Scenario() \
+        .given(
+            unnamed := as_pdf(render(a_postmortem(root_cause="A deploy broke it.",
+                                                  changes_read=[a_deploy_read()]),
+                                     an_alert(), [], SOME_ADDRESS)),
+            some_rendered := render(
+                a_postmortem(root_cause=f"The deploy of revision {SOME_DEPLOYED_REVISION[:7]} "
+                                        f"broke it.",
+                             changes_read=[a_deploy_read()]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _one_more_link_out_to(commit, than=unnamed))
+
+
+@pytest.mark.unit
 def test_a_label_the_prose_cites_leads_to_the_row_it_names() -> None:
     some_hypothesis = HypothesisConsidered(summary="A flag change on account pages",
                                            confidence=0.8, result="dont care", label="C7")
@@ -559,10 +584,7 @@ def _it_says_all(*expected: str) -> Assertion[bytes]:
 def _it_links_out_to(*expected: str) -> Assertion[bytes]:
     """Each address is a link out of the file, to itself."""
     def assertion(pdf: bytes) -> bool:
-        linked = [link.get_object()["/A"]["/URI"]
-                  for page in PdfReader(io.BytesIO(pdf)).pages
-                  for link in page.get("/Annots", [])
-                  if "/A" in link.get_object()]
+        linked = _links_out(pdf)
         missing = [address for address in expected if address not in linked]
 
         if missing:
@@ -572,6 +594,29 @@ def _it_links_out_to(*expected: str) -> Assertion[bytes]:
         return True
 
     return assertion
+
+
+def _one_more_link_out_to(address: str, than: bytes) -> Assertion[bytes]:
+    """The file links out to `address` once more than `than` does."""
+    def assertion(pdf: bytes) -> bool:
+        expected = _links_out(than).count(address) + 1
+        found = _links_out(pdf).count(address)
+
+        if found != expected:
+            raise AssertionError(f"Expected {expected} links out to {address}, and the PDF "
+                                 f"has {found}.")
+
+        return True
+
+    return assertion
+
+
+def _links_out(pdf: bytes) -> list[str]:
+    """Where each link out of the file goes, once for every link."""
+    return [link.get_object()["/A"]["/URI"]
+            for page in PdfReader(io.BytesIO(pdf)).pages
+            for link in page.get("/Annots", [])
+            if "/A" in link.get_object()]
 
 
 def _every_page_says(expected: str) -> Assertion[bytes]:

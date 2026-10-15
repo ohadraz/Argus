@@ -30,7 +30,8 @@ class Role(StrEnum):
 
     `PROSE` is the model's words, which may cite a label - a destination with
     rows to link to links them - where everything else is the record's.
-    `CITATION` is one such label, cut out of the prose by `Run.with_citations`.
+    `CITATION` is one such label, cut out of the prose by `Run.with_citations`;
+    a name in it that opens somewhere is cut out as a `LINK`.
     `NARRATION` is a line of Argus's own account, which writes the statuses
     and verdicts it names in capitals, so a destination may mark them.
     """
@@ -101,6 +102,16 @@ class Run(BaseModel):
         return tuple(Run(text=piece, role=Role.LINK, address=addresses[piece]) if named
                      else self.model_copy(update={"text": piece})
                      for piece, named in self._cut_at(addresses))
+
+    def with_references(self, labels: Collection[str],
+                        addresses: Mapping[str, str]) -> tuple[Run, ...]:
+        """The run cut at every label it cites, as `with_citations` cuts it,
+        and the words between them at every name in `addresses`, as
+        `with_links` does - "the deploy of revision 7c3ca00 (P2)" leading to
+        the row P2 names and to where the revision opens."""
+        return tuple(linked for piece in self.with_citations(labels)
+                     for linked in (piece.with_links(addresses)
+                                    if piece.role is not Role.CITATION else (piece,)))
 
     def _cut_at(self, names: Collection[str]) -> Iterator[tuple[str, bool]]:
         """The run's words in pieces, each with whether it is one of `names` -

@@ -149,6 +149,29 @@ def test_a_name_is_not_linked_from_inside_a_longer_word() -> None:
 
 
 @pytest.mark.unit
+def test_prose_cites_each_label_and_links_each_name_with_an_address() -> None:
+    # "The deploy of revision 7c3ca00 (P2)": the label leads to the row that
+    # says what P2 was, and the revision to where a reader opens it.
+    commit = "https://github.com/acme/shop/commit/7c3ca00"
+
+    Scenario() \
+        .given(
+            some_prose := Run(text="The deploy of revision 7c3ca00 (P2) broke it.",
+                              role=Role.PROSE)
+        ) \
+        .when(
+            lambda: some_prose.with_references({"P2"}, {"7c3ca00": commit})
+        ) \
+        .then(
+            the_answer_was((Run(text="The deploy of revision ", role=Role.PROSE),
+                            Run(text="7c3ca00", role=Role.LINK, address=commit),
+                            Run(text=" (", role=Role.PROSE),
+                            Run(text="P2", role=Role.CITATION, address="P2"),
+                            Run(text=") broke it.", role=Role.PROSE)))
+        )
+
+
+@pytest.mark.unit
 def test_a_label_with_no_row_to_cite_is_left_as_prose() -> None:
     # A postmortem with no hypotheses still has prose, and it may still name
     # C1 - a citation of it would lead nowhere.

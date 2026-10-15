@@ -32,12 +32,13 @@
 {%- endmacro %}
 
 {# A line's runs in markup. The model's prose links every label it cites to the
-   row of that name, where the page has one; a moment is said again on the
+   row of that name, where the page has one, and every name in `addresses` to
+   where it opens; a moment is said again on the
    reader's own clock (the script below); `link` names the `data-` attribute a
    link carries its address in, and `status` the class a status is set in. #}
-{% macro said(line, labels=[], link=none, status="status", fix_url=none) -%}
+{% macro said(line, labels=[], addresses={}, link=none, status="status", fix_url=none) -%}
 {%- for run in line.runs -%}
-  {%- if run.role == "prose" -%}{{ run.text | references(labels) }}
+  {%- if run.role == "prose" -%}{{ run.text | references(labels, addresses) }}
   {%- elif run.role == "narration" -%}{{ coloured(run.text, fix_url) }}
   {%- elif run.role == "code" -%}<code>{{ run.text }}</code>
   {%- elif run.role == "strong" -%}<strong>{{ run.text }}</strong>
@@ -74,8 +75,10 @@
 
 {# Every row the model's prose may cite, by the label it cites it by, so a
    citation links to its row - and one naming a row this page does not have
-   stays plain. #}
+   stays plain - and every revision the changes read name, so the prose naming
+   one opens it. #}
 {% set labels = postmortem.labels %}
+{% set addresses = postmortem.supporting.revision_addresses %}
 
 {# What a reader asks before reading any of it, each row under the label the
    document gives it. The two times a reader most easily takes for each other -
@@ -125,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <section data-section="summary">
 <h2>{{ headings["summary"] }}</h2>
 {% if postmortem.summary %}
-<p class="executive-summary">{{ said(postmortem.summary, labels) }}</p>
+<p class="executive-summary">{{ said(postmortem.summary, labels, addresses) }}</p>
 {% else %}
 <p class="empty">{{ postmortem.summary_absent }}</p>
 {% endif %}
@@ -151,7 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
 {% set cause = postmortem.cause %}
 <section data-section="cause">
 <h2>{{ headings["cause"] }}</h2>
-{% if cause.root_cause %}<p class="root-cause">{{ said(cause.root_cause, labels) }}</p>{% endif %}
+{% if cause.root_cause %}<p class="root-cause">{{ said(cause.root_cause, labels, addresses) }}</p>{% endif %}
 <h3>{{ cause.chain_heading }}</h3>
 {% if cause.chain %}
 {# Each step beside its place in the chain, and what it rests on under it,
@@ -161,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <li>
     <span class="why">{{ link.place }}</span>
     <div>
-      <p class="claim">{{ said(link.claim, labels) }}</p>
+      <p class="claim">{{ said(link.claim, labels, addresses) }}</p>
       {% if link.evidence %}<p class="evidence">{{ cause.evidence_label }}
         {% for cited in link.evidence %}<span class="cited">{{ cited }}</span>{% endfor %}</p>{% endif %}
     </div>
@@ -175,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function () {
 {% if cause.factors %}
 <ul class="factors">
 {% for factor in cause.factors %}
-  <li>{{ said(factor.text, labels) }}{% if factor.addressed_by %} <span class="addressed-by">{{ said(factor.addressed_by, labels) }}</span>{% endif %}</li>
+  <li>{{ said(factor.text, labels, addresses) }}{% if factor.addressed_by %} <span class="addressed-by">{{ said(factor.addressed_by, labels, addresses) }}</span>{% endif %}</li>
 {% endfor %}
 </ul>
 {% else %}
@@ -252,7 +255,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <thead><tr>{% for heading in items.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
   {% for row in items.rows %}
-    <tr id="{{ row.number }}"><td>{{ row.number }}</td><td>{{ said(row.text, labels) }}</td><td>{{ row.type }}</td>
+    <tr id="{{ row.number }}"><td>{{ row.number }}</td><td>{{ said(row.text, labels, addresses) }}</td><td>{{ row.type }}</td>
       <td{% if row.unassigned %} class="unassigned"{% endif %}>{{ row.owner }}</td>
       <td>{{ said(row.tracking) }}</td>
       <td class="status-{{ row.status }}">{{ row.status }}</td></tr>
@@ -262,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function () {
 {% else %}
 <p class="empty">{{ items.absent }}</p>
 {% endif %}
-{% if items.recommended %}<p class="recommended">{{ said(items.recommended, labels) }}</p>{% endif %}
+{% if items.recommended %}<p class="recommended">{{ said(items.recommended, labels, addresses) }}</p>{% endif %}
 </section>
 
 <section data-section="lessons">
@@ -274,7 +277,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <div>
 <h3>{{ lessons.heading }}</h3>
 {% if lessons.items %}
-<ul>{% for lesson in lessons.items %}<li>{{ said(lesson, labels) }}</li>{% endfor %}</ul>
+<ul>{% for lesson in lessons.items %}<li>{{ said(lesson, labels, addresses) }}</li>{% endfor %}</ul>
 {% else %}
 <p class="empty">{{ lessons.absent }}</p>
 {% endif %}
@@ -311,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <li id="{{ lead.label }}" data-lead="{{ lead.person_id }}">
     <span class="lead-label">{{ lead.label }}</span> {{ said(lead.said) }}
     {{ said(lead.weighing, status="standing") }}
-    {% if lead.effect %}<p class="effect">{{ said(lead.effect, labels) }}</p>{% endif %}
+    {% if lead.effect %}<p class="effect">{{ said(lead.effect, labels, addresses) }}</p>{% endif %}
   </li>
 {% endfor %}
 </ul>
@@ -362,7 +365,7 @@ document.addEventListener('DOMContentLoaded', function () {
 {% if supporting.assumptions %}
 <ul class="assumptions">
 {% for assumption in supporting.assumptions %}
-  <li>{{ said(assumption, labels) }}</li>
+  <li>{{ said(assumption, labels, addresses) }}</li>
 {% endfor %}
 </ul>
 {% else %}

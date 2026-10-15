@@ -1736,6 +1736,46 @@ def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory(
 
 
 @pytest.mark.component
+def test_a_revision_the_root_cause_names_opens_its_commit() -> None:
+    # The prose names the deploy by its revision, and a reader opens it from
+    # there - not only from the row listing the change, which links it too.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_repository = "https://github.com/acme/shop"
+    commit = f"{some_repository}/commit/{some_revision}"
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "root_cause": f"The deploy of revision {some_revision[:7]} broke it.",
+            "changes_read": [CitedChange(
+                label="P1",
+                change=ChangeEvent(
+                    kind=ChangeKind.DEPLOY,
+                    occurred_at="2026-10-11T14:00:00Z",
+                    reference=some_revision,
+                    summary="dont care",
+                    revision_source=RevisionSource(
+                        repository="acme/shop",
+                        repository_address=some_repository,
+                        revision_address=commit)),
+                short_reference=some_revision[:7])]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says(f'<a href="{commit}" target="_blank" rel="noopener noreferrer">'
+                          f'{some_revision[:7]}</a> broke it.')
+        )
+
+
+@pytest.mark.component
 def test_a_contributing_factor_links_to_the_action_items_that_answer_it() -> None:
     # The items are named, not written out, so the name is the only way from
     # the condition to what is being done about it.
