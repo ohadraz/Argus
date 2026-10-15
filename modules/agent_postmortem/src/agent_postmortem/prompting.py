@@ -634,9 +634,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
           for entry, label in zip(evidence.timeline,
                                   labels_of_the_narration(evidence.timeline),
                                   strict=True)]),
-        ("Changes to production it read:",
-         _numbered(PRODUCTION_CHANGE_PREFIX,
-                   [_a_change_as_a_line(change) for change in evidence.changes])),
+        ("Changes to production it read:", the_changes_labelled(evidence)),
         ("Log lines it read, one per message:", grouped(evidence.log_lines)),
         ("Candidates it considered:",
          _numbered(CANDIDATE_PREFIX,
@@ -644,6 +642,18 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
         ("Actions it took:",
          _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions]))
     ]
+
+
+def the_changes_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """Each change to production the investigation read, under the label the
+    model is shown it by.
+
+    Public because the document lists the changes under the same labels the
+    prose cites them by, and a second counting would be a second chance to
+    disagree about which change `P2` is.
+    """
+    return _numbered(PRODUCTION_CHANGE_PREFIX,
+                     [_a_change_as_a_line(change) for change in evidence.changes])
 
 
 def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:

@@ -15,6 +15,7 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    CitedEvidence,
     HypothesisConsidered,
     PostmortemLead,
     ResolutionStep,
@@ -139,8 +140,9 @@ def test_the_incident_s_address_is_what_the_document_links_it_by() -> None:
 
 @pytest.mark.unit
 def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> None:
-    # A hypothesis, a step taken, an action item and a labelled line of the
-    # timeline each have a row to lead to; an unlabelled line has no name.
+    # A hypothesis, a step taken, an action item, a labelled line of the
+    # timeline, a change and a log message read, and a lead each have a row to
+    # lead to; an unlabelled line has no name.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -154,18 +156,21 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
                                          tracking=None, status=ActionItemStatus.OPEN)],
                 timeline=[TimelineEntry(at=DONT_CARE_MOMENT, who=None, text="dont care",
                                         label="T1"),
-                          TimelineEntry(at=DONT_CARE_MOMENT, who=None, text="dont care")])
+                          TimelineEntry(at=DONT_CARE_MOMENT, who=None, text="dont care")],
+                changes_read=[CitedEvidence(label="P1", text="dont care")],
+                log_messages_read=[CitedEvidence(label="G3fa2", text="dont care")],
+                leads=[_a_lead()])
         ) \
         .when(
             lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).labels
         ) \
         .then(
-            the_answer_was(frozenset({"C1", "M1", "AI-1", "T1"})))
+            the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "L1"})))
 
 
 def _a_lead() -> PostmortemLead:
-    return PostmortemLead(person_id="dont care", person_name="dont care", text="dont care",
-                          written_at=datetime(2026, 10, 11, 14, 6, tzinfo=UTC),
+    return PostmortemLead(label="L1", person_id="dont care", person_name="dont care",
+                          text="dont care", written_at=datetime(2026, 10, 11, 14, 6, tzinfo=UTC),
                           weighing=None, effect=None)
 
 

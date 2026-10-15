@@ -43,6 +43,7 @@ from agent_postmortem.prompting import (
     SubmittedItem,
     SubmittedPostmortem,
     SubmittedStep,
+    the_changes_labelled,
 )
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.reviewing import review_of
@@ -61,6 +62,8 @@ from argus_core.models import (
     ActionItemStatus,
     ActionItemType,
     ChainStep,
+    ChangeEvent,
+    ChangeKind,
     CitedEvidence,
     ContributingFactor,
     Lessons,
@@ -585,6 +588,46 @@ def test_the_evidence_read_is_every_piece_the_model_was_shown() -> None:
 
 
 @pytest.mark.unit
+def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -> None:
+    # The prose cites them by the labels the model was shown them under, and
+    # no other section is a row for either - so the document carries them, or
+    # a reader told "the deploy P2" has nowhere to find out what P2 was. The
+    # labels are asserted on their own as well, so a list that came back empty
+    # from both sides cannot pass for one that was carried.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[_a_change("some-revision"), _a_change("some-other-revision")],
+                log_lines=["one message", "another message"])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            all_of(
+                _publishes("the changes read",
+                           lambda document: document.changes_read,
+                           the_changes_labelled(evidence)),
+                _publishes("the changes' labels",
+                           lambda document: [cited.label for cited in document.changes_read],
+                           ["P1", "P2"]),
+                _publishes("the log messages read",
+                           lambda document: document.log_messages_read,
+                           grouped(evidence.log_lines)),
+                _publishes("the log messages' count",
+                           lambda document: len(document.log_messages_read),
+                           2)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_tokens_the_incident_spent_come_from_its_evidence() -> None:
     # Not from this call. What the walk spent was counted while it was
     # happening, and the postmortem's own tokens are not part of what the
@@ -671,19 +714,50 @@ def test_each_lead_is_reported_with_what_the_model_said_it_changed() -> None:
         ) \
         .then(
             _reports_the_leads([
-                PostmortemLead(person_id=a_supported_lead.person_id,
+                PostmortemLead(label="L1",
+                               person_id=a_supported_lead.person_id,
                                person_name=None,
                                text=a_supported_lead.text,
                                written_at=a_supported_lead.written_at,
                                weighing=a_supported_lead.weighing,
                                effect="it named the flag reverted"),
-                PostmortemLead(person_id=an_unweighed_lead.person_id,
+                PostmortemLead(label="L2",
+                               person_id=an_unweighed_lead.person_id,
                                person_name=None,
                                text=an_unweighed_lead.text,
                                written_at=an_unweighed_lead.written_at,
                                weighing=None,
                                effect=None)
             ])
+        )
+
+
+@pytest.mark.unit
+def test_each_lead_carries_the_label_the_model_was_shown_it_by() -> None:
+    # The prose cites a lead by it, so the page needs it for the citation to
+    # lead anywhere - and it is written here, where the prompt numbered the
+    # leads, so nothing downstream numbers them a second time and comes to
+    # disagree about which lead a label names.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(leads=[
+                a_lead("the kuki flag was flipped at noon", ts="1760000100.000200"),
+                a_lead("it is the database again", ts="1760000200.000300")
+            ])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the leads' labels",
+                       lambda document: [lead.label for lead in document.leads],
+                       ["L1", "L2"])
         )
 
 
@@ -870,6 +944,13 @@ def test_a_document_written_incomplete_is_logged_as_a_warning(
                                   "postmortem written incomplete",
                                   values={"faults": some_faults})
         )
+
+
+def _a_change(reference: str) -> ChangeEvent:
+    return ChangeEvent(kind=ChangeKind.DEPLOY,
+                       occurred_at="2026-09-02T11:59:00Z",
+                       reference=reference,
+                       summary="dont care")
 
 
 def _measuring_that_returns(measured: Measurements) -> MagicMock:

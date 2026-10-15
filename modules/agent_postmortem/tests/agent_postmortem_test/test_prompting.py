@@ -74,6 +74,7 @@ from agent_postmortem.prompting import (
     opening_ask_again,
     rejecting,
     submit_postmortem_for,
+    the_changes_labelled,
     the_evidence_labelled,
 )
 from argus_core import to_iso
@@ -246,6 +247,26 @@ def test_each_kind_of_evidence_is_labelled_on_its_own_in_the_order_it_is_shown()
                                 (grouped(["a log line"])[0].label, "a log line"),
                                 ("C1", "a candidate"),
                                 ("M1", "an action")])
+        )
+
+
+@pytest.mark.unit
+def test_the_changes_are_the_evidence_shown_as_changes_under_the_same_labels() -> None:
+    # The document lists them under the labels the prose cites them by, so it
+    # takes them from here rather than counting them again: two countings are
+    # two chances to disagree about which change P2 is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(timeline=[a_timeline_entry("a line of the narration")],
+                                           changes=[_a_change(reference="a change"),
+                                                    _a_change(reference="another change")],
+                                           log_lines=["a log line"])
+        ) \
+        .when(
+            lambda: the_changes_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([("P1", "a change"), ("P2", "another change")])
         )
 
 

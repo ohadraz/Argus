@@ -325,14 +325,15 @@ def _quiet(pdf: _Sheet, said: str) -> None:
 
 
 def _an_item(pdf: _Sheet, runs: Sequence[Run], size: float = _TEXT_PT, after: float = 1.0,
-             indent: float = 4.2) -> None:
-    """A bulleted item: a muted bullet at the body's size in its own column,
-    then the runs with a hanging indent."""
+             indent: float = 4.2, mark: str = _BULLET) -> None:
+    """A bulleted item: a muted bullet - or `mark`, where the item goes by a
+    label - at the body's size in its own column, then the runs with a
+    hanging indent."""
     left = pdf.l_margin
     pdf.set_x(left)
     pdf.set_font(_BODY, "", _TEXT_PT)
     pdf.set_text_color(*_MUTED)
-    pdf.cell(indent, _LINE, _BULLET)
+    pdf.cell(indent, _LINE, mark)
     pdf.set_left_margin(left + indent)
     _runs(pdf, runs, size, _LINE)
     pdf.ln(_LINE + after)
@@ -740,13 +741,20 @@ def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
 
 def _the_leads(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
-    """Each lead as an item, what the investigation made of it and what it
-    changed close under it."""
+    """Each lead as an item under the label the prose cites it by, what the
+    investigation made of it and what it changed close under it.
+
+    Kept off the foot of a page before its landing is set, so a citation never
+    lands on the page before the lead it names."""
+    indent = 7.0
     for lead in rendered.leads:
-        _an_item(pdf, lead.said.runs, after=0.6)
-        _beneath(pdf, lead.weighing.runs, indent=4.2, colour=_INK)
+        if pdf.will_page_break(2 * _LINE):
+            pdf.add_page()
+        pdf.lands_at(lead.label, pdf.page, pdf.get_y())
+        _an_item(pdf, lead.said.runs, after=0.6, indent=indent, mark=lead.label)
+        _beneath(pdf, lead.weighing.runs, indent=indent, colour=_INK)
         if lead.effect is not None:
-            _beneath(pdf, lead.effect.runs, indent=4.2, colour=_MUTED)
+            _beneath(pdf, lead.effect.runs, indent=indent, colour=_MUTED)
         pdf.ln(3.0)
 
 
@@ -758,13 +766,29 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     """A reference list, as the agreed layout sets it: what each source is in a quiet
     column, and the source beside it - an address in a face a reader can
     copy from paper. Each line's words up to its first colon are its label,
-    and the assumptions are the list's last entry."""
+    and the assumptions are the list's last entry.
+
+    Between the two, the changes and the log messages read, each a table of
+    rows under the labels the prose cites them by."""
     supporting = rendered.supporting
     for line in supporting.links:
         opening, *rest = line.runs
         label, _, remainder = opening.text.partition(": ")
         value = [Run(text=remainder), *rest] if remainder else rest
         _a_reference(pdf, label, [value])
+
+    for heading, rows, absent in (
+        (supporting.changes_heading, supporting.changes, supporting.changes_absent),
+        (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent)
+    ):
+        _a_subheading(pdf, heading)
+        if absent:
+            _quiet(pdf, absent)
+        else:
+            _a_table(pdf, None,
+                     [[(row.label, _NUMBER, None), (row.said.said, None, None)] for row in rows],
+                     widths=(16, 158), landings=[row.label for row in rows])
+    pdf.ln(2.0)
 
     assumptions = [[*assumption.runs] for assumption in supporting.assumptions]
     if supporting.assumptions_absent:

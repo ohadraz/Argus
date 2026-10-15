@@ -25,7 +25,7 @@ def test_a_weighed_lead_says_what_was_written_by_whom_when_its_standing_and_its_
     Scenario() \
         .given(
             some_postmortem := a_postmortem(leads=[PostmortemLead(
-                person_id="U-kuki", person_name="Kuki Buki",
+                label="L1", person_id="U-kuki", person_name="Kuki Buki",
                 text="the kuki flag was flipped at noon", written_at=SOME_MOMENT,
                 weighing=Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees"),
                 effect="it named the flag that was reverted")])
@@ -35,6 +35,7 @@ def test_a_weighed_lead_says_what_was_written_by_whom_when_its_standing_and_its_
         ) \
         .then(
             the_answer_was((LeadItem(
+                label="L1",
                 person_id="U-kuki",
                 said=Line(runs=(Run(text="the kuki flag was flipped at noon", role=Role.QUOTE),
                                 Run(text=" - Kuki Buki, "),
@@ -46,11 +47,32 @@ def test_a_weighed_lead_says_what_was_written_by_whom_when_its_standing_and_its_
 
 
 @pytest.mark.unit
+def test_each_lead_goes_by_the_label_the_prose_cites_it_by() -> None:
+    # As it was written, never counted again here: the document numbered the
+    # leads where the prompt did.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(leads=[
+                PostmortemLead(label="L2", person_id="dont care", person_name="dont care",
+                               text="dont care", written_at=SOME_MOMENT, weighing=None,
+                               effect=None),
+                PostmortemLead(label="L7", person_id="dont care", person_name="dont care",
+                               text="dont care", written_at=SOME_MOMENT, weighing=None,
+                               effect=None)])
+        ) \
+        .when(
+            lambda: tuple(item.label for item in the_leads(some_postmortem))
+        ) \
+        .then(
+            the_answer_was(("L2", "L7")))
+
+
+@pytest.mark.unit
 def test_a_lead_from_somebody_unnamed_is_signed_with_their_id() -> None:
     Scenario() \
         .given(
             some_postmortem := a_postmortem(leads=[PostmortemLead(
-                person_id="U-kuki", person_name=None, text="dont care",
+                label="L1", person_id="U-kuki", person_name=None, text="dont care",
                 written_at=SOME_MOMENT, weighing=None, effect=None)])
         ) \
         .when(
@@ -65,7 +87,7 @@ def test_a_lead_no_investigation_weighed_says_so_and_has_no_effect() -> None:
     Scenario() \
         .given(
             some_postmortem := a_postmortem(leads=[PostmortemLead(
-                person_id="dont care", person_name="dont care", text="dont care",
+                label="L1", person_id="dont care", person_name="dont care", text="dont care",
                 written_at=SOME_MOMENT, weighing=None, effect=None)])
         ) \
         .when(

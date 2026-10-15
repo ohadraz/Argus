@@ -297,6 +297,11 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- rather than JSON because it is a figure, and the eval tier aggregates
     -- figures.
     evidence_read INTEGER,
+    -- The changes to production and the log messages the model was shown, each
+    -- under the label the prose cites it by - the two kinds of evidence no
+    -- other section is a row for.
+    changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    log_messages_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     executive_summary TEXT,
     -- Google's five review criteria, each met, unmet, or left for a person.
     -- Never null: a document is always reviewed against all five.

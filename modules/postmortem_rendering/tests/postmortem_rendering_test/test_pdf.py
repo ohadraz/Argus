@@ -92,6 +92,8 @@ def test_every_section_says_what_the_document_holds() -> None:
                                "It was a quiet hour.",
                                "The flag went on.",
                                "42 min", "12,345",
+                               "Changes to production read (UTC)", "A deploy switched the model.",
+                               "Log messages read (UTC)", "The divisor was zero.",
                                "The flag was the only change.",
                                "✓", "Key incident data collected",
                                "✗", "Document reviewed and shared"))
@@ -211,6 +213,31 @@ def test_a_citation_lands_on_its_row_in_every_table_that_has_one() -> None:
             _a_link_lands_on("Turned the flag off"),
             _a_link_lands_on("AI-80 Item 80."),
             _a_link_lands_on("The flag went on.")))
+
+
+@pytest.mark.unit
+def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() -> None:
+    # The three kinds with no table of their own: the changes and log messages
+    # read are rows of Supporting information, and a lead an item of What
+    # people told Argus.
+    some_change = CitedEvidence(label="P2", text="A deploy switched the model.")
+    some_message = CitedEvidence(label="G3fa2", text="The divisor was zero.")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="P2, G3fa2 and L1 tell it.",
+                             changes_read=[some_change], log_messages_read=[some_message],
+                             leads=[_a_lead("dont care", text="The flag was flipped.")]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _a_link_lands_on("P2 A deploy switched the model."),
+            _a_link_lands_on("G3fa2 The divisor was zero."),
+            _a_link_lands_on("The flag was flipped.")))
 
 
 @pytest.mark.unit
@@ -411,8 +438,8 @@ def test_the_first_page_carries_argus_s_mark_and_no_other_does() -> None:
 
 
 def _a_lead(person_name: str, text: str = "dont care") -> PostmortemLead:
-    return PostmortemLead(person_id="dont care", person_name=person_name, text=text,
-                          written_at=SOME_ONSET, weighing=None, effect=None)
+    return PostmortemLead(label="L1", person_id="dont care", person_name=person_name,
+                          text=text, written_at=SOME_ONSET, weighing=None, effect=None)
 
 
 def _eighty_items() -> list[ActionItem]:
@@ -446,6 +473,8 @@ def _every_section_filled() -> Postmortem:
                         got_lucky=["It was a quiet hour."]),
         timeline=[TimelineEntry(at=SOME_ONSET, who="Argus", text="The flag went on.",
                                 label="T1")],
+        changes_read=[CitedEvidence(label="P1", text="A deploy switched the model.")],
+        log_messages_read=[CitedEvidence(label="G3fa2", text="The divisor was zero.")],
         engineer_minutes=42,
         tokens_spent=12345,
         assumptions=["The flag was the only change."],

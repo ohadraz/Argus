@@ -36,8 +36,13 @@ from argus_core.models import (
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.evidence import IncidentEvidence
+from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.prompting import SubmittedPostmortem, the_evidence_labelled
+from agent_postmortem.prompting import (
+    SubmittedPostmortem,
+    the_changes_labelled,
+    the_evidence_labelled,
+)
 from agent_postmortem.reviewing import review_of
 from agent_postmortem.sections import (
     action_item_number,
@@ -143,7 +148,8 @@ def write_postmortem(evidence: IncidentEvidence,
         # each. A lead the model said nothing of is reported with nothing said,
         # never dropped: the person who wrote it is owed the line either way.
         leads=[
-            PostmortemLead(person_id=lead.person_id,
+            PostmortemLead(label=label,
+                           person_id=lead.person_id,
                            person_name=lead.person_name,
                            text=lead.text,
                            written_at=lead.written_at,
@@ -168,7 +174,11 @@ def write_postmortem(evidence: IncidentEvidence,
                               for factor in answer.contributing_factors or []],
         action_items=_the_record_s_items_then_the_model_s(evidence, answer),
         lessons=answer.lessons,
-        evidence_read=len(shown)
+        evidence_read=len(shown),
+        # Under the labels the model was shown them by, so the prose that cites
+        # one has a row to lead to.
+        changes_read=the_changes_labelled(evidence),
+        log_messages_read=grouped(evidence.log_lines)
     )
 
     # Reviewed last, because what it reviews is the document as written.

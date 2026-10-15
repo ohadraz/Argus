@@ -308,8 +308,8 @@ document.addEventListener('DOMContentLoaded', function () {
 <h2>{{ headings["leads"] }}</h2>
 <ul class="leads">
 {% for lead in postmortem.leads %}
-  <li data-lead="{{ lead.person_id }}">
-    {{ said(lead.said) }}
+  <li id="{{ lead.label }}" data-lead="{{ lead.person_id }}">
+    <span class="lead-label">{{ lead.label }}</span> {{ said(lead.said) }}
     {{ said(lead.weighing, status="standing") }}
     {% if lead.effect %}<p class="effect">{{ said(lead.effect, labels) }}</p>{% endif %}
   </li>
@@ -339,6 +339,25 @@ document.addEventListener('DOMContentLoaded', function () {
   <li>{{ said(line, link="link", status="draft") }}</li>
 {% endfor %}
 </ul>
+{# The two kinds of evidence no other section is a row for, each under the
+   label the prose cites it by, so a citation of one has somewhere to land. #}
+{% for heading, rows, absent in [
+     (supporting.changes_heading, supporting.changes, supporting.changes_absent),
+     (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent)
+   ] %}
+<h3>{{ heading }}</h3>
+{% if rows %}
+<table class="evidence-read">
+  <tbody>
+  {% for row in rows %}
+    <tr id="{{ row.label }}"><td class="label">{{ row.label }}</td><td>{{ said(row.said) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">{{ absent }}</p>
+{% endif %}
+{% endfor %}
 <h3>{{ supporting.assumptions_heading }}</h3>
 {% if supporting.assumptions %}
 <ul class="assumptions">

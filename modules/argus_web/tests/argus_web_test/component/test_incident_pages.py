@@ -26,6 +26,7 @@ from argus_core.models import (
     Alert,
     ChainStep,
     ChangeKind,
+    CitedEvidence,
     ContributingFactor,
     Detection,
     Evidence,
@@ -797,6 +798,7 @@ def test_the_postmortem_page_says_what_people_told_the_incident_and_what_it_chan
                 assumptions=[],
                 leads=[
                     PostmortemLead(
+                        label="L1",
                         person_id="U-some-person",
                         person_name=some_name,
                         text=some_words,
@@ -805,6 +807,7 @@ def test_the_postmortem_page_says_what_people_told_the_incident_and_what_it_chan
                         effect=some_effect
                     ),
                     PostmortemLead(
+                        label="L2",
                         person_id=some_unnamed_person,
                         person_name=None,
                         text=some_late_words,
@@ -846,6 +849,7 @@ def test_the_postmortem_page_shows_the_template_s_sections_in_its_order() -> Non
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
         _a_postmortem_recorded_for(conn, incident_id, leads=[PostmortemLead(
+            label="L1",
             person_id="U-some-person",
             person_name=None,
             text="dont care",
@@ -1562,9 +1566,10 @@ def test_the_postmortem_page_links_its_walk_and_the_fix_in_full_and_not_itself()
 
 @pytest.mark.component
 def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
-    # The prose cites hypotheses, actions, action items and lines of the
-    # narration by label, and a link to one has to land on its row. A marker
-    # was never shown to the model, so nothing cites it.
+    # The prose cites hypotheses, actions, action items, lines of the
+    # narration, changes and log messages read, and leads by label, and a link
+    # to one has to land on its row. A marker was never shown to the model, so
+    # nothing cites it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     dont_care_moment = datetime(2026, 10, 11, 14, 11, tzinfo=UTC)
 
@@ -1585,10 +1590,15 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
                 ResolutionStep(at=dont_care_moment, action="dont care", by="Argus",
                                reversible=True, outcome="dont care", label="M1")
             ]
-        ).model_copy(update={"hypotheses": [
-            HypothesisConsidered(summary="dont care", confidence=None, result="dont care",
-                                 label="C1")
-        ]}))
+        ).model_copy(update={
+            "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
+                                                result="dont care", label="C1")],
+            "changes_read": [CitedEvidence(label="P1", text="dont care")],
+            "log_messages_read": [CitedEvidence(label="G3fa2", text="dont care")],
+            "leads": [PostmortemLead(label="L1", person_id="U-some-person", person_name=None,
+                                     text="dont care", written_at=dont_care_moment,
+                                     weighing=None, effect=None)]
+        }))
 
     Scenario() \
         .given(
@@ -1601,7 +1611,10 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
             the_page_says('id="C1"'),
             the_page_says('id="M1"'),
             the_page_says('id="AI-1"'),
-            the_page_says('id="T1"')
+            the_page_says('id="T1"'),
+            the_page_says('id="P1"'),
+            the_page_says('id="G3fa2"'),
+            the_page_says('id="L1"')
         ))
 
 
@@ -1620,8 +1633,8 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
                  id="action_item"),
     pytest.param({"recommended_action": "Undo what C1 named."}, id="recommended_action"),
     pytest.param({"lessons": Lessons(went_well=["C1 was right."])}, id="lessons"),
-    pytest.param({"leads": [PostmortemLead(person_id="U-some-person", person_name=None,
-                                           text="dont care",
+    pytest.param({"leads": [PostmortemLead(label="L1", person_id="U-some-person",
+                                           person_name=None, text="dont care",
                                            written_at=datetime(2026, 10, 11, 14, 11, tzinfo=UTC),
                                            weighing=None, effect="It named what C1 blamed.")]},
                  id="lead_effect"),
@@ -1650,6 +1663,32 @@ def test_a_label_cited_in_any_prose_links_to_its_row(prose: dict[str, object]) -
         .then(
             the_page_links_to("#C1")
         )
+
+
+@pytest.mark.component
+def test_a_change_the_root_cause_names_links_to_its_row() -> None:
+    # "The deploy P2" means nothing to a reader until it leads somewhere: to
+    # the change, said as the model was shown it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "root_cause": "The deploy P2 switched the model.",
+            "changes_read": [CitedEvidence(label="P2", text="dont care")]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_links_to("#P2"),
+            the_page_says('id="P2"')
+        ))
 
 
 @pytest.mark.component

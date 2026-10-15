@@ -28,6 +28,7 @@ from argus_core.ids import UuidStr
 from argus_core.models.postmortem_sections import (
     ActionItem,
     ChainStep,
+    CitedEvidence,
     ContributingFactor,
     Detection,
     HypothesisConsidered,
@@ -51,6 +52,10 @@ class PostmortemLead(BaseModel):
     That sentence is the only part prose can carry; the rest was settled while
     the incident ran.
 
+    `label` is what the model was shown the lead as (`L1`), and what the
+    prose cites it by - written where the prompt numbered the leads, so
+    nothing downstream numbers them a second time.
+
     `person_name` is `None` where the chat platform could not name the writer,
     when their id stands in. `weighing` is `None` for a lead no investigation
     weighed - written after the last one, or shown to one that ended before it
@@ -58,6 +63,7 @@ class PostmortemLead(BaseModel):
     anyway, because the person who wrote it is owed the line.
     """
 
+    label: str
     person_id: str
     person_name: str | None
     text: str
@@ -153,6 +159,12 @@ class PostmortemDocument(BaseModel):
     # How many pieces of evidence the model was handed - the labels it could
     # cite. `None` for a document written before anything was labelled.
     evidence_read: int | None = None
+    # The changes to production and the log messages the model was shown, each
+    # under the label it was shown by. No other section is a row for either,
+    # and the prose cites both - so without them a reader told "the deploy P2"
+    # has nowhere to find out what P2 was.
+    changes_read: list[CitedEvidence] = []
+    log_messages_read: list[CitedEvidence] = []
     review: list[ReviewCriterion] = []
 
 

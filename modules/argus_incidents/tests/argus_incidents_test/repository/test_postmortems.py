@@ -350,6 +350,10 @@ def _every_section_of_the_template() -> dict[str, Any]:
             marker=TimelineMarker.IMPACT_BEGINS
         )],
         "evidence_read": 14,
+        "changes_read": [CitedEvidence(label="P1",
+                                       text="deploy rev-2 by someone: switched the model")],
+        "log_messages_read": [CitedEvidence(label="G3fa2",
+                                            text="ZeroDivisionError in monthly_average")],
         "review": [ReviewCriterion(criterion="some criterion met", met=True),
                    ReviewCriterion(criterion="some criterion left for a person", met=None)],
         "impact": Impact(duration=timedelta(minutes=47),
@@ -362,6 +366,7 @@ def _a_lead_weighed_as(standing: Standing | None, effect: str | None) -> Postmor
     """One thing a person told the incident, as the document reports it -
     weighed as `standing`, or never weighed where that is `None`."""
     return PostmortemLead(
+        label="L1",
         person_id="U-some-person",
         person_name="Some Person",
         text="the kuki flag was flipped at noon",

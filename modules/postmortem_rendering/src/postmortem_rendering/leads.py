@@ -15,11 +15,13 @@ from postmortem_rendering.lines import Line, Role, Run
 
 
 class LeadItem(BaseModel):
-    """One lead. `person_id` names who wrote it, for a destination that marks
-    the item with them; `effect` is `None` where the model said nothing of it."""
+    """One lead, under the label the prose cites it by. `person_id` names who
+    wrote it, for a destination that marks the item with them; `effect` is
+    `None` where the model said nothing of it."""
 
     model_config = ConfigDict(frozen=True)
 
+    label: str
     person_id: str
     said: Line
     weighing: Line
@@ -30,7 +32,8 @@ def the_leads(postmortem: PostmortemDocument) -> tuple[LeadItem, ...]:
     """Every lead in the order it was written, signed with the writer's name -
     or their id, where the chat platform could not name them."""
     return tuple(
-        LeadItem(person_id=lead.person_id,
+        LeadItem(label=lead.label,
+                 person_id=lead.person_id,
                  said=Line(runs=(Run(text=lead.text, role=Role.QUOTE),
                                  Run(text=f" - {lead.person_name or lead.person_id}, "),
                                  Run.a_moment(lead.written_at))),
