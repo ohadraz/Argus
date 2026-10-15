@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from http import HTTPStatus as HttpStatus
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
 from fastapi import FastAPI
@@ -175,8 +175,8 @@ def test_an_anchor_with_no_offset_is_refused() -> None:
             .then(_answered(HttpStatus.UNPROCESSABLE_ENTITY))
 
 
-def _answered(expected: HttpStatus) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
+def _answered(expected: HttpStatus) -> Assertion[httpx2.Response]:
+    def assertion(response: httpx2.Response) -> bool:
         if response.status_code != expected:
             raise AssertionError(
                 f"Expected the stand-in to answer [{expected}], got "
@@ -188,8 +188,8 @@ def _answered(expected: HttpStatus) -> Assertion[httpx.Response]:
     return assertion
 
 
-def _answered_with(expected: Any) -> Assertion[httpx.Response]:
-    def assertion(response: httpx.Response) -> bool:
+def _answered_with(expected: Any) -> Assertion[httpx2.Response]:
+    def assertion(response: httpx2.Response) -> bool:
         if response.json() != expected:
             raise AssertionError(f"Expected the answer {expected}, got {response.json()}.")
 
@@ -198,8 +198,8 @@ def _answered_with(expected: Any) -> Assertion[httpx.Response]:
     return assertion
 
 
-def _the_shop_was_seeded_at(shop: _FakeShop, expected: datetime) -> Assertion[httpx.Response]:
-    def assertion(_: httpx.Response) -> bool:
+def _the_shop_was_seeded_at(shop: _FakeShop, expected: datetime) -> Assertion[httpx2.Response]:
+    def assertion(_: httpx2.Response) -> bool:
         if shop.seeded_at != expected:
             raise AssertionError(
                 f"Expected the shop seeded at [{expected.isoformat()}], and it was "
@@ -211,8 +211,8 @@ def _the_shop_was_seeded_at(shop: _FakeShop, expected: datetime) -> Assertion[ht
     return assertion
 
 
-def _the_stand_in_says(stand_in: TestClient, **expected: Any) -> Assertion[httpx.Response]:
-    def assertion(_: httpx.Response) -> bool:
+def _the_stand_in_says(stand_in: TestClient, **expected: Any) -> Assertion[httpx2.Response]:
+    def assertion(_: httpx2.Response) -> bool:
         said = stand_in.get("/double-control/state").json()
         differing = {key: (value, said.get(key)) for key, value in expected.items()
                      if _as_said(value) != _as_said(said.get(key))}
