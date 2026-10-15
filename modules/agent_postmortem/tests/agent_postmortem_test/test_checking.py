@@ -912,6 +912,30 @@ def test_a_step_citing_a_label_never_given_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_a_step_citing_a_candidate_cause_is_named() -> None:
+    # A candidate is the Investigator's guess, written before anything was
+    # tried. A step resting on one rests on a hypothesis rather than on what
+    # was observed, so it is named even beside evidence that is real.
+    Scenario() \
+        .given(
+            an_answer_citing_a_guess := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1", "C1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_citing_a_guess,
+                              given=Given(labels=frozenset({"E1", "C1"}),
+                                          hypotheses=frozenset({"C1"})))
+        ) \
+        .then(
+            all_of(
+                _named("[C1]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_contributing_factor_nothing_answers_is_named() -> None:
     # A factor with no action item is a condition the document noticed and
     # left standing - the thing an analysis without actions is.

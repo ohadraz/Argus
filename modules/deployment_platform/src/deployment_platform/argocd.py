@@ -68,6 +68,8 @@ _DEPLOYED_AT: Final = "deployedAt"
 _SOURCE: Final = "source"
 _REPO_URL: Final = "repoURL"
 _PATH: Final = "path"
+# How an application synced from its repository's root names the directory.
+_THE_ROOT: Final = "."
 _INITIATED_BY: Final = "initiatedBy"
 _USERNAME: Final = "username"
 
@@ -617,7 +619,9 @@ def _a_record_of(entry: dict[str, Any]) -> DeploymentRecord:
         revision=str(entry[_REVISION]),
         deployed_at=str(entry[_DEPLOYED_AT]),
         repo_url=source.get(_REPO_URL),
-        path=source.get(_PATH),
+        # The root is no directory within the repository, and "." is only
+        # Argo CD's way of saying it.
+        path=None if source.get(_PATH) == _THE_ROOT else source.get(_PATH),
         initiated_by=initiated_by.get(_USERNAME)
     )
 

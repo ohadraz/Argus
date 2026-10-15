@@ -25,7 +25,9 @@ from argus_core.models import (
     ActionItemType,
     Alert,
     ChainStep,
+    ChangeEvent,
     ChangeKind,
+    CitedChange,
     CitedEvidence,
     ContributingFactor,
     Detection,
@@ -45,6 +47,7 @@ from argus_core.models import (
     ReportChannel,
     ResolutionStep,
     ReviewCriterion,
+    RevisionSource,
     Standing,
     TimelineEntry,
     TimelineMarker,
@@ -1593,7 +1596,7 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
         ).model_copy(update={
             "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
                                                 result="dont care", label="C1")],
-            "changes_read": [CitedEvidence(label="P1", text="dont care")],
+            "changes_read": [_a_change_read("P1")],
             "log_messages_read": [CitedEvidence(label="G3fa2", text="dont care")],
             "leads": [PostmortemLead(label="L1", person_id="U-some-person", person_name=None,
                                      text="dont care", written_at=dont_care_moment,
@@ -1675,7 +1678,7 @@ def test_a_change_the_root_cause_names_links_to_its_row() -> None:
         incident_id = incidents.create(conn, some_alert)
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "root_cause": "The deploy P2 switched the model.",
-            "changes_read": [CitedEvidence(label="P2", text="dont care")]
+            "changes_read": [_a_change_read("P2")]
         }))
 
     Scenario() \
@@ -1688,6 +1691,47 @@ def test_a_change_the_root_cause_names_links_to_its_row() -> None:
         .then(all_of(
             the_page_links_to("#P2"),
             the_page_says('id="P2"')
+        ))
+
+
+@pytest.mark.component
+def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory() -> None:
+    # The row says where the change came from, and a reader opens it there.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_repository = "https://github.com/acme/shop"
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "changes_read": [CitedChange(
+                label="P1",
+                change=ChangeEvent(
+                    kind=ChangeKind.DEPLOY,
+                    occurred_at="2026-10-11T14:00:00Z",
+                    reference=some_revision,
+                    summary=(f"deployed revision {some_revision} from the acme/shop "
+                             f"repository's deploy/ directory"),
+                    revision_source=RevisionSource(
+                        repository="acme/shop",
+                        repository_address=some_repository,
+                        revision_address=f"{some_repository}/commit/{some_revision}",
+                        directory="deploy",
+                        directory_address=f"{some_repository}/tree/{some_revision}/deploy")),
+                short_reference=some_revision[:7])]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_links_to(f"{some_repository}/commit/{some_revision}"),
+            the_page_links_to(some_repository),
+            the_page_links_to(f"{some_repository}/tree/{some_revision}/deploy")
         ))
 
 
@@ -1871,6 +1915,16 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
         symptom=symptom,
         trigger=trigger
     )
+
+
+def _a_change_read(label: str) -> CitedChange:
+    """A flag toggled, read under `label`."""
+    return CitedChange(label=label,
+                       change=ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                          occurred_at="2026-10-11T14:00:00Z",
+                                          reference="dont-care",
+                                          summary="dont care"),
+                       short_reference="dont-care")
 
 
 def _a_pdf_to_save_as(filename: str) -> Assertion[httpx2.Response]:

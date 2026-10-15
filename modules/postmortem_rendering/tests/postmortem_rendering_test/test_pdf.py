@@ -43,6 +43,10 @@ from pypdf import PageObject, PdfReader
 from pypdf.generic import ContentStream
 
 from postmortem_rendering_test.framework.builders import (
+    SOME_DEPLOYED_REVISION,
+    SOME_REPOSITORY_ADDRESS,
+    a_change_read,
+    a_deploy_read,
     a_marker,
     a_person_resolved_it,
     a_postmortem,
@@ -93,7 +97,7 @@ def test_every_section_says_what_the_document_holds() -> None:
                                "It was a quiet hour.",
                                "The flag went on.",
                                "42 min", "12,345",
-                               "Changes to production read (UTC)", "A deploy switched the model.",
+                               "Changes to production read", "A deploy switched the model.",
                                "Log messages read (UTC)", "The divisor was zero.",
                                "The flag was the only change.",
                                "✓", "Key incident data collected",
@@ -169,6 +173,24 @@ def test_the_proposed_fix_and_the_incident_are_written_with_their_full_addresses
 
 
 @pytest.mark.unit
+def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory() -> None:
+    # The row says where the change came from, and a reader of the file opens
+    # it there.
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(changes_read=[a_deploy_read()]), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_links_out_to(f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}",
+                             SOME_REPOSITORY_ADDRESS,
+                             f"{SOME_REPOSITORY_ADDRESS}/tree/{SOME_DEPLOYED_REVISION}/deploy"))
+
+
+@pytest.mark.unit
 def test_a_label_the_prose_cites_leads_to_the_row_it_names() -> None:
     some_hypothesis = HypothesisConsidered(summary="A flag change on account pages",
                                            confidence=0.8, result="dont care", label="C7")
@@ -221,7 +243,7 @@ def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() 
     # The three kinds with no table of their own: the changes and log messages
     # read are rows of Supporting information, and a lead an item of What
     # people told Argus.
-    some_change = CitedEvidence(label="P2", text="A deploy switched the model.")
+    some_change = a_change_read("P2", summary="A deploy switched the model.")
     some_message = CitedEvidence(label="G3fa2", text="The divisor was zero.")
 
     Scenario() \
@@ -236,7 +258,7 @@ def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() 
             lambda: as_pdf(some_rendered)
         ) \
         .then(all_of(
-            _a_link_lands_on("P2 A deploy switched the model."),
+            _a_link_lands_on("A deploy switched the model."),
             _a_link_lands_on("G3fa2 The divisor was zero."),
             _a_link_lands_on("The flag was flipped.")))
 
@@ -490,7 +512,7 @@ def _every_section_filled() -> Postmortem:
                         got_lucky=["It was a quiet hour."]),
         timeline=[TimelineEntry(at=SOME_ONSET, who="Argus", text="The flag went on.",
                                 label="T1")],
-        changes_read=[CitedEvidence(label="P1", text="A deploy switched the model.")],
+        changes_read=[a_change_read("P1", summary="A deploy switched the model.")],
         log_messages_read=[CitedEvidence(label="G3fa2", text="The divisor was zero.")],
         engineer_minutes=42,
         tokens_spent=12345,

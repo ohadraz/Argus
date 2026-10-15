@@ -29,6 +29,7 @@ from argus_core.models import (
     ActionItemType,
     Ask,
     ChangeEvent,
+    CitedChange,
     CitedEvidence,
     Lessons,
     ThreadMessage,
@@ -68,8 +69,10 @@ from agent_postmortem.figures import (
 )
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements
+from agent_postmortem.revisions import revisions_of, short_form
 from agent_postmortem.sections import (
     ACTION_PREFIX,
+    ALERT_PREFIX,
     CANDIDATE_PREFIX,
     PRODUCTION_CHANGE_PREFIX,
     label_of,
@@ -573,8 +576,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         # what it paged on - how many totals were wrong, since when - they are
         # the incident's first measurement, and shown the title alone a model
         # credited those figures to the Investigator and hedged them.
-        *([f"What the alert said: {the_finding_named(evidence.alert_finding)}"]
-          if evidence.alert_finding else []),
+        *([f"What the alert said [{cited.label}]: {the_finding_named(cited.text)}"
+           for cited in the_alert_labelled(evidence)]),
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
         *_how_long_it_was_broken(measured, figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
@@ -606,11 +609,12 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     One list for the asking and the reading of the answer alike - a figure
     shown and not on it is one the check refuses and nothing writes in.
     """
-    return figures_of(evidence, measured) | the_evidence_figures(the_evidence_labelled(evidence))
+    return figures_of(evidence, measured) | the_evidence_figures(_the_evidence_listed(evidence))
 
 
 def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
-    """Every piece of evidence the model is shown, each under its own label.
+    """Every piece of evidence the model is shown, each under its own label:
+    what the alert said, then the evidence listed beneath its headings.
 
     The label is what a step of the cause cites, so every line a claim could
     rest on has one and no two share it. Each kind is labelled on its own,
@@ -619,6 +623,26 @@ def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
     across the kinds would then name a different line in every kind after the
     logs.
     """
+    return [*the_alert_labelled(evidence), *_the_evidence_listed(evidence)]
+
+
+def the_alert_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """What the alert said, under the label a step of the cause cites it by -
+    or nothing, where its sender said nothing of its own.
+
+    Evidence like the rest, and the first a chain's symptom rests on: the check
+    that paged measured what it paged on. Its figures keep the names they are
+    shown by (`figures`), so it is no part of the evidence whose figures are
+    named after their labels.
+    """
+    if not evidence.alert_finding:
+        return []
+
+    return [CitedEvidence(label=label_of(ALERT_PREFIX, 1), text=evidence.alert_finding)]
+
+
+def _the_evidence_listed(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """The evidence listed beneath its headings, in the order it is shown."""
     return [cited for _, cited_of_a_kind in _the_evidence_by_kind(evidence)
             for cited in cited_of_a_kind]
 
@@ -634,26 +658,45 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
           for entry, label in zip(evidence.timeline,
                                   labels_of_the_narration(evidence.timeline),
                                   strict=True)]),
-        ("Changes to production it read:", the_changes_labelled(evidence)),
+        ("Changes to production it read:",
+         [CitedEvidence(label=cited.label, text=_a_change_as_a_line(cited.change))
+          for cited in the_changes_labelled(evidence)]),
         ("Log lines it read, one per message:", grouped(evidence.log_lines)),
-        ("Candidates it considered:",
-         _numbered(CANDIDATE_PREFIX,
-                   [_a_candidate_as_a_line(candidate) for candidate in evidence.candidates])),
+        ("Candidates it considered:", the_candidates_labelled(evidence)),
         ("Actions it took:",
          _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions]))
     ]
 
 
-def the_changes_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+def the_changes_labelled(evidence: IncidentEvidence) -> list[CitedChange]:
     """Each change to production the investigation read, under the label the
-    model is shown it by.
+    model is shown it by, with its reference as the prose writes it.
 
     Public because the document lists the changes under the same labels the
     prose cites them by, and a second counting would be a second chance to
-    disagree about which change `P2` is.
+    disagree about which change `P2` is. A revision is written short as the
+    prose writes it (`revisions`), so a row and a sentence name it alike.
     """
-    return _numbered(PRODUCTION_CHANGE_PREFIX,
-                     [_a_change_as_a_line(change) for change in evidence.changes])
+    revisions = revisions_of(evidence)
+
+    return [CitedChange(label=label_of(PRODUCTION_CHANGE_PREFIX, position),
+                        change=change,
+                        short_reference=(short_form(change.reference, revisions)
+                                         if change.reference in revisions
+                                         else change.reference))
+            for position, change in enumerate(evidence.changes, start=1)]
+
+
+def the_candidates_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """Each candidate cause the investigation formed, under the label the model
+    is shown it by.
+
+    Public because a step of the cause may not rest on one - a candidate is a
+    hypothesis, not evidence - and the check refusing such a step has to know
+    which labels these are.
+    """
+    return _numbered(CANDIDATE_PREFIX,
+                     [_a_candidate_as_a_line(candidate) for candidate in evidence.candidates])
 
 
 def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:

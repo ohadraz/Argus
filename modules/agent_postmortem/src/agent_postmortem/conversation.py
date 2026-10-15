@@ -29,6 +29,7 @@ from agent_postmortem.prompting import (
     opening_ask_again,
     rejecting,
     submit_postmortem_for,
+    the_candidates_labelled,
     the_evidence_labelled,
 )
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
@@ -75,11 +76,12 @@ def answer_worth_writing(llm: LLMClient,
 
 
 def _what_was_given(evidence: IncidentEvidence, figures: dict[str, Figure]) -> Given:
-    """What the answer is held to: the labels it could cite, the items already
-    on the record, the revisions the incident read, and the figures it may
-    name."""
+    """What the answer is held to: the labels it could cite and which of them
+    are hypotheses, the items already on the record, the revisions the incident
+    read, and the figures it may name."""
     return Given(
         labels=frozenset(cited.label for cited in the_evidence_labelled(evidence)),
+        hypotheses=frozenset(cited.label for cited in the_candidates_labelled(evidence)),
         items_on_record=len(record_action_items_of(evidence)),
         revisions=revisions_of(evidence),
         figures=figures

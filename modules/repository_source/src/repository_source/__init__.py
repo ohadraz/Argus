@@ -11,6 +11,7 @@ it would be two chances to disagree about what a path is called.
 
 from __future__ import annotations
 
+from repository_source.browsing import owner_and_name, where_to_read
 from repository_source.comparing import paths_changed_between
 from repository_source.differences import (
     ChangedFile,
@@ -29,8 +30,10 @@ __all__ = [
     "RepositorySourceSettings",
     "RepositoryUnreadable",
     "SourceDifference",
+    "owner_and_name",
     "paths_changed_between",
     "the_difference_between",
     "the_head_of",
-    "the_source_at"
+    "the_source_at",
+    "where_to_read"
 ]

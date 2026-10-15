@@ -314,6 +314,21 @@ def test_a_deployment_naming_no_source_or_initiator_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_a_deployment_synced_from_the_repositorys_root_names_no_directory() -> None:
+    # "." is Argo CD's word for the root, and nothing past this adapter speaks
+    # Argo CD: the root is no directory within the repository to name.
+    platform = _Platform().answering(GET, THE_APPLICATION, _ok(_an_application(
+        history=[{"id": 3, "revision": "abc1234", "deployedAt": "2026-10-07T09:00:00Z",
+                  "source": {"repoURL": "https://github.com/kuki/configs", "path": "."}}]
+    )))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(lambda: argo_cd.deployments_of(SOME_APPLICATION)[0].path) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
 def test_a_deployment_with_no_revision_is_refused_rather_than_guessed() -> None:
     platform = _Platform().answering(GET, THE_APPLICATION, _ok(_an_application(
         history=[{"id": 3, "deployedAt": "2026-10-07T09:00:00Z"}]

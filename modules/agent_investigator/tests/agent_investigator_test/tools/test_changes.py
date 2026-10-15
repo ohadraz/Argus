@@ -15,7 +15,7 @@ import pytest
 from agent_investigator.retrieval import ChangeFetcher
 from agent_investigator.tools import CHANGES_TOOL
 from argus_core import get_settings, parse_iso, to_iso
-from argus_core.models import ToolResult
+from argus_core.models import ChangeEvent, ChangeKind, RevisionSource, ToolResult
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_investigator_test.framework.assertions.tool_results import the_result_failed
@@ -114,6 +114,33 @@ def test_a_change_call_whose_window_stops_at_the_incident_ends_at_the_alert() ->
         )
 
 
+@pytest.mark.unit
+def test_a_change_is_shown_to_the_model_without_where_a_person_opens_it() -> None:
+    # The addresses are for a reader of the document. Shown to the model, each
+    # deploy is three addresses longer and each flag carries an empty field,
+    # and none of it bears on what caused anything.
+    some_repository = "https://github.com/acme/shop"
+    some_deploy = ChangeEvent(
+        kind=ChangeKind.DEPLOY, occurred_at=AN_ONSET, reference="7c3ca00",
+        summary="dont care",
+        revision_source=RevisionSource(repository="acme/shop",
+                                       repository_address=some_repository,
+                                       revision_address=f"{some_repository}/commit/7c3ca00"))
+    some_fetch_changes = create_autospec(ChangeFetcher, instance=True,
+                                         return_value=[some_deploy])
+
+    Scenario() \
+        .given(
+            some_dispatcher := a_dispatcher(reads_changes=some_fetch_changes)
+        ) \
+        .when(
+            lambda: some_dispatcher.dispatch(a_call_to(CHANGES_TOOL))
+        ) \
+        .then(
+            _the_result_shows_the_change_and_not(reference="7c3ca00", address=some_repository)
+        )
+
+
 def _the_changes_read_were(reader: Mock,
                            window_start: str,
                            window_end: str) -> Assertion[ToolResult]:
@@ -132,6 +159,18 @@ def _the_changes_read_were(reader: Mock,
                 f"[{window_start}..{window_end}], and they were read "
                 f"{reader.call_count} time(s) as {reader.call_args}."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_result_shows_the_change_and_not(reference: str, address: str) -> Assertion[ToolResult]:
+    def assertion(result: ToolResult) -> bool:
+        if reference not in result.content or address in result.content:
+            raise AssertionError(
+                f"Expected the model to be shown the change [{reference}] and not "
+                f"[{address}], got [{result.content}].")
 
         return True
 

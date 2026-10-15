@@ -55,6 +55,11 @@ ACTION_ITEM_PREFIX = "AI-"
 # of it, the relay failing to post - is `XW1`, counted apart from the walk's
 # own: where one lands among them is timing, and counted with them a message
 # written a second earlier would rename every line of the walk after it.
+#
+# What the alert said is `AL1`. Not `A`, which its figures are already named by
+# (`{A1}`): a label and a figure's name that read alike are a citation of a
+# number.
+ALERT_PREFIX: Final = "AL"
 NARRATION_PREFIX: Final = "T"
 OUTSIDE_THE_WALK_PREFIX: Final = "XW"
 PRODUCTION_CHANGE_PREFIX: Final = "P"

@@ -14,8 +14,15 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_core import parse_iso, to_iso
-from argus_core.models import ChangeEvent, ChangeKind
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from argus_core.models import ChangeEvent, ChangeKind, RevisionSource
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    the_answer_was,
+)
 from deployment_platform import (
     DeploymentPlatformError,
     DeploymentPlatformReads,
@@ -105,6 +112,68 @@ def test_a_deploy_says_what_it_shipped_and_not_only_that_it_happened() -> None:
             platform=platform
         )) \
         .then(_the_first_deploy_says_it_shipped(some_path))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("repo_url", "path", "said"), [
+    ("https://github.com/kuki/k8s-configs", "deploy",
+     "deployed revision 9f4c1e7b from the kuki/k8s-configs repository's deploy/ directory"),
+    ("https://github.com/kuki/k8s-configs.git/", "apps/shop/",
+     "deployed revision 9f4c1e7b from the kuki/k8s-configs repository's apps/shop/ directory"),
+    ("git@github.com:kuki/k8s-configs.git", "deploy",
+     "deployed revision 9f4c1e7b from the kuki/k8s-configs repository's deploy/ directory"),
+    (None, "deploy", "deployed revision 9f4c1e7b from the deploy/ directory"),
+    ("https://github.com/kuki/k8s-configs", None,
+     "deployed revision 9f4c1e7b from the kuki/k8s-configs repository"),
+    (None, None, "deployed revision 9f4c1e7b")
+], ids=["repository and directory", "a url ending in .git and a slash", "an ssh address",
+        "no repository", "no directory", "neither"])
+def test_a_deploy_says_its_revision_and_which_repository_and_directory_it_came_from(
+    repo_url: str | None, path: str | None, said: str
+) -> None:
+    # The directory alone is half an address: every repository has a deploy/.
+    # Named by owner and name, which is what tells two repositories apart -
+    # never the whole address, which says nothing more to a reader.
+    Scenario() \
+        .given(platform := _a_platform_that_recorded(
+            a_deployment_of("9f4c1e7b", at=A_DEPLOY_MINUTE, repo_url=repo_url, path=path)
+        )) \
+        .when(lambda: fetch_deploys(
+            SOME_APPLICATION,
+            window_start=a_while_before(A_DEPLOY_MINUTE),
+            window_end=a_while_after(A_DEPLOY_MINUTE),
+            platform=platform
+        )[0].summary) \
+        .then(the_answer_was(said))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("repo_url", "source"), [
+    ("https://github.com/kuki/k8s-configs",
+     RevisionSource(repository="kuki/k8s-configs",
+                    repository_address="https://github.com/kuki/k8s-configs",
+                    revision_address="https://github.com/kuki/k8s-configs/commit/9f4c1e7b",
+                    directory="deploy",
+                    directory_address="https://github.com/kuki/k8s-configs/tree/9f4c1e7b/deploy")),
+    (None, None)
+], ids=["a repository on github", "no repository"])
+def test_a_deploy_carries_where_its_revision_can_be_opened(
+    repo_url: str | None, source: RevisionSource | None
+) -> None:
+    # The summary says where a deploy came from in words, and a reader of the
+    # document wants to open it. Worked out here, where the repository is
+    # read, so nothing that draws a page has to know whose pages they are.
+    Scenario() \
+        .given(platform := _a_platform_that_recorded(
+            a_deployment_of("9f4c1e7b", at=A_DEPLOY_MINUTE, repo_url=repo_url, path="deploy")
+        )) \
+        .when(lambda: fetch_deploys(
+            SOME_APPLICATION,
+            window_start=a_while_before(A_DEPLOY_MINUTE),
+            window_end=a_while_after(A_DEPLOY_MINUTE),
+            platform=platform
+        )[0].revision_source) \
+        .then(the_answer_was(source))
 
 
 @pytest.mark.unit

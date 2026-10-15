@@ -542,7 +542,7 @@ def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
             piece = text[max(at, begins):min(at + len(run.text), ends)]
             if not piece:
                 continue
-            pdf.set_text_color(*(_LINK if run.role is Role.CITATION else _INK))
+            pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else _INK))
             pdf.cell(pdf.get_string_width(piece), _CELL_LINE, piece, link=_link(pdf, run))
     pdf.c_margin = margin
     pdf.set_text_color(*_INK)
@@ -790,7 +790,7 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
             _quiet(pdf, absent)
         else:
             _a_table(pdf, None,
-                     [[(row.label, _NUMBER, None), (row.said.said, None, None)] for row in rows],
+                     [[(row.label, _NUMBER, None), row.said] for row in rows],
                      widths=(16, 158), landings=[row.label for row in rows])
     pdf.ln(2.0)
 

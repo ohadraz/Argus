@@ -11,7 +11,7 @@ there is a reader's clock to say it on.
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Iterator, Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Final
@@ -87,15 +87,32 @@ class Run(BaseModel):
         label with nothing to lead to stays in the words. A label is matched
         whole, so `AI-1` is never cut out of `AI-12`.
         """
-        if not labels:
-            return (self,)
-
-        named = "|".join(re.escape(label) for label in sorted(labels))
-        pieces = re.split(rf"(?<!\w)({named})(?!\w)", self.text)
-        # `split` puts what the group matched at every odd place.
-        return tuple(Run(text=piece, role=Role.CITATION, address=piece) if place % 2
+        return tuple(Run(text=piece, role=Role.CITATION, address=piece) if named
                      else self.model_copy(update={"text": piece})
-                     for place, piece in enumerate(pieces) if piece)
+                     for piece, named in self._cut_at(labels))
+
+    def with_links(self, addresses: Mapping[str, str]) -> tuple[Run, ...]:
+        """The run cut at every name in `addresses`, each name a link to where
+        it opens and the words between them left as they were.
+
+        A name is matched whole, as a label is, so the directory `deploy` is
+        never cut out of `deployed`.
+        """
+        return tuple(Run(text=piece, role=Role.LINK, address=addresses[piece]) if named
+                     else self.model_copy(update={"text": piece})
+                     for piece, named in self._cut_at(addresses))
+
+    def _cut_at(self, names: Collection[str]) -> Iterator[tuple[str, bool]]:
+        """The run's words in pieces, each with whether it is one of `names` -
+        matched whole, the longer of two names that start alike first."""
+        if not names:
+            yield self.text, False
+            return
+
+        alternatives = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
+        pieces = re.split(rf"(?<!\w)({alternatives})(?!\w)", self.text)
+        # `split` puts what the group matched at every odd place.
+        yield from ((piece, bool(place % 2)) for place, piece in enumerate(pieces) if piece)
 
 
 class Line(BaseModel):

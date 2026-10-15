@@ -24,6 +24,25 @@ class ChangeKind(StrEnum):
     FLAG_TOGGLE = "flag-toggle"
 
 
+class RevisionSource(BaseModel):
+    """Where a deployed revision can be opened: the repository by owner and name,
+    and the addresses a person reads it at - the repository, the commit, and the
+    directory it was synced from at that commit.
+
+    Addresses rather than the parts to build them from, because which page a
+    commit is on is the repository host's to say, and whoever reads the change
+    afterwards - a page, a PDF - would otherwise have to know whose host it is.
+    `directory` is the path as the summary names it, and both directory fields
+    are `None` where the deploy came from the root or from nowhere said.
+    """
+
+    repository: str
+    repository_address: str
+    revision_address: str
+    directory: str | None = None
+    directory_address: str | None = None
+
+
 class ChangeEvent(BaseModel):
     """Something that changed on the service, as Argus sees it (spec §16).
 
@@ -55,6 +74,9 @@ class ChangeEvent(BaseModel):
     # lose the evidence.
     actor: str | None = None
     source: str | None = None
+    # Where a deploy's revision can be opened. `None` for a flag toggle, and for
+    # a deploy from a repository whose host's pages Argus does not know.
+    revision_source: RevisionSource | None = None
 
 
 def as_a_change(toggle: FlagChange) -> ChangeEvent:

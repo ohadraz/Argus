@@ -3,7 +3,8 @@
 Checked together because they are answered together. A required field the
 model left out is the obvious fault - and a lead it said nothing about is one
 of those, whose names only the incident knows. So is a step of the cause that
-cites no evidence, or cites a label nobody gave it, and a contributing factor
+cites no evidence, cites a label nobody gave it, or cites a candidate cause - a
+hypothesis, where the chain wants what was observed - and a contributing factor
 no action item answers: an analysis without its evidence is a story, and one
 without its actions is a document that prevents nothing.
 
@@ -126,10 +127,12 @@ _STATE_IT_BY_ITS_NAME: Final = (
 
 class Given(BaseModel):
     """What the model was handed, as far as a check needs it: the labels it
-    could cite, how many action items the record already held, the revisions
-    the incident read, and the figures it gave, by name."""
+    could cite and which of them name a hypothesis, how many action items the
+    record already held, the revisions the incident read, and the figures it
+    gave, by name."""
 
     labels: frozenset[str] = frozenset()
+    hypotheses: frozenset[str] = frozenset()
     items_on_record: int = 0
     revisions: frozenset[str] = frozenset()
     figures: dict[str, Figure] = {}
@@ -179,7 +182,13 @@ def _missing_fields(answer: SubmittedPostmortem) -> list[str]:
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:
-    """Each step citing no evidence, and each label cited that was never given."""
+    """Each step citing no evidence, each label cited that was never given, and
+    each hypothesis cited as though it were evidence.
+
+    A candidate cause is the Investigator's guess, written before anything was
+    tried. The chain says what happened, so a step rests on what was observed;
+    a guess cited there reads as a fact, even beside evidence that is real.
+    """
     faults: list[str] = []
 
     for step in answer.causal_chain or []:
@@ -187,11 +196,21 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
             faults.append(f"the step [{step.step}] in {CAUSAL_CHAIN_FIELD} cites no "
                           f"evidence - cite the labels it rests on")
 
-        faults.extend(f"the step [{step.step}] cites [{label}], which is not a label "
-                      f"you were given"
-                      for label in step.cites if label not in given.labels)
+        faults.extend(_what_is_wrong_with_citing(step.step, label, given)
+                      for label in step.cites
+                      if label in given.hypotheses or label not in given.labels)
 
     return faults
+
+
+def _what_is_wrong_with_citing(step: str, label: str, given: Given) -> str:
+    """Why a step may not rest on this label, said for the model to act on."""
+    if label in given.hypotheses:
+        return (f"the step [{step}] cites [{label}], a candidate cause - a hypothesis, "
+                f"not evidence; cite what was observed that shows it, or leave the step "
+                f"out")
+
+    return f"the step [{step}] cites [{label}], which is not a label you were given"
 
 
 def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[str]:

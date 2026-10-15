@@ -77,6 +77,20 @@ def test_the_brief_says_the_record_outranks_a_candidate() -> None:
         )
 
 
+@pytest.mark.unit
+def test_the_brief_says_a_step_cites_the_record_and_never_a_candidate() -> None:
+    # A candidate is a hypothesis. Cited as a step's evidence, a guess reads as
+    # a fact in the chain, and a reader following the citation finds the
+    # Investigator's opinion where an observation should be.
+    Scenario() \
+        .when(
+            lambda: STANDING_BRIEF
+        ) \
+        .then(
+            _the_brief_mentions("never a candidate")
+        )
+
+
 def _the_brief_mentions(*expected: str) -> Assertion[str]:
     def assertion(brief: str) -> bool:
         missing = [mention for mention in expected if mention not in brief]

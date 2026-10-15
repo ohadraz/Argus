@@ -19,6 +19,7 @@ from deployment_platform import (
     DeploymentPlatformReads,
     DeploymentRecord,
 )
+from repository_source import owner_and_name, where_to_read
 
 from read_mcp_server.change_source import ChangeSourceUnavailable
 
@@ -90,8 +91,10 @@ def _a_deploy_from(record: DeploymentRecord) -> ChangeEvent:
         kind=ChangeKind.DEPLOY,
         occurred_at=record.deployed_at,
         reference=record.revision,
-        summary=_what_it_shipped(record.revision, record.path),
+        summary=_what_it_shipped(record.revision, record.repo_url, record.path),
         actor=record.initiated_by,
+        revision_source=(where_to_read(record.repo_url, record.revision, record.path)
+                         if record.repo_url else None),
         source=(
             f"{record.repo_url}/{record.path}"
             if record.repo_url and record.path
@@ -100,14 +103,17 @@ def _a_deploy_from(record: DeploymentRecord) -> ChangeEvent:
     )
 
 
-def _what_it_shipped(revision: str, path: str | None) -> str:
-    """A deployment said as the two facts that locate it: its revision and where
-    it was synced from.
+def _what_it_shipped(revision: str, repo_url: str | None, path: str | None) -> str:
+    """A deployment said as the facts that locate it: its revision, and the
+    repository and directory it was synced from.
 
-    Both are addresses rather than descriptions. The revision is what a later
-    channel is asked about - what this deployment changed is answered by naming
-    it - and the path is where in the repository the manifests it applied live,
-    which is what a person opens.
+    All three are addresses rather than descriptions. The revision is what a
+    later channel is asked about - what this deployment changed is answered by
+    naming it - and the repository and directory are where the manifests it
+    applied live, which is what a person opens. The directory alone is half an
+    address, since every repository may have a `deploy/`; the repository is
+    named by owner and name, which is what tells two apart, rather than by the
+    whole address, which says nothing more to a reader.
 
     The path is not what the deployment changed, and nothing here should be read
     as saying so. An application syncs from one directory for the life of the
@@ -124,7 +130,15 @@ def _what_it_shipped(revision: str, path: str | None) -> str:
     deciding it wrongly the first time somebody keeps their values beside their
     source.
     """
-    if not path:
-        return f"deployed revision {revision}"
+    deployed = f"deployed revision {revision}"
+    repository = owner_and_name(repo_url) if repo_url else None
+    directory = path.strip("/") if path else None
 
-    return f"deployed revision {revision}, from {path}"
+    if repository is None and not directory:
+        return deployed
+    if repository is None:
+        return f"{deployed} from the {directory}/ directory"
+    if not directory:
+        return f"{deployed} from the {repository} repository"
+
+    return f"{deployed} from the {repository} repository's {directory}/ directory"

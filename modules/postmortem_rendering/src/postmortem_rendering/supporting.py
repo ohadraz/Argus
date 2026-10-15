@@ -8,13 +8,31 @@ where an address relative to nothing leads nowhere.
 
 from __future__ import annotations
 
-from argus_core.models import CitedEvidence, PostmortemDocument
+from typing import Final
+
+from argus_core import parse_iso
+from argus_core.models import (
+    ChangeEvent,
+    ChangeKind,
+    CitedChange,
+    CitedEvidence,
+    PostmortemDocument,
+)
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
 
 # Said in place of a list of evidence the walk read none of.
 _NONE_READ = "None read."
+
+# Who a change no one is named for was made by, as the model is told it too.
+_NOBODY_NAMED: Final = "someone unnamed"
+
+# Each kind of change as a reader says it, rather than as its value is spelled.
+_A_KIND_IN_WORDS: Final[dict[ChangeKind, str]] = {
+    ChangeKind.DEPLOY: "deploy",
+    ChangeKind.FLAG_TOGGLE: "flag toggle"
+}
 
 
 class EvidenceRow(BaseModel):
@@ -34,14 +52,15 @@ class SupportingSection(BaseModel):
 
     The changes and log messages are the two kinds of evidence no other
     section is a row for, so without them a citation of one would lead
-    nowhere. Their headings name the zone their times are in, since each row
-    says a time as the model was shown it.
+    nowhere. The log messages' heading names the zone their times are in,
+    since each row says a time as the model was shown it; a change's row says
+    its moment with its zone.
     """
 
     model_config = ConfigDict(frozen=True)
 
     links: tuple[Line, ...]
-    changes_heading: str = "Changes to production read (UTC)"
+    changes_heading: str = "Changes to production read"
     changes: tuple[EvidenceRow, ...]
     changes_absent: str | None
     log_messages_heading: str = "Log messages read (UTC)"
@@ -70,7 +89,8 @@ def the_supporting_information(postmortem: PostmortemDocument,
     counted = read if read is not None else "not counted"
     links.append(Line(runs=(Run(text=f"Evidence read: {counted}"),)))
 
-    changes = _rows(postmortem.changes_read)
+    changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))
+                    for cited in postmortem.changes_read)
     log_messages = _rows(postmortem.log_messages_read)
     assumptions = tuple(Line(runs=(Run(text=assumption, role=Role.PROSE),))
                         for assumption in postmortem.assumptions)
@@ -82,6 +102,41 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              log_messages_absent=None if log_messages else _NONE_READ,
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
+
+
+def _a_change(cited: CitedChange) -> Line:
+    """A change as its row says it: when, what kind, to what, by whom, and what
+    it did.
+
+    Its reference short, as the prose names it, and what it did in the words
+    the model read, which name a revision whole. Where it can be opened, the
+    revision - short and whole - the repository and the directory each lead
+    there; where it cannot, the reference is a name, said as one.
+    """
+    change = cited.change
+    source = change.revision_source
+    reference = (Run(text=cited.short_reference, role=Role.LINK, address=source.revision_address)
+                 if source is not None else Run(text=cited.short_reference, role=Role.CODE))
+
+    return Line(runs=(Run.a_moment(parse_iso(change.occurred_at)),
+                      Run(text=f" {_A_KIND_IN_WORDS[change.kind]} "),
+                      reference,
+                      Run(text=f" by {change.actor or _NOBODY_NAMED}: "),
+                      *Run(text=change.summary).with_links(_the_addresses_of(change))))
+
+
+def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:
+    """Each name a change's summary may say that a reader can open, and where."""
+    source = change.revision_source
+    if source is None:
+        return {}
+
+    addresses = {change.reference: source.revision_address,
+                 source.repository: source.repository_address}
+    if source.directory is not None and source.directory_address is not None:
+        addresses[source.directory] = source.directory_address
+
+    return addresses
 
 
 def _rows(evidence: list[CitedEvidence]) -> tuple[EvidenceRow, ...]:

@@ -27,6 +27,7 @@ from postmortem_rendering.rendering import RenderedPostmortem, render
 
 from postmortem_rendering_test.framework.builders import (
     DONT_CARE_MOMENT,
+    a_change_read,
     a_person_resolved_it,
     a_postmortem,
     an_alert,
@@ -157,7 +158,7 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
                 timeline=[TimelineEntry(at=DONT_CARE_MOMENT, who=None, text="dont care",
                                         label="T1"),
                           TimelineEntry(at=DONT_CARE_MOMENT, who=None, text="dont care")],
-                changes_read=[CitedEvidence(label="P1", text="dont care")],
+                changes_read=[a_change_read("P1")],
                 log_messages_read=[CitedEvidence(label="G3fa2", text="dont care")],
                 leads=[_a_lead()])
         ) \

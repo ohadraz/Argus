@@ -168,7 +168,7 @@ def test_a_complete_answer_about_an_incident_that_recovered_meets_every_check_it
                 evidence,
                 llm=a_model_answering_in_turn(an_answer(causal_chain=[
                     {STEP_FIELD: "account pages failed", CITES_FIELD: ["T1"]},
-                    {STEP_FIELD: "the monthly average divided by zero", CITES_FIELD: ["C1"]}
+                    {STEP_FIELD: "the monthly average divided by zero", CITES_FIELD: ["M1"]}
                 ])),
                 sources=some_sources(metrics=metrics_that_recovered()))
         ) \

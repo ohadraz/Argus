@@ -2,49 +2,55 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSjgUKEAgSGAI4AUIIdGhpbmtpbmcSDO/ufrzCX4Y0QGPFCRoMKir7TMRvOfPCPybkIjAxUT2RNFhjqR7Ms/XbbW8ZTqLwgu7AotCLHKi8IlEdKyBx4mpPgEa3oBrCwfPtgeIqqwSqMcG75h0RnTpPQn3zhxBEkW6c/QdNF/OjG7q2jOoj4lV4v82kMm1KaqUbWTwB3iAPUJRfxXTL1uSKHgTHBSAhDfwcZ7VhtB2XYxJjwGcBDZt1OpKuaB2tvKExlqK+Xyhn2l1Hu3P/P8xXGIyq8EuAH2zXze/F7uSIH01tQUyaGp++WQ760P6Ld75qXJ27KIICVQ37lW+rVLVkjwUtHRGryNxw+7FOyJhSSWj7TAavzanL9o3XM8lEcXe8iMS7TigE+FJQII4f3bNgSUAOzMd93Iwo5FxOXg1PXjU94Lb2IP6EBSvbp7ouphqi5cABSRbj8gvrNdeTXLi+O5F2c1c5tOud6ViH5vWcZVy1h5sy6t4lK6eA5V6w8dXyuB0XGtWws/vLySUsUUm4uZ0pczM9dkcahWTOJ1G05hpEGlJ1ast0SbSZ2aQqR216uw5RtXt85nK+K4w8MgkomSp/9Bk12m3hzyQNu1ImW+esg4U7v+eMZ8KcrXZxNHptMVx6FPwPC3KsY79taXN2UDr8BI7zxNrDR1iDo0d6NbsM9hEC6vKnkKoSmVBn6Brw0UY+Zv6ybZ4pEZfUPARmN7lxu0V0ZdInFJFgOwicDBy6ZB0b6T0LyoLZjc5I5hVWUSIjFCZDhwE5+NGlqWZVkeM+nSK9hoqHnO8ph2NTPscSk5dFUv3kc/EQsXg7VZ9izJPkLd5yxl3pMMJig+ULnxQuuzPWGHDqW2vsW/VslIUYAQ==",
-      "thinking": "I should only use allowed citation labels like T* and C* and M1/AI, and use T1 specifically for the alert received evidence \u2014 let me correct my citations accordingly.\n\n",
+      "signature": "CAQS8wYKEAgSGAI4AUIIdGhpbmtpbmcSDJRCHAq3r1L8YEJJ2BoM4vzUdbrjKMjqKvPMIjCLmtWTcJS1cVdUKq10R4CKqKcYpobn76DpDxYYGdSMlueLh0Dudzpjdv5B2wJzW3oqkAa7Y+38zO/JW1QRkWPx+KGQYXzhogchdvawy4X11bUp4hx45vuoltQGY9lqu18oXl/open9vEDYVbKc5yV80ctwVgeLZUg1v0WMvhuFqak1yuQo562jo7H5UQItbG9IAPUm1anfaBvorIsWFnDpmFjr4TEgEbnIgbo9r1tMNaAzflHdL/BL0vOXA6PdYsogNXBQbHoDVw/+1CZbg426TSWXe9rrmKs9jh218no6EpBRTriAh24RiTfeh9uXbBJhog0ePvIqyfVmtydsTlSyLx3g20LT3qLN9BCMxT+Dp5eh2pIcrBxLtz5B5IPQ7IXqQGnARYDTB64XngqWZi2FpeQmDApLok3ShsxauHY9df0zwEC/pbeCoKpsalLXMgVxePENpcmc3DIiJ+BoB1Ml9zU0hleuBeu2Pto57MX+L3a/sbusue1r1+83ji34IgXDyMmqnmENnAlNUWBptMarOWmLr+W7CoPswsR29r3v5NkHiEYhMW7NfREkjXZBHDoOWLfsCCE4ehqiV8hxM47EEv/lsFMiQgq0nELrjblP16+Jb6aUcRm4QrGBXN3u5hZFqK8ALaLMO0oO5YXzeqgi5WrLGSenoXG7zoX/HqOTExdsvi3ze0qD28bNPKGNFwBl0ZS4DJJeRCQYqe889qxydhPObMWFtAtQ4L/Cmw7I3PL5E7sZDjg7isL1i2GRQj47JdnseYOyz3iPybNGHsnmdQAD+rjw74LYkuLhXPfeQOYyUyh8IqfcTjnlIa+0RNipjneDMDTIeMJ4WM77VnLBEjdbBiFK6f+H3QulqHtwI8qf8c4jWHpTYF6bo3ayT38OqbOx3q6X9ava5GNC1fXphUcUH/IQ1BnLPOgSNlVGg38n2NHKZCRqI7R/DRguEPN5yK0WoYnxL85LOWNAtDnaFQxPiko3p/4SbaZ2l6XEbjZjta47HZL1LA+UnPEEWh5W2RpWK4quoBA14KQSjvPEuTtqqZUPSBVpFtedOgyb1NzcgOEwoL6RCNJttsbozFRMmDNQ8mLhNsyHXwzOl5omMGmkGAE=",
+      "thinking": "I need to fix the placeholder numbers\u2014replace \"zero minutes of metrics and zero log lines\" with the actual T5.2 minutes and T11.2 log line counts, and make sure I only submit once instead of duplicating that call. Let me also double-check the other figures in the chain for accuracy before finalizing the contributing factor.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01GYQTEmN36jxfp3XYjCkp4o",
+      "id": "toolu_01QivPxv6bNxAuTNVUBT9pc5",
       "input": {
         "action_items": [
           {
-            "item": "Find out why the spend-totals cache stopped applying purchases from the ledger at about the onset time, using the cache's own update path and the writer that feeds it. Confirm whether the proposed fix addresses that mechanism.",
-            "type": "prevent"
-          },
-          {
-            "item": "Run the cache-versus-ledger reconciliation check continuously, and keep a repair path that corrects stale entries automatically, instead of relying on discarding entries by hand after an alert.",
-            "type": "mitigate"
-          },
-          {
-            "item": "Add a freshness signal for the cache, such as lag between the latest ledger purchase and the latest purchase the cache has applied, and alert on it so a stall pages within minutes rather than after the reconciliation check.",
+            "item": "Run the cache-versus-ledger reconciliation check continuously, and alert on the lag between the newest purchase and the newest cached update, so drift is caught soon after it starts and not after stale figures are already served.",
             "type": "detect"
           },
           {
-            "item": "Make sure metrics, logs and cache update events for this service are retained and readable by Argus, and record in the investigation when a channel returns nothing so an empty read is not taken as a clean one.",
-            "type": "process"
+            "item": "Make io-shop per-minute metrics and logs readable and retained for the cache-update path, so an investigation can see what the cache was doing when it stopped keeping up.",
+            "type": "detect"
+          },
+          {
+            "item": "Find out why io-summary-cache stopped applying purchases from {A5}, using the cache's update path and the ledger feed, and record the answer in this postmortem.",
+            "type": "prevent"
+          },
+          {
+            "item": "Add an automatic repair for drifting cache entries, such as invalidating an entry when the ledger has a newer purchase, so recovery does not depend on someone discarding the cache by hand.",
+            "type": "mitigate"
           }
         ],
         "causal_chain": [
           {
             "cites": [
-              "T1",
-              "C1"
+              "AL1"
             ],
-            "step": "Shoppers were shown cached spend totals that were behind their real purchases. {A1} of {A2} checked figures disagreed with the ledger, each missing at most {A4} purchase, with a widest gap of {A3}. No request failed, so only the alert's reconciliation check showed it."
+            "step": "Shoppers were shown cached spend totals that were behind their real purchases: {A1} of {A2} figures disagreed with the ledger, the widest gap being {A3} and the most any one figure was missing being {A4} purchase. No requests failed; only the reconciliation check showed it."
           },
           {
             "cites": [
-              "T1",
-              "C1",
-              "M1"
+              "AL1",
+              "T28"
             ],
-            "step": "The cached copies were wrong because the cache was no longer being updated from the purchase ledger. The oldest purchase the copies did not account for was recorded at {A5}, and the ledger stayed correct throughout. Any shopper who bought again after that point had a stale figure."
+            "step": "The copies being served from {A6} lacked purchases recorded after {A5}, while the purchase ledger itself was correct, so the cached copies were the only thing wrong."
+          },
+          {
+            "cites": [
+              "AL1",
+              "M1",
+              "T28"
+            ],
+            "step": "The spend-totals cache stopped keeping up with the ledger from {A5}, and nothing was putting the copies right, so a total went stale as soon as its shopper bought again. Discarding the {A1} stale entries removed everything that was wrong and sent pages back to the ledger."
           },
           {
             "cites": [
@@ -52,52 +58,51 @@
               "T9",
               "T11",
               "T13",
-              "T15",
               "T17",
-              "T19",
-              "C2"
+              "T22"
             ],
-            "step": "The record cannot say why the cache stopped keeping up. It shows no production change, no log lines and no readable metrics for the window, and the second candidate (no observable cause) was never tried. The chain stops here."
+            "step": "Why the cache stopped updating is not answered by the record: no production changes, no flag changes and no log lines were found around the onset, and the per-minute metrics could not be read. The chain stops here."
           }
         ],
         "contributing_factors": [
           {
             "addressed_by": [
               "AI-2",
+              "AI-5"
+            ],
+            "factor": "Nothing reconciles the cache against the ledger or repairs a drifting copy, so stale entries persist and grow as shoppers buy again. The mitigation only discards entries and does not fix the update path."
+          },
+          {
+            "addressed_by": [
               "AI-3"
             ],
-            "factor": "Nothing reconciles or repairs the cached copies once they fall behind. The alert states that a figure goes stale as soon as its shopper buys again, so the discard was only a stopgap and the fault can recur. The open fix is the only record item aimed at this, and its effect is unverified."
+            "factor": "Detection came only from the alert's reconciliation check. Copies stopped keeping up at {A5} and were being served from {A6}, and the alert was raised at {alert_raised}. Request metrics stay flat for this kind of fault."
           },
           {
             "addressed_by": [
               "AI-4"
             ],
-            "factor": "Detection was late. The copies stopped keeping up at about {A5} and were served from {A6}, but the alert only fired at {alert_raised}, after stale figures were already being shown. No service metric moves when the cache goes stale, so only the reconciliation check can notice."
-          },
-          {
-            "addressed_by": [
-              "AI-5"
-            ],
-            "factor": "Telemetry for the investigation was missing. Per-minute metrics, logs and change events all came back empty, so the Investigator could not explain the stall and could only describe it as a state divergence."
+            "factor": "The investigation could not see the incident: {T5.2} minutes of metrics and {T11.2} log lines were read for the service, so the cause of the cache stopping could not be established."
           }
         ],
-        "executive_summary": "Some shoppers were shown out-of-date spend totals. At the alert, {A1} of {A2} cached figures disagreed with the purchases behind them. Each was missing at most {A4} purchase, and the widest gap was {A3}. The purchases themselves were always correct. The copies stopped updating at about {A5} and were being served from {A6}. The alert fired at {alert_raised}, and the impact lasted at least {duration}, which is a lower bound. Argus discarded the stale copies so those pages read from the purchase ledger again, and the store confirmed it removed them. Argus's handling took {held}. The reason the cache stopped updating was not found. A draft fix has been proposed and is awaiting review, and nothing yet keeps the copies correct if they go stale again.",
+        "executive_summary": "Some shoppers on io-shop were shown spend totals that were out of date. {A1} of {A2} cached totals disagreed with the purchases behind them. The purchase records were correct throughout, and the most any one total was missing was {A4} purchase, a gap of at most {A3}. The copies stopped keeping up from {A5} and were being served from {A6}. The service was affected for at least {duration}, a lower bound because the service had not recovered when metrics were last read. Argus was alerted at {alert_raised} and discarded the stale copies, so pages go back to the correct purchase records. The store confirmed it removed what was wrong. Nothing has yet been shown to be keeping the copies correct, and the reason they stopped updating is unknown. A draft fix is awaiting review.",
         "lessons": {
           "got_lucky": [
-            "The ledger was never affected, so discarding the copies was a safe way to restore correct figures. A fault in the ledger itself would have had no such easy way out.",
-            "Each stale figure was missing at most {A4} purchase, so the errors were small."
+            "The purchase ledger stayed correct, so discarding the copies sent pages back to a reliable source.",
+            "The drift was small: at most {A4} purchase was missing from any one figure, a gap of at most {A3}."
           ],
           "went_well": [
-            "Argus picked up the alert within seconds and discarded the stale copies, so affected pages went back to the ledger, which was always correct.",
-            "The mitigation was confirmed by the store reporting what it removed, and a draft fix was proposed straight away."
+            "The alert's reconciliation check found drift that no service metric showed.",
+            "Argus acted quickly on the leading candidate. The discard was confirmed, and the store reported removing everything that was wrong.",
+            "A draft fix was proposed for review soon after mitigation."
           ],
           "went_wrong": [
-            "The cause of the stall was never identified. The metrics, logs and change reads all came back empty, and the leading candidate rests on the alert's own data.",
-            "The discard does not stop new staleness, so a later check may name more entries until the cause is fixed.",
-            "The stall went unnoticed from the time the copies stopped keeping up until the alert fired."
+            "Metrics and logs for the incident could not be read, so the cause of the cache stopping was never established and the error rate is unknown.",
+            "Stale figures were served from {A6} before the alert at {alert_raised}.",
+            "The mitigation clears the current stale entries but does not stop the cache from drifting again."
           ]
         },
-        "root_cause": "The cache of shopper spend totals stopped keeping up with the purchase ledger at about {A5} and kept serving stale figures from then on. The record holds no deploy, flag change, log line or metric that shows why it stopped, so the mechanism behind the stall is not established.",
+        "root_cause": "The cache of shopper spend totals (io-summary-cache) stopped keeping up with the purchase ledger from {A5} and nothing in the system detected or repaired the drift, so out-of-date totals were served. The record does not show why the cache stopped updating: no change, flag change or log line explains it.",
         "symptom": "Shoppers saw out-of-date spend totals"
       },
       "name": "submit_postmortem",
@@ -105,7 +110,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cfyv2eu5jpNgWwtawnSvN",
+  "id": "msg_011Cg3qqRsVcyjSKWBbAD7a2",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -115,15 +120,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3511
+      "ephemeral_5m_input_tokens": 2323
     },
-    "cache_creation_input_tokens": 3511,
-    "cache_read_input_tokens": 4578,
+    "cache_creation_input_tokens": 2323,
+    "cache_read_input_tokens": 5093,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1866,
+    "output_tokens": 1947,
     "output_tokens_details": {
-      "thinking_tokens": 46
+      "thinking_tokens": 135
     },
     "service_tier": "standard"
   }

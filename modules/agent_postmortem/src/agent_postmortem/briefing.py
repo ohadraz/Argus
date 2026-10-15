@@ -50,7 +50,9 @@ STANDING_BRIEF: Final = "\n\n".join([
     f"what the people using the service saw, with the evidence that shows it. "
     f"The {SYMPTOM_FIELD} field is that step in a few words, and the two must "
     f"agree. Each step after it answers why the step before happened - one "
-    f"cause, no jumps - and cites its evidence. Five is a guide, not a quota: "
+    f"cause, no jumps - and cites its evidence from the record, never a "
+    f"candidate: a candidate is a hypothesis, and the chain says what happened. "
+    f"Five is a guide, not a quota: "
     f"stop where the evidence stops. The {ROOT_CAUSE_FIELD} field is the last "
     f"step of the chain.",
 

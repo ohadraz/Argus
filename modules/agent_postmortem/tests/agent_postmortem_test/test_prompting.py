@@ -37,6 +37,7 @@ from agent_postmortem.figures import (
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
     RECOVERED_FIGURE,
+    Figure,
     figures_of,
     named,
     the_finding_named,
@@ -70,6 +71,7 @@ from agent_postmortem.prompting import (
     SubmittedItem,
     SubmittedPostmortem,
     SubmittedStep,
+    figures_shown,
     opening_ask,
     opening_ask_again,
     rejecting,
@@ -83,6 +85,7 @@ from argus_core.models import (
     Ask,
     ChangeEvent,
     ChangeKind,
+    CitedChange,
     CitedEvidence,
     Lessons,
     OpenedPullRequest,
@@ -224,6 +227,58 @@ def test_an_alert_that_said_nothing_of_its_own_is_told_by_its_title_alone() -> N
 
 
 @pytest.mark.unit
+def test_what_the_alert_said_is_evidence_under_a_label_of_its_own() -> None:
+    # The check that paged measured what it paged on, and that is the first
+    # thing a chain's symptom rests on. Shown with no label, a model had nothing
+    # to cite it by: it cited the finding's figures, which are no evidence, and
+    # then a candidate cause, which is no fact.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(timeline=[a_timeline_entry("a line of the narration")],
+                                           log_lines=[],
+                                           candidates=[],
+                                           actions=[]).model_copy(
+                update={"alert_finding": SOME_FINDING})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([("AL1", SOME_FINDING), ("T1", "a line of the narration")])
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_shown_what_the_alert_said_under_its_label() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"alert_finding": SOME_FINDING})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line(WHAT_THE_ALERT_SAID, "[AL1]")
+        )
+
+
+@pytest.mark.unit
+def test_what_the_alert_said_names_its_figures_once() -> None:
+    # Its figures already have the names the model writes them by - {A1} - and
+    # a second set under its label would be two names for one figure.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"alert_finding": SOME_FINDING})
+        ) \
+        .when(
+            lambda: figures_shown(evidence, a_measured_incident())
+        ) \
+        .then(
+            _names_no_figure_starting("AL1")
+        )
+
+
+@pytest.mark.unit
 def test_each_kind_of_evidence_is_labelled_on_its_own_in_the_order_it_is_shown() -> None:
     # The label is what a step of the cause cites, so every line the model can
     # rest a claim on has one, and no two share it: the narration, the changes,
@@ -251,22 +306,54 @@ def test_each_kind_of_evidence_is_labelled_on_its_own_in_the_order_it_is_shown()
 
 
 @pytest.mark.unit
-def test_the_changes_are_the_evidence_shown_as_changes_under_the_same_labels() -> None:
+def test_the_changes_are_shown_under_the_same_labels_with_each_revision_written_short() -> None:
     # The document lists them under the labels the prose cites them by, so it
     # takes them from here rather than counting them again: two countings are
-    # two chances to disagree about which change P2 is.
+    # two chances to disagree about which change P2 is. Each carries its
+    # reference as the prose writes it - a revision short, a flag as named - so
+    # a row and the sentence citing it name the change alike.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_deploy = ChangeEvent(kind=ChangeKind.DEPLOY,
+                              occurred_at=A_MINUTE_BEFORE_THE_ONSET,
+                              reference=some_revision,
+                              summary="dont care")
+    some_toggle = _a_change(reference="a flag")
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(timeline=[a_timeline_entry("a line of the narration")],
-                                           changes=[_a_change(reference="a change"),
-                                                    _a_change(reference="another change")],
-                                           log_lines=["a log line"])
+            evidence := an_evidence_bundle(changes=[some_deploy, some_toggle])
         ) \
         .when(
             lambda: the_changes_labelled(evidence)
         ) \
         .then(
-            _labelled_in_order([("P1", "a change"), ("P2", "another change")])
+            the_answer_was([
+                CitedChange(label="P1", change=some_deploy, short_reference=some_revision[:7]),
+                CitedChange(label="P2", change=some_toggle, short_reference="a flag")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_two_revisions_alike_for_seven_characters_are_each_written_as_long_as_tells_them_apart(
+) -> None:
+    # As the prose writes them, which is what git does: a short form the two
+    # share would name neither.
+    some_deploys = [ChangeEvent(kind=ChangeKind.DEPLOY,
+                                occurred_at=A_MINUTE_BEFORE_THE_ONSET,
+                                reference=revision,
+                                summary="dont care")
+                    for revision in ("abcdef12" + "0" * 32, "abcdef13" + "0" * 32)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(changes=some_deploys)
+        ) \
+        .when(
+            lambda: [cited.short_reference for cited in the_changes_labelled(evidence)]
+        ) \
+        .then(
+            the_answer_was(["abcdef12", "abcdef13"])
         )
 
 
@@ -1569,6 +1656,19 @@ def _does_not_say(unwanted: str) -> Assertion[Transcript]:
         if unwanted in said:
             raise AssertionError(
                 f"Expected the model not to be told [{unwanted}], and it was: {said}")
+
+        return True
+
+    return assertion
+
+
+def _names_no_figure_starting(prefix: str) -> Assertion[dict[str, Figure]]:
+    def assertion(figures: dict[str, Figure]) -> bool:
+        named_so = sorted(name for name in figures if name.startswith(prefix))
+
+        if named_so:
+            raise AssertionError(
+                f"Expected no figure named after [{prefix}], got {named_so}.")
 
         return True
 

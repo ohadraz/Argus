@@ -58,7 +58,12 @@ from argus_core.models.alert import AlarmClaim, Alert
 from argus_core.models.alert_rule import AlertRuleStanding
 from argus_core.models.attempt import Attempt
 from argus_core.models.candidate import WhatWouldBeTried
-from argus_core.models.change_event import ChangeEvent, ChangeKind, as_a_change
+from argus_core.models.change_event import (
+    ChangeEvent,
+    ChangeKind,
+    RevisionSource,
+    as_a_change,
+)
 from argus_core.models.circumstances import Circumstances
 from argus_core.models.code_search import CodeSearch
 from argus_core.models.disproof import Disproof
@@ -91,6 +96,7 @@ from argus_core.models.postmortem_sections import (
     ActionItemStatus,
     ActionItemType,
     ChainStep,
+    CitedChange,
     CitedEvidence,
     ContributingFactor,
     Detection,
@@ -204,6 +210,7 @@ __all__ = [
     "FailureMode",
     "ChangeEvent",
     "ChangeKind",
+    "RevisionSource",
     "as_a_change",
     "Circumstances",
     "CodeSearch",
@@ -242,6 +249,7 @@ __all__ = [
     "ActionItemStatus",
     "ActionItemType",
     "ChainStep",
+    "CitedChange",
     "CitedEvidence",
     "ContributingFactor",
     "Detection",

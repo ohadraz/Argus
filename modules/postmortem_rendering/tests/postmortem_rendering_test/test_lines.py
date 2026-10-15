@@ -102,6 +102,53 @@ def test_a_label_is_not_cited_from_the_end_of_a_longer_word() -> None:
 
 
 @pytest.mark.unit
+def test_each_name_with_an_address_is_a_link_to_where_it_opens() -> None:
+    # A row says where a change came from in words, and each name in them a
+    # reader can open leads there: the revision, the repository, the directory.
+    commit = "https://github.com/acme/shop/commit/7c3ca00"
+    repository = "https://github.com/acme/shop"
+    directory = "https://github.com/acme/shop/tree/7c3ca00/deploy"
+
+    Scenario() \
+        .given(
+            some_words := Run(text="deployed revision 7c3ca00 from the acme/shop "
+                                   "repository's deploy/ directory")
+        ) \
+        .when(
+            lambda: some_words.with_links({"7c3ca00": commit, "acme/shop": repository,
+                                           "deploy": directory})
+        ) \
+        .then(
+            the_answer_was((Run(text="deployed revision "),
+                            Run(text="7c3ca00", role=Role.LINK, address=commit),
+                            Run(text=" from the "),
+                            Run(text="acme/shop", role=Role.LINK, address=repository),
+                            Run(text=" repository's "),
+                            Run(text="deploy", role=Role.LINK, address=directory),
+                            Run(text="/ directory")))
+        )
+
+
+@pytest.mark.unit
+def test_a_name_is_not_linked_from_inside_a_longer_word() -> None:
+    # "deployed" begins the way the directory deploy/ is spelled.
+    directory = "https://github.com/acme/shop/tree/7c3ca00/deploy"
+
+    Scenario() \
+        .given(
+            some_words := Run(text="deployed from deploy/")
+        ) \
+        .when(
+            lambda: some_words.with_links({"deploy": directory})
+        ) \
+        .then(
+            the_answer_was((Run(text="deployed from "),
+                            Run(text="deploy", role=Role.LINK, address=directory),
+                            Run(text="/")))
+        )
+
+
+@pytest.mark.unit
 def test_a_label_with_no_row_to_cite_is_left_as_prose() -> None:
     # A postmortem with no hypotheses still has prose, and it may still name
     # C1 - a citation of it would lead nowhere.

@@ -159,7 +159,10 @@ def read_changes(call: ToolCall,
 
     return served(call, "\n".join([
         f"Every recorded change to {service} from {to_iso(start)} to {to_iso(end)}.",
-        json.dumps([change.model_dump() for change in changes], indent=2)
+        # Less where a person opens each change: that is for a reader of the
+        # document, and bears on no cause.
+        json.dumps([change.model_dump(exclude={"revision_source"}) for change in changes],
+                   indent=2)
         if changes
         else _NOTHING_IN_THIS_WINDOW
     ]), reading)

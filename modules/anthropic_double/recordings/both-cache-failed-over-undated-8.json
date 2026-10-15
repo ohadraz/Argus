@@ -2,109 +2,120 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I need to avoid writing specific numbers directly and instead reference the figures by their placeholder names, keeping dates and PR numbers out of the text while working through the causal sequence of events.\n\nThe core symptom was cached spend figures falling behind actual purchases for some shoppers. Digging into why, the copies stopped being kept current from a certain point, and nothing was repairing them \u2014 the actual trigger for this breakdown in cache maintenance wasn't identified despite multiple search attempts turning up nothing.\n\nI note the mitigation of discarding stale entries only provides temporary relief since the underlying repair mechanism is still broken, meaning figures will go stale again on the next purchase; verification of the cleanup relied on the store's own reporting rather than independent re-checking, and a draft fix has been proposed but remains unmerged. I also flag contributing factors like poor observability into metrics, logs, and change history, plus a detection lag \u2014 alerting came well after the copies started failing \u2014 both of which point toward needed action items around improving detection.\n\nNow I'm organizing the action items: one for alerting on cache-to-ledger divergence or invalidation failures sooner, one for improving telemetry retention and readability with alerts for empty query results, and one for actually identifying and fixing the root cause of the cache maintenance failure with an accompanying test, possibly alongside a reconciliation process as a fourth item. I'm also noting the duration should be expressed as a lower bound rather than a precise figure, and I need to pull this all together into an executive summary.\n\n",
+      "signature": "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",
+      "thinking": "I need to avoid writing any actual figures myself and instead use placeholder names in braces. The symptom is that cached spend totals were stale, with onset at one time but copies falling behind starting earlier, and I'm working out how to express the detection gap between the alert and the point replication stopped keeping up without inventing concrete numbers.\n\nFor the causal chain, I'm distinguishing which pieces to cite as evidence labels (T24, T21, T9, T13, T11, T15, T18) versus which are just figures I shouldn't cite directly. The root cause comes down to cache maintenance for per-shopper spend totals halting at some point, with the underlying reason for that halt remaining unidentified based on the available evidence, and I want to state that honestly rather than speculate.\n\nNow I'm drafting contributing factors and new action items: no self-healing mechanism for stale copies (AI-3, reconcile/TTL job), late detection of the divergence (AI-4, earlier alerting on cache-vs-ledger mismatch), and empty telemetry preventing root-cause identification (AI-5, restore logging/metrics and investigate). I'm also noting that the proposed fix PR doesn't address a confirmed cause since the cause itself is unknown, so I should flag that for review rather than assume it resolves the issue.\n\nThen for lessons learned, I'm separating what went well (fast, confirmed mitigation that held) from what went wrong (zero readable metrics/logs, unidentified cause, and a mitigation that only discards rather than prevents recurrence), while also noting the investigator's log query was anchored at a specific time window that may have missed relevant data.\n\nFor the exec summary, I want to avoid stating specific numbers \u2014 using placeholders like duration and figures instead \u2014 since impact is bounded but the actual error rate and full scope remain unknown, and the discard action only confirmed removal, not that the underlying maintenance process now works correctly.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_019btPa211nbVxRywbY28w4x",
+      "id": "toolu_01EKDkpXaVUV1wFAkS2vVayL",
       "input": {
         "action_items": [
           {
-            "item": "Add a check or alert on the purchase path that fires when a purchase does not result in the shopper's cached spend total being updated or invalidated, and a periodic comparison of cache against ledger so divergence is caught soon after it starts rather than hours later.",
-            "type": "detect"
-          },
-          {
-            "item": "Make io-shop metrics, logs and change events readable around the incident window (check retention and query anchoring), and alert when these queries return nothing for a running service.",
-            "type": "detect"
-          },
-          {
-            "item": "Find out why cache maintenance stopped at about {A5} (examine the invalidation/update code path, cache connectivity and any non-deploy changes), confirm whether the proposed fix addresses it, and add a regression test that a purchase updates or invalidates the cached total.",
+            "item": "Make cached spend totals correct themselves: give them an expiry, or run a periodic job that compares them with the purchase ledger and rewrites the ones that differ.",
             "type": "prevent"
           },
           {
-            "item": "After the fix is merged, re-run the cache-versus-ledger comparison to confirm no new stale figures appear, since discarding entries alone does not prevent recurrence.",
+            "item": "Alert as soon as cache upkeep on purchase fails or falls behind, for example on update errors or a growing count of cache entries that differ from the ledger, so the alert does not wait for a periodic comparison.",
+            "type": "detect"
+          },
+          {
+            "item": "Find out why the io-shop metrics and log reads returned nothing during the incident, and restore them so an investigator can read the period around {A5}.",
+            "type": "detect"
+          },
+          {
+            "item": "Find what stopped cache upkeep at {A5} by reviewing the purchase-path cache update code and the cache store's own history. Before merging the proposed fix, confirm that it addresses this trigger.",
             "type": "process"
           }
         ],
         "causal_chain": [
           {
             "cites": [
-              "T1",
-              "C1"
+              "T24",
+              "T21"
             ],
-            "step": "Cached spend totals shown for some shoppers were lower than their real spend: {A1} of {A2} checked figures disagreed with the purchase ledger, the widest gap being {A3} and the most any one figure was missing being {A4} purchase. The ledger was correct."
+            "step": "Shoppers were shown cached spend totals that disagreed with their purchases. {A1} of {A2} cached figures were wrong when the alert fired. Discarding them removed {T24.2} entries, which the store reported as the whole of what was wrong."
           },
           {
             "cites": [
-              "C1",
+              "T21",
               "T24"
             ],
-            "step": "The cached copies were behind because they stopped keeping up with new purchases from about {A5}, and nothing was repairing them, so any shopper who bought again would go stale."
+            "step": "The cached copies were behind the purchase ledger, which was correct and unchanged. Purchases recorded since {A5} had not been applied to the copies, and nothing was putting the copies right afterwards."
           },
           {
             "cites": [
-              "T5",
-              "T9",
-              "T11",
-              "T13",
-              "T15",
-              "T18",
-              "C1"
+              "T24"
             ],
-            "step": "Cache maintenance on purchase (invalidation or update) stopped working. What broke it is not identified: no deploys, flag changes, logs or metrics were available that show a trigger, so the chain stops here."
+            "step": "The cache upkeep that should run when a purchase is recorded stopped working at {A5}, the time the copies stopped keeping up."
+          },
+          {
+            "cites": [
+              "T9",
+              "T13",
+              "T18",
+              "T11",
+              "T15",
+              "T5"
+            ],
+            "step": "What stopped the upkeep is not known. No production changes were found over the windows read, no flag changes were found, and the log and metric reads came back empty. The evidence stops here."
           }
         ],
         "contributing_factors": [
           {
             "addressed_by": [
-              "AI-4"
+              "AI-3"
             ],
-            "factor": "Evidence was unavailable to the investigation: metrics, logs and change events all read back empty, so the trigger could not be found and the error rate is unknown."
+            "factor": "Nothing repairs a stale cached total. Once upkeep stopped, each copy stayed wrong until it was discarded by hand, and every new purchase made another one stale."
           },
           {
             "addressed_by": [
-              "AI-3"
+              "AI-4"
             ],
-            "factor": "The staleness was detected only well after the copies stopped keeping up at {A5}; the alert fired at {alert_raised}, and there was no earlier signal from the purchase path that cache maintenance had stopped."
+            "factor": "Detection came late. The alert was raised {alert_raised - A5} after the copies stopped keeping up, and only because a check compared the cache to the ledger."
+          },
+          {
+            "addressed_by": [
+              "AI-5"
+            ],
+            "factor": "The investigation had no usable telemetry. Metrics and logs came back empty and the change history showed nothing, so the trigger could not be found."
           },
           {
             "addressed_by": [
               "AI-2",
-              "AI-5"
+              "AI-6"
             ],
-            "factor": "The mitigation only clears the stale entries; it does not repair cache maintenance, so figures go stale again as shoppers buy and the fault can recur until the cause is found and fixed."
+            "factor": "The mitigation only clears the symptom. A fix has been proposed without an identified trigger, so the problem could return after the fix is merged."
           }
         ],
-        "executive_summary": "Some shoppers' cached spend totals on io-shop showed less than they had actually spent, because the cached copies had stopped keeping up with purchases. {A1} of {A2} cached figures checked were wrong, the largest gap being {A3} and no figure missing more than {A4} purchase. The purchase records themselves were correct throughout. The problem began at {began}, and the service was affected for at least {duration} (a lower bound, since it had not recovered in the data Argus could read). Argus discarded the stale cached figures so pages fell back to the correct purchase ledger, and the store confirmed the removal. The cause of the cache ceasing to keep up was not found, so nothing prevents the figures going stale again as shoppers buy. A draft fix was proposed and is awaiting review.",
+        "executive_summary": "Some shoppers on io-shop were shown spend totals that were out of date. The purchases themselves were recorded correctly. Only the stored copies of the totals were behind, by at least one purchase for each affected shopper. {A1} of {A2} checked totals were wrong when the alert fired, and the service had not recovered by the last metrics read, so it was broken for at least {duration}. Argus discarded the stale copies. Those pages now read from the purchase ledger, and the store confirmed it removed every entry that was wrong. The fix is not permanent. Nothing is repairing the copies, so a total will go stale again when its shopper next buys. We do not yet know why the copies stopped updating. A draft pull request has been proposed and is waiting for review.",
         "lessons": {
           "got_lucky": [
-            "The purchase ledger was untouched, so the cache could be dropped safely and fall back to correct data; the gaps were small, at most {A4} missing purchase per figure.",
-            "Nothing was repairing the cache and the cause is unknown, so the figures could have gone stale again straight after discarding."
+            "The ledger never moved and the widest gap was only {A3}, with each figure missing at most {A4} purchase. The wrong totals were small and the real purchase data was not harmed.",
+            "The alert reported impact only as a lower bound, so more shoppers may have seen stale totals than the checked figures show."
           ],
           "went_well": [
-            "Argus picked up the alert immediately and the stale entries were discarded within moments, sending pages back to the correct purchase ledger (M1, T24).",
-            "The alert stated clearly that the ledger was correct and the cache was behind, which pointed at the right place straight away.",
-            "A draft fix was proposed shortly after mitigation (T25)."
+            "Argus took the incident up straight away and discarded the stale copies. The action was confirmed, and the response was held for only {held}.",
+            "The purchase ledger was the source of truth and was untouched, so discarding the copies was safe and left nothing to put back.",
+            "A draft fix was proposed soon after mitigation."
           ],
           "went_wrong": [
-            "No trigger could be identified because metrics, logs and change history all came back empty (T5, T9, T11, T13, T15).",
-            "Mitigation was judged on the store reporting what it removed, not on a later re-check, and it does not stop new staleness (T23, T24).",
-            "The divergence was only noticed well after it began."
+            "The cause was not found. Metrics, logs and change history all came back empty.",
+            "The mitigation does not stop the problem coming back. Totals go stale again when their shopper next buys, and the alert said later checks would name more.",
+            "The copies had been stale since {A5} and the alert came {alert_raised - A5} later."
           ]
         },
-        "root_cause": "The cache of per-shopper spend totals stopped being updated or invalidated when shoppers made purchases, from about {A5} onward, so cached copies fell behind the purchase ledger. What broke cache maintenance was not identified: the change history, logs and metrics showed no trigger.",
-        "symptom": "Shoppers' cached spend totals were out of date"
+        "root_cause": "The upkeep of the cached per-shopper spend totals (updating or invalidating the copy when a purchase is recorded) stopped working at {A5}, so the copies fell behind the purchase ledger, which stayed correct. Nothing in the change history, flag history, logs or metrics shows what stopped it, so the trigger is not identified.",
+        "symptom": "Shoppers saw out-of-date spend totals"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cfyv4cJ8b2BXDAZ1oUDEU",
+  "id": "msg_011Cg3meSNk3mvugL98QJ5y6",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -114,15 +125,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2305
+      "ephemeral_5m_input_tokens": 2618
     },
-    "cache_creation_input_tokens": 2305,
-    "cache_read_input_tokens": 1900,
+    "cache_creation_input_tokens": 2618,
+    "cache_read_input_tokens": 2046,
     "inference_geo": "global",
     "input_tokens": 4,
-    "output_tokens": 2511,
+    "output_tokens": 3082,
     "output_tokens_details": {
-      "thinking_tokens": 786
+      "thinking_tokens": 1316
     },
     "service_tier": "standard"
   }

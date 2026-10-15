@@ -29,9 +29,11 @@ from decimal import Decimal
 import pytest
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.prompting import (
+    CITES_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
     LEAD_EFFECTS_FIELD,
     ROOT_CAUSE_FIELD,
+    STEP_FIELD,
     SubmittedPostmortem,
 )
 from argus_core.models import (
@@ -46,6 +48,7 @@ from argus_core.models import (
 from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
 
 from agent_postmortem_test.framework.builders import (
+    a_candidate,
     a_lead,
     a_measured_incident,
     a_model_answering_in_prose_then,
@@ -450,7 +453,7 @@ def test_a_revision_the_model_misremembered_is_written_as_the_one_it_meant() -> 
         .then(
             all_of(
                 _was_asked(asks),
-                _answered_with(ROOT_CAUSE_FIELD, f"revision {some_revision_read[:8]} broke it"),
+                _answered_with(ROOT_CAUSE_FIELD, f"revision {some_revision_read[:7]} broke it"),
                 _found_no_fault()
             )
         )
@@ -484,6 +487,33 @@ def test_a_revision_the_incident_never_read_is_asked_for_again_naming_it() -> No
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, some_revision_nobody_read),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_step_resting_on_a_candidate_cause_is_asked_for_again_naming_it() -> None:
+    # The candidates are shown under labels of their own, beside the evidence,
+    # so a step can cite one - and the check has to know which labels they are.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_citing_a_guess := a_model_answering_in_turn(
+                an_answer(causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: ["T1", "C1"]}]),
+                an_answer(causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: ["T1"]}]),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_citing_a_guess,
+                                         an_evidence_bundle(candidates=[a_candidate("dont care")]),
+                                         a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "[C1]"),
                 _found_no_fault()
             )
         )

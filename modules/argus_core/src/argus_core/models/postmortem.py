@@ -28,6 +28,7 @@ from argus_core.ids import UuidStr
 from argus_core.models.postmortem_sections import (
     ActionItem,
     ChainStep,
+    CitedChange,
     CitedEvidence,
     ContributingFactor,
     Detection,
@@ -162,8 +163,9 @@ class PostmortemDocument(BaseModel):
     # The changes to production and the log messages the model was shown, each
     # under the label it was shown by. No other section is a row for either,
     # and the prose cites both - so without them a reader told "the deploy P2"
-    # has nowhere to find out what P2 was.
-    changes_read: list[CitedEvidence] = []
+    # has nowhere to find out what P2 was. A change is kept whole, so its row
+    # can name where it can be opened.
+    changes_read: list[CitedChange] = []
     log_messages_read: list[CitedEvidence] = []
     review: list[ReviewCriterion] = []
 

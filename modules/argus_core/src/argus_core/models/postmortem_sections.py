@@ -19,7 +19,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from argus_core.models.change_event import ChangeKind
+from argus_core.models.change_event import ChangeEvent, ChangeKind
 
 
 class CitedEvidence(BaseModel):
@@ -33,6 +33,21 @@ class CitedEvidence(BaseModel):
 
     label: str
     text: str
+
+
+class CitedChange(BaseModel):
+    """A change to production the model was shown, under the label the prose
+    cites it by.
+
+    The change itself rather than the line the model read, so whoever shows it
+    can lay out its parts - when, what, by whom, and where it can be opened -
+    and `short_reference` is its reference as the prose writes it: a revision in
+    its short form, and anything else, a flag's name, as given.
+    """
+
+    label: str
+    change: ChangeEvent
+    short_reference: str
 
 
 class ChainStep(BaseModel):

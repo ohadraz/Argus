@@ -1,12 +1,15 @@
 """The revisions an answer names, held to the ones the incident read.
 
-A revision is a name, and the answer writes it as given - it is what a reader
-searches for. What code holds it to is being one. A real revision, short or
-whole, stands. One a few characters off is the revision it starts like, and is
-written as that: code knows which one it was, and asking the model again would
-pay twice to put back a character. One that starts like none of them, or like
-more than one, is left as written for the check to put back to the model
-(`checking`), because nothing here can know what it meant.
+A revision is a name, and the answer writes it the way a reader meets one: in
+its short form, as git abbreviates it and a pull request or a log shows it.
+Forty characters in a sentence read as noise, and a document writing one
+revision two ways reads as naming two. What code holds it to is being one. A
+real revision, short or whole, is written short. One a few characters off is the
+revision it starts like, and is written as that: code knows which one it was,
+and asking the model again would pay twice to put back a character. One that
+starts like none of them, or like more than one, is left as written for the
+check to put back to the model (`checking`), because nothing here can know
+what it meant.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from agent_postmortem.prompting import (
 from agent_postmortem.revisions import (
     ENOUGH_TO_BE_THE_SAME,
     revisions_of,
+    short_form,
     with_revisions_corrected,
 )
 from argus_core.models import ActionItemType, ChangeEvent, ChangeKind, Lessons
@@ -32,10 +36,12 @@ from agent_postmortem_test.framework.builders import a_candidate, an_evidence_bu
 SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 SOME_OTHER_REVISION = "4c810f22894e612ced87f5ee3f3062dfeb785050"
 
-# What a model writes for the first: its short form, and that short form off by
-# its last character.
-SOME_SHORT_FORM = SOME_REVISION[:8]
-SOME_SHORT_FORM_A_CHARACTER_OFF = SOME_REVISION[:7] + "3"
+# The first one's short form - seven characters, as git abbreviates a revision -
+# and the same revision as a model writes it: at a length of its own choosing,
+# and off by its last character.
+SOME_SHORT_FORM = SOME_REVISION[:7]
+SOME_LONGER_FORM = SOME_REVISION[:10]
+SOME_FORM_A_CHARACTER_OFF = SOME_REVISION[:7] + "3"
 
 SOME_FLAG = "checkout-fallback"
 
@@ -61,29 +67,83 @@ def test_the_revisions_read_are_what_the_changes_and_the_candidates_name() -> No
 
 
 @pytest.mark.unit
-def test_a_revision_the_incident_read_stands_short_or_whole() -> None:
+def test_a_revision_the_incident_read_is_written_short_however_long_it_was_written() -> None:
+    # Whole, it is forty characters in the middle of a sentence; at a length
+    # the model chose, it is one revision written two ways in one document.
     Scenario() \
         .given(
             an_answer_naming_both := SubmittedPostmortem(
-                root_cause=f"{SOME_SHORT_FORM} replaced {SOME_OTHER_REVISION}")
+                root_cause=f"{SOME_LONGER_FORM} replaced {SOME_OTHER_REVISION}")
         ) \
         .when(
             lambda: with_revisions_corrected(an_answer_naming_both,
                                              frozenset({SOME_REVISION, SOME_OTHER_REVISION}))
         ) \
         .then(
-            the_answer_was(an_answer_naming_both)
+            the_answer_was(SubmittedPostmortem(
+                root_cause=f"{SOME_SHORT_FORM} replaced {SOME_OTHER_REVISION[:7]}"))
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_written_short_already_stands() -> None:
+    Scenario() \
+        .given(
+            an_answer_naming_it_short := SubmittedPostmortem(
+                root_cause=f"revision {SOME_SHORT_FORM} broke it")
+        ) \
+        .when(
+            lambda: with_revisions_corrected(an_answer_naming_it_short,
+                                             frozenset({SOME_REVISION, SOME_OTHER_REVISION}))
+        ) \
+        .then(
+            the_answer_was(an_answer_naming_it_short)
+        )
+
+
+@pytest.mark.unit
+def test_two_revisions_alike_for_seven_characters_are_written_as_long_as_tells_them_apart() -> None:
+    # A short form two of the incident's revisions share names neither, so it
+    # is as short as it can be while still naming one - which is what git does.
+    some_revision = "abcdef12" + "0" * 32
+    some_twin = "abcdef13" + "0" * 32
+
+    Scenario() \
+        .given(
+            an_answer_naming_one_whole := SubmittedPostmortem(
+                root_cause=f"revision {some_revision} broke it")
+        ) \
+        .when(
+            lambda: with_revisions_corrected(an_answer_naming_one_whole,
+                                             frozenset({some_revision, some_twin}))
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause="revision abcdef12 broke it"))
+        )
+
+
+@pytest.mark.unit
+def test_a_short_form_and_the_whole_revision_it_names_are_one_revision_not_two() -> None:
+    # A change's short form beside a candidate naming the same revision whole -
+    # or a candidate's short form beside the change's whole one - are two names
+    # for one revision, and neither makes the other longer. Taken for rivals,
+    # the short one could never be told apart from the whole, however long.
+    Scenario() \
+        .when(
+            lambda: (short_form(SOME_SHORT_FORM, frozenset({SOME_SHORT_FORM, SOME_REVISION})),
+                     short_form(SOME_REVISION, frozenset({SOME_REVISION, SOME_REVISION[:9]})))
+        ) \
+        .then(
+            the_answer_was((SOME_SHORT_FORM, SOME_SHORT_FORM))
         )
 
 
 @pytest.mark.unit
 def test_a_revision_a_character_off_is_written_as_the_one_it_starts_like() -> None:
-    # As long as the model wrote it: the short form it meant, not the whole
-    # revision dropped into the middle of its sentence.
     Scenario() \
         .given(
             an_answer_a_character_off := SubmittedPostmortem(
-                root_cause=f"revision {SOME_SHORT_FORM_A_CHARACTER_OFF} broke it")
+                root_cause=f"revision {SOME_FORM_A_CHARACTER_OFF} broke it")
         ) \
         .when(
             lambda: with_revisions_corrected(an_answer_a_character_off,
@@ -97,7 +157,6 @@ def test_a_revision_a_character_off_is_written_as_the_one_it_starts_like() -> No
 @pytest.mark.unit
 def test_a_revision_sharing_just_enough_of_its_start_with_one_is_that_one() -> None:
     some_revision_sharing_just_enough = SOME_REVISION[:ENOUGH_TO_BE_THE_SAME] + "aaaa"
-    the_one_it_meant = SOME_REVISION[:len(some_revision_sharing_just_enough)]
 
     Scenario() \
         .given(
@@ -109,7 +168,7 @@ def test_a_revision_sharing_just_enough_of_its_start_with_one_is_that_one() -> N
                                              frozenset({SOME_REVISION}))
         ) \
         .then(
-            the_answer_was(SubmittedPostmortem(root_cause=f"revision {the_one_it_meant} broke it"))
+            the_answer_was(SubmittedPostmortem(root_cause=f"revision {SOME_SHORT_FORM} broke it"))
         )
 
 
@@ -177,12 +236,12 @@ def test_a_hash_inside_a_longer_name_is_no_revision() -> None:
 
 @pytest.mark.unit
 def test_every_sentence_the_answer_publishes_is_corrected() -> None:
-    # A revision is misremembered wherever the model writes it, and a field
-    # left out here is one that reaches the page wrong.
+    # A revision is written wherever the model writes it, and a field left out
+    # here is one that reaches the page as the model wrote it.
     Scenario() \
         .given(
             an_answer_a_character_off_everywhere := _an_answer_naming_everywhere(
-                SOME_SHORT_FORM_A_CHARACTER_OFF)
+                SOME_FORM_A_CHARACTER_OFF)
         ) \
         .when(
             lambda: with_revisions_corrected(an_answer_a_character_off_everywhere,
