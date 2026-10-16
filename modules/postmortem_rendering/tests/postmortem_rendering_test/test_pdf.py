@@ -418,6 +418,25 @@ def test_a_row_taller_than_a_page_keeps_each_word_once_however_it_is_spaced() ->
 
 
 @pytest.mark.unit
+def test_a_soft_hyphen_in_a_cited_line_is_not_printed() -> None:
+    # A soft hyphen only says where a word may break. The font draws it as a
+    # hyphen, so a line written into its cell character by character would
+    # print one in the middle of the word.
+    some_reading = CitedEvidence(label="F1", text="The two services co\u00adoperate.")
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(code_read=[some_reading]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_says("The two services cooperate."))
+
+
+@pytest.mark.unit
 def test_a_candidate_a_line_of_the_timeline_names_leads_to_its_row() -> None:
     # The line that formed the candidates names them by label, and a reader of
     # the file follows each to what it was.

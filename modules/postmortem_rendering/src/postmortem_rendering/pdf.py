@@ -649,8 +649,10 @@ def _where_the_lines_lie(pdf: _Sheet, text: str, width: float) -> list[tuple[int
     # the cell margin on the left, the side with none.
     room = width - _CELL_PADDING.left - _CELL_PADDING.right - pdf.c_margin
     # How far across each place in the text is from its start: each character
-    # measured once, so a piece is measured without being read again.
-    wide = {character: pdf.get_string_width(character) for character in set(text)}
+    # measured once, so a piece is measured without being read again. A soft
+    # hyphen takes no room, being left out where the line is written.
+    wide = {character: 0.0 if character == _SOFT_HYPHEN else pdf.get_string_width(character)
+            for character in set(text)}
     across = list(accumulate((wide[character] for character in text), initial=0.0))
 
     def fitting(begins: int) -> Callable[[int], bool]:
@@ -705,6 +707,10 @@ _A_FIRST_REACH: Final = 256
 # Where a cell is cut between pieces: a space or a line break, and never a
 # non-breaking space, which is there to say its two sides stay together.
 _BREAKS: Final = (" ", "\n")
+
+# Where a word may be broken, and otherwise nothing. The font draws it as a
+# hyphen, so a line written character by character leaves it out.
+_SOFT_HYPHEN: Final = "\u00ad"
 
 
 def _set_in(pdf: _Sheet, style: FontFace | None) -> None:
@@ -768,7 +774,7 @@ def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
     for place, (begins, ends) in enumerate(spans):
         pdf.set_xy(left, top + _CELL_PADDING.top + place * _CELL_LINE)
         for at, run in runs:
-            piece = text[max(at, begins):min(at + len(run.text), ends)]
+            piece = text[max(at, begins):min(at + len(run.text), ends)].replace(_SOFT_HYPHEN, "")
             if not piece:
                 continue
             pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else _INK))
