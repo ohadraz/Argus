@@ -12,16 +12,20 @@ from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
 from postmortem_rendering.lines import Line, Role, Run
+from postmortem_rendering.supporting import EvidenceRow
 
 
 class DetectionSection(BaseModel):
     """The sentence, or the one said in its place where detection was not
-    recorded."""
+    recorded - and what the alert said, a row under the label the prose cites
+    it by, `None` where its sender said nothing of its own."""
 
     model_config = ConfigDict(frozen=True)
 
     line: Line | None
     absent: str | None
+    said_heading: str = "What the alert said"
+    said: EvidenceRow | None = None
 
 
 def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSection:
@@ -51,4 +55,8 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
 
     runs.append(Run(text="."))
 
-    return DetectionSection(line=Line(runs=tuple(runs)), absent=None)
+    said = detection.said
+    return DetectionSection(line=Line(runs=tuple(runs)), absent=None,
+                            said=(EvidenceRow(label=said.label,
+                                              said=Line(runs=(Run(text=said.text),)))
+                                  if said is not None else None))

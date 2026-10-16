@@ -31,6 +31,7 @@ from argus_core.models import (
     ActionItemType,
     ChangeEvent,
     ChangeKind,
+    CitedEvidence,
     Detection,
     HypothesisConsidered,
     Impact,
@@ -121,6 +122,24 @@ def test_detection_is_dated_by_when_the_alert_fired_not_when_argus_heard() -> No
                                      rule=SOME_RULE,
                                      onset_at=ONSET,
                                      gap=some_firing - ONSET))
+        )
+
+
+@pytest.mark.unit
+def test_detection_carries_what_the_alert_said_under_the_label_it_is_cited_by() -> None:
+    # The check that paged measured what it paged on, and a chain's symptom
+    # rests on it - so it has a row to lead to, like everything else cited.
+    some_finding = "240 of 240 shopper totals do not reconcile with the purchases behind them"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"alert_finding": some_finding})
+        ) \
+        .when(
+            lambda: detection_of(evidence).said
+        ) \
+        .then(
+            the_answer_was(CitedEvidence(label="AL1", text=some_finding))
         )
 
 

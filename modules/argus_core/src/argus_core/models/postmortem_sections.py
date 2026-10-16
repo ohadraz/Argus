@@ -178,12 +178,17 @@ class Detection(BaseModel):
     `gap` is carried rather than left to each reader's subtraction: two
     renderers of one document subtracting separately are two chances to
     disagree. `None` with `onset_at`, where no onset was measured.
+
+    `said` is what the alert said of its own finding, under the label the
+    prose cites it by - so a citation of it leads to a row like any other's.
+    `None` where its sender said nothing of its own.
     """
 
     alerted_at: datetime
     rule: str | None
     onset_at: datetime | None
     gap: timedelta | None
+    said: CitedEvidence | None = None
 
 
 class ImpactExtent(StrEnum):

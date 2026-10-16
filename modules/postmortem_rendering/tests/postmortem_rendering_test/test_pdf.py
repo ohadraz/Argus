@@ -87,7 +87,8 @@ def test_every_section_says_what_the_document_holds() -> None:
         ) \
         .then(
             _it_reads_in_order("The divisor was never guarded.",
-                               "Requests failed on the account page.", "Evidence:", "errors rose",
+                               "Requests failed on the account page.", "Evidence:",
+                               "The flag went on.",
                                "Nothing reviewed the divisor.",
                                "monthly-spend flag went from OFF to ON",
                                "Turned the flag off",
@@ -213,6 +214,24 @@ def test_a_revision_the_prose_names_links_out_to_its_commit() -> None:
         ) \
         .then(
             _one_more_link_out_to(commit, than=unnamed))
+
+
+@pytest.mark.unit
+def test_a_citation_of_what_the_alert_said_leads_to_its_row() -> None:
+    some_detection = Detection(alerted_at=SOME_ONSET, rule="dont care", onset_at=None, gap=None,
+                               said=CitedEvidence(label="AL1", text="240 totals are off"))
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(root_cause="AL1 tells it.",
+                                                 detection=some_detection),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("AL1 240 totals are off"))
 
 
 @pytest.mark.unit
@@ -434,6 +453,50 @@ def test_a_soft_hyphen_in_a_cited_line_is_not_printed() -> None:
         ) \
         .then(
             _it_says("The two services cooperate."))
+
+
+@pytest.mark.unit
+def test_an_item_the_chain_rests_on_leads_to_its_row() -> None:
+    # Cited nowhere in the prose: the link is the chain's own.
+    some_hypothesis = HypothesisConsidered(summary="A flag change on account pages.",
+                                           confidence=0.8, result="confirmed", label="C1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(hypotheses=[some_hypothesis],
+                             causal_chain=[ChainStep(text="dont care", cites=[
+                                 CitedEvidence(label="C1", text="as briefed")])]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("C1 A flag change on account pages."))
+
+
+@pytest.mark.unit
+def test_a_revision_in_an_item_the_chain_rests_on_opens_its_commit() -> None:
+    # Said the way the change's own row says it, the revision linked as there:
+    # short in the reference, and whole in what the deploy did.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+    without_the_chain = as_pdf(render(a_postmortem(changes_read=[a_deploy_read("P2")]),
+                                      an_alert(), [], SOME_ADDRESS))
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(changes_read=[a_deploy_read("P2")],
+                             causal_chain=[ChainStep(text="dont care", cites=[
+                                 CitedEvidence(label="P2", text="as briefed")])]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _at_least_more_links_out_to(commit, more=2, than=without_the_chain))
 
 
 @pytest.mark.unit
@@ -813,6 +876,23 @@ def _more_links_out_to(address: str, more: int, than: bytes) -> Assertion[bytes]
         if found != expected:
             raise AssertionError(f"Expected {expected} links out to {address}, and the PDF "
                                  f"has {found}.")
+
+        return True
+
+    return assertion
+
+
+def _at_least_more_links_out_to(address: str, more: int, than: bytes) -> Assertion[bytes]:
+    """The file links out to `address` at least `more` times more than `than`
+    does - at least, because a link wrapped across two lines is two in the
+    file."""
+    def assertion(pdf: bytes) -> bool:
+        expected = _links_out(than).count(address) + more
+        found = _links_out(pdf).count(address)
+
+        if found < expected:
+            raise AssertionError(f"Expected at least {expected} links out to {address}, "
+                                 f"and the PDF has {found}.")
 
         return True
 

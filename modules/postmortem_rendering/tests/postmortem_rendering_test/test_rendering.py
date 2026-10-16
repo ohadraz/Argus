@@ -15,7 +15,9 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    ChainStep,
     CitedEvidence,
+    Detection,
     HypothesisConsidered,
     PostmortemLead,
     ResolutionStep,
@@ -34,6 +36,7 @@ from postmortem_rendering_test.framework.builders import (
 )
 
 SOME_ADDRESS = "http://argus.example/incidents/0b1c"
+SOME_MOMENT = datetime(2026, 10, 11, 14, 3, 7, tzinfo=UTC)
 
 EVERY_HEADING = ("Summary", "Impact", "Root cause and contributing factors",
                  "Hypotheses considered", "Trigger", "Resolution", "Detection", "Action items",
@@ -186,10 +189,189 @@ def test_every_label_a_row_goes_by_may_be_cited() -> None:
             the_answer_was(frozenset({"C1", "C2"})))
 
 
+@pytest.mark.unit
+def test_a_cited_line_of_the_timeline_reads_as_its_row() -> None:
+    # Its time as the timeline says it, who said it, and the line without the
+    # narration's brackets.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[TimelineEntry(at=SOME_MOMENT, who="Investigator Agent",
+                                        text="Placed the start [here]", label="T1")],
+                causal_chain=_a_step_citing("T1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on(
+                "T1 Oct 11 14:03:07 Investigator Agent: Placed the start here"))
+
+
+@pytest.mark.unit
+def test_a_cited_line_of_the_timeline_nobody_is_named_for_reads_as_its_row() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[TimelineEntry(at=SOME_MOMENT, who=None, text="The flag went on",
+                                        label="T1")],
+                causal_chain=_a_step_citing("T1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("T1 Oct 11 14:03:07 The flag went on"))
+
+
+@pytest.mark.unit
+def test_a_cited_step_taken_reads_as_its_row() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                resolution=[ResolutionStep(at=SOME_MOMENT, action="Turned the flag off",
+                                           by="dont care", reversible=True,
+                                           outcome="recovered", label="M1")],
+                causal_chain=_a_step_citing("M1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("M1 14:03:07 Turned the flag off: recovered"))
+
+
+@pytest.mark.unit
+def test_a_cited_candidate_reads_as_its_row_under_whichever_label_it_goes_by() -> None:
+    # Two candidates shown as one row: the second's label leads to that row,
+    # and reads as it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                hypotheses=[HypothesisConsidered(summary="A flag change", confidence=None,
+                                                 result="confirmed", label="C1", also=["C2"])],
+                causal_chain=_a_step_citing("C1", "C2"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("C1 A flag change - confirmed",
+                                     "C2 A flag change - confirmed"))
+
+
+@pytest.mark.unit
+def test_a_cited_change_log_message_lead_and_action_item_read_as_their_rows() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                changes_read=[a_change_read("P1", summary="A deploy switched the model.")],
+                log_messages_read=[CitedEvidence(label="G3fa2", text="ERROR divide by zero")],
+                leads=[_a_lead()],
+                action_items=[ActionItem(number="AI-1", text="Guard the divisor.",
+                                         type=ActionItemType.PREVENT, owner=None,
+                                         tracking=None, status=ActionItemStatus.OPEN)],
+                causal_chain=_a_step_citing("P1", "G3fa2", "L1", "AI-1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on(
+                "P1 Oct 11, 2026, 14:00 UTC flag toggle dont-care by someone unnamed: "
+                "A deploy switched the model.",
+                "G3fa2 ERROR divide by zero",
+                "L1 dont care - dont care, Oct 11, 2026, 14:06 UTC",
+                "AI-1 Guard the divisor."))
+
+
+@pytest.mark.unit
+def test_a_cited_diff_is_named_by_its_first_line() -> None:
+    # The row is the whole diff, which the label leads to.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                deployment_changes_read=[CitedEvidence(
+                    label="D1", text="Deployment of revision x.\n  +  key: value")],
+                causal_chain=_a_step_citing("D1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("D1 Deployment of revision x."))
+
+
+@pytest.mark.unit
+def test_what_code_fix_read_is_named_by_its_heading_when_cited() -> None:
+    # The row can run to pages, which the label leads to.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                code_read=[CitedEvidence(label="F1", text="The categoriser does not lowercase.")],
+                causal_chain=_a_step_citing("F1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on(
+                "F1 What Code-Fix read in the source - a static reading, nothing ran it"))
+
+
+@pytest.mark.unit
+def test_what_the_alert_said_may_be_cited_and_reads_as_its_row() -> None:
+    # The one label the chain could cite that led nowhere.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=SOME_MOMENT, rule="dont care", onset_at=None,
+                                    gap=None,
+                                    said=CitedEvidence(label="AL1", text="240 totals are off")),
+                causal_chain=_a_step_citing("AL1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(all_of(
+            _it_may_cite("AL1"),
+            _the_first_step_rests_on("AL1 240 totals are off")))
+
+
+def _it_may_cite(label: str) -> Assertion[RenderedPostmortem]:
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        if label not in rendered.labels:
+            raise AssertionError(f"Expected [{label}] among the labels the prose may cite, "
+                                 f"got {sorted(rendered.labels)}.")
+
+        return True
+
+    return assertion
+
+
 def _a_lead() -> PostmortemLead:
     return PostmortemLead(label="L1", person_id="dont care", person_name="dont care",
                           text="dont care", written_at=datetime(2026, 10, 11, 14, 6, tzinfo=UTC),
                           weighing=None, effect=None)
+
+
+def _a_step_citing(*labels: str) -> list[ChainStep]:
+    """A chain of one step, citing each label in words that are not its row's."""
+    return [ChainStep(text="dont care",
+                      cites=[CitedEvidence(label=label, text="as briefed") for label in labels])]
+
+
+def _the_first_step_rests_on(*expected: str) -> Assertion[RenderedPostmortem]:
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        said = tuple(cited.said for cited in rendered.cause.chain[0].evidence)
+
+        if said != expected:
+            raise AssertionError(f"Expected the first step to rest on {expected}, "
+                                 f"got {said}.")
+
+        return True
+
+    return assertion
 
 
 def _it_is_about(expected: str) -> Assertion[RenderedPostmortem]:

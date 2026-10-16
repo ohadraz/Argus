@@ -23,6 +23,7 @@ from argus_core.models import (
     ActionItemType,
     ChangeEvent,
     ChangeKind,
+    CitedEvidence,
     Detection,
     HypothesisConsidered,
     Impact,
@@ -83,15 +84,32 @@ def detection_of(evidence: IncidentEvidence) -> Detection:
 
     No gap without an onset: the alert's own time is not when the service
     broke, and a gap measured from it would read as an alert that fired the
-    moment the fault began.
+    moment the fault began. And what the alert said, under the label it is
+    cited by, so a citation of it leads to a row.
     """
     return Detection(
         alerted_at=evidence.alerted_at,
         rule=evidence.rule,
         onset_at=evidence.onset_at,
         gap=(evidence.alerted_at - evidence.onset_at
-             if evidence.onset_at is not None else None)
+             if evidence.onset_at is not None else None),
+        said=next(iter(the_alert_labelled(evidence)), None)
     )
+
+
+def the_alert_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """What the alert said, under the label a step of the cause cites it by -
+    or nothing, where its sender said nothing of its own.
+
+    Evidence like the rest, and the first a chain's symptom rests on: the check
+    that paged measured what it paged on. Its figures keep the names they are
+    shown by (`figures`), so it is no part of the evidence whose figures are
+    named after their labels.
+    """
+    if not evidence.alert_finding:
+        return []
+
+    return [CitedEvidence(label=label_of(ALERT_PREFIX, 1), text=evidence.alert_finding)]
 
 
 def impact_of(measured: Measurements) -> Impact:

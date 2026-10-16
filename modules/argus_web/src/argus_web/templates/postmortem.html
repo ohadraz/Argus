@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', function () {
     <div>
       <p class="claim">{{ said(link.claim, labels, addresses) }}</p>
       {% if link.evidence %}<p class="evidence">{{ cause.evidence_label }}
-        {% for cited in link.evidence %}<span class="cited">{{ cited }}</span>{% endfor %}</p>{% endif %}
+        {% for cited in link.evidence %}<span class="cited">{{ said(cited, labels, addresses) }}</span>{% endfor %}</p>{% endif %}
     </div>
   </li>
 {% endfor %}
@@ -252,6 +252,15 @@ document.addEventListener('DOMContentLoaded', function () {
 <p>{{ said(detection.line) }}</p>
 {% else %}
 <p class="empty">{{ detection.absent }}</p>
+{% endif %}
+{# What the alert said, under the label the prose cites it by. #}
+{% if detection.said %}
+<h3>{{ detection.said_heading }}</h3>
+<table class="evidence-read">
+  <tbody>
+    <tr id="{{ detection.said.label }}"><td class="label">{{ detection.said.label }}</td><td>{{ said(detection.said.said) }}</td></tr>
+  </tbody>
+</table>
 {% endif %}
 </section>
 

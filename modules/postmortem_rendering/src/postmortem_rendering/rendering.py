@@ -86,8 +86,9 @@ class RenderedPostmortem(BaseModel):
     def labels(self) -> frozenset[str]:
         """Every label a row of the document goes by - a hypothesis, a step
         taken, an action item, a labelled line of the timeline, a change, a
-        log message, what a deployment changed or what Code-Fix read, a lead -
-        and so every label the prose can cite with a row to lead to."""
+        log message, what a deployment changed or what Code-Fix read, a lead,
+        what the alert said - and so every label the prose can cite with a row
+        to lead to."""
         return frozenset({*(label for row in self.hypotheses.rows for label in row.labels),
                           *(step.label for step in self.actions_taken.steps if step.label),
                           *(row.number for row in self.action_items.rows),
@@ -96,7 +97,8 @@ class RenderedPostmortem(BaseModel):
                           *(row.label for row in self.supporting.log_messages),
                           *(row.label for row in self.supporting.deployment_changes),
                           *(row.label for row in self.supporting.code_read),
-                          *(lead.label for lead in self.leads)})
+                          *(lead.label for lead in self.leads),
+                          *((self.detection.said.label,) if self.detection.said else ())})
 
 
 def render(postmortem: Postmortem,
@@ -108,6 +110,14 @@ def render(postmortem: Postmortem,
     `incident_address`, its page's full address."""
     resolution = the_reported_resolution(events)
     leads = the_leads(postmortem)
+    hypotheses = the_hypotheses(postmortem)
+    actions_taken = the_actions_taken(postmortem, resolution)
+    action_items = the_action_items(postmortem)
+    timeline = the_timeline(postmortem)
+    supporting = the_supporting_information(postmortem, incident_address)
+    detection = the_detection(postmortem, alert)
+    rows = _the_rows(hypotheses, actions_taken, action_items, timeline, leads, supporting,
+                     detection)
 
     return RenderedPostmortem(
         incident_id=postmortem.incident_id,
@@ -119,15 +129,67 @@ def render(postmortem: Postmortem,
                  if postmortem.executive_summary else None),
         summary_absent=None if postmortem.executive_summary else "No summary was written.",
         impact=the_impact(postmortem, alert),
-        cause=the_cause(postmortem),
-        hypotheses=the_hypotheses(postmortem),
+        cause=the_cause(postmortem, rows),
+        hypotheses=hypotheses,
         trigger=the_trigger(postmortem, alert),
-        actions_taken=the_actions_taken(postmortem, resolution),
-        detection=the_detection(postmortem, alert),
-        action_items=the_action_items(postmortem),
+        actions_taken=actions_taken,
+        detection=detection,
+        action_items=action_items,
         lessons=the_lessons(postmortem),
-        timeline=the_timeline(postmortem),
+        timeline=timeline,
         leads=leads,
         cost=the_cost(postmortem),
-        supporting=the_supporting_information(postmortem, incident_address),
+        supporting=supporting,
         review=the_review(postmortem))
+
+
+def _the_rows(hypotheses: HypothesesSection,
+              actions_taken: ActionsTakenSection,
+              action_items: ActionItemsSection,
+              timeline: TimelineSection,
+              leads: Sequence[LeadItem],
+              supporting: SupportingSection,
+              detection: DetectionSection) -> dict[str, Line]:
+    """Each label a row of the document goes by, and the line it says itself
+    in - so an item the causal chain cites is said the way its own row says
+    it, not in the words the model was briefed in.
+
+    A candidate goes by every label it stands for. A step taken has its
+    outcome after a colon, the outcome having dashes of its own. A diff is
+    named by its first line and what Code-Fix read by its heading: either row
+    can run to pages, and the label leads to it."""
+    rows: dict[str, Line] = {}
+    for candidate in hypotheses.rows:
+        said = Line(runs=(Run(text=candidate.summary), Run(text=" - "),
+                          Run(text=candidate.result)))
+        rows |= {label: said for label in (candidate.label, *candidate.also)}
+
+    rows |= {step.label: Line(runs=(Run(text=step.at), Run(text=" "), *step.action.runs,
+                                    Run(text=": "), Run(text=step.outcome)))
+             for step in actions_taken.steps if step.label}
+    rows |= {item.number: item.text for item in action_items.rows}
+    rows |= {line.label: Line(runs=(Run(text=line.at), Run(text=" "),
+                                    *((Run(text=line.who), Run(text=": ")) if line.who else ()),
+                                    *line.text.runs))
+             for line in timeline.rows if line.label}
+    rows |= {lead.label: lead.said for lead in leads}
+    rows |= {row.label: row.said for row in (*supporting.changes, *supporting.log_messages)}
+    rows |= {row.label: _its_first_line(row.said) for row in supporting.deployment_changes}
+    rows |= {row.label: Line(runs=(Run(text=supporting.code_read_heading),))
+             for row in supporting.code_read}
+    if detection.said is not None:
+        rows[detection.said.label] = detection.said.said
+    return rows
+
+
+def _its_first_line(line: Line) -> Line:
+    """A line's runs up to its first line break."""
+    runs: list[Run] = []
+    for run in line.runs:
+        before, broken, _ = run.text.partition("\n")
+        if before:
+            runs.append(run.model_copy(update={"text": before}))
+        if broken:
+            break
+
+    return Line(runs=tuple(runs))

@@ -819,9 +819,10 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
 
 def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence_label: str,
-                         evidence: Sequence[str]) -> None:
+                         evidence: Sequence[Line]) -> None:
     """One step: its place in a quiet column of its own, the claim beside it,
-    and what it rests on on its own line under the claim."""
+    and what it rests on on its own line under the claim - each item's label
+    leading to its row, and whatever its row links, linked."""
     left, label_width = pdf.l_margin, 16.0
     pdf.set_x(left)
     pdf.set_font(_BODY, "", _TABLE_PT)
@@ -837,7 +838,13 @@ def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence
         pdf.set_font(_BODY, "B", _SMALL_PT)
         pdf.write(3.8, f"{evidence_label} ")
         pdf.set_font(_BODY, "", _SMALL_PT)
-        pdf.write(3.8, "; ".join(evidence))
+        for after_the_first, cited in enumerate(evidence):
+            if after_the_first:
+                pdf.set_text_color(*_MUTED)
+                pdf.write(3.8, "; ")
+            for run in _cited(pdf, cited.runs):
+                pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else _MUTED))
+                pdf.write(3.8, run.text, link=_link(pdf, run))
         pdf.ln(3.8)
     pdf.ln(2.2)
     pdf.set_left_margin(left)
@@ -915,6 +922,13 @@ def _the_detection(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         _a_paragraph(pdf, detection.line)
     elif detection.absent:
         _quiet(pdf, detection.absent)
+
+    # What the alert said, a row as the supporting rows are, for a citation of
+    # it to land on.
+    if detection.said is not None:
+        _a_subheading(pdf, detection.said_heading)
+        _a_table(pdf, None, [[(detection.said.label, _NUMBER, None), detection.said.said]],
+                 widths=(16, 158), landings=[(detection.said.label,)])
 
 
 def _the_action_items(pdf: _Sheet, rendered: RenderedPostmortem) -> None:

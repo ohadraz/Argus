@@ -8,10 +8,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import Detection
+from argus_core.models import CitedEvidence, Detection
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.lines import Line, Role, Run
+from postmortem_rendering.supporting import EvidenceRow
 
 from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
 
@@ -82,6 +83,38 @@ def test_an_unknown_onset_is_said_to_be_and_no_gap_is_given() -> None:
             the_answer_was(Line(runs=(Run(text="The onset is unknown. HighErrorRate fired at "),
                                       Run.a_moment(SOME_ALERT),
                                       Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_what_the_alert_said_is_a_row_under_the_label_it_is_cited_by() -> None:
+    # A chain's symptom rests on it, and a citation of it leads here.
+    some_finding = "240 of 240 shopper totals do not reconcile"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=SOME_ALERT, rule="dont care", onset_at=None, gap=None,
+                said=CitedEvidence(label="AL1", text=some_finding)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert()).said
+        ) \
+        .then(
+            the_answer_was(EvidenceRow(label="AL1", said=Line(runs=(Run(text=some_finding),)))))
+
+
+@pytest.mark.unit
+def test_an_alert_that_said_nothing_of_its_own_has_no_row() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=SOME_ALERT, rule="dont care", onset_at=None, gap=None, said=None))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert()).said
+        ) \
+        .then(
+            the_answer_was(None))
 
 
 @pytest.mark.unit

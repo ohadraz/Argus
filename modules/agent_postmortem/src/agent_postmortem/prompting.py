@@ -73,7 +73,6 @@ from agent_postmortem.measuring import Measurements
 from agent_postmortem.revisions import revisions_of, short_form
 from agent_postmortem.sections import (
     ACTION_PREFIX,
-    ALERT_PREFIX,
     CODE_READING_PREFIX,
     DEPLOYMENT_CHANGES_PREFIX,
     NO_VERDICT_RECORDED,
@@ -84,6 +83,7 @@ from agent_postmortem.sections import (
     labels_of_the_narration,
     record_action_items_of,
     said_of_a_line,
+    the_alert_labelled,
 )
 
 # The tool's name and its fields, named once. Both ends of the exchange read
@@ -644,21 +644,6 @@ def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
     logs.
     """
     return [*the_alert_labelled(evidence), *_the_evidence_listed(evidence)]
-
-
-def the_alert_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
-    """What the alert said, under the label a step of the cause cites it by -
-    or nothing, where its sender said nothing of its own.
-
-    Evidence like the rest, and the first a chain's symptom rests on: the check
-    that paged measured what it paged on. Its figures keep the names they are
-    shown by (`figures`), so it is no part of the evidence whose figures are
-    named after their labels.
-    """
-    if not evidence.alert_finding:
-        return []
-
-    return [CitedEvidence(label=label_of(ALERT_PREFIX, 1), text=evidence.alert_finding)]
 
 
 def _the_evidence_listed(evidence: IncidentEvidence) -> list[CitedEvidence]:

@@ -1622,11 +1622,41 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
 
 
 @pytest.mark.component
+def test_what_the_alert_said_answers_to_its_label() -> None:
+    # The chain's symptom rests on it, and a citation of it has to land.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "detection": Detection(alerted_at=datetime(2026, 10, 11, 14, 11, tzinfo=UTC),
+                                   rule="dont care", onset_at=None, gap=None,
+                                   said=CitedEvidence(label="AL1", text="240 totals are off"))
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says('id="AL1"'),
+            the_page_says("240 totals are off")
+        ))
+
+
+@pytest.mark.component
 @pytest.mark.parametrize("prose", [
     pytest.param({"executive_summary": "C1 was right."}, id="summary"),
     pytest.param({"root_cause": "C1 was right."}, id="root_cause"),
     pytest.param({"causal_chain": [ChainStep(text="C1 was right.", cites=[])]},
                  id="causal_chain"),
+    pytest.param({"causal_chain": [ChainStep(text="dont care",
+                                             cites=[CitedEvidence(label="C1",
+                                                                  text="dont care")])]},
+                 id="causal_chain_evidence"),
     pytest.param({"contributing_factors": [ContributingFactor(text="C1 was right.",
                                                               addressed_by=[])]},
                  id="contributing_factor"),
