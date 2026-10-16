@@ -15,7 +15,9 @@ _HEADINGS: Final = ("", "Hypothesis", "Confidence", "Result")
 
 class HypothesisRow(BaseModel):
     """One candidate: its label, what it said, how confident the ranking was -
-    to two places, or `-` where it gave none - and what became of it."""
+    to two places, or `-` where it gave none - and what became of it. `also`
+    are the labels of the candidates it stands for besides, which it goes by
+    too."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -23,6 +25,12 @@ class HypothesisRow(BaseModel):
     summary: str
     confidence: str
     result: str
+    also: tuple[str, ...] = ()
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Every label the row goes by, its own first."""
+        return (self.label, *self.also)
 
 
 class HypothesesSection(BaseModel):
@@ -42,7 +50,8 @@ def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
                                summary=hypothesis.summary,
                                confidence=(f"{hypothesis.confidence:.2f}"
                                            if hypothesis.confidence is not None else "-"),
-                               result=hypothesis.result)
+                               result=hypothesis.result,
+                               also=tuple(hypothesis.also))
                  for hypothesis in postmortem.hypotheses)
 
     return HypothesesSection(headings=_HEADINGS,

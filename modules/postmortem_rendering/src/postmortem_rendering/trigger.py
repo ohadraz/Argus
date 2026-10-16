@@ -3,16 +3,17 @@ the state it went to, when and by whom.
 
 A flag's states are words and said in capitals; a deployment's are revisions,
 said as written and cut as git cuts one, since a revision is an identifier and
-not a word.
+not a word; and a change of no known kind says its states as they were written.
 """
 
 from __future__ import annotations
 
-from argus_core.models import Alert, ChangeKind, PostmortemDocument
+from argus_core.models import Alert, ChangeKind, PostmortemDocument, Trigger
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision
 from postmortem_rendering.lines import Line, Role, Run
+from postmortem_rendering.supporting import a_reference
 
 
 class TriggerSection(BaseModel):
@@ -53,16 +54,24 @@ def the_trigger(postmortem: PostmortemDocument, alert: Alert) -> TriggerSection:
 
     if trigger.from_state or trigger.to_state:
         runs += [Run(text=f"{noun} {'was deployed' if deployed else 'went'} from "),
-                 Run(text=_a_state(trigger.from_state, deployed), role=Role.FROM_STATE),
+                 _a_state_of(trigger, trigger.from_state, Role.FROM_STATE, postmortem),
                  Run(text=" to "),
-                 Run(text=_a_state(trigger.to_state, deployed), role=Role.TO_STATE)]
+                 _a_state_of(trigger, trigger.to_state, Role.TO_STATE, postmortem)]
     elif noun:
         runs.append(Run(text=noun))
 
     if trigger.changed_at:
         runs += [Run(text=" at "), Run.a_moment(trigger.changed_at)]
 
-    if trigger.actor:
+    carrier = next((cited for cited in postmortem.changes_read
+                    if cited.label == trigger.carried_by), None)
+    if carrier is not None:
+        # Whoever started the deploy, not whoever wrote the setting: the
+        # deploy is the change the record holds.
+        runs += [Run(text=", in the deploy of "), a_reference(carrier)]
+        if trigger.actor:
+            runs.append(Run(text=f" that {trigger.actor} started"))
+    elif trigger.actor:
         runs.append(Run(text=f", by {trigger.actor}"))
 
     runs.append(Run(text="."))
@@ -73,10 +82,29 @@ def the_trigger(postmortem: PostmortemDocument, alert: Alert) -> TriggerSection:
                           absent=None)
 
 
-def _a_state(state: str | None, deployed: bool) -> str:
-    """A revision as git shows one, a flag's state in capitals, and a state
-    nobody recorded as unknown."""
-    if deployed and state:
+def _a_state_of(trigger: Trigger,
+                state: str | None,
+                role: Role,
+                postmortem: PostmortemDocument) -> Run:
+    """One end of the trigger's move, playing `role`. A deployment's revision a
+    change read names is said as that change's row says it - short, leading
+    where it opens - so the document names one revision one way; any other
+    state as `_a_state` says it."""
+    read = next((cited for cited in postmortem.changes_read
+                 if trigger.kind is ChangeKind.DEPLOY and state
+                 and cited.change.reference == state), None)
+    if read is not None:
+        return a_reference(read).model_copy(update={"role": role})
+
+    return Run(text=_a_state(state, trigger.kind), role=role)
+
+
+def _a_state(state: str | None, kind: ChangeKind | None) -> str:
+    """A revision as git shows one, a flag's state in capitals, any other as
+    written - a setting's `v2` is not `V2` - and a state nobody recorded as
+    unknown."""
+    if kind is ChangeKind.DEPLOY and state:
         return as_revision(state)
 
-    return (state or "unknown").upper()
+    said = state or "unknown"
+    return said.upper() if kind is ChangeKind.FLAG_TOGGLE else said

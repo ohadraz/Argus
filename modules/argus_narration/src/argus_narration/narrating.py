@@ -39,6 +39,7 @@ from argus_core.events import (
     ChangeUndone,
     ChannelsUnread,
     CommunicationFailed,
+    DeploymentChangesRead,
     FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
@@ -416,6 +417,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             who = _INVESTIGATOR
             read = len(event.changes)
             text = f"Read back {read} production change{'s' if read != 1 else ''}"
+        case DeploymentChangesRead():
+            who = _INVESTIGATOR
+            text = f"Read what the deployment of {event.revision} changed"
         case FlagChangesRetrieved():
             who = _MITIGATION
             recent = len(event.changes)
@@ -918,14 +922,19 @@ def _what_the_look_settled(event: RecoveryChecked) -> str:
     whose departure need not have persisted, so a look can find the service back
     and have nothing to date that by - and a line inventing a minute there would
     be stating as measured the one thing nothing measured.
+
+    Said as what the look judged - off the incident's own level - and not as the
+    service back to normal, which is a different question and is not asked here:
+    a fix landing mid-minute leaves that minute off the incident's level and still
+    outside the range the service keeps when nothing is wrong.
     """
     if not event.recovered:
-        return "not back at baseline yet"
+        return "still at the incident's level"
 
     if event.recovered_minute is None:
-        return "back at its baseline"
+        return "no longer at the incident's level"
 
-    return f"back at its baseline since {a_minute(event.recovered_minute)}"
+    return f"no longer at the incident's level since {a_minute(event.recovered_minute)}"
 
 
 def _the_address_it_names(event: IncidentEvent) -> str:

@@ -157,16 +157,18 @@ class PostmortemDocument(BaseModel):
     action_items: list[ActionItem] = []
     lessons: Lessons | None = None
     timeline: list[TimelineEntry] = []
-    # How many pieces of evidence the model was handed - the labels it could
-    # cite. `None` for a document written before anything was labelled.
-    evidence_read: int | None = None
-    # The changes to production and the log messages the model was shown, each
-    # under the label it was shown by. No other section is a row for either,
-    # and the prose cites both - so without them a reader told "the deploy P2"
-    # has nowhere to find out what P2 was. A change is kept whole, so its row
-    # can name where it can be opened.
+    # The changes to production, the log messages and what each deployment it
+    # looked into changed, as the model was shown them, each under the label it
+    # was shown by. No other section is a row for any of them, and the prose
+    # cites them all - so without them a reader told "the deploy P2" has
+    # nowhere to find out what P2 was. A change is kept whole, so its row can
+    # name where it can be opened; a deployment's diff is its lines, one to a
+    # line of `text`. And what Code-Fix read in the source, which is a
+    # reading nothing ran.
     changes_read: list[CitedChange] = []
     log_messages_read: list[CitedEvidence] = []
+    deployment_changes_read: list[CitedEvidence] = []
+    code_read: list[CitedEvidence] = []
     review: list[ReviewCriterion] = []
 
 

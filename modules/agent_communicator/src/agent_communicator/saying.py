@@ -30,7 +30,7 @@ from argus_core.models import (
     the_place_of,
 )
 from argus_incidents.repository import events, references
-from argus_narration import NarrationLine
+from argus_narration import NarrationLine, shown
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
 
 from agent_communicator.policy import Register
@@ -217,13 +217,16 @@ def _the_chat_line(line: NarrationLine, link: Link | None) -> Line:
     it, what they said, the word set apart, and where to read more.
 
     The split is the narration's, made once for every view, so that the page
-    and the chat mark the same word.
+    and the chat mark the same word - and shown as the page shows it, without
+    the brackets the walk quotes a name in for its model.
     """
-    return Line(who=line.who,
-                text=line.text,
-                emphasis=line.emphasis,
-                before_emphasis=line.before_emphasis,
-                after_emphasis=line.after_emphasis,
+    said = shown(line)
+
+    return Line(who=said.who,
+                text=said.text,
+                emphasis=said.emphasis,
+                before_emphasis=said.before_emphasis,
+                after_emphasis=said.after_emphasis,
                 link=link)
 
 

@@ -8,6 +8,7 @@ from argus_core.anomaly import (
     THE_JUDGED_SIGNALS,
     AnomalyThresholds,
     earliest_bucket_is_anomalous,
+    find_back_to_normal,
     find_onset,
     find_recovery,
     has_a_departure_in_it,
@@ -1154,6 +1155,68 @@ def test_a_recovery_is_never_dated_before_the_incident_it_ends_began() -> None:
 
 
 @pytest.mark.unit
+def test_a_service_is_back_to_normal_inside_its_usual_range_not_merely_off_the_incident() -> None:
+    # A fix landing mid-minute leaves that minute half on each side: off the
+    # incident's level, which is a recovery, and still outside the range the
+    # service keeps when nothing is wrong, which is not normal. The incident's
+    # impact is over at the first minute back inside that range.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 8),
+        rule_readings=[0.9] * CALM_MINUTES + [0.4] * 3 + [0.6] + [0.9] * 4,
+        worse_when="below"
+    )
+
+    the_minute_half_fixed = some_window[CALM_MINUTES + 3]
+    the_first_minute_back = some_window[CALM_MINUTES + 4]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_back_to_normal(some_window, SOME_THRESHOLDS,
+                                          since=the_minute_half_fixed.bucket_id)) \
+        .then(_back_to_normal_at(the_first_minute_back.bucket_id))
+
+
+@pytest.mark.unit
+def test_a_series_that_never_departed_with_the_incident_does_not_hold_it_open() -> None:
+    # Only the series the incident moved have anything to come back from. A
+    # noisy minute in one it never moved is that series being itself.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 4) + [CALM_ERROR_RATE * 5] + [CALM_ERROR_RATE] * 3,
+        rule_readings=[0.9] * CALM_MINUTES + [0.4] * 3 + [0.6] + [0.9] * 4,
+        worse_when="below"
+    )
+
+    the_minute_half_fixed = some_window[CALM_MINUTES + 3]
+    the_first_minute_back = some_window[CALM_MINUTES + 4]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_back_to_normal(some_window, SOME_THRESHOLDS,
+                                          since=the_minute_half_fixed.bucket_id)) \
+        .then(_back_to_normal_at(the_first_minute_back.bucket_id))
+
+
+@pytest.mark.unit
+def test_a_window_ending_short_of_normal_has_no_minute_back_to_normal() -> None:
+    # Off the incident's level and never back inside its range by the last
+    # minute read: an answer, which the write-up says as such, rather than a
+    # missing one it may date at the last minute it has.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 6),
+        rule_readings=[0.9] * CALM_MINUTES + [0.4] * 3 + [0.6] * 3,
+        worse_when="below"
+    )
+
+    the_minute_half_fixed = some_window[CALM_MINUTES + 3]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_back_to_normal(some_window, SOME_THRESHOLDS,
+                                          since=the_minute_half_fixed.bucket_id)) \
+        .then(_back_to_normal_at(None))
+
+
+@pytest.mark.unit
 def test_a_signal_departing_every_other_minute_has_no_recovery_to_report() -> None:
     # Where the incident began is asked of the departure bar, and the bar alone
     # does not say whether anything persisted. The vector of minutes at the
@@ -2146,6 +2209,21 @@ def _the_signals_judged_are(expected: tuple[str, ...]) -> Assertion[tuple[str, .
         return True
 
     return the_signals_judged_are
+
+
+def _back_to_normal_at(expected: str | None) -> Assertion[str | None]:
+    """That the service was back inside the range it keeps when nothing is
+    wrong from this minute - or, for `None`, at no minute the window holds."""
+    def back_to_normal_at(minute: str | None) -> bool:
+        if minute != expected:
+            raise AssertionError(
+                f"Expected the service back to normal from [{expected}], and it was "
+                f"[{minute}]."
+            )
+
+        return True
+
+    return back_to_normal_at
 
 
 def _the_recovery_is(expected: str) -> Assertion[str | None]:

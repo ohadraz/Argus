@@ -25,10 +25,10 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
-from agent_postmortem.estimate import RuleSeriesLevels, Unmeasured
+from agent_postmortem.estimate import RuleSeriesLevels, Unmeasured, calm_to_read_for
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, Metrics, PayBand, Revenue
-from argus_core.models import MetricBucket
+from argus_core.models import MetricBucket, Verdict
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -44,6 +44,7 @@ from agent_postmortem_test.framework.builders import (
     a_band_source_that_cannot_answer,
     a_bucket,
     a_revenue_source_that_cannot_answer,
+    an_action,
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
@@ -202,7 +203,8 @@ def test_takings_are_compared_at_the_incident_s_own_hours_whole_weeks_earlier(
         .when(
             lambda: measure(
                 evidence,
-                some_sources(revenue=_revenue_recording_the_windows_into(windows_asked_for)))
+                some_sources(metrics=metrics_that_recovered(),
+                             revenue=_revenue_recording_the_windows_into(windows_asked_for)))
         ) \
         .then(
             _asked_for_the_takings_over([(ONSET - 2 * back, recovered - 2 * back),
@@ -489,7 +491,7 @@ def test_every_figure_is_measured_to_the_minute_the_service_came_back() -> None:
                     during=some_error_rate_while_broken)))
         ) \
         .then(all_of(
-            _it_recovered_at(RECOVERED_AT),
+            _it_was_back_to_normal_at(RECOVERED_AT),
             _ran_for(ten_of_the_thirty_minutes),
             _the_rise_was(some_error_rate_while_broken - some_baseline_error_rate)
         ))
@@ -554,7 +556,7 @@ def test_a_recovery_read_off_the_series_is_never_dated_before_the_onset() -> Non
                             some_sources(metrics=_metrics_that_flapped_before_the_onset()))
         ) \
         .then(
-            _it_recovered_at(the_minute_it_came_back)
+            _it_was_back_to_normal_at(the_minute_it_came_back)
         )
 
 
@@ -581,6 +583,82 @@ def _metrics_that_flapped_before_the_onset() -> Metrics:
                 calm_before + earlier_episode + calm_between + the_incident + calm_after
             )
         ]
+
+    return metrics_between
+
+
+@pytest.mark.unit
+def test_where_the_service_came_back_is_judged_on_the_hour_before_it_only() -> None:
+    # The calm read further back is for how far the rate varies. Where the
+    # service came back is judged on the window it always was: a noisier
+    # stretch hours earlier raises the bar a minute is told apart by, and
+    # leaves a service that came back never back at all.
+    the_minute_it_came_back = ONSET + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_metrics_noisier_hours_before_the_onset()))
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_minute_it_came_back)
+        )
+
+
+def _metrics_noisier_hours_before_the_onset() -> Metrics:
+    """Five hours at three times the calm rate, the calm hour, three minutes of
+    the incident from `ONSET`, and calm to the close."""
+    some_calm_rate = 0.01
+    hours_before = [some_calm_rate * 3] * 300
+    the_hour = [some_calm_rate] * 60
+    the_incident = [some_calm_rate * 4] * 3
+    calm_after = [some_calm_rate] * 27
+    first_minute = ONSET - timedelta(minutes=len(hours_before) + len(the_hour))
+
+    def metrics_between(dont_care_start: datetime,
+                        dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [
+            a_bucket(at=first_minute + timedelta(minutes=minute), error_rate=rate)
+            for minute, rate in enumerate(hours_before + the_hour + the_incident + calm_after)
+        ]
+
+    return metrics_between
+
+
+@pytest.mark.unit
+def test_metrics_that_stopped_hours_before_the_onset_were_unobserved_from_it() -> None:
+    # The calm is read back further than the hour, so a source whose rows
+    # stopped two hours before the onset answers with them: it was read, and
+    # collected nothing from the onset on - which is not a source that could
+    # not answer.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_metrics_that_stopped_hours_before_the_onset()))
+        ) \
+        .then(
+            _it_was_unobserved_from(ONSET)
+        )
+
+
+def _metrics_that_stopped_hours_before_the_onset() -> Metrics:
+    """Ten calm minutes ending two hours before `ONSET`, and nothing after -
+    each minute answered only where the window asked for covers it."""
+    some_calm_rate = 0.01
+    collected = [ONSET - timedelta(hours=2, minutes=minute) for minute in range(1, 11)]
+
+    def metrics_between(window_start: datetime,
+                        window_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=at, error_rate=some_calm_rate)
+                for at in collected if window_start <= at <= window_end]
 
     return metrics_between
 
@@ -663,29 +741,103 @@ def test_an_incident_closed_before_its_first_minute_could_be_reported_was_not_un
 
 
 @pytest.mark.unit
-def test_the_minute_mitigation_recorded_is_preferred_to_one_derived_here() -> None:
-    # C. One rule asked twice about two different windows is a rule that can
-    # disagree with itself: Mitigation judged recovery on the window it was
-    # polling, and this reads a window bounded by the incident's close, so a
-    # second derivation here is a second answer over different minutes. The
-    # recorded one wins outright - not corroborated against the series, because
-    # the series it would be checked against is not the series it was read off.
-    #
-    # The metrics here say the service came back at ONSET+10 and the record says
-    # ONSET+6, and they disagree deliberately: a test where the two agree passes
-    # whichever one is being used.
+def test_the_impact_ends_where_the_service_was_back_to_normal_after_its_recorded_recovery() -> None:
+    # Mitigation records when the service fell off the incident's own level,
+    # which is what its verdict needs. The harm is over when the service is
+    # back inside the range it keeps when nothing is wrong, and a fix landing
+    # mid-minute leaves the minutes between the two still broken. The metrics
+    # here are broken until RECOVERED_AT and the record says RECORDED_RECOVERY_AT,
+    # earlier: looking starts at the record and ends at the first normal minute.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(
-                recorded_recovery_at=RECORDED_RECOVERY_AT
-            )
+            evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT)
         ) \
         .when(
             lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
         ) \
         .then(
-            _it_recovered_at(RECORDED_RECOVERY_AT)
+            _it_was_back_to_normal_at(RECOVERED_AT)
         )
+
+
+@pytest.mark.unit
+def test_no_minute_before_the_recorded_recovery_is_where_it_was_back_to_normal() -> None:
+    # The record is where looking starts, and belongs to the party that was
+    # watching: a lull before Mitigation saw the service leave the incident is
+    # not the end of it.
+    the_record = RECOVERED_AT + timedelta(minutes=2)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=the_record)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_record)
+        )
+
+
+@pytest.mark.unit
+def test_a_service_never_back_to_normal_after_its_recorded_recovery_reports_no_end() -> None:
+    # Off the incident's level and never back inside its range by the last
+    # minute read: every figure a lower bound, said as such, rather than an end
+    # dated at the record the minutes after it contradict.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _it_never_recovered()
+        )
+
+
+@pytest.mark.unit
+def test_a_service_back_to_normal_in_the_minute_its_fix_landed_ended_at_the_fix() -> None:
+    # The minute holding the action reads as normal, and only its seconds after
+    # the action can be: it says nothing of the seconds before. The end is the
+    # action, and nothing was back before it.
+    the_fix = RECOVERED_AT + timedelta(seconds=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=RECORDED_RECOVERY_AT,
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=the_fix)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(the_fix),
+            _back_before_the_action(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_service_back_to_normal_before_its_fix_landed_is_found_so() -> None:
+    # A whole normal minute ending before the action: the service was back
+    # before Argus acted, so the action credited with it did not bring it back -
+    # which the write-up has to say rather than end the incident at the action.
+    the_fix = RECOVERED_AT + timedelta(minutes=2, seconds=30)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=RECORDED_RECOVERY_AT,
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=the_fix)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(RECOVERED_AT),
+            _back_before_the_action(True)
+        ))
 
 
 @pytest.mark.unit
@@ -731,6 +883,27 @@ def test_the_metrics_window_spans_the_whole_incident() -> None:
         ) \
         .then(
             _asked_metrics_for_a_window_spanning(STARTED_AT, ENDED_AT, windows_asked_for)
+        )
+
+
+@pytest.mark.unit
+def test_the_calm_is_read_back_as_far_as_the_rate_s_own_variation_needs() -> None:
+    # Twenty stretches as long as the incident can come to - bounded by its
+    # close, since how long it was broken is only known once the read is in.
+    windows_asked_for: Kept[tuple[datetime, datetime]] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: measure(
+                evidence,
+                some_sources(
+                    metrics=metrics_recording_the_window_into(windows_asked_for)))
+        ) \
+        .then(
+            _asked_metrics_from(ONSET - calm_to_read_for(ENDED_AT - ONSET), windows_asked_for)
         )
 
 
@@ -1009,7 +1182,7 @@ def _the_rise_is_unknown() -> Assertion[Measurements]:
     return assertion
 
 
-def _it_recovered_at(expected: datetime) -> Assertion[Measurements]:
+def _it_was_back_to_normal_at(expected: datetime) -> Assertion[Measurements]:
     """That the incident was measured as ending at this instant.
 
     Read off the metrics, so it is a fact about the service. A test asserting
@@ -1017,10 +1190,24 @@ def _it_recovered_at(expected: datetime) -> Assertion[Measurements]:
     fact about Argus, which is the substitution all of this exists to undo.
     """
     def assertion(measured: Measurements) -> bool:
-        if measured.recovered_at != expected:
+        if measured.back_to_normal_at != expected:
             raise AssertionError(
                 f"Expected recovery at [{expected}], got "
-                f"[{measured.recovered_at}].")
+                f"[{measured.back_to_normal_at}].")
+
+        return True
+
+    return assertion
+
+
+def _back_before_the_action(expected: bool) -> Assertion[Measurements]:
+    """Whether the service was found back to normal before the action credited
+    with bringing it back - a finding about attribution, not about the end."""
+    def assertion(measured: Measurements) -> bool:
+        if measured.back_before_the_action != expected:
+            raise AssertionError(
+                f"Expected back before the action to be [{expected}], got "
+                f"[{measured.back_before_the_action}].")
 
         return True
 
@@ -1035,10 +1222,10 @@ def _it_never_recovered() -> Assertion[Measurements]:
     measurement can carry the same number and mean different things.
     """
     def assertion(measured: Measurements) -> bool:
-        if measured.recovered_at is not None:
+        if measured.back_to_normal_at is not None:
             raise AssertionError(
                 f"Expected the window to end still broken, and recovery was "
-                f"measured at [{measured.recovered_at}].")
+                f"measured at [{measured.back_to_normal_at}].")
 
         return True
 
@@ -1194,6 +1381,20 @@ def _asked_metrics_for_a_window_spanning(
             raise AssertionError(
                 f"Expected a window reaching the end of the incident "
                 f"[{ended_at}], got [{window_end}].")
+
+        return True
+
+    return assertion
+
+
+def _asked_metrics_from(window_start: datetime,
+                        windows: Kept[tuple[datetime, datetime]]) -> Assertion[Measurements]:
+    def assertion(dont_care_measured: Measurements) -> bool:
+        asked_from, _ = windows.only()
+
+        if asked_from != window_start:
+            raise AssertionError(
+                f"Expected the metrics read from [{window_start}], got [{asked_from}].")
 
         return True
 

@@ -11,14 +11,18 @@ would be indistinguishable from one that agreed.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
 
 from argus_core import parse_iso
+from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    ChangeEvent,
+    ChangeKind,
     Detection,
     HypothesisConsidered,
     Impact,
@@ -30,7 +34,7 @@ from argus_core.models import (
     Verdict,
 )
 
-from agent_postmortem.evidence import ActionRecord, CandidateRecord, IncidentEvidence
+from agent_postmortem.evidence import CandidateRecord, IncidentEvidence
 from agent_postmortem.measuring import Measurements
 
 # Who took every action in the record. Only Argus's own actions are recorded as
@@ -63,9 +67,15 @@ ALERT_PREFIX: Final = "AL"
 NARRATION_PREFIX: Final = "T"
 OUTSIDE_THE_WALK_PREFIX: Final = "XW"
 PRODUCTION_CHANGE_PREFIX: Final = "P"
+DEPLOYMENT_CHANGES_PREFIX: Final = "D"
+CODE_READING_PREFIX: Final = "F"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
+
+# How a line of a configuration file says it is a comment: YAML's, TOML's and
+# INI's `#`, INI's `;`, and the `//` of JSON with comments.
+_COMMENT_MARKS: Final = ("#", ";", "//")
 
 
 def detection_of(evidence: IncidentEvidence) -> Detection:
@@ -76,10 +86,10 @@ def detection_of(evidence: IncidentEvidence) -> Detection:
     moment the fault began.
     """
     return Detection(
-        alerted_at=evidence.started_at,
+        alerted_at=evidence.alerted_at,
         rule=evidence.rule,
         onset_at=evidence.onset_at,
-        gap=(evidence.started_at - evidence.onset_at
+        gap=(evidence.alerted_at - evidence.onset_at
              if evidence.onset_at is not None else None)
     )
 
@@ -94,7 +104,7 @@ def impact_of(measured: Measurements) -> Impact:
     """
     if measured.unobserved_from is not None:
         extent = ImpactExtent.UNOBSERVED
-    elif measured.recovered_at is None:
+    elif measured.back_to_normal_at is None:
         extent = ImpactExtent.AT_LEAST
     else:
         extent = ImpactExtent.MEASURED
@@ -139,37 +149,243 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
     if suspect is not None and latest is None:
         return None
 
+    carrier = _the_deploy_that_carried(blamed, evidence) if latest is None else None
+    dated = latest or (carrier[1] if carrier is not None else None)
+
     return Trigger(subject=blamed.subject,
                    from_state=blamed.from_state,
                    to_state=blamed.to_state,
-                   changed_at=parse_iso(latest.occurred_at) if latest else None,
+                   changed_at=parse_iso(dated.occurred_at) if dated else None,
                    kind=latest.kind if latest else None,
-                   actor=latest.actor if latest else None,
-                   suspected=suspect is not None)
+                   actor=dated.actor if dated else None,
+                   suspected=suspect is not None,
+                   carried_by=(label_of(PRODUCTION_CHANGE_PREFIX, carrier[0])
+                               if carrier is not None else None))
+
+
+def _the_deploy_that_carried(blamed: CandidateRecord,
+                             evidence: IncidentEvidence) -> tuple[int, ChangeEvent] | None:
+    """The deploy that carried the setting the candidate blamed, and its place
+    among the changes read - or `None` where not exactly one did.
+
+    A setting is no change's reference, so what carried it is found in what each
+    deploy changed: the deploy whose diff moves the setting from the state the
+    candidate left to the one it went to (`_it_moves`), made at or before the
+    onset - a change made after the incident began did not begin it. Two such
+    deploys and the diffs cannot say which, and a trigger credited to either
+    would be a guess said as a finding.
+    """
+    if blamed.subject is None or blamed.from_state is None or blamed.to_state is None:
+        return None
+
+    moved = {looked_into.revision for looked_into in evidence.deployment_changes
+             if _it_moves(looked_into.said, blamed.subject, blamed.from_state, blamed.to_state)}
+    carriers = [(position, change) for position, change in enumerate(evidence.changes, start=1)
+                if change.kind is ChangeKind.DEPLOY and change.reference in moved
+                and (evidence.onset_at is None
+                     or parse_iso(change.occurred_at) <= evidence.onset_at)]
+
+    return carriers[0] if len(carriers) == 1 else None
+
+
+def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> bool:
+    """Whether a deploy's diff, as the read tier said it, moves the setting
+    `subject` from `from_state` to `to_state`.
+
+    Within one hunk: a removed line naming the setting - its last part or the
+    whole of it - and the state it left, and an added line naming it and the
+    state it went to - each the setting's own line, by `_it_is_the_setting`.
+    """
+    return any(_it_sets(hunk, "-", subject, from_state)
+               and _it_sets(hunk, "+", subject, to_state)
+               for hunk in _the_hunks(said))
+
+
+def _it_sets(hunk: list[str], marker: str, subject: str, state: str) -> bool:
+    """Whether a line of `hunk` that the diff marks with `marker` - removed or
+    added - is the setting `subject` at `state`: naming its last part, as a
+    nested key does, or the whole of it, as a flat one does."""
+    *parents, last = subject.split(".")
+
+    return any(line.startswith(marker)
+               and (_names(_own_text(line), last) or _names(_own_text(line), subject))
+               and _names(_own_text(line), state)
+               and _it_is_the_setting(hunk, at, subject, parents)
+               for at, line in enumerate(hunk))
+
+
+def _the_hunks(said: list[str]) -> list[list[str]]:
+    """A deploy's diff as the read tier said it, cut into its hunks: each a run
+    of patch lines with their marker, within one file, the `@@` line that opens
+    one not among them - its text is git's nearest preceding section line, not
+    the one the hunk is in.
+
+    The read tier sets in by two spaces every line under the one naming its
+    file - a patch line, or the notice that the file has none, which becomes a
+    hunk of one line whose `(` no setting is read as moving by. Any other line
+    is a header or a notice about the whole answer, and closes the hunk.
+    """
+    hunks: list[list[str]] = []
+    current: list[str] | None = None
+    for line in said:
+        if not line.startswith(PATCH_LINE_INDENT):
+            current = None
+            continue
+
+        patch = line.removeprefix(PATCH_LINE_INDENT)
+        if current is None or patch.startswith(HUNK_HEADER):
+            current = []
+            hunks.append(current)
+        if not patch.startswith(HUNK_HEADER):
+            current.append(patch)
+
+    return hunks
+
+
+def _it_is_the_setting(hunk: list[str], at: int, subject: str, parents: list[str]) -> bool:
+    """Whether the line at `at` is the setting `subject` itself, and not another
+    of the same last name: it names the whole of it, as a flat `a.b = v` does,
+    or - walking up from it - each nearest line set in less far names the next
+    of its parents in turn, as a nested `a:` over `  b: v` does. A blank line
+    and a comment name nothing, and are walked past."""
+    if _names(_own_text(hunk[at]), subject):
+        return True
+
+    indent = _indent_of(hunk[at])
+    for parent in reversed(parents):
+        above = next((place for place in range(at - 1, -1, -1)
+                      if _it_names_something(hunk[place]) and _indent_of(hunk[place]) < indent),
+                     None)
+        if above is None or not _names(_own_text(hunk[above]), parent):
+            return False
+        at, indent = above, _indent_of(hunk[above])
+
+    return True
+
+
+def _it_names_something(patch_line: str) -> bool:
+    """Whether a patch line's own text is a line of the file that names a key -
+    not blank, and not a comment."""
+    text = _own_text(patch_line).strip()
+    return bool(text) and not text.startswith(_COMMENT_MARKS)
+
+
+def _indent_of(patch_line: str) -> int:
+    """How far a patch line's own text is set in, its marker aside."""
+    text = _own_text(patch_line)
+    return len(text) - len(text.lstrip())
+
+
+def _own_text(patch_line: str) -> str:
+    """A patch line as the file has it, without the marker git puts before it -
+    which a removed flat key's `-` would otherwise make part of its name."""
+    return patch_line[1:]
+
+
+def _names(line: str, word: str) -> bool:
+    """Whether `word` is in `line` whole, not as part of a longer name."""
+    return re.search(rf"(?<![\w.-]){re.escape(word)}(?![\w.-])", line) is not None
 
 
 def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
-    """Every action taken, in order, with what it came to and whether it stands."""
+    """Every action taken, in order, with what it came to and whether it stands.
+
+    And whether it left automatic sync off: until somebody turns it back on,
+    nothing merged reaches the service.
+    """
     return [
         ResolutionStep(at=action.taken_at,
                        action=action.action,
                        by=TAKEN_BY,
                        reversible=action.reversible,
-                       outcome=f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}",
+                       outcome=(f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}"
+                                f"{_SYNC_LEFT_OFF if action.paused_sync_of is not None else ''}"),
                        label=label_of(ACTION_PREFIX, position))
         for position, action in enumerate(evidence.actions, start=1)
     ]
 
 
+# Said after an action's outcome where the action left automatic sync off.
+_SYNC_LEFT_OFF: Final = " - automatic sync left off"
+
+
 def hypotheses_of(evidence: IncidentEvidence) -> list[HypothesisConsidered]:
-    """Every candidate ranked, with what became of it - untried ones included."""
+    """Every candidate ranked, with what became of it - untried ones included,
+    and candidates that are one cause shown once (`causes_of`)."""
     return [
-        HypothesisConsidered(summary=candidate.summary,
-                             confidence=candidate.confidence,
-                             result=_what_became_of(candidate),
-                             label=label_of(CANDIDATE_PREFIX, position))
-        for position, candidate in enumerate(evidence.candidates, start=1)
+        HypothesisConsidered(summary=cause.lead.summary,
+                             confidence=cause.lead.confidence,
+                             result=cause.became,
+                             label=cause.label,
+                             also=cause.also)
+        for cause in causes_of(evidence.candidates)
     ]
+
+
+@dataclass(frozen=True)
+class OneCause:
+    """Candidates that are one cause, best-ranked first, each under its label."""
+
+    members: tuple[tuple[str, CandidateRecord], ...]
+
+    @property
+    def label(self) -> str:
+        """The label the cause is listed under: its best-ranked candidate's."""
+        return self.members[0][0]
+
+    @property
+    def also(self) -> list[str]:
+        """The labels of the rest, which it is listed under too."""
+        return [label for label, _ in self.members[1:]]
+
+    @property
+    def lead(self) -> CandidateRecord:
+        """The best-ranked candidate, whose words the cause is said in."""
+        return self.members[0][1]
+
+    @property
+    def decided(self) -> CandidateRecord:
+        """The candidate whose test says what became of the cause - the first
+        tested, or the lead where none was."""
+        return next((candidate for _, candidate in self.members if candidate.tested), self.lead)
+
+    @property
+    def became(self) -> str:
+        """What became of the cause, in the words its row and the brief both
+        say it in: its verdict, or that it was never tried, or tried and never
+        judged."""
+        if not self.decided.tested:
+            return NEVER_TRIED
+
+        return self.decided.result or NO_VERDICT_RECORDED
+
+
+def causes_of(candidates: list[CandidateRecord]) -> list[OneCause]:
+    """The candidates as the causes they are, in rank order, each under its
+    label: candidates blaming the same move of the same subject are one cause,
+    and listed apart they read as two the investigation weighed.
+
+    Only where the record agrees they are one - at most one tested, or all
+    tested to the same verdict. Two tested apart are two findings, and one row
+    would show one verdict and hide the other. A candidate naming no subject
+    blames nothing anybody can compare, and is a cause of its own.
+    """
+    by_move: dict[tuple[str | None, ...], list[tuple[int, str, CandidateRecord]]] = {}
+    for position, candidate in enumerate(candidates, start=1):
+        label = label_of(CANDIDATE_PREFIX, position)
+        move = ((candidate.subject, candidate.from_state, candidate.to_state)
+                if candidate.subject is not None else (label,))
+        by_move.setdefault(move, []).append((position, label, candidate))
+
+    causes: list[tuple[int, OneCause]] = []
+    for members in by_move.values():
+        verdicts = {candidate.result for _, _, candidate in members if candidate.tested}
+        together = [members] if len(verdicts) <= 1 else [[member] for member in members]
+        causes += [(group[0][0],
+                    OneCause(tuple((label, candidate) for _, label, candidate in group)))
+                   for group in together]
+
+    return [cause for _, cause in sorted(causes, key=lambda placed: placed[0])]
 
 
 def label_of(prefix: str, position: int) -> str:
@@ -209,13 +425,16 @@ def record_action_items_of(evidence: IncidentEvidence) -> list[ActionItem]:
 
 
 def timeline_of(evidence: IncidentEvidence,
-                recovered_at: datetime | None) -> list[TimelineEntry]:
+                back_to_normal_at: datetime | None,
+                back_before_the_action: bool = False) -> list[TimelineEntry]:
     """The narration in order, each line under the label the prompt cited it
     by, with the four markers placed by code.
 
-    `recovered_at` is the measured recovery rather than the recorded one: the
-    document's duration ends there, and a timeline ending somewhere else would
-    contradict the figure beside it.
+    `back_to_normal_at` is where the service was back to normal rather than the
+    recorded recovery: the document's duration ends there, and a timeline
+    ending somewhere else would contradict the figure beside it. The end says
+    when it came before the action credited with it (`back_before_the_action`),
+    since the order of the two markers is otherwise left to be noticed.
 
     A marker whose moment is unknown is left out rather than placed near where
     it probably was. At the same moment, a marker sorts before the line about
@@ -227,20 +446,42 @@ def timeline_of(evidence: IncidentEvidence,
         *([_a_marker(evidence.onset_at, TimelineMarker.IMPACT_BEGINS,
                      "the incident began")]
           if evidence.onset_at is not None else []),
-        _a_marker(evidence.started_at, TimelineMarker.DETECTED,
+        _a_marker(evidence.alerted_at, TimelineMarker.DETECTED,
                   f"{evidence.alert_title} fired"),
         *([_a_marker(mitigated.taken_at, TimelineMarker.MITIGATED, mitigated.action)]
-          if (mitigated := _what_brought_recovery(evidence)) is not None else []),
-        *([_a_marker(recovered_at, TimelineMarker.IMPACT_ENDS, "the service recovered")]
-          if recovered_at is not None else [])
+          if (mitigated := evidence.credited_action) is not None else []),
+        *([_a_marker(back_to_normal_at, TimelineMarker.IMPACT_ENDS,
+                     "the service was back to normal, before the action credited with it"
+                     if back_before_the_action else "the service was back to normal")]
+          if back_to_normal_at is not None else [])
     ]
 
-    narration = [entry.model_copy(update={"label": label})
+    narration = [entry.model_copy(update={"label": label,
+                                          "text": said_of_a_line(entry)})
                  for entry, label in zip(evidence.timeline,
                                          labels_of_the_narration(evidence.timeline),
                                          strict=True)]
 
     return sorted([*markers, *narration], key=_in_order)
+
+
+def said_of_a_line(entry: TimelineEntry) -> str:
+    """A line of the narration as the document and the prompt both say it: as
+    it was written, except a line that formed candidates, which names them by
+    the labels their rows go by.
+
+    Said in full, such a line repeats every candidate's paragraph, which the
+    hypotheses considered show under its label already - so the model would
+    read each one twice with nothing to say the two are one, and a reader of
+    the page would read it twice beside the row it is.
+    """
+    if not entry.candidates:
+        return entry.text
+
+    formed = len(entry.candidates)
+    labels = ", ".join(label_of(CANDIDATE_PREFIX, position + 1) for position in entry.candidates)
+
+    return f"Formed {formed} candidate cause{'s' if formed != 1 else ''}, best first: {labels}"
 
 
 def labels_of_the_narration(timeline: list[TimelineEntry]) -> list[str]:
@@ -268,12 +509,6 @@ def _in_order(entry: TimelineEntry) -> tuple[datetime, int]:
 
 def _a_marker(at: datetime, marker: TimelineMarker, text: str) -> TimelineEntry:
     return TimelineEntry(at=at, who=None, text=text, marker=marker)
-
-
-def _what_brought_recovery(evidence: IncidentEvidence) -> ActionRecord | None:
-    confirmed = [action for action in evidence.actions if action.verdict == Verdict.CONFIRMED]
-
-    return confirmed[0] if confirmed else None
 
 
 def _an_item(kind: ActionItemType,
@@ -306,9 +541,3 @@ def _a_word_of(text: str | None, reference: str) -> bool:
         rf"(?<![\w-]){re.escape(reference)}(?![\w-])", text
     ) is not None
 
-
-def _what_became_of(candidate: CandidateRecord) -> str:
-    if not candidate.tested:
-        return NEVER_TRIED
-
-    return candidate.result or NO_VERDICT_RECORDED

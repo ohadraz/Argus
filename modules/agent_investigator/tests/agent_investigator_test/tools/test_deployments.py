@@ -18,6 +18,10 @@ where the change channel raises because "nothing changed in this window" is a
 conclusion something acts on, and a source never read must not arrive looking
 like one read and found empty. Here the model is told, and can answer at a lower
 confidence or say which distinction it could not make.
+
+What came back goes on the account, as it was read. The write-up says what a
+deployment changed and which deploy carried a change, and the transcript the
+model read is not something it holds.
 """
 
 from __future__ import annotations
@@ -33,6 +37,8 @@ from agent_investigator.tools.deployments import (
     deployment_diff_tool,
     read_what_a_deployment_changed,
 )
+from argus_core import new_id
+from argus_core.events import DeploymentChangesRead, IncidentEvent, Narrator
 from argus_core.mcp_transport import McpToolError
 from argus_core.models import ToolCall
 from argus_testkit import Assertion, Scenario, all_of
@@ -52,6 +58,9 @@ WHAT_THE_READ_TIER_SAID = [
     "  +  port: 6380"
 ]
 
+# Reaches nobody, for every case not about what is published.
+DONT_CARE_NARRATOR = Narrator(new_id())
+
 
 @pytest.mark.unit
 def test_the_answer_carries_what_the_deployment_changed() -> None:
@@ -64,7 +73,8 @@ def test_the_answer_carries_what_the_deployment_changed() -> None:
         .given(the_read_tier) \
         .when(
             lambda: read_what_a_deployment_changed(
-                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
             )
         ) \
         .then(all_of(
@@ -87,7 +97,8 @@ def test_the_deployment_asked_about_is_the_one_the_model_named() -> None:
         .given(the_read_tier) \
         .when(
             lambda: read_what_a_deployment_changed(
-                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
             )
         ) \
         .then(_the_deployment_asked_about_was(
@@ -108,7 +119,8 @@ def test_a_call_naming_no_revision_is_refused_with_the_reason() -> None:
             lambda: read_what_a_deployment_changed(
                 ToolCall(id="call-1", name=DEPLOYMENT_DIFF_TOOL, arguments={}),
                 SOME_SERVICE,
-                the_read_tier
+                the_read_tier,
+                DONT_CARE_NARRATOR
             )
         ) \
         .then(all_of(
@@ -127,14 +139,14 @@ def test_a_repository_that_could_not_be_read_is_reported_rather_than_ending_the_
     # the model can still answer - at a lower confidence, or by naming the
     # distinction it could not draw. Ending the investigation over it would throw
     # away everything already retrieved to avoid a gap the model can report.
-    the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
-    the_read_tier.side_effect = McpToolError("the repository could not be compared")
+    the_read_tier = a_repository_that_could_not_be_compared()
 
     Scenario() \
         .given(the_read_tier) \
         .when(
             lambda: read_what_a_deployment_changed(
-                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
             )
         ) \
         .then(all_of(
@@ -155,7 +167,8 @@ def test_a_deployment_the_read_tier_had_nothing_to_say_about_is_still_answered()
         .given(the_read_tier) \
         .when(
             lambda: read_what_a_deployment_changed(
-                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
             )
         ) \
         .then(_the_answer_is_not_empty())
@@ -173,10 +186,90 @@ def test_the_channel_records_no_reading() -> None:
         .given(the_read_tier) \
         .when(
             lambda: read_what_a_deployment_changed(
-                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
             )
         ) \
         .then(_nothing_was_recorded_as_read())
+
+
+@pytest.mark.unit
+def test_what_the_deployment_changed_is_published_as_it_was_read() -> None:
+    # Under the revision the model named, every line unedited: the write-up
+    # names the deploy that carried a change by what its own diff shows, and a
+    # summary of the diff would leave it nothing to find that in.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_what_was_read_was_published(
+            published, THE_REVISION_DEPLOYED, WHAT_THE_READ_TIER_SAID
+        ))
+
+
+@pytest.mark.unit
+def test_a_call_naming_no_revision_publishes_nothing_read() -> None:
+    # What is published is what was read about a deployment, and a refusal is
+    # nothing read about any.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                ToolCall(id="call-1", name=DEPLOYMENT_DIFF_TOOL, arguments={}),
+                SOME_SERVICE,
+                the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_nothing_read_was_published(published))
+
+
+@pytest.mark.unit
+def test_a_repository_that_could_not_be_read_publishes_nothing_read() -> None:
+    # A comparison nobody could make, published as a read, would be a diff of
+    # nothing that the write-up then finds no change in.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_repository_that_could_not_be_compared()
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_nothing_read_was_published(published))
+
+
+@pytest.mark.unit
+def test_a_deployment_the_read_tier_had_nothing_to_say_about_publishes_nothing_read()\
+        -> None:
+    # The read tier does not answer with nothing, and an answer of nothing is
+    # not a diff - the model is told it is unread rather than empty, and the
+    # account is told the same by being told nothing.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed([])
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_nothing_read_was_published(published))
 
 
 @pytest.mark.unit
@@ -203,6 +296,13 @@ def a_call_about(revision: str) -> ToolCall:
 def a_deployment_that_changed(lines: list[str]) -> Any:
     the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
     the_read_tier.return_value = lines
+
+    return the_read_tier
+
+
+def a_repository_that_could_not_be_compared() -> Any:
+    the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
+    the_read_tier.side_effect = McpToolError("the repository could not be compared")
 
     return the_read_tier
 
@@ -266,6 +366,39 @@ def _nothing_was_recorded_as_read() -> Assertion[Any]:
             raise AssertionError(
                 f"Expected no reading for a channel with no window, and one was "
                 f"recorded: {answer.reading}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_read_was_published(published: list[IncidentEvent],
+                                 revision: str,
+                                 said: list[str]) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        read = [(event.revision, event.said) for event in published
+                if isinstance(event, DeploymentChangesRead)]
+
+        if read != [(revision, said)]:
+            raise AssertionError(
+                f"Expected one read of what [{revision}] changed, published with "
+                f"every line the read tier said, and what was published is {read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_read_was_published(published: list[IncidentEvent]) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        read = [event for event in published if isinstance(event, DeploymentChangesRead)]
+
+        if read:
+            raise AssertionError(
+                f"Expected nothing published as read about a deployment nobody "
+                f"was told about, and {read} was."
             )
 
         return True

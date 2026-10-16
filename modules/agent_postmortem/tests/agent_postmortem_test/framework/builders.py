@@ -21,6 +21,7 @@ from typing import Any
 from agent_postmortem import (
     ActionRecord,
     CandidateRecord,
+    DeploymentChangesRecord,
     IncidentEvidence,
     write_postmortem,
 )
@@ -168,12 +169,15 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        actions: list[ActionRecord] | None = None,
                        log_lines: list[str] | None = None,
                        changes: list[ChangeEvent] | None = None,
+                       deployment_changes: list[DeploymentChangesRecord] | None = None,
+                       fix_explanation: str | None = None,
                        tokens_spent: int = DONT_CARE_TOKENS_SPENT,
                        pull_request: OpenedPullRequest | None = None,
                        recommended_action: str | None = None,
                        rule: str | None = None,
                        leads: list[ThreadMessage] | None = None,
-                       watched_and_never_recovered: bool = False
+                       watched_and_never_recovered: bool = False,
+                       alerted_at: datetime | None = None
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -211,12 +215,17 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         actions=actions if actions is not None else [an_action("dont care")],
         log_lines=log_lines if log_lines is not None else ["dont care"],
         changes=changes if changes is not None else [],
+        deployment_changes=deployment_changes if deployment_changes is not None else [],
+        fix_explanation=fix_explanation,
         tokens_spent=tokens_spent,
         pull_request=pull_request,
         recommended_action=recommended_action,
         rule=rule,
         leads=leads if leads is not None else [],
-        watched_and_never_recovered=watched_and_never_recovered
+        watched_and_never_recovered=watched_and_never_recovered,
+        # When the alert says it fired - when the incident opened, unless a
+        # test says the two differ.
+        alerted_at=alerted_at if alerted_at is not None else started_at
     )
 
 
@@ -235,11 +244,12 @@ def a_candidate(summary: str,
                 to_state: str | None = None,
                 tested: bool = False,
                 result: str | None = None,
-                confidence: float | None = 0.8) -> CandidateRecord:
+                confidence: float | None = 0.8,
+                failure_mode: str = "feature-flag-toggle") -> CandidateRecord:
     """One candidate the investigation ranked - never tried, unless a test
     says what became of it."""
     return CandidateRecord(summary=summary,
-                           failure_mode="feature-flag-toggle",
+                           failure_mode=failure_mode,
                            confidence=confidence,
                            subject=subject,
                            from_state=from_state,
@@ -252,13 +262,15 @@ def an_action(action: str,
               verdict: str | None = None,
               standing: str = "still in place",
               reversible: bool = True,
-              taken_at: datetime = STARTED_AT + timedelta(minutes=2)) -> ActionRecord:
+              taken_at: datetime = STARTED_AT + timedelta(minutes=2),
+              paused_sync_of: str | None = None) -> ActionRecord:
     """One action Argus took - with no verdict, unless a test names one."""
     return ActionRecord(taken_at=taken_at,
                         action=action,
                         reversible=reversible,
                         verdict=verdict,
-                        standing=standing)
+                        standing=standing,
+                        paused_sync_of=paused_sync_of)
 
 
 def a_lead(words: str,
@@ -276,7 +288,7 @@ def a_lead(words: str,
 
 
 def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
-                        recovered_at: datetime | None = RECOVERED_AT,
+                        back_to_normal_at: datetime | None = RECOVERED_AT,
                         time_to_close_in_hours: float = DONT_CARE_TIME_TO_CLOSE,
                         error_rates: ErrorRates | None = None,
                         loss: Decimal | None = DONT_CARE_LOSS,
@@ -289,7 +301,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         cost: ResponderCost | None = None,
                         bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED,
                         unobserved_from: datetime | None = None,
-                        rule_series: RuleSeriesLevels | None = None) -> Measurements:
+                        rule_series: RuleSeriesLevels | None = None,
+                        back_before_the_action: bool = False) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -309,7 +322,7 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
     """
     return Measurements(
         duration_in_hours=duration_in_hours,
-        recovered_at=recovered_at,
+        back_to_normal_at=back_to_normal_at,
         time_to_close_in_hours=time_to_close_in_hours,
         error_rates=error_rates,
         loss=loss if baseline_revenue is not None else None,
@@ -323,7 +336,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         cost=cost,
         bands=bands,
         unobserved_from=unobserved_from,
-        rule_series=rule_series
+        rule_series=rule_series,
+        back_before_the_action=back_before_the_action
     )
 
 

@@ -44,9 +44,11 @@ from argus_core.models import (
 from pydantic import BaseModel, field_validator
 
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
-from agent_postmortem.evidence import ActionRecord, CandidateRecord, IncidentEvidence
+from agent_postmortem.evidence import ActionRecord, IncidentEvidence
 from agent_postmortem.figures import (
+    ACTED_FIGURE,
     ALERT_RAISED_FIGURE,
+    BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CLOSED_FIGURE,
     DURATION_FIGURE,
@@ -55,7 +57,6 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
-    RECOVERED_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
@@ -73,11 +74,16 @@ from agent_postmortem.revisions import revisions_of, short_form
 from agent_postmortem.sections import (
     ACTION_PREFIX,
     ALERT_PREFIX,
-    CANDIDATE_PREFIX,
+    CODE_READING_PREFIX,
+    DEPLOYMENT_CHANGES_PREFIX,
+    NO_VERDICT_RECORDED,
     PRODUCTION_CHANGE_PREFIX,
+    OneCause,
+    causes_of,
     label_of,
     labels_of_the_narration,
     record_action_items_of,
+    said_of_a_line,
 )
 
 # The tool's name and its fields, named once. Both ends of the exchange read
@@ -413,7 +419,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "figure you were not shown but could work out from two you were - the "
         "span between two instants, how far one share is above another, how "
         "many times one is the other - is written as that working, braces and "
-        f"all: {{{RECOVERED_FIGURE} - {BEGAN_FIGURE}}}, "
+        f"all: {{{BACK_TO_NORMAL_FIGURE} - {BEGAN_FIGURE}}}, "
         f"{{{ERRORS_AT_WORST_FIGURE} / {ERRORS_BEFORE_FIGURE}}}. The document "
         "works it out from the figures as you were shown them. Say any other "
         "size with no number in it, not even in a word - \"most requests\", "
@@ -579,7 +585,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *([f"What the alert said [{cited.label}]: {the_finding_named(cited.text)}"
            for cited in the_alert_labelled(evidence)]),
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
-        *_how_long_it_was_broken(measured, figures),
+        *_how_long_it_was_broken(measured, evidence.credited_action, figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
         f"until {_shown(CLOSED_FIGURE, figures)}. That is a measure of the response, "
         f"not of the fault - do not report it as how long the service was broken.",
@@ -590,7 +596,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *(line
           for heading, cited in _the_evidence_by_kind(evidence)
           for line in ["", heading,
-                       *(f"  - [{each.label}] {the_evidence_named(each)}" for each in cited)]),
+                       *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
+                         for each in cited)]),
         "",
         "Action items the record already holds:",
         *(_the_record_items(evidence) or ["  - none"]),
@@ -600,6 +607,19 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"{ACTION_ITEMS_FIELD} are numbered after these, in the order you give them.",
         *_what_people_told_it(evidence.leads)
     ])
+
+
+def _its_labels(cited: CitedEvidence) -> str:
+    """The label a piece of evidence is shown under, and every other it goes by:
+    `C1, also C2`."""
+    return ", also ".join([cited.label, ", ".join(cited.also)] if cited.also else [cited.label])
+
+
+def _under_its_label(text: str) -> str:
+    """A row of several lines - a diff - with each line after the first
+    indented under the row's label, so they read as the row's and not as rows
+    of their own."""
+    return text.replace("\n", "\n      ")
 
 
 def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[str, Figure]:
@@ -651,7 +671,12 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
                           ) -> list[tuple[str, list[CitedEvidence]]]:
     """The evidence under the heading the model reads it beneath, in the order
     it is shown: the narration, the changes, the logs, the candidates, the
-    actions."""
+    actions - and what each deployment it looked into changed and what Code-Fix
+    read in the source, where there is any: a heading over nothing tells the
+    model there is something it has failed to see."""
+    looked_into = the_deployment_changes_labelled(evidence)
+    read_in_the_source = the_code_reading_labelled(evidence)
+
     return [
         ("What Argus did, in order:",
          [CitedEvidence(label=label, text=_a_line_of_the_narration(entry))
@@ -664,8 +689,35 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
         ("Log lines it read, one per message:", grouped(evidence.log_lines)),
         ("Candidates it considered:", the_candidates_labelled(evidence)),
         ("Actions it took:",
-         _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions]))
+         _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions])),
+        *([("What each deployment it looked into changed:", looked_into)] if looked_into else []),
+        *([("What Code-Fix read in the source - a static reading, nothing ran it:",
+            read_in_the_source)] if read_in_the_source else [])
     ]
+
+
+def the_code_reading_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """What Code-Fix said of the code, under the label the model is shown it
+    by - or nothing, where it said nothing.
+
+    Public because the document lists it under the same label the prose cites
+    it by, as it does the changes.
+    """
+    if evidence.fix_explanation is None:
+        return []
+
+    return [CitedEvidence(label=label_of(CODE_READING_PREFIX, 1), text=evidence.fix_explanation)]
+
+
+def the_deployment_changes_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """What each deployment the investigation looked into changed, under the
+    label the model is shown it by - every line as it was read, one to a line.
+
+    Public because the document lists them under the same labels the prose
+    cites them by, as it does the changes.
+    """
+    return _numbered(DEPLOYMENT_CHANGES_PREFIX,
+                     ["\n".join(looked_into.said) for looked_into in evidence.deployment_changes])
 
 
 def the_changes_labelled(evidence: IncidentEvidence) -> list[CitedChange]:
@@ -695,8 +747,8 @@ def the_candidates_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
     hypothesis, not evidence - and the check refusing such a step has to know
     which labels these are.
     """
-    return _numbered(CANDIDATE_PREFIX,
-                     [_a_candidate_as_a_line(candidate) for candidate in evidence.candidates])
+    return [CitedEvidence(label=cause.label, also=cause.also, text=_a_cause_as_a_line(cause))
+            for cause in causes_of(evidence.candidates)]
 
 
 def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:
@@ -710,21 +762,9 @@ def _the_record_items(evidence: IncidentEvidence) -> list[str]:
 
 
 def _a_line_of_the_narration(entry: TimelineEntry) -> str:
-    """One line of the narration, with the candidates it formed named by label.
-
-    Said in full, such a line repeats every candidate word for word, and the
-    model reads each one twice - in the narration and under its own label -
-    with nothing to say the two are one. The document's own timeline keeps the
-    words, since a reader of the page has no labels to follow.
-    """
-    if not entry.candidates:
-        return f"{to_iso(entry.at)} {entry.who}: {entry.text}"
-
-    formed = len(entry.candidates)
-    labels = ", ".join(label_of(CANDIDATE_PREFIX, position + 1) for position in entry.candidates)
-
-    return (f"{to_iso(entry.at)} {entry.who}: Formed {formed} candidate "
-            f"cause{'s' if formed != 1 else ''}, best first: {labels}")
+    """One line of the narration, worded as the document's timeline words it -
+    the candidates it formed named by label."""
+    return f"{to_iso(entry.at)} {entry.who}: {said_of_a_line(entry)}"
 
 
 def _a_change_as_a_line(change: ChangeEvent) -> str:
@@ -738,17 +778,31 @@ def _a_change_as_a_line(change: ChangeEvent) -> str:
             f"by {change.actor or 'someone unnamed'}: {change.summary}")
 
 
-def _a_candidate_as_a_line(candidate: CandidateRecord) -> str:
-    """A candidate, its failure mode, its confidence, and what became of it."""
-    became = candidate.result if candidate.tested else "never tried"
+def _a_cause_as_a_line(cause: OneCause) -> str:
+    """A cause in its best-ranked candidate's words, its failure mode, its
+    confidence, and what became of it.
 
-    return (f"{candidate.summary} [{candidate.failure_mode}, confidence "
-            f"{candidate.confidence}, {became}]")
+    Where the candidates it stands for read the move as different failures,
+    each failure is said with the labels that read it so - the only thing the
+    others said - and the confidence with the label it is the lead's, since
+    after labelled failures a bare one reads as all of theirs.
+    """
+    lead, became = cause.lead, cause.became
+    read_as: dict[str | None, list[str]] = {}
+    for label, candidate in cause.members:
+        read_as.setdefault(candidate.failure_mode, []).append(label)
+
+    if len(read_as) == 1:
+        return f"{lead.summary} [{lead.failure_mode}, confidence {lead.confidence}, {became}]"
+
+    failures = "; ".join(f"{failure} ({', '.join(labels)})" for failure, labels in read_as.items())
+
+    return f"{lead.summary} [{failures}, confidence {lead.confidence} ({cause.label}), {became}]"
 
 
 def _an_action_as_a_line(action: ActionRecord) -> str:
     """An action, its verdict, and whether it still stands."""
-    return f"{action.action} - {action.verdict or 'no verdict recorded'}, {action.standing}"
+    return f"{action.action} - {action.verdict or NO_VERDICT_RECORDED}, {action.standing}"
 
 
 def _what_people_told_it(leads: Sequence[ThreadMessage]) -> list[str]:
@@ -853,6 +907,7 @@ def _shown(name: str, figures: Mapping[str, Figure]) -> str:
 
 
 def _how_long_it_was_broken(measured: Measurements,
+                            credited: ActionRecord | None,
                             figures: Mapping[str, Figure]) -> list[str]:
     """When the service broke, when it came back, and how long that was.
 
@@ -891,19 +946,42 @@ def _how_long_it_was_broken(measured: Measurements,
             f"error rates below cover none of it."
         ]
 
-    if measured.recovered_at is None:
+    if measured.back_to_normal_at is None:
         return [
             f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}). The service "
-            f"had not recovered by the last minute of metrics read, so it was broken "
-            f"for at least {_shown(DURATION_FIGURE, figures)} - a lower bound, not a "
-            f"measurement, and every impact figure below is bounded the same way."
+            f"was not back to normal by {_shown(CLOSED_FIGURE, figures)}, when the "
+            f"incident was closed, so it was broken for at least "
+            f"{_shown(DURATION_FIGURE, figures)} - a lower bound, not a measurement, "
+            f"and every impact figure below is bounded the same way."
         ]
 
     return [
         f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}) to "
-        f"{_shown(RECOVERED_FIGURE, figures)}, when the metrics show it recovered.",
+        f"{_shown(BACK_TO_NORMAL_FIGURE, figures)}, when the metrics show it back to "
+        f"normal.",
+        *_back_before(credited, measured, figures),
         f"That is {_shown(DURATION_FIGURE, figures)}, and every impact figure below "
         f"is measured over that stretch."
+    ]
+
+
+def _back_before(credited: ActionRecord | None,
+                 measured: Measurements,
+                 figures: Mapping[str, Figure]) -> list[str]:
+    """That the service was back before the action credited with bringing it
+    back - or nothing, where it was not.
+
+    Said rather than left to the two times: a model shown an action credited
+    with a recovery credits it, whatever order the times beside it are in.
+    """
+    if not measured.back_before_the_action or credited is None:
+        return []
+
+    return [
+        f"It was back to normal by {_shown(BACK_TO_NORMAL_FIGURE, figures)}, before "
+        f"{_shown(ACTED_FIGURE, figures)}, when {credited.action} was taken - the "
+        f"action credited with ending it: the metrics show the service back before "
+        f"that action, not because of it."
     ]
 
 
@@ -913,12 +991,17 @@ def _how_long_it_was_broken(measured: Measurements,
 # a shorter memory than the fault's, or over none of the stretch it broke.
 _WHY_NOT_KNOWN: Final[dict[Unmeasured, str]] = {
     Unmeasured.NOTHING_READ: "the metrics for the incident could not be read",
-    Unmeasured.NO_MINUTE_BEFORE_THE_ONSET: (
-        "metrics were read, but none from before the onset, so there is no calm "
-        "stretch to measure a rise against"),
+    Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET: (
+        "metrics were read, but none from the hour before the onset, so there is "
+        "no calm level to measure a rise against"),
     Unmeasured.NO_MINUTE_WHILE_BROKEN: (
         "metrics were read, but none from while the service was broken")
 }
+
+
+# Said of a figure the calm before the incident was too short to hold up to
+# how far the rate goes on its own.
+_NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
 
 
 def _what_the_error_rate_did(rates: ErrorRates | None,
@@ -946,31 +1029,57 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     return [
         f"Error rate before it began: {_shown(ERRORS_BEFORE_FIGURE, figures)}.",
         f"Error rate while it was broken: {_shown(ERRORS_WHILE_BROKEN_FIGURE, figures)}, "
-        f"peaking at {_shown(ERRORS_AT_WORST_FIGURE, figures)}.",
+        f"peaking at {_shown(ERRORS_AT_WORST_FIGURE, figures)}{_the_peak_held_to(rates)}.",
         _the_rise(rates, figures)
     ]
 
 
+def _the_peak_held_to(rates: ErrorRates) -> str:
+    """What the peak is beside how high the worst minutes go on their own -
+    nothing where it went higher, which is the peak the line already says."""
+    match rates.peaked_beyond_its_variation:
+        case False:
+            return " - no higher than the worst minutes of stretches as long before it began"
+        case None:
+            return f" - which {_NOT_TOLD_APART}"
+        case True:
+            return ""
+
+
 def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
     """How much of the traffic failed that would not have otherwise - or that
-    none did.
+    none did, or none anyone can tell from the rate's own variation.
 
     A rise at or below nothing is no rise. "-0.3% of traffic failed" says the
     opposite of what it means, and a model handed it explains a failure nobody
     measured; the levels beside it already say what the rate was. The figure
     itself stays unclamped where it is measured (`ErrorRates.rise`).
+
+    Nor is a rise that stretches as long before it began reached on their own:
+    a service idling between one and two percent goes above its average in
+    half its quiet stretches, and a write-up told each one was a rise blames
+    the incident for noise.
     """
-    if not _the_errors_rose(rates):
+    if rates.rise <= 0:
         return ("Rise above baseline: none - no more of the traffic failed while "
                 "it was broken than before it began.")
 
-    return (f"Rise above baseline: {_shown(ERRORS_RISE_FIGURE, figures)} of traffic "
-            f"failed that otherwise would not have.")
+    match rates.rose_beyond_its_variation:
+        case False:
+            return ("Rise above baseline: none beyond its normal variation - stretches as "
+                    "long before it began averaged as high on their own.")
+        case None:
+            return (f"Rise above baseline: {_NOT_TOLD_APART} - the calm before it began was "
+                    f"too short to say how high the rate goes on its own.")
+        case True:
+            return (f"Rise above baseline: {_shown(ERRORS_RISE_FIGURE, figures)} of traffic "
+                    f"failed that otherwise would not have.")
 
 
 def _the_errors_rose(rates: ErrorRates | None) -> bool:
-    """Whether a rise in failed requests was measured at all."""
-    return rates is not None and rates.rise > 0
+    """Whether a rise in failed requests was measured beyond what the rate
+    reaches on its own."""
+    return rates is not None and rates.rise > 0 and rates.rose_beyond_its_variation is True
 
 
 def _what_the_rules_series_did(levels: RuleSeriesLevels | None,

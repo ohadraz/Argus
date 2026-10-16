@@ -45,6 +45,7 @@ from argus_core.models import (
     Leads,
     ModelPolicy,
     OpenedPullRequest,
+    ProposedFix,
     ToolResult,
     ToolResults,
     Turn,
@@ -180,7 +181,7 @@ class Fixer(Protocol):
                  incident_id: str, /,
                  *,
                  still_wanted: StillWanted = ...,
-                 leads: Leads = ...) -> OpenedPullRequest | None: ...
+                 leads: Leads = ...) -> ProposedFix: ...
 
 
 # What the model is told when one call is all that is left, ridden in on the
@@ -243,20 +244,22 @@ def propose_fix(hypothesis: Hypothesis | None,
                 conversations: Conversations = a_conversation_recorded_for,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads
-                ) -> OpenedPullRequest | None:
-    """Proposes a fix for `hypothesis` as a draft pull request, or nothing.
+                ) -> ProposedFix:
+    """Proposes a fix for `hypothesis` as a draft pull request, or nothing -
+    with what the model said of the code either way.
 
-    `None` means the model answered and had nothing to change - "the fault is
-    not in the code", which is a real conclusion and the one a human acts on. No
-    pull request is opened for it: an empty proposal sends somebody to read a
-    diff with nothing in it.
+    No pull request means the model answered and had nothing to change - "the
+    fault is not in the code", which is a real conclusion and the one a human
+    acts on. None is opened for it: an empty proposal sends somebody to read a
+    diff with nothing in it. Why there was nothing comes back all the same,
+    since it is as much a finding about the code as a fix would be.
 
     Raises `FixNotAnswered` when the model never submitted within its budget,
     which is a different thing entirely and used to arrive looking identical.
 
     Raises whatever the repository raised. A push that was refused and a fix
     that was not found reach the same human, and only one of them is something
-    somebody can go and fix - so the failure is not flattened into `None`.
+    somebody can go and fix - so the failure is not flattened into no proposal.
 
     The collaborators are keyword seams: the real tool calls in production,
     doubles in a test, and no monkeypatching either way.
@@ -306,7 +309,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     patch = submitted.patch()
 
     if not patch:
-        return None
+        return ProposedFix(pull_request=None, explanation=submitted.explanation)
 
     # The branch and the pull request are changes to the world, and the turn
     # that produced this patch may have been answered after somebody said stop.
@@ -324,11 +327,14 @@ def propose_fix(hypothesis: Hypothesis | None,
         message=title
     )
 
-    return open_pull_request(
-        head_branch=branch,
-        base_branch=settings.github_base_branch,
-        title=title,
-        body=_the_case_for(submitted, hypothesis, incident_id)
+    return ProposedFix(
+        pull_request=open_pull_request(
+            head_branch=branch,
+            base_branch=settings.github_base_branch,
+            title=title,
+            body=_the_case_for(submitted, hypothesis, incident_id)
+        ),
+        explanation=submitted.explanation
     )
 
 

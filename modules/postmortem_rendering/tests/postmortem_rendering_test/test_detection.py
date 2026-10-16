@@ -42,6 +42,33 @@ def test_detection_says_when_it_began_when_the_alert_fired_and_the_gap() -> None
 
 
 @pytest.mark.unit
+def test_an_alert_dated_before_the_measured_onset_is_said_to_be() -> None:
+    # The sender dates the alert and Argus measures the onset, and the two can
+    # cross - a rule with no wait fires on the first minute that departs, a
+    # sender's clock runs ahead. "-1m 20s later" is a sentence nobody can read.
+    some_earlier_alert = SOME_ONSET - timedelta(minutes=1, seconds=20)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=some_earlier_alert, rule="dont care", onset_at=SOME_ONSET,
+                gap=some_earlier_alert - SOME_ONSET))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The incident on "),
+                                      Run(text="io-shop", role=Role.CODE),
+                                      Run(text=" began at "),
+                                      Run.a_moment(SOME_ONSET),
+                                      Run(text=". HighErrorRate fired at "),
+                                      Run.a_moment(some_earlier_alert),
+                                      Run(text=", 1m 20s before the measured onset"),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
 def test_an_unknown_onset_is_said_to_be_and_no_gap_is_given() -> None:
     Scenario() \
         .given(

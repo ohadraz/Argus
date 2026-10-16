@@ -41,6 +41,8 @@ from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
     SubmittedPostmortem,
     the_changes_labelled,
+    the_code_reading_labelled,
+    the_deployment_changes_labelled,
     the_evidence_labelled,
 )
 from agent_postmortem.reviewing import review_of
@@ -165,7 +167,8 @@ def write_postmortem(evidence: IncidentEvidence,
         resolution=resolution_of(evidence),
         hypotheses=hypotheses_of(evidence),
         # Ending at the measured recovery, where the duration beside it ends.
-        timeline=timeline_of(evidence, measured.recovered_at),
+        timeline=timeline_of(evidence, measured.back_to_normal_at,
+                             back_before_the_action=measured.back_before_the_action),
         # The model's sections. Each empty where unanswered - a section of many
         # has no list to be absent from - and the review says what that costs.
         causal_chain=_the_chain_as_cited(answer, shown),
@@ -174,11 +177,12 @@ def write_postmortem(evidence: IncidentEvidence,
                               for factor in answer.contributing_factors or []],
         action_items=_the_record_s_items_then_the_model_s(evidence, answer),
         lessons=answer.lessons,
-        evidence_read=len(shown),
         # Under the labels the model was shown them by, so the prose that cites
         # one has a row to lead to.
         changes_read=the_changes_labelled(evidence),
-        log_messages_read=grouped(evidence.log_lines)
+        log_messages_read=grouped(evidence.log_lines),
+        deployment_changes_read=the_deployment_changes_labelled(evidence),
+        code_read=the_code_reading_labelled(evidence)
     )
 
     # Reviewed last, because what it reviews is the document as written.

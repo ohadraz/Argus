@@ -80,8 +80,10 @@ def _what_was_given(evidence: IncidentEvidence, figures: dict[str, Figure]) -> G
     are hypotheses, the items already on the record, the revisions the incident
     read, and the figures it may name."""
     return Given(
-        labels=frozenset(cited.label for cited in the_evidence_labelled(evidence)),
-        hypotheses=frozenset(cited.label for cited in the_candidates_labelled(evidence)),
+        labels=frozenset(label for cited in the_evidence_labelled(evidence)
+                         for label in (cited.label, *cited.also)),
+        hypotheses=frozenset(label for cited in the_candidates_labelled(evidence)
+                             for label in (cited.label, *cited.also)),
         items_on_record=len(record_action_items_of(evidence)),
         revisions=revisions_of(evidence),
         figures=figures

@@ -21,6 +21,7 @@ from argus_core.events import (
     AgentInvoked,
     CandidateSelected,
     ChangeUndone,
+    DeploymentChangesRead,
     FixAttempted,
     IncidentEvent,
     LeadWeighed,
@@ -152,6 +153,26 @@ def test_an_event_read_back_is_the_event_that_was_published() -> None:
                 window_start=SOME_WINDOW_START,
                 window_end=SOME_WINDOW_END,
                 lines=["some log line"]
+            )
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_what_a_deployment_changed_reads_back_as_it_was_read() -> None:
+    # The write-up reads the diff from the account rather than from a transcript
+    # it does not hold, so every line has to come back as it went in.
+    Scenario() \
+        .given(
+            published := DeploymentChangesRead(
+                incident_id=new_id(),
+                revision="7c3ca00",
+                said=["Deployment of revision 7c3ca00 to io-shop, compared against "
+                      "1a2b3c4 - the revision deployed before it.",
+                      "modified deploy/values-production.yaml",
+                      "  -  model: v1",
+                      "  +  model: v2"]
             )
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
@@ -598,6 +619,20 @@ def test_a_fix_attempt_is_read_back_as_what_it_was_published_as() -> None:
         .given(an_attempt) \
         .when(lambda: parse_event(an_attempt.model_dump(mode="json"))) \
         .then(_it_reports(FixOutcome.NOT_WARRANTED))
+
+
+@pytest.mark.unit
+def test_what_code_fix_said_of_the_code_is_read_back_with_the_attempt() -> None:
+    # The one account of the mechanism the walk holds, read by the write-up.
+    Scenario() \
+        .given(
+            published := FixAttempted(incident_id=new_id(),
+                                      outcome=FixOutcome.NOT_WARRANTED,
+                                      detail="dont care",
+                                      explanation="the fault is in what was deployed, not the code")
+        ) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(_it_is(published))
 
 
 @pytest.mark.unit

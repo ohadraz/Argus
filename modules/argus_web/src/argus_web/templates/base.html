@@ -543,6 +543,9 @@
   ol.chain .cited { display: block; font-family: ui-monospace, monospace; font-size: .95em; }
   table.evidence-read td.label, .lead-label { font-family: ui-monospace, monospace;
                                                font-size: .85em; color: var(--eye); }
+  /* A diff keeps its lines and the spaces that set them in. */
+  table.diffs-read td.diff { font-family: ui-monospace, monospace; font-size: .85em;
+                             white-space: pre-wrap; }
   .state-from { color: #9aa0a6; text-decoration: line-through; }
   .state-to { color: var(--gold); }
   /* A deployment's two ends are revisions, which a reader may copy - so in the

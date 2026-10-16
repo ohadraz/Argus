@@ -36,6 +36,23 @@ def test_each_candidate_is_a_row_with_its_confidence_to_two_places() -> None:
 
 
 @pytest.mark.unit
+def test_a_row_standing_for_several_candidates_goes_by_each_of_their_labels() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(summary="the model was upgraded", confidence=0.8,
+                                     result="confirmed", label="C1", also=["C2"])])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows
+        ) \
+        .then(
+            the_answer_was((
+                HypothesisRow(label="C1", also=("C2",), summary="the model was upgraded",
+                              confidence="0.80", result="confirmed"),)))
+
+
+@pytest.mark.unit
 def test_the_table_names_its_columns() -> None:
     Scenario() \
         .given(

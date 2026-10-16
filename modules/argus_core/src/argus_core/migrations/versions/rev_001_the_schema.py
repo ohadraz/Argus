@@ -293,15 +293,14 @@ CREATE TABLE IF NOT EXISTS postmortem (
     action_items JSONB NOT NULL DEFAULT '[]'::jsonb,
     lessons JSONB,
     timeline JSONB NOT NULL DEFAULT '[]'::jsonb,
-    -- How many labelled pieces of evidence the model was handed. A column
-    -- rather than JSON because it is a figure, and the eval tier aggregates
-    -- figures.
-    evidence_read INTEGER,
-    -- The changes to production and the log messages the model was shown, each
-    -- under the label the prose cites it by - the two kinds of evidence no
-    -- other section is a row for.
+    -- The changes to production, the log messages and what each deployment
+    -- looked into changed and what Code-Fix read in the source, as the model
+    -- was shown them, each under the label the prose cites it by - the kinds
+    -- of evidence no other section is a row for.
     changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     log_messages_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    deployment_changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    code_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     executive_summary TEXT,
     -- Google's five review criteria, each met, unmet, or left for a person.
     -- Never null: a document is always reviewed against all five.

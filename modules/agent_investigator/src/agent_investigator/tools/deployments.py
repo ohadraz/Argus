@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from argus_core.events import DeploymentChangesRead, Narrator
 from argus_core.models import ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import DeploymentDiffFetcher
@@ -81,13 +82,17 @@ def deployment_diff_tool() -> ToolDefinition:
 def read_what_a_deployment_changed(
     call: ToolCall,
     service: str,
-    fetch_what_a_deployment_changed: DeploymentDiffFetcher
+    fetch_what_a_deployment_changed: DeploymentDiffFetcher,
+    narrator: Narrator
 ) -> Served:
     """What the deployment the model named changed, or why that could not be read.
 
-    No narrator event and no reading, for the reason the register channel records
-    neither: a reading is what tells a later round which minutes are already in
-    front of the model, and there are no minutes here.
+    No reading, for the reason the register channel records none: a reading is
+    what tells a later round which minutes are already in front of the model,
+    and there are no minutes here. What came back is narrated whole all the
+    same, because the write-up names the deploy that carried a change by what
+    its own diff shows - and only what came back: a refusal, a comparison
+    nobody could make and an answer of nothing are none of them a diff.
 
     Anything at all going wrong is reported as the same fact, which is why this
     catches broadly. Across the tier boundary the repository's own failure has
@@ -118,6 +123,8 @@ def read_what_a_deployment_changed(
 
     if not said:
         return answered(call, _NOTHING_CAME_BACK)
+
+    narrator.say(DeploymentChangesRead, revision=revision, said=list(said))
 
     return answered(call, "\n".join(said))
 

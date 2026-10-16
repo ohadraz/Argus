@@ -17,6 +17,8 @@ from argus_core.models import (
     ActionItemStatus,
     ActionItemType,
     ChangeKind,
+    Impact,
+    ImpactExtent,
     ResolutionStep,
     ReviewCriterion,
     TimelineMarker,
@@ -200,7 +202,27 @@ def test_an_incident_ending_on_another_day_says_both_days() -> None:
 
 
 @pytest.mark.unit
-def test_an_incident_with_no_recovery_seen_says_so() -> None:
+def test_an_incident_never_back_to_normal_says_by_when_it_was_not() -> None:
+    # An impact nobody saw end is measured to the last minute read, so that is
+    # the minute the service was still not back by - a finding with a time on
+    # it, not a recovery nobody happened to see.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)],
+                impact=Impact(duration=timedelta(minutes=30),
+                              extent=ImpactExtent.AT_LEAST,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("Oct 11, 2026, 14:03 UTC, not back to normal by 14:33 UTC"))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_impact_measured_says_it_was_not_seen_back_to_normal() -> None:
     Scenario() \
         .given(
             some_postmortem := a_postmortem(timeline=[
@@ -210,7 +232,7 @@ def test_an_incident_with_no_recovery_seen_says_so() -> None:
             lambda: a_head(some_postmortem, an_alert(), resolution=None).date
         ) \
         .then(
-            _it_reads("Oct 11, 2026, 14:03 UTC, no recovery seen"))
+            _it_reads("Oct 11, 2026, 14:03 UTC, not seen back to normal"))
 
 
 @pytest.mark.unit

@@ -36,6 +36,7 @@ from argus_core.events import (
     ChangesRetrieved,
     ChangeUndone,
     CommunicationFailed,
+    DeploymentChangesRead,
     FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
@@ -286,6 +287,19 @@ def test_a_flag_history_is_carried_as_the_changes_it_reported() -> None:
 
 
 @pytest.mark.unit
+def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
+    # The read that tells a configuration change from a code change, and what a
+    # reader of the page is given of it is which deployment was looked into.
+    some_read = DeploymentChangesRead(incident_id=new_id(), revision="7c3ca00",
+                                      said=["some line of the diff"])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_says("what the deployment of 7c3ca00 changed"))
+
+
+@pytest.mark.unit
 def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
     # Not restated and not re-derived: the narration and the walk have to be
     # the same hypothesis seen twice, rather than two accounts to reconcile.
@@ -480,6 +494,32 @@ def test_a_look_that_found_the_service_back_says_which_minute_it_came_back_at() 
             _the_only_line_says("10:13"),
             _the_only_line_does_not_say("10:14"),
             _the_only_line_names_the_minute(AN_EARLIER_MINUTE)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("look", "said"), [
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True,
+                     recovered_minute=AN_EARLIER_MINUTE),
+     "no longer at the incident's level since 10:13"),
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True),
+     "no longer at the incident's level"),
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=False),
+     "still at the incident's level")
+], ids=["dated", "undated", "not-yet"])
+def test_a_look_says_what_it_judged_rather_than_that_the_service_was_back_to_normal(
+        look: RecoveryChecked, said: str) -> None:
+    # A look judges whether the service fell off the incident's own level, which
+    # is what a verdict on an action needs - not whether it was back inside the
+    # range it keeps when nothing is wrong. A fix landing mid-minute leaves that
+    # minute off the incident's level and still outside its range, and "back at
+    # its baseline" said of it claims what nothing measured.
+    Scenario() \
+        .given(look) \
+        .when(lambda: build_narration([look])) \
+        .then(all_of(
+            _the_only_line_says(said),
+            _the_only_line_does_not_say("baseline")
         ))
 
 

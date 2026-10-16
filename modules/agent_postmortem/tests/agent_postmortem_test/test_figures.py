@@ -21,7 +21,9 @@ from collections.abc import Mapping
 import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.figures import (
+    ACTED_FIGURE,
     ALERT_RAISED_FIGURE,
+    BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CLOSED_FIGURE,
     DURATION_FIGURE,
@@ -30,7 +32,6 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
-    RECOVERED_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
@@ -52,7 +53,7 @@ from agent_postmortem.prompting import (
     SubmittedStep,
 )
 from argus_core import to_iso
-from argus_core.models import ActionItemType, CitedEvidence, Lessons
+from argus_core.models import ActionItemType, CitedEvidence, Lessons, Verdict
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -61,6 +62,7 @@ from agent_postmortem_test.framework.builders import (
     RECOVERED_AT,
     STARTED_AT,
     a_measured_incident,
+    an_action,
     an_evidence_bundle,
 )
 
@@ -152,7 +154,8 @@ def test_the_difference_of_two_shares_is_written_in_percentage_points() -> None:
     Scenario() \
         .given(
             figures := figures_of(an_evidence_bundle(), a_measured_incident(
-                error_rates=ErrorRates(baseline=0.0124, while_broken=0.3386, at_its_worst=0.5))),
+                error_rates=ErrorRates(baseline=0.0124, while_broken=0.3386, at_its_worst=0.5,
+                                       usual_ceiling=0.02, usual_worst=0.04))),
             an_answer_naming_the_difference := SubmittedPostmortem(
                 root_cause="Errors rose by {errors_while_broken - errors_before}.")
         ) \
@@ -171,7 +174,8 @@ def test_the_ratio_of_two_shares_is_written_in_as_how_many_times() -> None:
     Scenario() \
         .given(
             figures := figures_of(an_evidence_bundle(), a_measured_incident(
-                error_rates=ErrorRates(baseline=0.015, while_broken=0.338, at_its_worst=0.5))),
+                error_rates=ErrorRates(baseline=0.015, while_broken=0.338, at_its_worst=0.5,
+                                       usual_ceiling=0.02, usual_worst=0.04))),
             an_answer_naming_the_ratio := SubmittedPostmortem(
                 root_cause="At worst errors were {errors_at_worst / errors_before} as common.")
         ) \
@@ -434,7 +438,7 @@ def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
                 ALERT_RAISED_FIGURE: Figure(given=to_iso(STARTED_AT),
                                             written="Sep 02, 2026, 12:10:00 UTC"),
                 BEGAN_FIGURE: Figure(given=to_iso(ONSET), written="Sep 02, 2026, 12:00:00 UTC"),
-                RECOVERED_FIGURE: Figure(given=to_iso(RECOVERED_AT),
+                BACK_TO_NORMAL_FIGURE: Figure(given=to_iso(RECOVERED_AT),
                                          written="Sep 02, 2026, 12:10:00 UTC"),
                 DURATION_FIGURE: Figure(given="10 minutes", written="10 minutes"),
                 HELD_FIGURE: Figure(given="30 minutes", written="30 minutes"),
@@ -463,17 +467,78 @@ def test_an_incident_with_no_onset_is_dated_from_its_alert() -> None:
 
 
 @pytest.mark.unit
-def test_a_recovery_nobody_saw_is_no_figure() -> None:
+def test_the_alert_is_raised_when_its_sender_says_it_fired() -> None:
+    # Not when the incident opened: a sender holds an alert back before
+    # delivering it.
+    some_firing = STARTED_AT.replace(minute=8)
+
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(),
-            measured := a_measured_incident(recovered_at=None)
+            evidence := an_evidence_bundle(alerted_at=some_firing),
+            measured := a_measured_incident()
         ) \
         .when(
             lambda: figures_of(evidence, measured)
         ) \
         .then(
-            _the_figures_leave_out(RECOVERED_FIGURE)
+            _the_figures_include({
+                ALERT_RAISED_FIGURE: Figure(given=to_iso(some_firing),
+                                            written="Sep 02, 2026, 12:08:00 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_a_recovery_nobody_saw_is_no_figure() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(back_to_normal_at=None)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(BACK_TO_NORMAL_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_a_service_back_before_the_action_credited_with_it_names_when_it_was_taken() -> None:
+    # The write-up says the service was back before the action, and a time it
+    # cannot name is one it cannot say.
+    some_action_taken = STARTED_AT.replace(minute=9)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=some_action_taken)]),
+            measured := a_measured_incident(back_before_the_action=True)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                ACTED_FIGURE: Figure(given=to_iso(some_action_taken),
+                                     written="Sep 02, 2026, 12:09:00 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_a_service_back_after_the_action_credited_with_it_names_no_time_it_was_taken() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.CONFIRMED)]),
+            measured := a_measured_incident(back_before_the_action=False)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(ACTED_FIGURE)
         )
 
 
@@ -484,7 +549,7 @@ def test_metrics_that_stopped_are_dated_from_where_they_stopped() -> None:
     Scenario() \
         .given(
             evidence := an_evidence_bundle(),
-            measured := a_measured_incident(recovered_at=None,
+            measured := a_measured_incident(back_to_normal_at=None,
                                             unobserved_from=some_minute_they_stopped)
         ) \
         .when(
@@ -504,7 +569,8 @@ def test_the_error_rates_are_named_at_every_level_worth_reporting() -> None:
         .given(
             evidence := an_evidence_bundle(),
             measured := a_measured_incident(
-                error_rates=ErrorRates(baseline=0.015, while_broken=0.338, at_its_worst=0.5))
+                error_rates=ErrorRates(baseline=0.015, while_broken=0.338, at_its_worst=0.5,
+                                       usual_ceiling=0.02, usual_worst=0.04))
         ) \
         .when(
             lambda: figures_of(evidence, measured)
@@ -520,16 +586,24 @@ def test_the_error_rates_are_named_at_every_level_worth_reporting() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("while_broken", [0.017, 0.02])
-def test_a_rise_at_or_below_nothing_is_no_figure(while_broken: float) -> None:
-    # The model is told there was none, in words, and a name for a negative
-    # share - or for "0.0%" - would let it write something it does not mean.
+@pytest.mark.parametrize(("while_broken", "usual_ceiling"), [
+    pytest.param(0.017, 0.025, id="fell"),
+    pytest.param(0.02, 0.025, id="flat"),
+    pytest.param(0.022, 0.025, id="within-its-variation"),
+    pytest.param(0.30, None, id="variation-unknown")
+])
+def test_a_rise_not_beyond_the_rate_s_own_variation_is_no_figure(
+    while_broken: float, usual_ceiling: float | None
+) -> None:
+    # The model is told there was none, or none it can tell from noise, in
+    # words - and a name for the difference would let it write a rise anyway.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(),
             measured := a_measured_incident(
                 error_rates=ErrorRates(baseline=0.02, while_broken=while_broken,
-                                       at_its_worst=0.03))
+                                       at_its_worst=0.03,
+                                       usual_ceiling=usual_ceiling, usual_worst=None))
         ) \
         .when(
             lambda: figures_of(evidence, measured)
@@ -574,6 +648,36 @@ def test_the_paging_rules_series_is_named_at_its_three_levels() -> None:
                 SERIES_WHILE_BROKEN_FIGURE: Figure(given="0.41", written="0.41"),
                 SERIES_AT_WORST_FIGURE: Figure(given="0.12", written="0.12")
             })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("level", "given", "written"), [
+    (0.594083, "0.594083", "0.594"),
+    (0.000123456, "0.000123456", "0.000123"),
+    (0.92, "0.92", "0.92"),
+    (1234.5, "1234.5", "1235"),
+    (0.5943428571, "0.5943428571", "0.594")
+], ids=["a-ratio", "a-small-one", "already-short", "a-whole-number-and-a-half",
+        "a-mean-of-several-minutes"])
+def test_a_level_is_written_as_a_person_says_it_and_given_as_measured(
+        level: float, given: str, written: str) -> None:
+    # Six places of a ratio read as a precision nobody measured it to: three
+    # figures are what a reader compares two levels by - and never fewer than
+    # a whole number has, since "1230" reads as an exact count. The model is
+    # given the level as measured, and a working is worked from that.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=level, while_broken=0.41,
+                                             at_its_worst=0.12, worse_when="below"))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)[SERIES_BEFORE_FIGURE]
+        ) \
+        .then(
+            the_answer_was(Figure(given=given, written=written))
         )
 
 

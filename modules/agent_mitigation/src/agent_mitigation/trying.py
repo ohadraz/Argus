@@ -413,11 +413,14 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
 
             return Performed(
                 said=(
-                    # The entry it came *from*, which is what the descriptor
-                    # records and what a reader needs to know was undone.
-                    # Where it went is "the one before", by construction.
-                    f"rolled [{action.application}] back off the revision at "
-                    f"history entry [{rolled_back.was_on_history_id}]"
+                    # The revision it came *from*, which is what the descriptor
+                    # records and what a reader needs to know was undone - by
+                    # its commit, which a reader can look up, and not by the
+                    # platform's entry for it, which is an address nobody can
+                    # read once the history moves on. Where it went is "the
+                    # one before", by construction.
+                    f"rolled [{action.application}] back off revision "
+                    f"[{rolled_back.was_on_revision}]"
                 ),
                 undo_descriptor=rolled_back
             )
@@ -512,10 +515,7 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
         case FlagUndo():
             return state_name(undo_descriptor.was_enabled)
         case DeploymentRollbackUndo():
-            return (
-                f"to the revision at history entry "
-                f"[{undo_descriptor.was_on_history_id}]"
-            )
+            return f"to revision [{undo_descriptor.was_on_revision}]"
         case AutoscalerUndo():
             return (
                 f"to an autoscaler floor of "

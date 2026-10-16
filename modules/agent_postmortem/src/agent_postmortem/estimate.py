@@ -33,6 +33,8 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
+from statistics import quantiles
+from typing import Final, NamedTuple
 
 from argus_core import parse_iso
 from argus_core.models import MetricBucket, WorseWhen
@@ -40,8 +42,9 @@ from pydantic import BaseModel
 
 from agent_postmortem.sources import RateTable
 
-# How far before the incident the metrics are read, for the calm level the
-# error rate and the rule's series are measured against. An hour is long enough
+# The hour before the incident the calm level of the error rate and the rule's
+# series is measured over - how far back the metrics are read is
+# `calm_to_read_for`'s, and is never less than this. An hour is long enough
 # that a quiet minute does not become the baseline, and short enough to still be
 # the same day's traffic. Not the revenue's: takings are compared over stretches
 # as long as the incident, because an hour scaled to a week turns an ordinary
@@ -49,6 +52,27 @@ from agent_postmortem.sources import RateTable
 BASELINE_WINDOW = timedelta(hours=1)
 
 _A_WEEK = timedelta(weeks=1)
+_A_MINUTE = timedelta(minutes=1)
+
+# The furthest back the calm is read for how far the rate varies on its own.
+_LONGEST_CALM: Final = _A_WEEK
+
+
+def calm_to_read_for(span: timedelta) -> timedelta:
+    """How far before an incident the metrics are read, for one that can be no
+    longer than `span`: far enough for twenty stretches as long as it to share
+    no minute, so how high the rate goes on its own can be read off them.
+
+    Counted in the minutes a stretch that long can touch - its whole minutes
+    and one more, since a read answers for both its ends and a stretch never
+    seen to end runs to the read's. Never less than the hour the baseline is
+    measured over, and never more than a week: incidents of most of a working
+    day, inside the fortnight a metrics store keeps by default. Past it the
+    calm is too short, and the variation says so.
+    """
+    stretch = timedelta(minutes=span // _A_MINUTE + 1)
+
+    return min(_LONGEST_CALM, max(BASELINE_WINDOW, _FEWEST_STRETCHES * stretch))
 
 
 def duration_in_hours(from_when: datetime, until: datetime) -> float:
@@ -81,10 +105,32 @@ class ErrorRates(BaseModel):
     baseline: float
     while_broken: float
     at_its_worst: float
+    # How high the rate goes on its own over a stretch as long as the broken
+    # one: the 95th percentile, across every such stretch in the calm before
+    # it began, of its average and of its worst minute. A service that idles
+    # between one and two percent rises above its baseline in half its quiet
+    # hours, and a write-up told every such stretch was a rise blames the
+    # incident for noise. `None` where the calm holds too few stretches for a
+    # 95th percentile to be one.
+    usual_ceiling: float | None
+    usual_worst: float | None
     # How many requests failed over the broken stretch - each broken minute's
     # requests at that minute's rate. What a reader asks after how long and how
     # bad. `None` where it was not counted.
     failed_requests: int | None = None
+
+    @property
+    def rose_beyond_its_variation(self) -> bool | None:
+        """Whether the broken stretch's average went higher than stretches as
+        long go on their own - `None` where nobody can say how high that is."""
+        return None if self.usual_ceiling is None else self.while_broken > self.usual_ceiling
+
+    @property
+    def peaked_beyond_its_variation(self) -> bool | None:
+        """Whether the broken stretch's worst minute went higher than the worst
+        minutes of stretches as long go on their own - `None` where nobody can
+        say how high that is."""
+        return None if self.usual_worst is None else self.at_its_worst > self.usual_worst
 
     @property
     def rise(self) -> float:
@@ -118,39 +164,66 @@ def error_rates_over(buckets: list[MetricBucket],
     `None` where the metrics ran out with the service still broken, which
     means every minute read counts: there is no first well minute to stop at.
 
-    The baseline is every minute before `began`, which is the calm hour the
-    caller read. The other two levels come from the broken stretch - their
-    mean, and the worst of them.
+    The baseline is the hour before `began` (`BASELINE_WINDOW`), however far
+    back the caller read: hours earlier is another part of the day. Every calm
+    minute read is what says how high the rate goes on its own over a stretch
+    as long as the broken one - the caller reads `calm_to_read_for` the
+    incident's span for that. The other two levels come from the broken
+    stretch - their mean, and the worst of them.
 
     `None` when either side is missing, because a measurement against nothing
     is not a small one - it is an unanswered question. Which side, and why, is
     `why_no_error_rates`.
     """
-    before, broken = _either_side_of(buckets, began, until)
-    while_broken = [bucket.error_rate for bucket in broken]
+    sides = _either_side_of(buckets, began, until)
+    while_broken = [bucket.error_rate for bucket in sides.broken]
 
-    if not before or not while_broken:
+    if not sides.the_hour or not while_broken:
         return None
 
+    calm = [bucket.error_rate for bucket in sides.calm]
+    stretches = [calm[start:start + len(while_broken)]
+                 for start in range(len(calm) - len(while_broken) + 1)]
+    # Counted apart, though read overlapping: stretches sharing minutes are
+    # mostly the same minutes, and say no more of how the rate varies than
+    # the ones that share none.
+    enough = len(calm) // len(while_broken) >= _FEWEST_STRETCHES
+
     return ErrorRates(
-        baseline=_mean([bucket.error_rate for bucket in before]),
+        baseline=_mean([bucket.error_rate for bucket in sides.the_hour]),
         while_broken=_mean(while_broken),
         at_its_worst=max(while_broken),
-        failed_requests=round(sum(bucket.request_volume * bucket.error_rate for bucket in broken))
+        usual_ceiling=(_the_95th_percentile([_mean(stretch) for stretch in stretches])
+                       if enough else None),
+        usual_worst=(_the_95th_percentile([max(stretch) for stretch in stretches])
+                     if enough else None),
+        failed_requests=round(sum(bucket.request_volume * bucket.error_rate
+                                  for bucket in sides.broken))
     )
+
+
+# How many stretches that share no minute a 95th percentile needs: it is the
+# value one stretch in twenty passes, and fewer than twenty have no such value.
+_FEWEST_STRETCHES: Final = 20
+
+
+def _the_95th_percentile(values: list[float]) -> float:
+    """The value one in twenty of `values` passes, interpolated between the
+    two it falls between."""
+    return quantiles(values, n=20, method="inclusive")[-1]
 
 
 class Unmeasured(StrEnum):
     """Why the error rates could not be measured.
 
     Three gaps that read alike as an absent figure and are not alike: a read
-    that came back empty is an outage of the metrics, while a read that never
-    reached the calm before a week-old onset is the metrics doing their job
+    that came back empty is an outage of the metrics, while a read holding no
+    minute of the hour before a week-old onset is the metrics doing their job
     over a shorter memory than the fault's.
     """
 
     NOTHING_READ = "nothing-read"
-    NO_MINUTE_BEFORE_THE_ONSET = "no-minute-before-the-onset"
+    NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET = "no-minute-in-the-hour-before-the-onset"
     NO_MINUTE_WHILE_BROKEN = "no-minute-while-broken"
 
 
@@ -162,27 +235,40 @@ def why_no_error_rates(buckets: list[MetricBucket],
     if not buckets:
         return Unmeasured.NOTHING_READ
 
-    before, broken = _either_side_of(buckets, began, until)
+    sides = _either_side_of(buckets, began, until)
 
-    if not before:
-        return Unmeasured.NO_MINUTE_BEFORE_THE_ONSET
+    if not sides.the_hour:
+        return Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET
 
-    if not broken:
+    if not sides.broken:
         return Unmeasured.NO_MINUTE_WHILE_BROKEN
 
     return None
 
 
+class _Sides(NamedTuple):
+    """A read cut where the incident began and ended: the hour before it, every
+    calm minute read before it, and the broken minutes up to `until`."""
+
+    the_hour: list[MetricBucket]
+    calm: list[MetricBucket]
+    broken: list[MetricBucket]
+
+
 def _either_side_of(buckets: list[MetricBucket],
                     began: datetime,
-                    until: datetime | None) -> tuple[list[MetricBucket], list[MetricBucket]]:
-    """The calm minutes before `began`, and the broken ones up to `until`."""
-    before = [bucket for bucket in buckets if parse_iso(bucket.bucket_id) < began]
-    broken = [bucket for bucket in buckets
-              if began <= parse_iso(bucket.bucket_id)
-              and (until is None or parse_iso(bucket.bucket_id) < until)]
+                    until: datetime | None) -> _Sides:
+    """Every minute read, on its side of `began` and `until`."""
+    calm = [bucket for bucket in buckets if parse_iso(bucket.bucket_id) < began]
 
-    return before, broken
+    return _Sides(
+        the_hour=[bucket for bucket in calm
+                  if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
+        calm=calm,
+        broken=[bucket for bucket in buckets
+                if began <= parse_iso(bucket.bucket_id)
+                and (until is None or parse_iso(bucket.bucket_id) < until)]
+    )
 
 
 class RuleSeriesLevels(BaseModel):
@@ -211,10 +297,10 @@ def rule_series_over(buckets: list[MetricBucket],
                      until: datetime | None) -> RuleSeriesLevels | None:
     """What the paging rule's series did over the stretch the service was broken.
 
-    The same stretch and the same rules as `error_rates_over` - the calm minutes
-    before `began` for the baseline, `began` up to `until` for the other two -
-    because a series measured over a different span would be a second incident
-    on the same page. Only the minutes carrying a reading count, since a minute
+    The same stretch and the same rules as `error_rates_over` - the hour before
+    `began` for the baseline, `began` up to `until` for the other two - because
+    a series measured over a different span would be a second incident on the
+    same page. Only the minutes carrying a reading count, since a minute
     without one has no level of the series in it.
 
     `None` where no minute carries a reading - a window read for no rule, or for
@@ -222,13 +308,11 @@ def rule_series_over(buckets: list[MetricBucket],
     because a level against nothing is an unanswered question rather than a
     small answer.
     """
-    before = [bucket.rule_reading for bucket in buckets
-              if bucket.rule_reading is not None
-              and parse_iso(bucket.bucket_id) < began]
-    while_broken = [bucket.rule_reading for bucket in buckets
-                    if bucket.rule_reading is not None
-                    and began <= parse_iso(bucket.bucket_id)
-                    and (until is None or parse_iso(bucket.bucket_id) < until)]
+    sides = _either_side_of(buckets, began, until)
+    before = [bucket.rule_reading for bucket in sides.the_hour
+              if bucket.rule_reading is not None]
+    while_broken = [bucket.rule_reading for bucket in sides.broken
+                    if bucket.rule_reading is not None]
 
     if not before or not while_broken:
         return None

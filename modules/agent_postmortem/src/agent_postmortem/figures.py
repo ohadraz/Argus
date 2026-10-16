@@ -47,11 +47,12 @@ if TYPE_CHECKING:
 # not.
 ALERT_RAISED_FIGURE: Final = "alert_raised"
 BEGAN_FIGURE: Final = "began"
-RECOVERED_FIGURE: Final = "recovered"
+BACK_TO_NORMAL_FIGURE: Final = "recovered"
 UNOBSERVED_FROM_FIGURE: Final = "unobserved_from"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 CLOSED_FIGURE: Final = "closed"
+ACTED_FIGURE: Final = "acted"
 ERRORS_BEFORE_FIGURE: Final = "errors_before"
 ERRORS_WHILE_BROKEN_FIGURE: Final = "errors_while_broken"
 ERRORS_AT_WORST_FIGURE: Final = "errors_at_worst"
@@ -123,9 +124,10 @@ class _Kind(StrEnum):
 _KINDS: Final = {
     ALERT_RAISED_FIGURE: _Kind.INSTANT,
     BEGAN_FIGURE: _Kind.INSTANT,
-    RECOVERED_FIGURE: _Kind.INSTANT,
+    BACK_TO_NORMAL_FIGURE: _Kind.INSTANT,
     UNOBSERVED_FROM_FIGURE: _Kind.INSTANT,
     CLOSED_FIGURE: _Kind.INSTANT,
+    ACTED_FIGURE: _Kind.INSTANT,
     DURATION_FIGURE: _Kind.SPAN,
     HELD_FIGURE: _Kind.SPAN,
     ERRORS_BEFORE_FIGURE: _Kind.SHARE,
@@ -139,6 +141,9 @@ _KINDS: Final = {
 
 # What a ratio is written to: as far as a reader compares two levels by.
 _A_TENTH: Final = Decimal("0.1")
+
+# How many figures a level is written to, as a reader compares two.
+_LEVEL_FIGURES: Final = 3
 
 # Each operation a working may ask for, as a sentence says it.
 _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
@@ -222,14 +227,14 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     last, after Argus's own.
     """
     figures = {
-        ALERT_RAISED_FIGURE: _an_instant(evidence.started_at),
+        ALERT_RAISED_FIGURE: _an_instant(evidence.alerted_at),
         # The onset where one was measured, and the alert where none was - the
         # instant the incident is dated from either way.
         BEGAN_FIGURE: _an_instant(measured.onset_at or evidence.started_at)
     }
 
-    if measured.recovered_at is not None:
-        figures[RECOVERED_FIGURE] = _an_instant(measured.recovered_at)
+    if measured.back_to_normal_at is not None:
+        figures[BACK_TO_NORMAL_FIGURE] = _an_instant(measured.back_to_normal_at)
 
     if measured.unobserved_from is not None:
         figures[UNOBSERVED_FROM_FIGURE] = _an_instant(measured.unobserved_from)
@@ -238,14 +243,21 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)
     figures[CLOSED_FIGURE] = _an_instant(evidence.ended_at)
 
+    # Only where it is said: the service back before the action credited with
+    # it, which the write-up cannot say without the action's time.
+    credited = evidence.credited_action
+    if measured.back_before_the_action and credited is not None:
+        figures[ACTED_FIGURE] = _an_instant(credited.taken_at)
+
     rates = measured.error_rates
     if rates is not None:
         figures[ERRORS_BEFORE_FIGURE] = _a_share(rates.baseline)
         figures[ERRORS_WHILE_BROKEN_FIGURE] = _a_share(rates.while_broken)
         figures[ERRORS_AT_WORST_FIGURE] = _a_share(rates.at_its_worst)
-        # A rise at or below nothing is told as none, in words; a name for it
-        # would let the model write a negative share of traffic failing.
-        if rates.rise > 0:
+        # A rise at or below nothing, or within what the rate reaches on its
+        # own, is told in words; a name for it would let the model write a
+        # rise nobody can tell from noise, or a negative share failing.
+        if rates.rise > 0 and rates.rose_beyond_its_variation:
             figures[ERRORS_RISE_FIGURE] = _a_share(rates.rise)
 
     levels = measured.rule_series
@@ -543,7 +555,20 @@ def _a_share(rate: float) -> Figure:
 
 
 def _a_level(level: float) -> Figure:
-    # Plain, in whatever unit the paging rule watches: only the rule knows it.
-    said = f"{level:g}"
+    """A level plain, in whatever unit the paging rule watches - only the rule
+    knows it - given as measured, and written as a person says it."""
+    return Figure(given=f"{Decimal(str(level)).normalize():f}", written=_as_said(level))
 
-    return Figure(given=said, written=said)
+
+def _as_said(level: float) -> str:
+    """A level to three figures, the way a reader compares two levels - and
+    never fewer than its whole part has, since "1230" reads as an exact count.
+    Never in exponent form."""
+    exact = Decimal(str(level))
+    if exact == 0:
+        return "0"
+
+    places = max(_LEVEL_FIGURES - exact.adjusted() - 1, 0)
+    rounded = exact.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+
+    return f"{rounded.normalize():f}"

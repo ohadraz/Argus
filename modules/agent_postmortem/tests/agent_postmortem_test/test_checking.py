@@ -603,7 +603,8 @@ def test_a_working_that_divides_by_nothing_is_named() -> None:
     some_figures_failing_nothing_before = figures_of(
         an_evidence_bundle(),
         a_measured_incident(
-            error_rates=ErrorRates(baseline=0.0, while_broken=0.338, at_its_worst=0.5)))
+            error_rates=ErrorRates(baseline=0.0, while_broken=0.338, at_its_worst=0.5,
+                                   usual_ceiling=0.02, usual_worst=0.04)))
 
     Scenario() \
         .given(

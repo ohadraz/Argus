@@ -25,9 +25,10 @@ import pytest
 from agent_communicator.policy import Register
 from agent_communicator.relaying import Destination, Outcome
 from agent_communicator.saying import a_chat_destination, a_destination_per_register
-from argus_core import connect_from_env, utc_now
+from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
     ActionTaken,
+    CandidateSelected,
     CommunicationFailed,
     IncidentEvent,
     OfferExpired,
@@ -219,6 +220,29 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
                 _that_message_names(slack, "Mitigation Agent"),
                 _that_message_marks(slack, "monthly-spend-feature")
             ))
+
+
+@pytest.mark.component
+def test_a_name_the_walk_quoted_is_said_without_its_brackets(
+        slack: str, a_clean_database: None) -> None:
+    # The brackets mark a name off for a model reading the record; in a channel
+    # they are clutter around a word - the marked word most of all.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_a_candidate_quoting_names_on(incident_id)),
+                                  Register.ANNOUNCED)) \
+            .then(
+                _that_message_marks(slack, "categoriser.model went from v1 to v2")
+            )
 
 
 @pytest.mark.component
@@ -829,6 +853,13 @@ def _the_write_up_of(incident_id: str) -> IncidentEvent:
         estimate_currency="USD",
         engineer_minutes=34
     )
+
+
+def _a_candidate_quoting_names_on(incident_id: str) -> IncidentEvent:
+    return CandidateSelected(incident_id=incident_id,
+                             hypothesis_id=new_id(),
+                             summary="[categoriser.model] went from [v1] to [v2]",
+                             confidence=None)
 
 
 def _slack_will_refuse(base_url: str) -> None:

@@ -555,7 +555,6 @@ erDiagram
         jsonb action_items
         jsonb lessons
         jsonb timeline
-        int evidence_read
         text executive_summary
         jsonb review
         timestamp created_at

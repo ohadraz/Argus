@@ -28,31 +28,36 @@ from decimal import Decimal
 
 import psycopg
 import pytest
-from agent_postmortem import CandidateRecord, IncidentEvidence, Sources
+from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
 from argus_core import connect_from_env, new_id, parse_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
     ActionTaken,
     AlertAcknowledged,
     ChangesRetrieved,
+    DeploymentChangesRead,
     FixAttempted,
     FlagChangesRetrieved,
     HypothesisFormed,
     IncidentEvent,
+    IncidentRemembered,
     LogsRetrieved,
     OnsetDetected,
     PersonWrote,
     RecoveryChecked,
+    RememberingFailed,
     StatusChanged,
 )
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     REVERT_FEATURE_FLAG,
+    ROLL_BACK_DEPLOYMENT,
     ActionType,
     Alert,
     ChangeEvent,
     ChangeKind,
+    DeploymentRollbackUndo,
     FailureMode,
     FixOutcome,
     FlagChange,
@@ -72,6 +77,7 @@ from argus_core.models import (
     ToolDefinition,
     Transcript,
     Turn,
+    UndoDescriptor,
     Verdict,
     Weighing,
     a_chat_message,
@@ -85,7 +91,7 @@ from argus_incidents.repository import (
     incidents,
     taken_actions,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
 from orchestrator.gathering import gather_evidence, write_postmortem_for
@@ -129,6 +135,43 @@ def test_the_evidence_spans_the_incident_from_its_start_to_its_end(a_clean_datab
             ) \
             .then(
                 _spans_the_incident(conn, incident_id)
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_is_alerted_when_the_alert_says_it_fired(a_clean_database: None) -> None:
+    # Its sender's own date, which delivery comes after: a sender groups and
+    # waits before it sends.
+    some_firing = parse_iso("2026-10-11T14:03:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, started_at=some_firing)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).alerted_at
+            ) \
+            .then(
+                the_answer_was(some_firing)
+            )
+
+
+@pytest.mark.component
+def test_an_alert_that_dates_nothing_is_alerted_when_the_incident_opened(
+    a_clean_database: None
+) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, started_at=None),
+                the_incident := incidents.get(conn, incident_id)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).alerted_at
+            ) \
+            .then(
+                the_answer_was(the_incident.created_at if the_incident is not None else None)
             )
 
 
@@ -477,6 +520,43 @@ def test_a_flag_change_from_once_the_walk_had_acted_is_not_carried(
 
 
 @pytest.mark.component
+def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database: None) -> None:
+    # What tells a configuration change from a code change, and what names the
+    # deploy that carried one: every line, under the revision it was read for.
+    # Read twice, one deployment is one row - a row per read would number the
+    # deployments by how often the model happened to ask.
+    the_diff = ["Deployment of revision 7c3ca00 to io-shop, compared against 1a2b3c4 - "
+                "the revision deployed before it.",
+                "modified deploy/values-production.yaml",
+                "  -  model: v1",
+                "  +  model: v2"]
+    another_diff = ["Deployment of revision 1a2b3c4 to io-shop, compared against 9f8e7d6 - "
+                    "the revision deployed before it.",
+                    "modified src/target_app/app.py"]
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="7c3ca00", said=the_diff))),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="1a2b3c4", said=another_diff))),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="7c3ca00", said=the_diff)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_deployment_changes([
+                    DeploymentChangesRecord(revision="7c3ca00", said=the_diff),
+                    DeploymentChangesRecord(revision="1a2b3c4", said=another_diff)
+                ])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_database: None) -> None:
     # The narration the document is written from - the same lines, from the same
     # renderer, as the page shows. Out of order it is a different incident: a
@@ -516,6 +596,58 @@ def test_a_line_written_outside_the_walk_is_carried_as_such(a_clean_database: No
             ) \
             .then(
                 _only_the_lines_dated_are_outside_the_walk([somebody_writing.at])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("filing", [
+    pytest.param(lambda incident_id: IncidentRemembered(incident_id=incident_id, tried=[]),
+                 id="filed"),
+    pytest.param(lambda incident_id: RememberingFailed(incident_id=incident_id,
+                                                       refusal="some-refusal"),
+                 id="not-filed")
+])
+def test_filing_the_incident_for_the_next_one_is_not_carried(
+    filing: Callable[[str], IncidentEvent],
+    a_clean_database: None
+) -> None:
+    # Argus keeping its own books for an incident that has not happened yet:
+    # the page shows it, and a document about this incident has nothing to say
+    # about it.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_filing := filing(incident_id)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_filing)
+            ) \
+            .then(
+                _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
+            )
+
+
+@pytest.mark.component
+def test_a_read_of_what_a_deployment_changed_is_not_a_line_of_the_timeline(
+        a_clean_database: None) -> None:
+    # The page shows it, and the document gives what was read a row of its own -
+    # so a line for it too would tell it twice, and renumber every line after it.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_read := DeploymentChangesRead(incident_id=incident_id,
+                                                   revision="some-revision",
+                                                   said=["some line of the diff"])
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_read)
+            ) \
+            .then(
+                _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
             )
 
 
@@ -885,6 +1017,43 @@ def test_an_action_with_no_way_back_is_said_to_leave_nothing_to_put_back(
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("outcome", "was_syncing_itself", "paused"), [
+    pytest.param(Verdict.CONFIRMED, True, "io-shop", id="standing-with-sync-stopped"),
+    pytest.param(Verdict.REFUTED, True, None, id="put-back"),
+    pytest.param(Verdict.CONFIRMED, False, None, id="sync-found-stopped")
+])
+def test_an_action_standing_with_automatic_sync_stopped_says_whose(
+    outcome: Verdict,
+    was_syncing_itself: bool,
+    paused: str | None,
+    a_clean_database: None
+) -> None:
+    # A rollback stops the platform syncing the application from its
+    # repository, and leaves it stopped while the rollback stands. Put back,
+    # sync is put back with it; found stopped, Argus stopped nothing.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, outcome,
+                    DeploymentRollbackUndo(
+                        application="io-shop",
+                        was_on_history_id=2,
+                        was_on_revision="7c3ca00c7528df68d533f6e87acd4f23a55ab342",
+                        was_syncing_itself=was_syncing_itself)))
+            ) \
+            .when(
+                lambda: [action.paused_sync_of
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([paused])
+            )
+
+
+@pytest.mark.component
 def test_an_action_is_said_in_words(a_clean_database: None) -> None:
     # The document's resolution, action items and timeline all read this, and
     # a reader is not owed the action's tag.
@@ -1014,6 +1183,30 @@ def test_an_incident_that_read_the_code_and_changed_nothing_carries_no_fix(
             ) \
             .then(
                 _carries_no_proposal()
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_what_code_fix_last_said_of_the_code(a_clean_database: None) -> None:
+    # The last attempt's, for the reason the proposal is the last one: a walk
+    # that went back to investigate can reach the code twice, and what stands
+    # is what was said of it last.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading"))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands")))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_what_code_fix_said("the reading that stands")
             )
 
 
@@ -1291,7 +1484,7 @@ def _an_action_taken(conn: psycopg.Connection,
                      incident_id: str,
                      action_type: ActionType,
                      outcome: Verdict,
-                     undo_descriptor: FlagUndo | None) -> None:
+                     undo_descriptor: UndoDescriptor | None) -> None:
     """One finished action, on a candidate of its own."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary="dont care",
@@ -1458,6 +1651,19 @@ def _carries_no_proposal() -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _carries_what_code_fix_said(expected: str | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.fix_explanation != expected:
+            raise AssertionError(
+                f"Expected what Code-Fix said of the code to be [{expected}], got "
+                f"[{evidence.fix_explanation}].")
+
+        return True
+
+    return assertion
+
+
+
 def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.leads != expected:
@@ -1543,6 +1749,20 @@ def _carries_the_changes(expected: list[ChangeEvent]) -> Assertion[IncidentEvide
     return assertion
 
 
+def _carries_the_deployment_changes(
+        expected: list[DeploymentChangesRecord]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.deployment_changes != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry what each deployment read changed, "
+                f"{expected}, and it carried {evidence.deployment_changes}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _carries_one_action_whose_verdict_was(expected: Verdict) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         verdicts = [action.verdict for action in evidence.actions]
@@ -1576,7 +1796,8 @@ def _a_message_understood_as(conn: psycopg.Connection,
 
 def _an_incident_that_ended(conn: psycopg.Connection,
                             rule: str | None = None,
-                            summary: str | None = None) -> str:
+                            summary: str | None = None,
+                            started_at: datetime | None = None) -> str:
     """An incident with both a row and an account of itself.
 
     The events as well as the rows, because the document is written from the
@@ -1584,7 +1805,8 @@ def _an_incident_that_ended(conn: psycopg.Connection,
     moved and whose story says nothing is one the postmortem has nothing to
     read.
     """
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary)
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary,
+                       started_at=started_at)
     incident_id = incidents.create(conn, some_alert)
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(

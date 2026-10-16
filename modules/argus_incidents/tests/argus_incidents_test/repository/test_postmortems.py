@@ -353,7 +353,6 @@ def _every_section_of_the_template() -> dict[str, Any]:
             text="the error rate left its baseline",
             marker=TimelineMarker.IMPACT_BEGINS
         )],
-        "evidence_read": 14,
         "changes_read": [CitedChange(
             label="P1",
             change=ChangeEvent(
@@ -371,6 +370,13 @@ def _every_section_of_the_template() -> dict[str, Any]:
             short_reference="7c3ca00")],
         "log_messages_read": [CitedEvidence(label="G3fa2",
                                             text="ZeroDivisionError in monthly_average")],
+        "deployment_changes_read": [CitedEvidence(label="D1",
+                                                  text="modified deploy/values-production.yaml\n"
+                                                       "  -  model: v1\n"
+                                                       "  +  model: v2")],
+        "code_read": [CitedEvidence(label="F1",
+                                    text="v2's vocabulary is lowercase, and the categoriser "
+                                         "does not lowercase its input")],
         "review": [ReviewCriterion(criterion="some criterion met", met=True),
                    ReviewCriterion(criterion="some criterion left for a person", met=None)],
         "impact": Impact(duration=timedelta(minutes=47),

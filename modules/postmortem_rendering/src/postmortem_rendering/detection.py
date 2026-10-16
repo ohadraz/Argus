@@ -5,6 +5,8 @@ No gap where no onset was recorded: an alert time alone measures nothing.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from argus_core.models import Alert, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
@@ -40,8 +42,12 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
 
     runs.append(Run.a_moment(detection.alerted_at))
 
-    if detection.gap is not None:
+    if detection.gap is not None and detection.gap >= timedelta(0):
         runs.append(Run(text=f", {as_span(detection.gap)} later"))
+    elif detection.gap is not None:
+        # The sender dates the alert and Argus measures the onset, and the two
+        # can cross: a rule with no wait fires on the first minute that departs.
+        runs.append(Run(text=f", {as_span(-detection.gap)} before the measured onset"))
 
     runs.append(Run(text="."))
 

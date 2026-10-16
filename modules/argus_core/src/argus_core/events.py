@@ -17,7 +17,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Any, Final, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -165,6 +165,33 @@ class ChangesRetrieved(_Event):
     window_start: str
     window_end: str
     changes: list[ChangeEvent]
+
+
+class DeploymentChangesRead(_Event):
+    """What one deployment changed, as the Investigator read it.
+
+    The lines whole, as the read tier said them - the revision it was compared
+    against among them, in the first. What a deployment carried is the one thing
+    that tells a broken configuration from bad code, and the write-up names the
+    deploy that carried a change by what its own diff shows: a summary would
+    leave it nothing to find that in, and the transcript the model read is not
+    something the write-up holds.
+
+    Published only where something was read. A refusal, a comparison nobody
+    could make and an answer of nothing are none of them a diff.
+    """
+
+    kind: Literal["deployment-changes-read"] = "deployment-changes-read"
+    revision: str
+    said: list[str]
+
+
+# How `DeploymentChangesRead.said` sets out a diff: every line under the one
+# naming its file set in by two spaces - its patch lines, or the notice that it
+# has none - and a hunk opened by git's `@@` line. Declared once, because the
+# read tier writes the layout and the write-up reads it back.
+PATCH_LINE_INDENT: Final = "  "
+HUNK_HEADER: Final = "@@"
 
 
 class ChannelsUnread(_Event):
@@ -586,12 +613,17 @@ class FixAttempted(_Event):
     not the sentence a destination shows: that is the renderer's, and three
     destinations rendering the same event differently is the point of keeping
     them apart.
+
+    `explanation` is what Code-Fix said of the code - why this change, or why
+    there was nothing to change - and `None` wherever it said nothing: the one
+    account of the mechanism the walk holds, and a static reading nothing ran.
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
     outcome: FixOutcome
     pull_request: OpenedPullRequest | None = None
     detail: str
+    explanation: str | None = None
 
 
 class PostmortemWritten(_Event):
@@ -872,6 +904,7 @@ type IncidentEvent = Annotated[
         | MetricsRetrieved
         | LogsRetrieved
         | ChangesRetrieved
+        | DeploymentChangesRead
         | ChannelsUnread
         | FlagChangesRetrieved
         | PlacementRecorded

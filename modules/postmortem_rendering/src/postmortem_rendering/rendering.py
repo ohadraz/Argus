@@ -85,15 +85,17 @@ class RenderedPostmortem(BaseModel):
     @property
     def labels(self) -> frozenset[str]:
         """Every label a row of the document goes by - a hypothesis, a step
-        taken, an action item, a labelled line of the timeline, a change or a
-        log message read, a lead - and so every label the prose can cite with
-        a row to lead to."""
-        return frozenset({*(row.label for row in self.hypotheses.rows),
+        taken, an action item, a labelled line of the timeline, a change, a
+        log message, what a deployment changed or what Code-Fix read, a lead -
+        and so every label the prose can cite with a row to lead to."""
+        return frozenset({*(label for row in self.hypotheses.rows for label in row.labels),
                           *(step.label for step in self.actions_taken.steps if step.label),
                           *(row.number for row in self.action_items.rows),
                           *(row.label for row in self.timeline.rows if row.label),
                           *(row.label for row in self.supporting.changes),
                           *(row.label for row in self.supporting.log_messages),
+                          *(row.label for row in self.supporting.deployment_changes),
+                          *(row.label for row in self.supporting.code_read),
                           *(lead.label for lead in self.leads)})
 
 

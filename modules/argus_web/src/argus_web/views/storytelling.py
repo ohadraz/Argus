@@ -28,6 +28,7 @@ from argus_narration import (
     a_flag_history,
     build_narration,
     pointed_at,
+    shown,
     the_minutes_logged,
 )
 from pydantic import BaseModel
@@ -119,7 +120,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
 
     return Story(
         narration=[
-            decorated(_pointed_at(line, list(minutes), the_minutes_logged(lines.values())))
+            decorated(_pointed_at(shown(line), list(minutes), the_minutes_logged(lines.values())))
             for line in narration
         ],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),

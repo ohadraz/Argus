@@ -28,6 +28,7 @@ from argus_core.models import (
     IncidentStatus,
     Leads,
     OpenedPullRequest,
+    ProposedFix,
     ThreadMessage,
     no_leads,
 )
@@ -192,6 +193,31 @@ def test_a_fix_that_was_not_warranted_is_published_as_the_finding_it_is() -> Non
         .then(_exactly_one_attempt_was_announced(
             FixOutcome.NOT_WARRANTED, None, published
         ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("proposed", [True, False], ids=["proposed", "not-warranted"])
+def test_what_code_fix_said_of_the_code_is_published_with_what_came_of_it(
+        proposed: bool) -> None:
+    # Its account of the code - why this change, or why no change - is the one
+    # thing the walk learns of the mechanism, and a write-up never told it
+    # hedges a cause Code-Fix read off the source.
+    published: list[IncidentEvent] = []
+    the_explanation = "v2's vocabulary is lowercase, and the categoriser does not lowercase"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_offering(a_pull_request() if proposed else None,
+                                           explaining=the_explanation)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_explains(the_explanation, published)
+        )
 
 
 @pytest.mark.unit
@@ -544,23 +570,24 @@ class _AnAgentRememberingWhatItWasAsked:
                 incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> OpenedPullRequest | None:
+                leads: Leads = no_leads) -> ProposedFix:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
         self.still_wanted = still_wanted
         self.leads = leads
 
-        return None
+        return ProposedFix(pull_request=None, explanation=None)
 
 
-def _an_agent_offering(proposal: OpenedPullRequest | None) -> ProposeFix:
+def _an_agent_offering(proposal: OpenedPullRequest | None,
+                       explaining: str | None = None) -> ProposeFix:
     """Code-Fix, answering the same thing however it is asked."""
     def propose(dont_care_hypothesis: Hypothesis | None,
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> OpenedPullRequest | None:
-        return proposal
+                leads: Leads = no_leads) -> ProposedFix:
+        return ProposedFix(pull_request=proposal, explanation=explaining)
 
     return propose
 
@@ -577,7 +604,7 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> OpenedPullRequest | None:
+                leads: Leads = no_leads) -> ProposedFix:
         raise failure
 
     return propose
@@ -699,6 +726,23 @@ def _exactly_one_attempt_was_announced(
             raise AssertionError(
                 f"Expected [{outcome}] carrying [{proposal}], got "
                 f"[{announced.outcome}] carrying [{announced.pull_request}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_explains(explanation: str,
+                          published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """What Code-Fix said of the code, on the one account of the step."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        explained = [event.explanation for event in published
+                     if isinstance(event, FixAttempted)]
+        if explained != [explanation]:
+            raise AssertionError(
+                f"Expected the attempt to carry Code-Fix's account of the code, "
+                f"[{explanation}], got {explained}."
             )
 
         return True

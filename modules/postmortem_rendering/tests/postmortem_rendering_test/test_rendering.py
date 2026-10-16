@@ -169,6 +169,23 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
             the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "L1"})))
 
 
+@pytest.mark.unit
+def test_every_label_a_row_goes_by_may_be_cited() -> None:
+    # A row standing for two candidates goes by both labels, and prose citing
+    # the second has the row to lead to.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="dont care", label="C1", also=["C2"])])
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).labels
+        ) \
+        .then(
+            the_answer_was(frozenset({"C1", "C2"})))
+
+
 def _a_lead() -> PostmortemLead:
     return PostmortemLead(label="L1", person_id="dont care", person_name="dont care",
                           text="dont care", written_at=datetime(2026, 10, 11, 14, 6, tzinfo=UTC),

@@ -1669,6 +1669,62 @@ def test_a_label_cited_in_any_prose_links_to_its_row(prose: dict[str, object]) -
 
 
 @pytest.mark.component
+def test_a_row_standing_for_several_candidates_answers_to_each_label() -> None:
+    # A link to either candidate lands on the one row, which is labelled with
+    # both.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
+                                                result="dont care", label="C1", also=["C2"])]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says('id="C1"'),
+            the_page_says('id="C2"'),
+            the_page_says('<td class="label">C1, C2</td>')
+        ))
+
+
+@pytest.mark.component
+def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
+    # The line that formed the candidates names them by label, and a reader
+    # follows each to what it was.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
+                                                result="dont care", label="C1")],
+            "timeline": [TimelineEntry(at=datetime(2026, 10, 11, 14, 3, tzinfo=UTC),
+                                       who="Investigator Agent",
+                                       text="Formed 1 candidate cause, best first: C1",
+                                       label="T1")]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says('best first: <a href="#C1">C1</a>')
+        )
+
+
+@pytest.mark.component
 def test_a_change_the_root_cause_names_links_to_its_row() -> None:
     # "The deploy P2" means nothing to a reader until it leads somewhere: to
     # the change, said as the model was shown it.
@@ -1691,6 +1747,60 @@ def test_a_change_the_root_cause_names_links_to_its_row() -> None:
         .then(all_of(
             the_page_links_to("#P2"),
             the_page_says('id="P2"')
+        ))
+
+
+@pytest.mark.component
+def test_what_a_deployment_changed_the_root_cause_names_links_to_its_row() -> None:
+    # "As D1 shows" leads to the diff, every line of it as the model read it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "root_cause": "As D1 shows, the categoriser's model went from v1 to v2.",
+            "deployment_changes_read": [CitedEvidence(
+                label="D1",
+                text="modified deploy/values-production.yaml\n  -  model: v1\n  +  model: v2")]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_links_to("#D1"),
+            the_page_says('id="D1"'),
+            the_page_says("  -  model: v1")
+        ))
+
+
+@pytest.mark.component
+def test_what_code_fix_read_the_root_cause_names_links_to_its_row() -> None:
+    # "As F1 reads the code" leads to the reading, said as one nothing ran.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "root_cause": "As F1 reads the code, v2 meets input it was not built for.",
+            "code_read": [CitedEvidence(label="F1", text="the categoriser does not lowercase")]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_links_to("#F1"),
+            the_page_says('id="F1"'),
+            the_page_says("nothing ran it")
         ))
 
 
@@ -1733,6 +1843,49 @@ def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory(
             the_page_links_to(some_repository),
             the_page_links_to(f"{some_repository}/tree/{some_revision}/deploy")
         ))
+
+
+@pytest.mark.component
+def test_a_deployment_trigger_s_revision_opens_its_commit() -> None:
+    # The trigger names the revision deployed as its row does, and a reader
+    # opens it from the sentence that says what set the incident off.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_repository = "https://github.com/acme/shop"
+    commit = f"{some_repository}/commit/{some_revision}"
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "trigger": Trigger(subject="dont care",
+                               from_state="4c810f2aa1e9a6f3b7c9d0e1f2a3b4c5d6e7f809",
+                               to_state=some_revision,
+                               changed_at=None,
+                               kind=ChangeKind.DEPLOY),
+            "changes_read": [CitedChange(
+                label="P1",
+                change=ChangeEvent(
+                    kind=ChangeKind.DEPLOY,
+                    occurred_at="2026-10-11T14:00:00Z",
+                    reference=some_revision,
+                    summary="dont care",
+                    revision_source=RevisionSource(
+                        repository="acme/shop",
+                        repository_address=some_repository,
+                        revision_address=commit)),
+                short_reference=some_revision[:7])]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says(f'data-to-state="{some_revision[:7]}"><a href="{commit}"')
+        )
 
 
 @pytest.mark.component

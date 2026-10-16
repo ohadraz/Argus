@@ -20,6 +20,7 @@ from argus_core.models import (
     OpenedPullRequest,
     ThreadMessage,
     TimelineEntry,
+    Verdict,
 )
 from pydantic import BaseModel
 
@@ -49,6 +50,12 @@ class ActionRecord(BaseModel):
     `verdict` is the verdict as recorded, `None` where none was reached;
     `standing` is the sentence a responder needs about it now - still in place,
     put back, or nothing to put back.
+
+    `paused_sync_of` is the application whose automatic sync from its
+    repository the action stopped and left stopped, the change still standing:
+    a platform refuses to have a live application changed under it otherwise,
+    and would put the repository's version back at its next pass. `None`
+    wherever sync is as Argus found it.
     """
 
     taken_at: datetime
@@ -56,6 +63,20 @@ class ActionRecord(BaseModel):
     reversible: bool
     verdict: str | None
     standing: str
+    paused_sync_of: str | None = None
+
+
+class DeploymentChangesRecord(BaseModel):
+    """What one deployment changed, as the Investigator read it: every line the
+    read tier said, under the revision it was read for.
+
+    Lines rather than files and hunks, because the lines are what the model was
+    shown and what the write-up is shown again - and what names the deploy
+    that carried a change is what its own diff shows.
+    """
+
+    revision: str
+    said: list[str]
 
 
 class IncidentEvidence(BaseModel):
@@ -72,6 +93,11 @@ class IncidentEvidence(BaseModel):
     incident_id: str
     started_at: datetime
     ended_at: datetime
+    # When the alert fired, as its sender dated it - not when the incident
+    # opened. A sender holds an alert back before delivering it, grouping and
+    # waiting, and detection measured to the opening would count the delivery
+    # as the alert's own delay. The opening where the sender dated nothing.
+    alerted_at: datetime
     # When the service actually began to fail, as the Investigator measured it
     # from the metrics - not when Argus was told. The two differ by however
     # long the alert took to fire, and those minutes are the worst ones to get
@@ -126,12 +152,20 @@ class IncidentEvidence(BaseModel):
     # What changed on the service, as the investigation read it - what dates
     # the change the confirmed candidate blamed.
     changes: list[ChangeEvent] = []
+    # What each deployment the investigation looked into changed, in the order
+    # it first asked - the one thing that tells a broken configuration from bad
+    # code, and what names the deploy that carried a change.
+    deployment_changes: list[DeploymentChangesRecord] = []
     tokens_spent: int
     # The fix Code-Fix proposed, where it proposed one. Structured rather than
     # left in `timeline` for the model to notice: the address is what a reader
     # of the finished document goes on to open, and a summary is free to be
     # written well without mentioning it.
     pull_request: OpenedPullRequest | None = None
+    # What Code-Fix said of the code - why its change, or why there was none to
+    # make - where it said anything. The one account of the mechanism read off
+    # the source, and a static reading: nothing ran it.
+    fix_explanation: str | None = None
     # The action the gate declined because nothing could confirm it. Structured
     # rather than left in `timeline` for the model to notice, for the reason the
     # pull request is: what a reader of the finished document goes on to do is
@@ -143,3 +177,10 @@ class IncidentEvidence(BaseModel):
     # timeline's one line per weighing: the document reports the words, the
     # standing and what each changed, and the timeline carries only the second.
     leads: list[ThreadMessage] = []
+
+    @property
+    def credited_action(self) -> ActionRecord | None:
+        """The action credited with ending the incident - the first the service
+        confirmed - or `None` where none was confirmed."""
+        return next((action for action in self.actions
+                     if action.verdict == Verdict.CONFIRMED), None)

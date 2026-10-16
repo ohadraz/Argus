@@ -26,8 +26,8 @@ from argus_core.models import (
     Hypothesis,
     IncidentStatus,
     Leads,
-    OpenedPullRequest,
     PostmortemDocument,
+    ProposedFix,
     Reading,
     ServiceDependency,
     TakenAction,
@@ -358,11 +358,12 @@ class ProposeFix(Protocol):
 
     What comes back is an address, not a sentence. This is the one step in the
     walk that ends with somebody else's turn, so what it hands on has to be
-    something a person can open.
+    something a person can open - and beside it what Code-Fix said of the code,
+    which the write-up reads.
 
-    `None` is an answer - looked for, not found - and the node reports it as
-    one. That is the difference between an incident a human is told nothing
-    could be done about and an incident nobody looked at.
+    No pull request is an answer - looked for, not found - and the node reports
+    it as one. That is the difference between an incident a human is told
+    nothing could be done about and an incident nobody looked at.
     """
 
     def __call__(self,
@@ -370,7 +371,7 @@ class ProposeFix(Protocol):
                  incident_id: str, /,
                  *,
                  still_wanted: StillWanted = ...,
-                 leads: Leads = ...) -> OpenedPullRequest | None: ...
+                 leads: Leads = ...) -> ProposedFix: ...
 
 
 class WritePostmortem(Protocol):

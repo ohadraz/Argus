@@ -238,7 +238,7 @@ class Dispatcher:
 
         if call.name == DEPLOYMENT_DIFF_TOOL:
             return read_what_a_deployment_changed(
-                call, self._service, self._fetch_what_a_deployment_changed
+                call, self._service, self._fetch_what_a_deployment_changed, self._narrator
             )
 
         if call.name == ROLLOUT_TOOL:

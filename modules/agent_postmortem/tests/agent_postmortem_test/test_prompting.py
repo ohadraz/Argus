@@ -29,14 +29,15 @@ import re
 from datetime import timedelta
 
 import pytest
+from agent_postmortem import DeploymentChangesRecord
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
+    BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
-    RECOVERED_FIGURE,
     Figure,
     figures_of,
     named,
@@ -95,6 +96,7 @@ from argus_core.models import (
     ToolResults,
     Transcript,
     Turn,
+    Verdict,
     Weighing,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
@@ -128,6 +130,9 @@ WHEN_A_LEAD_WAS_WEIGHED = "before anything was tried"
 # which metrics that were read never are.
 WHAT_AN_UNNAMED_ACTOR_IS_CALLED = "unnamed"
 THE_RISE_WHEN_THERE_WAS_NONE = "Rise above baseline: none"
+THE_RISE_WITHIN_ITS_VARIATION = "none beyond its normal variation"
+A_PEAK_WITHIN_ITS_VARIATION = "no higher than"
+A_VARIATION_NOBODY_COULD_MEASURE = "can't be told apart from its normal variation"
 WHAT_AN_UNREAD_METRIC_IS_CALLED = "could not be read"
 
 # What the alert's own words are introduced as, where its sender wrote any.
@@ -151,9 +156,12 @@ EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, ASSUMPTIONS_FIEL
                      ACTION_ITEMS_FIELD, LESSONS_FIELD, SYMPTOM_FIELD)
 
 # Error rates in each relation to their baseline that the prompt tells apart.
-ERRORS_THAT_STAYED_FLAT = ErrorRates(baseline=0.02, while_broken=0.02, at_its_worst=0.03)
-ERRORS_THAT_FELL = ErrorRates(baseline=0.02, while_broken=0.017, at_its_worst=0.03)
-ERRORS_THAT_ROSE = ErrorRates(baseline=0.02, while_broken=0.30, at_its_worst=0.34)
+ERRORS_THAT_STAYED_FLAT = ErrorRates(baseline=0.02, while_broken=0.02, at_its_worst=0.03,
+                                     usual_ceiling=0.03, usual_worst=0.05)
+ERRORS_THAT_FELL = ErrorRates(baseline=0.02, while_broken=0.017, at_its_worst=0.03,
+                              usual_ceiling=0.03, usual_worst=0.05)
+ERRORS_THAT_ROSE = ErrorRates(baseline=0.02, while_broken=0.30, at_its_worst=0.34,
+                              usual_ceiling=0.03, usual_worst=0.05)
 
 # A series that moved, for the cases about how it is told rather than what it did.
 SOME_RULE_SERIES = RuleSeriesLevels(baseline=0.95, while_broken=0.4,
@@ -457,6 +465,117 @@ def test_a_change_nobody_is_named_for_is_said_to_be_unnamed() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_shown_what_each_deployment_it_looked_into_changed() -> None:
+    # What tells a broken configuration from bad code is inside the diff, and a
+    # write-up never shown it hedges a cause the investigation read off the
+    # commit. Every line as it was read, under the deployment's label.
+    the_diff = ["Deployment of revision 7c3ca00 to io-shop, compared against 1a2b3c4 - "
+                "the revision deployed before it.",
+                "modified deploy/values-production.yaml",
+                "  -  model: v1",
+                "  +  model: v2"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[
+                DeploymentChangesRecord(revision="7c3ca00", said=the_diff)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[D1]", "Deployment of revision 7c3ca00"),
+            _says("modified deploy/values-production.yaml", "-  model: v1", "+  model: v2")
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_that_looked_into_no_deployment_is_shown_no_heading_for_one() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("deployment it looked into")
+        )
+
+
+@pytest.mark.unit
+def test_what_each_deployment_changed_is_evidence_a_step_of_the_cause_may_cite() -> None:
+    # Each deployment under a label of its own, in the order it was first
+    # looked into, with every line it was read with.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                deployment_changes=[
+                    DeploymentChangesRecord(revision="some-revision",
+                                            said=["some line", "another line"]),
+                    DeploymentChangesRecord(revision="some-other-revision",
+                                            said=["a third line"])])
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([("D1", "another line"), ("D2", "a third line")])
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothing_ran() -> None:
+    # The mechanism, as Code-Fix read it off the code - and said to be a
+    # reading, since nothing ran it: a cause resting on it rests on that.
+    some_reading = "v2's vocabulary is lowercase, and the categoriser does not lowercase"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation=some_reading)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[F1]", some_reading),
+            _says("nothing ran it")
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_code_fix_said_nothing_of_is_shown_no_heading_for_it() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation=None)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("nothing ran it")
+        )
+
+
+@pytest.mark.unit
+def test_what_code_fix_read_in_the_source_is_evidence_a_step_of_the_cause_may_cite() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(timeline=[], log_lines=[], candidates=[], actions=[],
+                                           fix_explanation="some account of the code")
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([("F1", "some account of the code")])
+        )
+
+
+@pytest.mark.unit
 def test_a_line_that_formed_candidates_names_them_by_their_labels() -> None:
     # Said in full, the line repeats each candidate word for word, and the model
     # reads every one twice - once in the narration, once under its own label -
@@ -485,6 +604,75 @@ def test_a_line_that_formed_candidates_names_them_by_their_labels() -> None:
             _says_on_one_line("[T1]", "C1, C3"),
             _says_once(some_candidate),
             _says_once(some_other_candidate)
+        ))
+
+
+@pytest.mark.unit
+def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> None:
+    # One cause shown twice reads as two. Shown once, under both labels, with
+    # each one's failure mode where they read the move differently - the only
+    # thing the second said - and the confidence said as the first's, since
+    # after two labelled modes a bare one reads as both.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.8,
+                            failure_mode="output-quality-degradation",
+                            tested=True, result=Verdict.CONFIRMED),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.3,
+                            failure_mode="config-induced-failure")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[C1, also C2] the model was upgraded [output-quality-degradation "
+                              "(C1); config-induced-failure (C2), confidence",
+                              "(C1), confirmed]"),
+            _does_not_say("an alternative reading")
+        ))
+
+
+@pytest.mark.unit
+def test_candidates_reading_the_same_move_alike_are_shown_with_one_failure_mode() -> None:
+    # Where both read the move as the same failure, one name says it, and the
+    # confidence beside it is the line's own.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.8,
+                            failure_mode="output-quality-degradation"),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.3,
+                            failure_mode="output-quality-degradation")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("[C1, also C2] the model was upgraded [output-quality-degradation, confidence"),
+            _does_not_say("(C1)")
+        ))
+
+
+@pytest.mark.unit
+def test_a_candidate_tried_without_a_verdict_is_said_to_have_none() -> None:
+    # Tried and never judged is not "None": the brief says of it what its row
+    # on the page says.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", tested=True, result=None)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("the model was upgraded", "no verdict recorded]"),
+            _does_not_say("None]")
         ))
 
 
@@ -575,7 +763,9 @@ def test_no_instant_is_told_finer_than_the_second() -> None:
                                            ended_at=ENDED_AT + some_fraction_of_a_second,
                                            changes=[some_change_dated_finer_than_the_second]),
             measured := a_measured_incident(onset_at=ONSET + some_fraction_of_a_second,
-                                            recovered_at=RECOVERED_AT + some_fraction_of_a_second)
+                                            back_to_normal_at=(
+                                                RECOVERED_AT + some_fraction_of_a_second
+                                            ))
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -599,7 +789,8 @@ def test_the_model_is_told_how_far_the_errors_rose() -> None:
             an_incident_whose_errors_rose := a_measured_incident(
                 error_rates=ErrorRates(baseline=some_baseline,
                                        while_broken=some_rate_while_broken,
-                                       at_its_worst=0.34))
+                                       at_its_worst=0.34,
+                                       usual_ceiling=0.03, usual_worst=0.05))
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_rose)
@@ -631,6 +822,44 @@ def test_a_rise_at_or_below_nothing_is_told_as_none(error_rates: ErrorRates) -> 
 
 
 @pytest.mark.unit
+def test_a_rise_within_the_rate_s_own_variation_is_told_as_none_beyond_it() -> None:
+    # A service that idles between one and two percent goes above its average
+    # in half its quiet stretches, and a write-up told each one was a rise
+    # blamed the incident for noise - its peak with it.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_wandered := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.010, while_broken=0.011, at_its_worst=0.015,
+                                       usual_ceiling=0.012, usual_worst=0.02))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_wandered)
+        ) \
+        .then(all_of(
+            _says(THE_RISE_WITHIN_ITS_VARIATION),
+            _says(A_PEAK_WITHIN_ITS_VARIATION)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rise_against_a_calm_too_short_to_vary_in_is_told_as_unknowable() -> None:
+    # With too little calm to say how high the rate goes on its own, a rise is
+    # one nobody can tell from noise - which is not the same as none.
+    Scenario() \
+        .given(
+            an_incident_with_too_little_calm := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.02, while_broken=0.30, at_its_worst=0.34,
+                                       usual_ceiling=None, usual_worst=None))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_with_too_little_calm)
+        ) \
+        .then(
+            _says(A_VARIATION_NOBODY_COULD_MEASURE)
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_the_levels_as_well_as_the_rise() -> None:
     # Two questions, two numbers. Severity is what the levels answer and
     # attribution is what the rise answers, and a model handed one figure
@@ -645,7 +874,8 @@ def test_the_model_is_told_the_levels_as_well_as_the_rise() -> None:
             an_incident_measured_at_every_level := a_measured_incident(
                 error_rates=ErrorRates(baseline=some_baseline,
                                        while_broken=some_rate_while_broken,
-                                       at_its_worst=the_worst_minute))
+                                       at_its_worst=the_worst_minute,
+                                       usual_ceiling=0.03, usual_worst=0.05))
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(),
@@ -681,7 +911,7 @@ def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() ->
 @pytest.mark.unit
 @pytest.mark.parametrize(("why", "said"), [
     (Unmeasured.NOTHING_READ, WHAT_AN_UNREAD_METRIC_IS_CALLED),
-    (Unmeasured.NO_MINUTE_BEFORE_THE_ONSET, "before the onset"),
+    (Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET, "from the hour before the onset"),
     (Unmeasured.NO_MINUTE_WHILE_BROKEN, "while the service was broken")
 ])
 def test_an_error_rate_nobody_could_measure_is_told_with_the_reason(why: Unmeasured,
@@ -704,7 +934,7 @@ def test_an_error_rate_nobody_could_measure_is_told_with_the_reason(why: Unmeasu
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("why", [Unmeasured.NO_MINUTE_BEFORE_THE_ONSET,
+@pytest.mark.parametrize("why", [Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET,
                                  Unmeasured.NO_MINUTE_WHILE_BROKEN])
 def test_metrics_that_were_read_are_never_said_to_be_unreadable(why: Unmeasured) -> None:
     # Told as metrics that could not be read, an incident whose read returned
@@ -826,22 +1056,73 @@ def test_an_incident_with_no_rules_series_is_told_nothing_of_one() -> None:
 
 
 @pytest.mark.unit
-def test_an_incident_that_never_recovered_is_given_as_a_lower_bound() -> None:
-    # A duration cut short by the metrics running out and a duration measured
-    # to a recovery carry the same kind of number and mean different things.
-    # Said alike, the model reports a figure nobody measured - which is the
-    # unmarked substitution this whole change exists to end.
+def test_an_incident_never_back_to_normal_is_given_as_a_lower_bound_to_its_close() -> None:
+    # A duration cut short by the incident closing and a duration measured to the
+    # service back to normal carry the same kind of number and mean different
+    # things. Said alike, the model reports a figure nobody measured - which is
+    # the unmarked substitution this whole change exists to end.
     Scenario() \
         .given(
-            an_incident_still_broken := a_measured_incident(recovered_at=None)
+            an_incident_still_broken := a_measured_incident(back_to_normal_at=None)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
         ) \
         .then(all_of(
-            _says("had not recovered"),
+            _says("not back to normal by", "when the incident was closed"),
             _says("at least")
         ))
+
+
+@pytest.mark.unit
+def test_an_incident_back_to_normal_is_given_as_back_to_normal_rather_than_recovered() -> None:
+    # Where the impact ends is where the service was back inside its usual range,
+    # which is not where Mitigation saw it fall off the incident's level - and
+    # "recovered" is Mitigation's word for that one.
+    Scenario() \
+        .given(
+            an_incident_that_came_back := a_measured_incident(back_to_normal_at=RECOVERED_AT)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_that_came_back)
+        ) \
+        .then(all_of(
+            _says("when the metrics show it back to normal"),
+            _does_not_say("show it recovered")
+        ))
+
+
+@pytest.mark.unit
+def test_a_service_back_before_the_action_credited_with_it_is_given_as_back_before_it() -> None:
+    # Back a whole minute before the action said to have brought it back, the
+    # service was not brought back by that action. Ending the incident at the
+    # action would hide that, and saying nothing leaves the model to credit it.
+    the_action = "revert-feature-flag on monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(the_action, verdict=Verdict.CONFIRMED)]),
+            measured := a_measured_incident(back_before_the_action=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(_says(f"when {the_action} was taken", "not because of it"))
+
+
+@pytest.mark.unit
+def test_a_service_back_after_the_action_credited_with_it_is_not_given_as_back_before_it() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.CONFIRMED)]),
+            measured := a_measured_incident(back_before_the_action=False)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(_does_not_say("not because of it"))
 
 
 @pytest.mark.unit
@@ -854,7 +1135,7 @@ def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserve
     Scenario() \
         .given(
             an_incident_nobody_could_see := a_measured_incident(
-                recovered_at=None, unobserved_from=ONSET)
+                back_to_normal_at=None, unobserved_from=ONSET)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
@@ -866,7 +1147,7 @@ def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserve
 def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> None:
     Scenario() \
         .given(
-            an_incident_still_broken := a_measured_incident(recovered_at=None)
+            an_incident_still_broken := a_measured_incident(back_to_normal_at=None)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
@@ -885,7 +1166,7 @@ def test_the_broken_stretch_is_printed_between_both_of_its_endpoints() -> None:
     Scenario() \
         .given(
             an_incident_that_recovered := a_measured_incident(
-                onset_at=ONSET, recovered_at=RECOVERED_AT)
+                onset_at=ONSET, back_to_normal_at=RECOVERED_AT)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_that_recovered)
@@ -957,7 +1238,7 @@ def test_the_model_is_told_to_name_a_working_rather_than_do_one() -> None:
             lambda: SUBMIT_POSTMORTEM.description
         ) \
         .then(
-            _the_description_mentions(f"{{{RECOVERED_FIGURE} - {BEGAN_FIGURE}}}",
+            _the_description_mentions(f"{{{BACK_TO_NORMAL_FIGURE} - {BEGAN_FIGURE}}}",
                                       f"{{{ERRORS_AT_WORST_FIGURE} / {ERRORS_BEFORE_FIGURE}}}")
         )
 

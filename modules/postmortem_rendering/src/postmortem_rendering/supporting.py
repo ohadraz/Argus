@@ -1,6 +1,5 @@
-"""Where to read more: every address Argus keeps for the incident, how much
-evidence was read, the changes and log messages the prose cites, and what was
-assumed.
+"""Where to read more: every address Argus keeps for the incident, the changes
+and log messages the prose cites, and what was assumed.
 
 Every address in full: the document is read away from the screen it came from,
 where an address relative to nothing leads nowhere.
@@ -46,13 +45,19 @@ class EvidenceRow(BaseModel):
 
 
 class SupportingSection(BaseModel):
-    """The links and the evidence count, one line each; the changes and the
-    log messages read, each a labelled row; the assumptions; and the word said
-    in place of each list where it is empty - `None` where it is not.
+    """The links, one line each; the changes and the log messages read, each a
+    labelled row; the assumptions; and the word said in place of each list
+    where it is empty - `None` where it is not.
 
-    The changes and log messages are the two kinds of evidence no other
-    section is a row for, so without them a citation of one would lead
-    nowhere. The log messages' heading names the zone their times are in,
+    The changes, the log messages and what each deployment looked into
+    changed are the kinds of evidence no other section is a row for, so
+    without them a citation of one would lead nowhere. A deployment's row is
+    its diff, a line of the document to each line of it, and is no row at all
+    where no deployment was looked into - most incidents look into none, and
+    "none read" under a heading for them would say a read was missed. What
+    Code-Fix read in the source is a row of its own for the same reason, and
+    headed as a reading nothing ran, which is how a cause resting on it is
+    weighed. The log messages' heading names the zone their times are in,
     since each row says a time as the model was shown it; a change's row says
     its moment with its zone.
 
@@ -72,6 +77,10 @@ class SupportingSection(BaseModel):
     log_messages_heading: str = "Log messages read (UTC)"
     log_messages: tuple[EvidenceRow, ...]
     log_messages_absent: str | None
+    deployment_changes_heading: str = "What each deployment looked into changed"
+    deployment_changes: tuple[EvidenceRow, ...] = ()
+    code_read_heading: str = "What Code-Fix read in the source - a static reading, nothing ran it"
+    code_read: tuple[EvidenceRow, ...] = ()
     assumptions_heading: str = "Assumptions"
     assumptions: tuple[Line, ...]
     assumptions_absent: str | None
@@ -91,22 +100,25 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                 Run(text=" "),
                                 Run(text="draft - nobody has merged it", role=Role.STATUS))))
 
-    read = postmortem.evidence_read
-    counted = read if read is not None else "not counted"
-    links.append(Line(runs=(Run(text=f"Evidence read: {counted}"),)))
-
     changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))
                     for cited in postmortem.changes_read)
     log_messages = _rows(postmortem.log_messages_read)
+    revision_addresses = _the_revision_addresses(postmortem.changes_read)
+    deployment_changes = tuple(
+        EvidenceRow(label=cited.label,
+                    said=Line(runs=Run(text=cited.text).with_links(revision_addresses)))
+        for cited in postmortem.deployment_changes_read)
     assumptions = tuple(Line(runs=(Run(text=assumption, role=Role.PROSE),))
                         for assumption in postmortem.assumptions)
 
     return SupportingSection(links=tuple(links),
                              changes=changes,
                              changes_absent=None if changes else _NONE_READ,
-                             revision_addresses=_the_revision_addresses(postmortem.changes_read),
+                             revision_addresses=revision_addresses,
                              log_messages=log_messages,
                              log_messages_absent=None if log_messages else _NONE_READ,
+                             deployment_changes=deployment_changes,
+                             code_read=_rows(postmortem.code_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
 
@@ -121,15 +133,24 @@ def _a_change(cited: CitedChange) -> Line:
     there; where it cannot, the reference is a name, said as one.
     """
     change = cited.change
-    source = change.revision_source
-    reference = (Run(text=cited.short_reference, role=Role.LINK, address=source.revision_address)
-                 if source is not None else Run(text=cited.short_reference, role=Role.CODE))
 
     return Line(runs=(Run.a_moment(parse_iso(change.occurred_at)),
                       Run(text=f" {_A_KIND_IN_WORDS[change.kind]} "),
-                      reference,
+                      a_reference(cited),
                       Run(text=f" by {change.actor or _NOBODY_NAMED}: "),
                       *Run(text=change.summary).with_links(_the_addresses_of(change))))
+
+
+def a_reference(cited: CitedChange) -> Run:
+    """A change read named as its row names it: short, as the prose writes it,
+    leading where it can be opened - and, where it cannot, a name said as one.
+
+    Public because the trigger names the deploy that carried it the same way,
+    and a document naming one revision two ways reads as naming two."""
+    source = cited.change.revision_source
+
+    return (Run(text=cited.short_reference, role=Role.LINK, address=source.revision_address)
+            if source is not None else Run(text=cited.short_reference, role=Role.CODE))
 
 
 def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:

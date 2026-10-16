@@ -57,6 +57,7 @@ from argus_core.models import (
     Leads,
     Meaning,
     OpenedPullRequest,
+    ProposedFix,
     ReportChannel,
     Standing,
     ThreadMessage,
@@ -714,10 +715,10 @@ def _a_conversation_factory_returning(converse: Conversation) -> Mock:
 
 
 def _the_standing_brief_said(factory: Mock,
-                             expected: str) -> Assertion[OpenedPullRequest | None]:
+                             expected: str) -> Assertion[ProposedFix]:
     """That the policy this agent's conversation was built with carries a
     phrase the model was getting wrong without it."""
-    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+    def assertion(dont_care_result: ProposedFix) -> bool:
         policy = factory.call_args.kwargs.get("policy")
 
         if policy is None:
@@ -738,9 +739,9 @@ def _the_standing_brief_said(factory: Mock,
 
 
 def _the_search_was_made_at(repository: _Repository,
-                            ref: str) -> Assertion[OpenedPullRequest | None]:
+                            ref: str) -> Assertion[ProposedFix]:
     """The search ran against the branch a fix is cut from."""
-    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+    def assertion(dont_care_result: ProposedFix) -> bool:
         asked = repository.search.call_args
 
         if asked is None or asked.args[1:2] != (ref,):
@@ -1051,9 +1052,9 @@ def test_an_index_that_is_current_adds_nothing_to_what_the_model_is_told() -> No
 
 
 def _the_meaning_search_was_made_at(repository: _Repository,
-                                    ref: str) -> Assertion[OpenedPullRequest | None]:
+                                    ref: str) -> Assertion[ProposedFix]:
     """The search by meaning ran against the branch a fix is cut from."""
-    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+    def assertion(dont_care_result: ProposedFix) -> bool:
         asked = repository.search_by_meaning.call_args
 
         if asked is None or asked.args[1:2] != (ref,):
@@ -1323,6 +1324,51 @@ def test_a_model_reporting_nothing_to_change_writes_nothing_and_proposes_nothing
                 _no_branch_was_written(repository)
             )
         )
+
+
+@pytest.mark.unit
+def test_a_proposal_comes_back_with_what_the_model_said_of_the_code() -> None:
+    # Said in the pull request for whoever reviews it, and handed back for the
+    # write-up: the one account of the mechanism anybody read off the source.
+    some_explanation = "v2's vocabulary is lowercase, and the categoriser does not lowercase"
+    model = a_model_that(submits_a_fix_touching(SOME_PATH, explanation=some_explanation))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **a_repository().ports()
+            )
+        ) \
+        .then(
+            _it_explained(some_explanation)
+        )
+
+
+@pytest.mark.unit
+def test_nothing_to_change_comes_back_with_why_there_is_nothing() -> None:
+    # "The fault is not in the code, because..." is a finding about the code as
+    # much as a fix is, and was being dropped with the proposal that was not.
+    some_explanation = "the code reads the model it was configured with, as written"
+    model = a_model_that(reports_nothing_to_change(explanation=some_explanation))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **a_repository().ports()
+            )
+        ) \
+        .then(all_of(
+            _nothing_was_proposed(),
+            _it_explained(some_explanation)
+        ))
 
 
 @pytest.mark.unit
@@ -1908,9 +1954,9 @@ def test_a_submission_with_no_files_is_put_back_rather_than_read_as_a_verdict() 
 
 def _the_conversation_was_recorded_for(
     conversations: Any, incident_id: str, recorder: Any
-) -> Assertion[OpenedPullRequest | None]:
+) -> Assertion[ProposedFix]:
     """The transcript is filed against the incident that caused it."""
-    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+    def assertion(dont_care_result: ProposedFix) -> bool:
         asked = conversations.call_args
 
         if asked is None or asked.args != (incident_id, recorder):
@@ -1925,8 +1971,8 @@ def _the_conversation_was_recorded_for(
 
 
 def _no_conversation_was_built(conversations: Any
-                               ) -> Assertion[OpenedPullRequest | None]:
-    def assertion(dont_care_result: OpenedPullRequest | None) -> bool:
+                               ) -> Assertion[ProposedFix]:
+    def assertion(dont_care_result: ProposedFix) -> bool:
         if conversations.called:
             raise AssertionError(
                 f"Expected no conversation to be built, got "
@@ -2186,20 +2232,33 @@ def _no_branch_was_written(repository: _Repository) -> Assertion[Any]:
     return assertion
 
 
-def _nothing_was_proposed() -> Assertion[Any]:
-    def assertion(proposed: Any) -> bool:
-        if proposed is not None:
-            raise AssertionError(f"Expected no proposal, got [{proposed}].")
+def _nothing_was_proposed() -> Assertion[ProposedFix]:
+    def assertion(proposed: ProposedFix) -> bool:
+        if proposed.pull_request is not None:
+            raise AssertionError(f"Expected no proposal, got [{proposed.pull_request}].")
 
         return True
 
     return assertion
 
 
-def _what_came_back_is(pull_request: OpenedPullRequest) -> Assertion[Any]:
-    def assertion(came_back: Any) -> bool:
-        if came_back != pull_request:
-            raise AssertionError(f"Expected [{pull_request}], got [{came_back}].")
+def _what_came_back_is(pull_request: OpenedPullRequest) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.pull_request != pull_request:
+            raise AssertionError(f"Expected [{pull_request}], got [{came_back.pull_request}].")
+
+        return True
+
+    return assertion
+
+
+def _it_explained(explanation: str) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.explanation != explanation:
+            raise AssertionError(
+                f"Expected Code-Fix's account of the code to come back as "
+                f"[{explanation}], got [{came_back.explanation}]."
+            )
 
         return True
 

@@ -289,6 +289,180 @@ def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() 
 
 
 @pytest.mark.unit
+def test_what_a_deployment_changed_the_prose_cites_leads_to_its_row() -> None:
+    # A diff is a row of Supporting information too, under the label the prose
+    # cites it by.
+    some_diff = CitedEvidence(label="D1", text="Deployment of revision some-revision.\n"
+                                               "  -  model: v1\n"
+                                               "  +  model: v2")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="D1 tells it.", deployment_changes_read=[some_diff]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("D1 Deployment of revision some-revision."))
+
+
+@pytest.mark.unit
+def test_what_code_fix_read_the_prose_cites_leads_to_its_row() -> None:
+    some_reading = CitedEvidence(label="F1", text="The categoriser does not lowercase.")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="F1 tells it.", code_read=[some_reading]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("F1 The categoriser does not lowercase."))
+
+
+@pytest.mark.unit
+def test_a_row_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> None:
+    # What Code-Fix read in the source has run to thirteen thousand characters:
+    # a row no page holds. It goes on onto the next, and a citation of it still
+    # lands where it begins.
+    some_reading = CitedEvidence(label="F1",
+                                 text="The categoriser does not lowercase. "
+                                      + "It reads the vocabulary as written. " * 400)
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="F1 tells it.", code_read=[some_reading]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("F1 The categoriser does not lowercase."))
+
+
+@pytest.mark.unit
+def test_a_hypothesis_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> None:
+    # A cell of plain text, under a heading repeated on the page it goes on to.
+    some_hypothesis = HypothesisConsidered(summary="A flag change on account pages. "
+                                                   + "It divided by zero. " * 700,
+                                           confidence=0.8, result="confirmed", label="C1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="C1 was right.", hypotheses=[some_hypothesis]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("C1 A flag change on account pages."))
+
+
+@pytest.mark.unit
+def test_a_row_taller_than_a_page_keeps_every_line_and_every_link_it_had() -> None:
+    # A deployment's diff, its revision named in its first line and its last -
+    # a page apart. Each line is still there, and the revision opens from both.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+    some_diff = CitedEvidence(label="D1", text="\n".join([
+        f"Deployment of revision {SOME_DEPLOYED_REVISION}.",
+        *(f"  +  key{line}: value" for line in range(150)),
+        f"End of {SOME_DEPLOYED_REVISION}."]))
+    without_the_diff = as_pdf(render(a_postmortem(changes_read=[a_deploy_read("P2")]),
+                                     an_alert(), [], SOME_ADDRESS))
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(changes_read=[a_deploy_read("P2")],
+                             deployment_changes_read=[some_diff]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _it_says_all("key0: value", "key75: value", "key149: value"),
+            _more_links_out_to(commit, more=2, than=without_the_diff)
+        ))
+
+
+@pytest.mark.unit
+def test_a_row_taller_than_a_page_keeps_each_word_once_however_it_is_spaced() -> None:
+    # A model can write a non-breaking space or a soft hyphen, which the PDF
+    # prints as a plain space or not at all. A row cut across pages still keeps
+    # every word it held, once each.
+    some_words = [f"w{number:04d}" for number in range(700)]
+    some_reading = CitedEvidence(
+        label="F1", text=" ".join(f"{word}\u00a0ok hy\u00adphen" for word in some_words))
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(code_read=[some_reading]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_says_each_once(*some_words))
+
+
+@pytest.mark.unit
+def test_a_candidate_a_line_of_the_timeline_names_leads_to_its_row() -> None:
+    # The line that formed the candidates names them by label, and a reader of
+    # the file follows each to what it was.
+    some_hypothesis = HypothesisConsidered(summary="A flag change on account pages",
+                                           confidence=0.8, result="dont care", label="C7")
+    some_line = TimelineEntry(at=SOME_ONSET, who="Investigator Agent",
+                              text="Formed 1 candidate cause, best first: C7", label="T1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(hypotheses=[some_hypothesis], timeline=[some_line]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("C7 A flag change on account pages"))
+
+
+@pytest.mark.unit
+def test_a_candidate_named_by_a_label_its_row_also_goes_by_leads_to_that_row() -> None:
+    # The row stands for two candidates and is labelled with both, and a
+    # reader following the second lands on it.
+    some_hypothesis = HypothesisConsidered(summary="A flag change on account pages",
+                                           confidence=0.8, result="dont care", label="C7",
+                                           also=["C8"])
+    some_line = TimelineEntry(at=SOME_ONSET, who="Investigator Agent",
+                              text="Formed 2 candidate causes, best first: C8", label="T1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(hypotheses=[some_hypothesis], timeline=[some_line]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("C7, C8 A flag change on account pages"))
+
+
+@pytest.mark.unit
 def test_the_items_a_contributing_factor_names_lead_to_their_rows() -> None:
     some_factor = ContributingFactor(text="Nothing reviewed the divisor.", addressed_by=["AI-1"])
     some_item = ActionItem(number="AI-1", text="Guard the divisor.", type=ActionItemType.PREVENT,
@@ -581,6 +755,21 @@ def _it_says_all(*expected: str) -> Assertion[bytes]:
     return assertion
 
 
+def _it_says_each_once(*expected: str) -> Assertion[bytes]:
+    """Each is said exactly once - none lost, none said twice."""
+    def assertion(pdf: bytes) -> bool:
+        text = _text(pdf)
+        wrong = {said: text.count(said) for said in expected if text.count(said) != 1}
+
+        if wrong:
+            raise AssertionError(f"Expected each of {len(expected)} words said once, and "
+                                 f"{len(wrong)} are not, by how often each is: {wrong}")
+
+        return True
+
+    return assertion
+
+
 def _it_links_out_to(*expected: str) -> Assertion[bytes]:
     """Each address is a link out of the file, to itself."""
     def assertion(pdf: bytes) -> bool:
@@ -590,6 +779,21 @@ def _it_links_out_to(*expected: str) -> Assertion[bytes]:
         if missing:
             raise AssertionError(f"Expected links out to {missing}, and the PDF links out "
                                  f"to {linked}.")
+
+        return True
+
+    return assertion
+
+
+def _more_links_out_to(address: str, more: int, than: bytes) -> Assertion[bytes]:
+    """The file links out to `address` `more` times more than `than` does."""
+    def assertion(pdf: bytes) -> bool:
+        expected = _links_out(than).count(address) + more
+        found = _links_out(pdf).count(address)
+
+        if found != expected:
+            raise AssertionError(f"Expected {expected} links out to {address}, and the PDF "
+                                 f"has {found}.")
 
         return True
 

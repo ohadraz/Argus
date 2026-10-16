@@ -1582,6 +1582,60 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_rollback_names_the_revision_it_rolled_off_rather_than_the_platform_s_entry() -> None:
+    # The entry is the platform's address for a revision, and means nothing to
+    # a reader once the history has moved on; the commit is what they look up.
+    Scenario() \
+        .given(roll_back := _a_roller_returning(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up("dont-care-service"),
+                    roll_back=roll_back
+                ),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_detail_mentions(f"[{THE_REVISION_IT_WAS_ON}]"),
+            _the_detail_does_not_mention("history entry")
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_rollback_says_the_revision_it_was_put_back_to() -> None:
+    Scenario() \
+        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    restart=_a_restarter_bringing_up("dont-care-service"),
+                    roll_back=_a_roller_returning(SOME_APPLICATION)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions(f"to revision [{THE_REVISION_IT_WAS_ON}]"),
+            _the_detail_does_not_mention("history entry")
+        ))
+
+
+@pytest.mark.unit
 def test_a_rollback_carries_a_way_back_where_a_restart_carries_none() -> None:
     # The difference the record has to keep. A restart leaves nothing behind
     # and says so by carrying no descriptor; a rollback changed two things,

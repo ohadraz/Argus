@@ -16,6 +16,7 @@ from argus_core.models import (
     ActionItemStatus,
     Alert,
     ChangeKind,
+    ImpactExtent,
     Postmortem,
     PostmortemDocument,
     TimelineMarker,
@@ -107,21 +108,34 @@ def a_head(postmortem: Postmortem,
 
 
 def _the_incident_s_window(postmortem: Postmortem) -> Line:
-    """From onset to recovery, the day said once where both fall on it."""
+    """From onset to back to normal, the day said once where both fall on it."""
     began = _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS)
     if began is None:
         return Line(runs=(Run(text="onset unknown"),))
 
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
-    if ended is None:
-        return Line(runs=(Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} UTC",
-                              role=Role.MOMENT, at=began),
-                          Run(text=", no recovery seen")))
+    if ended is not None:
+        return Line(runs=(Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} to "
+                                   f"{on_the_clock(ended, _the_end_said(began, ended))} UTC",
+                              role=Role.MOMENT, at=began, until=ended),))
 
-    end_said = _THE_TIME_OF_DAY if ended.date() == began.date() else _WITH_THE_DAY
-    return Line(runs=(Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} to "
-                               f"{on_the_clock(ended, end_said)} UTC",
-                          role=Role.MOMENT, at=began, until=ended),))
+    since = Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} UTC", role=Role.MOMENT, at=began)
+    impact = postmortem.impact
+    if impact is None or impact.extent is not ImpactExtent.AT_LEAST:
+        return Line(runs=(since, Run(text=", not seen back to normal")))
+
+    # A lower bound is measured to the last minute read, so that is the minute
+    # the service was still not back by - a finding, not a recovery missed.
+    still_not = began + impact.duration
+    return Line(runs=(since,
+                      Run(text=", not back to normal by "),
+                      Run(text=f"{on_the_clock(still_not, _the_end_said(began, still_not))} UTC",
+                          role=Role.MOMENT, at=still_not)))
+
+
+def _the_end_said(began: datetime, ended: datetime) -> str:
+    """How the end of a window is said: its time alone on the day it began."""
+    return _THE_TIME_OF_DAY if ended.date() == began.date() else _WITH_THE_DAY
 
 
 def _how_finished(postmortem: Postmortem) -> Line:

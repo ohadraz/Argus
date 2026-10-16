@@ -133,7 +133,7 @@ def codefix_node(state: IncidentState,
             detail=f"the fix could not be proposed: {_what_went_wrong(error)}",
         )
 
-    if proposed is None:
+    if proposed.pull_request is None:
         return _said(
             narrator,
             found=False,
@@ -141,15 +141,17 @@ def codefix_node(state: IncidentState,
             proposal=None,
             action="no code-level fix found",
             detail="no code-level fix found, so the incident goes to a human",
+            explanation=proposed.explanation
         )
 
     return _said(
         narrator,
         found=True,
         outcome=FixOutcome.PROPOSED,
-        proposal=proposed,
+        proposal=proposed.pull_request,
         action="a code-level fix was proposed",
-        detail=f"a draft pull request is open at {proposed.url}",
+        detail=f"a draft pull request is open at {proposed.pull_request.url}",
+        explanation=proposed.explanation
     )
 
 
@@ -173,8 +175,10 @@ def _said(narrator: Narrator,
           outcome: FixOutcome,
           proposal: OpenedPullRequest | None,
           action: str,
-          detail: str) -> StateDelta:
-    """The one account of this step, published and handed up in one place.
+          detail: str,
+          explanation: str | None = None) -> StateDelta:
+    """The one account of this step, published and handed up in one place -
+    with what Code-Fix said of the code, where it said anything.
 
     Both, rather than either. The narration is what a transition would say if
     this step moved the incident, and on the road here from a refuted walk it
@@ -182,7 +186,8 @@ def _said(narrator: Narrator,
     cannot disagree about what happened - which is the failure that would be
     hardest to see, because each would look right on its own.
     """
-    narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail)
+    narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail,
+                 explanation=explanation)
     logger.info("fix attempted", extra={
         "outcome": outcome, "pull_request": proposal.url if proposal is not None else None
     })

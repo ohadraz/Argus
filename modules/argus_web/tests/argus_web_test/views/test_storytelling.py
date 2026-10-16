@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core import new_id
 from argus_core.events import (
+    CandidateSelected,
     ChangesRetrieved,
     FlagChangesRetrieved,
     IncidentEvent,
@@ -191,6 +192,22 @@ def test_a_change_channel_nobody_asked_is_not_reported_as_read() -> None:
 
 
 @pytest.mark.unit
+def test_a_name_the_walk_quoted_is_shown_without_its_brackets() -> None:
+    # The brackets mark a name off for a model reading the record; on the page
+    # they are clutter around a word. The marked word is shown alike.
+    Scenario() \
+        .given(
+            a_candidate_quoting_names := [
+                _a_candidate_selected("[categoriser.model] went from [v1] to [v2]")]
+        ) \
+        .when(lambda: build_story(a_candidate_quoting_names)) \
+        .then(_the_narration_shown_is([
+            ("Moving on to categoriser.model went from v1 to v2",
+             "categoriser.model went from v1 to v2")
+        ]))
+
+
+@pytest.mark.unit
 def test_two_polls_showing_the_same_thing_carry_the_same_version() -> None:
     # The page polls every two seconds and almost every poll returns what is
     # already on screen. Re-rendering it anyway destroys everything the reader
@@ -295,6 +312,11 @@ def _flag_history(changes: list[FlagChange]) -> FlagChangesRetrieved:
     return FlagChangesRetrieved(incident_id=new_id(), changes=changes)
 
 
+def _a_candidate_selected(summary: str) -> CandidateSelected:
+    return CandidateSelected(incident_id=new_id(), hypothesis_id=new_id(),
+                             summary=summary, confidence=None)
+
+
 def _it_has_been_running_for(expected: int) -> Assertion[LiveIncident]:
     def assertion(live: LiveIncident) -> bool:
         if live.elapsed_seconds != expected:
@@ -366,6 +388,19 @@ def _the_changes_were_read(expected: bool) -> Assertion[Story]:
                 f"Expected the change channel to be reported as "
                 f"{'read' if expected else 'unread'}, it was not."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_narration_shown_is(expected: list[tuple[str, str]]) -> Assertion[Story]:
+    """Each line as the page shows it: the whole of it, and the word it marks."""
+    def assertion(story: Story) -> bool:
+        shown = [(line.text, line.emphasis) for line in story.narration]
+
+        if shown != expected:
+            raise AssertionError(f"Expected the narration {expected}, got {shown}.")
 
         return True
 

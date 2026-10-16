@@ -33,7 +33,7 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_postmortem import write_postmortem
+from agent_postmortem import DeploymentChangesRecord, write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.log_groups import grouped
@@ -44,6 +44,7 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
     SubmittedStep,
     the_changes_labelled,
+    the_deployment_changes_labelled,
 )
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.reviewing import review_of
@@ -102,7 +103,6 @@ from agent_postmortem_test.framework.builders import (
     a_lead,
     a_measured_incident,
     a_submitted_answer,
-    a_timeline_entry,
     an_action,
     an_answer,
     an_engagement_of,
@@ -409,7 +409,7 @@ def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
                                          a_measured_incident(
-                                             recovered_at=some_measured_recovery)),
+                                             back_to_normal_at=some_measured_recovery)),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \
@@ -417,6 +417,29 @@ def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
             _publishes("the timeline",
                        lambda document: document.timeline,
                        timeline_of(evidence, some_measured_recovery))
+        )
+
+
+@pytest.mark.unit
+def test_the_timeline_says_the_service_was_back_before_the_action_credited_with_it() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident(back_to_normal_at=RECOVERED_AT,
+                                                             back_before_the_action=True)),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the timeline",
+                       lambda document: document.timeline,
+                       timeline_of(evidence, RECOVERED_AT, back_before_the_action=True))
         )
 
 
@@ -563,31 +586,6 @@ def test_the_factors_and_lessons_the_model_wrote_are_the_ones_published() -> Non
 
 
 @pytest.mark.unit
-def test_the_evidence_read_is_every_piece_the_model_was_shown() -> None:
-    # Two lines of narration, three of logs, one candidate, one action.
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                timeline=[a_timeline_entry("dont care"), a_timeline_entry("dont care")],
-                log_lines=["one message", "another message", "a third message"],
-                candidates=[a_candidate("dont care")],
-                actions=[an_action("dont care")])
-        ) \
-        .when(
-            lambda: write_postmortem(evidence,
-                                     some_sources(),
-                                     _dont_care_llm(),
-                                     measure=_measuring_that_returns(
-                                         a_measured_incident()),
-                                     ask=_asking_that_answers(a_submitted_answer()),
-                                     disclose=_disclosing_that_returns([]))
-        ) \
-        .then(
-            _publishes("the evidence read", lambda document: document.evidence_read, 7)
-        )
-
-
-@pytest.mark.unit
 def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -> None:
     # The prose cites them by the labels the model was shown them under, and
     # no other section is a row for either - so the document carries them, or
@@ -624,6 +622,63 @@ def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -
                            lambda document: len(document.log_messages_read),
                            2)
             )
+        )
+
+
+@pytest.mark.unit
+def test_the_document_carries_what_each_deployment_it_looked_into_changed() -> None:
+    # Under the labels the model was shown them by, so a step of the cause
+    # citing D1 has a row to lead to. The labels asserted on their own as well,
+    # so two empty lists cannot pass for one carried.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[
+                DeploymentChangesRecord(revision="some-revision", said=["some line"]),
+                DeploymentChangesRecord(revision="some-other-revision", said=["another line"])])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            all_of(
+                _publishes("what each deployment changed",
+                           lambda document: document.deployment_changes_read,
+                           the_deployment_changes_labelled(evidence)),
+                _publishes("their labels",
+                           lambda document: [cited.label
+                                             for cited in document.deployment_changes_read],
+                           ["D1", "D2"])
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_document_carries_what_code_fix_read_in_the_source() -> None:
+    # Under the label the model was shown it by, so a step of the cause citing
+    # F1 has a row to lead to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="some account of the code")
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("what Code-Fix read in the source",
+                       lambda document: document.code_read,
+                       [CitedEvidence(label="F1", text="some account of the code")])
         )
 
 

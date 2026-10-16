@@ -14,7 +14,13 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
-from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
+from postmortem_rendering_test.framework.builders import (
+    SOME_DEPLOYED_REVISION,
+    SOME_REPOSITORY_ADDRESS,
+    a_deploy_read,
+    a_postmortem,
+    an_alert,
+)
 
 SOME_CHANGE = datetime(2026, 10, 11, 14, 2, tzinfo=UTC)
 
@@ -62,6 +68,34 @@ def test_a_deployment_is_the_service_deployed_from_one_revision_to_another() -> 
 
 
 @pytest.mark.unit
+def test_a_deployment_s_revision_read_is_named_as_its_row_names_it_and_opens_its_commit() -> None:
+    # Short as the prose and the change's own row write it, and leading where
+    # it opens. A revision no change read names has nowhere to lead, and is
+    # cut as git cuts one.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=Trigger(subject="dont care",
+                                from_state="4c810f2aa1e9a6f3b7c9d0e1f2a3b4c5d6e7f809",
+                                to_state=SOME_DEPLOYED_REVISION,
+                                changed_at=None, kind=ChangeKind.DEPLOY),
+                changes_read=[a_deploy_read("P1")])
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert(service="io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" was deployed from "),
+                Run(text="4c810f2", role=Role.FROM_STATE),
+                Run(text=" to "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.TO_STATE,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
+                Run(text=".")))))
+
+
+@pytest.mark.unit
 def test_a_deployment_s_states_are_revisions() -> None:
     # For a destination that sets a revision as code: the page does.
     Scenario() \
@@ -93,6 +127,24 @@ def test_a_state_nobody_recorded_is_unknown() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_of_no_known_kind_says_its_states_as_written() -> None:
+    # Only a flag's states are words said in capitals. A change nothing said
+    # the kind of - a setting a deploy carried - may be named by its version,
+    # and v2 is not V2.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(trigger=Trigger(
+                subject="categoriser.model", from_state="v1", to_state="v2",
+                changed_at=None, kind=None))
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).line
+        ) \
+        .then(
+            _it_reads("categoriser.model went from v1 to v2."))
+
+
+@pytest.mark.unit
 def test_a_change_with_no_states_is_named_alone() -> None:
     Scenario() \
         .given(
@@ -105,6 +157,53 @@ def test_a_change_with_no_states_is_named_alone() -> None:
         ) \
         .then(
             _it_reads("pricing-config."))
+
+
+@pytest.mark.unit
+def test_a_setting_a_deploy_carried_names_the_deploy_and_who_started_it() -> None:
+    # The setting is what moved, and the deploy is how: its revision short, as
+    # the prose and the deploy's own row name it, leading where it opens.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=Trigger(subject="categoriser.model", from_state="v1", to_state="v2",
+                                changed_at=SOME_CHANGE, actor="kuki", carried_by="P2"),
+                changes_read=[a_deploy_read("P1"), a_deploy_read("P2")])
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="categoriser.model", role=Role.CODE),
+                Run(text=" went from "),
+                Run(text="v1", role=Role.FROM_STATE),
+                Run(text=" to "),
+                Run(text="v2", role=Role.TO_STATE),
+                Run(text=" at "),
+                Run.a_moment(SOME_CHANGE),
+                Run(text=", in the deploy of "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
+                Run(text=" that kuki started"),
+                Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_a_setting_a_deploy_nobody_is_named_for_carried_names_the_deploy_alone() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=Trigger(subject="categoriser.model", from_state="v1", to_state="v2",
+                                changed_at=None, carried_by="P1"),
+                changes_read=[a_deploy_read("P1")])
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).line
+        ) \
+        .then(
+            _it_reads(f"categoriser.model went from v1 to v2, in the deploy of "
+                      f"{SOME_DEPLOYED_REVISION[:7]}."))
 
 
 @pytest.mark.unit

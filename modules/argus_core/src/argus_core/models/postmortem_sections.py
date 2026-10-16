@@ -33,6 +33,10 @@ class CitedEvidence(BaseModel):
 
     label: str
     text: str
+    # The other labels the same evidence was shown under - a candidate that is
+    # one cause with another goes by both - so a citation of either is known
+    # for what it names. Its figures are named by `label` alone.
+    also: list[str] = []
 
 
 class CitedChange(BaseModel):
@@ -149,6 +153,11 @@ class HypothesisConsidered(BaseModel):
     confidence: float | None
     result: str
     label: str
+    # The labels of the candidates this row also stands for: ones that blamed
+    # the same move of the same subject and came to the same end, shown once
+    # rather than read as causes weighed apart. Each keeps its own label, so a
+    # line citing it still has this row to lead to.
+    also: list[str] = []
 
 
 class ResolutionStep(BaseModel):
@@ -213,7 +222,13 @@ class Trigger(BaseModel):
 
     `suspected` where nothing confirmed the cause and nothing refuted it: the
     leading candidate was never tested, and the change it blames was read.
-    Said as suspected, because a trigger nothing tested is not one."""
+    Said as suspected, because a trigger nothing tested is not one.
+
+    `carried_by` is the label of the change to production that carried it,
+    where that is not the trigger itself: a setting that moved in a deploy is
+    dated and credited as the deploy is, and the deploy is named by its row.
+    `None` wherever the trigger is a change of its own, or nothing says what
+    carried it."""
 
     subject: str
     from_state: str | None
@@ -222,6 +237,7 @@ class Trigger(BaseModel):
     kind: ChangeKind | None = None
     actor: str | None = None
     suspected: bool = False
+    carried_by: str | None = None
 
 
 class ReviewCriterion(BaseModel):

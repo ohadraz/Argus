@@ -36,6 +36,7 @@ from argus_narration.narrating import (
     where_a_report_came_from,
 )
 from argus_narration.prose import said_plainly
+from argus_narration.showing import as_shown, shown
 
 __all__ = [
     "BucketRow",
@@ -52,6 +53,7 @@ __all__ = [
     "a_moment",
     "a_narration_line",
     "a_window",
+    "as_shown",
     "build_narration",
     "each_wait_told_once",
     "is_a_moment",
@@ -60,6 +62,7 @@ __all__ = [
     "said_as_a_state",
     "said_in_full",
     "said_plainly",
+    "shown",
     "the_minutes_logged",
     "what_the_action_does",
     "what_was_done",

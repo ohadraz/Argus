@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from agent_postmortem import CandidateRecord, DeploymentChangesRecord
 from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.sections import (
     detection_of,
@@ -22,7 +23,8 @@ from agent_postmortem.sections import (
     timeline_of,
     trigger_of,
 )
-from argus_core import parse_iso
+from argus_core import parse_iso, to_iso
+from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -96,6 +98,29 @@ def test_detection_without_an_onset_states_no_gap() -> None:
                                      rule=SOME_RULE,
                                      onset_at=None,
                                      gap=None))
+        )
+
+
+@pytest.mark.unit
+def test_detection_is_dated_by_when_the_alert_fired_not_when_argus_heard() -> None:
+    # A sender holds an alert back before sending it - Grafana groups and
+    # waits - so the incident opens after the alert fired, and a gap measured
+    # to the opening would count the delivery as detection.
+    some_firing = STARTED_AT - timedelta(minutes=2)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, started_at=STARTED_AT,
+                                           alerted_at=some_firing, rule=SOME_RULE)
+        ) \
+        .when(
+            lambda: detection_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Detection(alerted_at=some_firing,
+                                     rule=SOME_RULE,
+                                     onset_at=ONSET,
+                                     gap=some_firing - ONSET))
         )
 
 
@@ -341,6 +366,168 @@ def test_a_suspect_whose_change_was_never_read_is_no_trigger() -> None:
 
 
 @pytest.mark.unit
+def test_a_setting_a_deploy_carried_is_dated_and_credited_as_that_deploy() -> None:
+    # A setting is no change's reference: what carried it is a deploy, and only
+    # that deploy's diff shows the setting moving - every part of its name in
+    # one hunk, and its last on the lines that moved it from one state to the
+    # other. Found there, the trigger is dated and credited as the deploy is,
+    # and names its row.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-09-01T09:00:00Z"),
+                         _a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -61,4 +61,4 @@ cache:",
+                    " categoriser:",
+                    "-  model: v1",
+                    "+  model: v2"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="categoriser.model",
+                                   from_state="v1",
+                                   to_state="v2",
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   carried_by="P2"))
+        )
+
+
+@pytest.mark.unit
+def test_a_setting_of_the_same_last_name_moving_elsewhere_carries_nothing() -> None:
+    # "model" ends the name of many settings. A scorer's model going from v1 to
+    # v2 is not the categoriser's - though the categoriser's own block sits in
+    # the same hunk, a line above the scorer's.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -61,7 +61,7 @@ cache:",
+                    " categoriser:",
+                    "   model: v1",
+                    " fraud_scorer:",
+                    "-  model: v1",
+                    "+  model: v2"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_setting_two_deploys_both_moved_carries_neither() -> None:
+    # Which of two carried it is not something a diff can say, and a trigger
+    # credited to either would be a guess said as a finding.
+    the_move = [" categoriser:", "-  model: v1", "+  model: v2"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-09-02T11:50:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, the_move),
+                                    _what_the_deploy_of(SOME_REVISION, the_move)])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_deploy_after_the_onset_carried_nothing_that_began_it() -> None:
+    # A change made after the incident began did not begin it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at=to_iso(ONSET + timedelta(minutes=5)))],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    " categoriser:", "-  model: v1", "+  model: v2"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_comment_or_a_blank_line_over_a_setting_does_not_hide_its_parent() -> None:
+    # Walking up from the setting to its parent, a comment set in less far and
+    # a blank line name nothing: the parent is the nearest line that names
+    # something.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    " categoriser:",
+                    "",
+                    " # retrained on the grown catalogue",
+                    "-  model: v1",
+                    "+  model: v2"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+def test_a_setting_written_flat_is_carried_by_the_deploy_that_moved_it() -> None:
+    # A flat key names the setting whole on its own line, with no parent above
+    # it to walk up to - and "model" inside "categoriser.model" is no word of
+    # its own.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "-categoriser.model: v1",
+                    "+categoriser.model: v2"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
 def test_resolution_lists_each_action_as_argus_took_it() -> None:
     # In the order taken, with what each came to and whether it still stands -
     # one sentence, because the reader of this table wants both at once.
@@ -382,6 +569,27 @@ def test_an_action_no_verdict_was_reached_on_says_so() -> None:
         ) \
         .then(
             the_answer_was(["no verdict recorded, put back when it did not help"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_that_left_automatic_sync_off_says_so_in_its_outcome() -> None:
+    # Argus stops the platform syncing an application from its repository to
+    # act on it, and leaves it stopped while the change stands - so nothing
+    # merged reaches the service until somebody turns it back on. Said in the
+    # row of the action that did it, beside whether that action still stands.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("rolled back io-shop", verdict=Verdict.CONFIRMED,
+                          standing="still in place", paused_sync_of="io-shop")
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["confirmed, still in place - automatic sync left off"])
         )
 
 
@@ -445,6 +653,84 @@ def test_each_candidate_is_labelled_as_the_prompt_named_it() -> None:
         ) \
         .then(
             the_answer_was(["C1", "C2"])
+        )
+
+
+@pytest.mark.unit
+def test_candidates_blaming_the_same_move_are_one_row_under_each_label() -> None:
+    # Two readings of one change are one cause, and listed twice they read as
+    # two the investigation weighed. The row goes by the best-ranked one's
+    # words and by every label, so a line citing either still lands on it; what
+    # became of it is what became of the one tested.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.8),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.3,
+                            tested=True, result=Verdict.CONFIRMED),
+                a_candidate("a bad deploy", confidence=0.1)])
+        ) \
+        .when(
+            lambda: hypotheses_of(evidence)
+        ) \
+        .then(
+            the_answer_was([
+                HypothesisConsidered(summary="the model was upgraded", confidence=0.8,
+                                     result="confirmed", label="C1", also=["C2"]),
+                HypothesisConsidered(summary="a bad deploy", confidence=0.1,
+                                     result="never tried", label="C3")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_candidates_blaming_the_same_move_judged_alike_are_one_row() -> None:
+    # Tested twice to the same verdict, what became of each is what became of
+    # the one row, and nothing is hidden by showing it once.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care", subject="categoriser.model", from_state="v1",
+                            to_state="v2", tested=True, result=Verdict.REFUTED),
+                a_candidate("dont care either", subject="categoriser.model", from_state="v1",
+                            to_state="v2", tested=True, result=Verdict.REFUTED)])
+        ) \
+        .when(
+            lambda: [(hypothesis.label, hypothesis.also, hypothesis.result)
+                     for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([("C1", ["C2"], "refuted")])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("candidates", [
+    pytest.param([a_candidate("dont care", subject="categoriser.model", from_state="v1",
+                              to_state="v2", tested=True, result=Verdict.REFUTED),
+                  a_candidate("dont care either", subject="categoriser.model", from_state="v1",
+                              to_state="v2", tested=True, result=Verdict.CONFIRMED)],
+                 id="judged-apart"),
+    pytest.param([a_candidate("dont care"), a_candidate("dont care either")],
+                 id="naming-no-subject")
+])
+def test_candidates_not_known_to_be_one_cause_are_rows_of_their_own(
+    candidates: list[CandidateRecord]
+) -> None:
+    # Tested to different verdicts, two candidates are not one cause in the
+    # record, and one row would show one verdict and hide the other. Naming no
+    # subject, nothing says what either blamed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=candidates)
+        ) \
+        .when(
+            lambda: [(hypothesis.label, hypothesis.also) for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([("C1", []), ("C2", [])])
         )
 
 
@@ -518,7 +804,7 @@ def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
         ) \
         .when(
             lambda: [(entry.at, entry.marker) for entry in
-                     timeline_of(evidence, recovered_at=RECOVERED_AT + timedelta(minutes=5))]
+                     timeline_of(evidence, back_to_normal_at=RECOVERED_AT + timedelta(minutes=5))]
         ) \
         .then(
             the_answer_was([
@@ -551,7 +837,7 @@ def test_each_line_of_the_narration_is_labelled_as_the_prompt_named_it() -> None
         ) \
         .when(
             lambda: [(entry.marker, entry.label) for entry in
-                     timeline_of(evidence, recovered_at=RECOVERED_AT + timedelta(minutes=5))]
+                     timeline_of(evidence, back_to_normal_at=RECOVERED_AT + timedelta(minutes=5))]
         ) \
         .then(
             the_answer_was([
@@ -582,11 +868,32 @@ def test_a_line_outside_the_walk_is_labelled_apart_from_the_walks_own() -> None:
                                            at=STARTED_AT + timedelta(minutes=3))])
         ) \
         .when(
-            lambda: [entry.label for entry in timeline_of(evidence, recovered_at=None)
+            lambda: [entry.label for entry in timeline_of(evidence, back_to_normal_at=None)
                      if entry.marker is None]
         ) \
         .then(
             the_answer_was(["T1", "XW1", "T2"])
+        )
+
+
+@pytest.mark.unit
+def test_a_line_that_formed_candidates_names_them_by_the_labels_their_rows_go_by() -> None:
+    # Said in full, it repeats each candidate's paragraph, which the
+    # hypotheses considered already show under the same label.
+    some_line = a_timeline_entry(
+        "Formed 2 candidate causes, best first: dont care; dont care either"
+    ).model_copy(update={"candidates": [0, 1]})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, timeline=[some_line])
+        ) \
+        .when(
+            lambda: [entry.text for entry in timeline_of(evidence, back_to_normal_at=None)
+                     if entry.marker is None]
+        ) \
+        .then(
+            the_answer_was(["Formed 2 candidate causes, best first: C1, C2"])
         )
 
 
@@ -602,7 +909,7 @@ def test_a_marker_whose_moment_is_unknown_is_left_out() -> None:
                 actions=[an_action("dont care", verdict=Verdict.REFUTED)])
         ) \
         .when(
-            lambda: [entry.marker for entry in timeline_of(evidence, recovered_at=None)]
+            lambda: [entry.marker for entry in timeline_of(evidence, back_to_normal_at=None)]
         ) \
         .then(
             the_answer_was([TimelineMarker.DETECTED])
@@ -617,13 +924,31 @@ def test_the_detected_marker_names_the_alert() -> None:
                                            alert_title="HighErrorRate on io-shop")
         ) \
         .when(
-            lambda: timeline_of(evidence, recovered_at=None)
+            lambda: timeline_of(evidence, back_to_normal_at=None)
         ) \
         .then(
             the_answer_was([TimelineEntry(at=STARTED_AT,
                                           who=None,
                                           text="HighErrorRate on io-shop fired",
                                           marker=TimelineMarker.DETECTED)])
+        )
+
+
+@pytest.mark.unit
+def test_the_detected_marker_is_placed_when_the_alert_fired() -> None:
+    some_firing = STARTED_AT - timedelta(minutes=2)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, timeline=[], started_at=STARTED_AT,
+                                           alerted_at=some_firing)
+        ) \
+        .when(
+            lambda: [(entry.at, entry.marker) for entry \
+                     in timeline_of(evidence, back_to_normal_at=None)]
+        ) \
+        .then(
+            the_answer_was([(some_firing, TimelineMarker.DETECTED)])
         )
 
 
@@ -637,11 +962,38 @@ def test_the_onset_marker_says_the_incident_began_and_not_how() -> None:
             evidence := an_evidence_bundle(onset_at=ONSET, timeline=[])
         ) \
         .when(
-            lambda: [entry.text for entry in timeline_of(evidence, recovered_at=None)
+            lambda: [entry.text for entry in timeline_of(evidence, back_to_normal_at=None)
                      if entry.marker is TimelineMarker.IMPACT_BEGINS]
         ) \
         .then(
             the_answer_was(["the incident began"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_before_the_action", "said"), [
+    (False, "the service was back to normal"),
+    (True, "the service was back to normal, before the action credited with it")
+], ids=["after-the-action", "before-the-action"])
+def test_the_impact_ends_where_the_service_was_back_to_normal(
+        back_before_the_action: bool, said: str) -> None:
+    # The impact ends where the service was back inside the range it keeps when
+    # nothing is wrong, not where it fell off the incident's level - and
+    # "recovered" is Mitigation's word for that one. Back a whole minute before
+    # the action credited with it, the action did not bring it back, and the
+    # marker says so rather than leave the order to be noticed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, timeline=[])
+        ) \
+        .when(
+            lambda: [entry.text for entry in
+                     timeline_of(evidence, back_to_normal_at=RECOVERED_AT,
+                                 back_before_the_action=back_before_the_action)
+                     if entry.marker is TimelineMarker.IMPACT_ENDS]
+        ) \
+        .then(
+            the_answer_was([said])
         )
 
 
@@ -653,8 +1005,9 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
         .given(
             measured := a_measured_incident(
                 duration_in_hours=0.5,
-                recovered_at=RECOVERED_AT,
-                error_rates=ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42))
+                back_to_normal_at=RECOVERED_AT,
+                error_rates=ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
+                                       usual_ceiling=0.02, usual_worst=0.04))
         ) \
         .when(
             lambda: impact_of(measured)
@@ -672,6 +1025,7 @@ def test_impact_carries_how_many_requests_failed() -> None:
         .given(
             measured := a_measured_incident(
                 error_rates=ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
+                                       usual_ceiling=0.02, usual_worst=0.04,
                                        failed_requests=4210))
         ) \
         .when(
@@ -687,7 +1041,7 @@ def test_impact_still_running_when_the_metrics_ran_out_is_a_lower_bound() -> Non
     # Printed alike, a floor reads as a measurement.
     Scenario() \
         .given(
-            measured := a_measured_incident(recovered_at=None)
+            measured := a_measured_incident(back_to_normal_at=None)
         ) \
         .when(
             lambda: impact_of(measured).extent
@@ -703,7 +1057,7 @@ def test_impact_whose_metrics_stopped_is_unobserved() -> None:
     # nobody could see, which a lower bound would misdescribe.
     Scenario() \
         .given(
-            measured := a_measured_incident(recovered_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
         ) \
         .when(
             lambda: impact_of(measured).extent
@@ -727,11 +1081,12 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
         )
 
 
-def _a_deploy_of(revision: str, at: str) -> ChangeEvent:
+def _a_deploy_of(revision: str, at: str, actor: str | None = None) -> ChangeEvent:
     return ChangeEvent(kind=ChangeKind.DEPLOY,
                        occurred_at=at,
                        reference=revision,
-                       summary="dont care")
+                       summary="dont care",
+                       actor=actor)
 
 
 def _a_change_to(subject: str, at: str) -> ChangeEvent:
@@ -739,3 +1094,14 @@ def _a_change_to(subject: str, at: str) -> ChangeEvent:
                        occurred_at=at,
                        reference=subject,
                        summary="dont care")
+
+
+def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesRecord:
+    """What the deploy of `revision` changed, as the read tier says it: one file,
+    its patch lines as `changed` gives them."""
+    return DeploymentChangesRecord(revision=revision, said=[
+        f"Deployment of revision {revision} to io-shop, compared against "
+        f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
+        "modified deploy/values-production.yaml",
+        *(f"{PATCH_LINE_INDENT}{line}" for line in changed)
+    ])

@@ -21,6 +21,7 @@ from agent_postmortem.estimate import (
     RuleSeriesLevels,
     Unmeasured,
     beyond_the_variation,
+    calm_to_read_for,
     error_rates_over,
     rule_series_over,
     why_no_error_rates,
@@ -146,6 +147,34 @@ def test_the_requests_that_failed_are_counted_over_the_broken_minutes() -> None:
 
 
 @pytest.mark.unit
+def test_the_baseline_is_the_hour_before_it_began_however_far_back_the_calm_was_read() -> None:
+    # The calm is read further back than the hour for how far the rate varies
+    # on its own. The level a rise is measured from stays the last hour's:
+    # hours earlier is another part of the day.
+    some_rate_hours_earlier = 0.10
+    some_baseline_error_rate = 0.02
+    some_error_rate_while_broken = 0.30
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(hours=3),
+                          error_rate=some_rate_hours_earlier),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          error_rate=some_baseline_error_rate),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          error_rate=some_error_rate_while_broken)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _is_a_rise_of(some_error_rate_while_broken - some_baseline_error_rate)
+        )
+
+
+@pytest.mark.unit
 def test_a_calm_stretch_noisier_than_the_broken_one_reports_a_negative_rise() -> None:
     # Deliberately not clamped. Once the window is bounded by the signal
     # rather than by the workflow, a negative rise is no longer an artefact of
@@ -170,6 +199,138 @@ def test_a_calm_stretch_noisier_than_the_broken_one_reports_a_negative_rise() ->
         ) \
         .then(
             _is_a_rise_of(a_milder_broken_stretch - a_noisy_calm_hour)
+        )
+
+
+@pytest.mark.unit
+def test_how_high_the_rate_goes_on_its_own_is_read_from_stretches_as_long_in_the_calm() -> None:
+    # A rise is only a rise where the broken stretch went higher than the calm
+    # goes by itself over as long - the 95th percentile of every stretch that
+    # long before it began, averaged, and its worst minute. Two broken minutes
+    # here, so thirty-nine two-minute stretches - twenty of them apart - in
+    # forty calm minutes rising by a point each.
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=40 - minute),
+                            error_rate=minute / 100)
+                  for minute in range(40)),
+                _a_bucket(at=INCIDENT_START, error_rate=DONT_CARE_ERROR_RATE),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=1),
+                          error_rate=DONT_CARE_ERROR_RATE)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_START + timedelta(minutes=2))
+        ) \
+        .then(
+            _goes_on_its_own_to(usual_ceiling=0.366, usual_worst=0.371)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("calm_minutes", "broken_minutes"), [
+    pytest.param(5, 1, id="five-stretches"),
+    pytest.param(40, 3, id="thirteen-stretches-apart-of-thirty-eight-overlapping")
+])
+def test_a_calm_too_short_to_hold_twenty_stretches_apart_says_nothing_of_how_high_it_goes(
+    calm_minutes: int, broken_minutes: int
+) -> None:
+    # The 95th percentile is the value one stretch in twenty passes, and with
+    # fewer than twenty there is no such value to hold the broken stretch to.
+    # Twenty that do not share a minute: stretches overlapping each other are
+    # mostly the same minutes, and thirty-eight of them say no more of how the
+    # rate varies than the thirteen that are apart.
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=minute),
+                            error_rate=DONT_CARE_ERROR_RATE)
+                  for minute in range(1, calm_minutes + 1)),
+                *(_a_bucket(at=INCIDENT_START + timedelta(minutes=minute),
+                            error_rate=DONT_CARE_ERROR_RATE)
+                  for minute in range(broken_minutes))
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START,
+                                     INCIDENT_START + timedelta(minutes=broken_minutes))
+        ) \
+        .then(
+            _goes_on_its_own_to(usual_ceiling=None, usual_worst=None)
+        )
+
+
+@pytest.mark.unit
+def test_a_calm_as_long_as_the_read_for_a_span_holds_enough_stretches_to_vary_in() -> None:
+    # The read is sized before the broken stretch is known, from the longest it
+    # can come to. Never seen to recover, the stretch runs to the read's end,
+    # and a range read answers for both its ends: ten minutes from one minute's
+    # start to another's is eleven minutes read.
+    some_span = timedelta(minutes=10)
+    calm_minutes = calm_to_read_for(some_span) // timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=minute))
+                  for minute in range(1, calm_minutes + 1)),
+                *(_a_bucket(at=INCIDENT_START + timedelta(minutes=minute))
+                  for minute in range(11))
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, None)
+        ) \
+        .then(
+            _its_variation_is_known()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("span", "calm"), [
+    pytest.param(timedelta(minutes=1), timedelta(hours=1), id="never-less-than-the-hour"),
+    pytest.param(timedelta(days=30), timedelta(weeks=1), id="never-more-than-a-week")
+])
+def test_the_calm_read_for_a_span_is_never_shorter_than_the_hour_or_longer_than_a_week(
+    span: timedelta, calm: timedelta
+) -> None:
+    # The hour is the baseline's, whatever the span. A week covers incidents of
+    # most of a working day, inside the fortnight a metrics store keeps by
+    # default; past it the calm is too short and the variation says so.
+    Scenario() \
+        .when(
+            lambda: calm_to_read_for(span)
+        ) \
+        .then(
+            the_answer_was(calm)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "at_its_worst", "usual", "rose", "peaked"), [
+    pytest.param(0.011, 0.015, (0.012, 0.02), False, False, id="within-its-variation"),
+    pytest.param(0.30, 0.34, (0.012, 0.02), True, True, id="beyond-its-variation"),
+    pytest.param(0.30, 0.34, (None, None), None, None, id="variation-unknown")
+])
+def test_a_rise_is_beyond_the_rate_s_own_variation_only_above_how_high_it_goes_alone(
+    while_broken: float,
+    at_its_worst: float,
+    usual: tuple[float | None, float | None],
+    rose: bool | None,
+    peaked: bool | None
+) -> None:
+    Scenario() \
+        .given(
+            some_rates := ErrorRates(baseline=0.01, while_broken=while_broken,
+                                     at_its_worst=at_its_worst,
+                                     usual_ceiling=usual[0], usual_worst=usual[1])
+        ) \
+        .when(
+            lambda: (some_rates.rose_beyond_its_variation, some_rates.peaked_beyond_its_variation)
+        ) \
+        .then(
+            the_answer_was((rose, peaked))
         )
 
 
@@ -245,7 +406,27 @@ def test_no_minute_before_the_onset_is_unmeasured_for_want_of_a_calm_stretch() -
             lambda: why_no_error_rates(buckets, INCIDENT_START, INCIDENT_END)
         ) \
         .then(
-            the_answer_was(Unmeasured.NO_MINUTE_BEFORE_THE_ONSET)
+            the_answer_was(Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET)
+        )
+
+
+@pytest.mark.unit
+def test_calm_read_only_before_the_hour_measures_nothing_and_says_why() -> None:
+    # A gap in the metrics across the hour before the onset, with calm further
+    # back: there is a variation to read and no level to measure a rise from.
+    # Said as the hour that is missing - "nothing before the onset" would be
+    # false, and a mean of no minutes is no figure at all.
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START - timedelta(hours=3)),
+                        _a_bucket(at=INCIDENT_START + timedelta(minutes=5))]
+        ) \
+        .when(
+            lambda: (error_rates_over(buckets, INCIDENT_START, INCIDENT_END),
+                     why_no_error_rates(buckets, INCIDENT_START, INCIDENT_END))
+        ) \
+        .then(
+            the_answer_was((None, Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET))
         )
 
 
@@ -309,6 +490,39 @@ def test_the_rules_series_is_measured_at_the_levels_the_error_rate_is() -> None:
             _the_rules_levels_are(RuleSeriesLevels(
                 baseline=some_calm_share,
                 while_broken=(a_bad_minute + the_worst_minute) / 2,
+                at_its_worst=the_worst_minute,
+                worse_when="below"
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_the_rules_series_is_measured_from_the_hour_before_it_began_only() -> None:
+    # As the error rate is: the calm read further back is for how far a rate
+    # varies, and the level the incident is measured from is the last hour's.
+    some_reading_hours_earlier = 0.60
+    some_calm_share = 0.95
+    the_worst_minute = 0.38
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(hours=3),
+                          rule_reading=RuleReading(value=some_reading_hours_earlier,
+                                                   worse_when="below")),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=some_calm_share, worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=the_worst_minute, worse_when="below"))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_rules_levels_are(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=the_worst_minute,
                 at_its_worst=the_worst_minute,
                 worse_when="below"
             ))
@@ -559,6 +773,37 @@ def _is_a_rise_of(expected: float) -> Assertion[ErrorRates | None]:
                 f"Expected a rise of [{expected}], got "
                 f"[{measured.rise if measured else None}]."
             )
+        return True
+
+    return assertion
+
+
+def _goes_on_its_own_to(usual_ceiling: float | None,
+                        usual_worst: float | None) -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        said = (measured.usual_ceiling, measured.usual_worst) if measured else None
+
+        if said is None or not all(
+                (got is None and wanted is None)
+                or (got is not None and wanted is not None and isclose(got, wanted))
+                for got, wanted in zip(said, (usual_ceiling, usual_worst), strict=True)):
+            raise AssertionError(
+                f"Expected the error rate to go on its own to [{usual_ceiling}] on average "
+                f"and [{usual_worst}] at worst, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _its_variation_is_known() -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        said = (measured.usual_ceiling, measured.usual_worst) if measured else None
+
+        if said is None or None in said:
+            raise AssertionError(
+                f"Expected how high the rate goes on its own to be known, got {said}.")
+
         return True
 
     return assertion

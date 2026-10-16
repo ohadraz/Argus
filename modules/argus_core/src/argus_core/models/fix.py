@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from pydantic import BaseModel
+
+from argus_core.models.pull_request import OpenedPullRequest
+
 
 class FixOutcome(StrEnum):
     """How Code-Fix's turn ended (spec §7.4).
@@ -38,3 +42,19 @@ class FixOutcome(StrEnum):
     NOT_POSSIBLE = "not-possible"
     NOT_ANSWERED = "not-answered"
     DECLINED = "declined"
+
+
+class ProposedFix(BaseModel):
+    """What Code-Fix answered: the draft pull request it opened, `None` where it
+    judged there was nothing in the code to change - and what it said of the
+    code either way.
+
+    The explanation travels beside the proposal rather than only inside the
+    pull request's body, because the write-up reads it too: it is the one
+    account of the mechanism anybody read off the source, and "the fault is
+    not in the code, because..." is a finding as much as a fix is. A static
+    reading - nothing ran it - and `None` where the model gave none.
+    """
+
+    pull_request: OpenedPullRequest | None
+    explanation: str | None

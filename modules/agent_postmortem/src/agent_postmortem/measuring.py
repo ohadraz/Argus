@@ -43,7 +43,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from argus_core import parse_iso, to_iso
-from argus_core.anomaly import AnomalyThresholds, find_recovery
+from argus_core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
 from argus_core.models import MetricBucket
 from pydantic import BaseModel
 
@@ -53,6 +53,7 @@ from agent_postmortem.estimate import (
     RuleSeriesLevels,
     Unmeasured,
     beyond_the_variation,
+    calm_to_read_for,
     duration_in_hours,
     error_rates_over,
     in_the_reporting_currency,
@@ -84,17 +85,19 @@ class Measurements(BaseModel):
     another incident's.
     """
 
-    # How long the service was broken - onset to recovery, both read off the
-    # metrics. Not how long the walk stayed open: that clock runs through the
+    # How long the service was broken - onset to back to normal, both read off
+    # the metrics. Not how long the walk stayed open: that clock runs through the
     # verification wait, the code-fix attempt and the write-up, and an impact
     # figure measured over it describes a service that was mostly fine.
     duration_in_hours: float
-    # The minute the service came back, and `None` where it had not come back
-    # by the last minute of metrics read. `None` is an answer rather than a
+    # Where the service was back inside the range it keeps when nothing is
+    # wrong - which is not where Mitigation saw it fall off the incident's
+    # level, its recovery - and `None` where it was not back by the last minute
+    # of metrics read. `None` is an answer rather than a
     # missing one: every figure above is then a lower bound, and whatever
     # renders them has to say so rather than quietly presenting a bound read
     # as a measurement.
-    recovered_at: datetime | None
+    back_to_normal_at: datetime | None
     # How long Argus held the incident - the alert to the close. The one
     # figure on the page measuring the responder rather than the fault, which
     # is why it is kept and why it never stands in for the duration above. One
@@ -133,7 +136,7 @@ class Measurements(BaseModel):
     bands: Mapping[str, PayBand] | None
     # The instant from which the metrics carry no minute at all, where the read
     # answered and its rows stop before the incident began. A different fact from
-    # `recovered_at` being `None`: that one measured a service still in trouble at
+    # `back_to_normal_at` being `None`: that one measured a service still in trouble at
     # the end of the window, and this one measured nothing after the onset - so
     # the duration above is the time nobody could see, not a stretch of trouble.
     unobserved_from: datetime | None = None
@@ -145,6 +148,10 @@ class Measurements(BaseModel):
     # measured. An absent figure alone was told to the model as metrics that
     # could not be read, about a read that had returned six hours of them.
     error_rates_unmeasured: Unmeasured | None = None
+    # That the service was back to normal a whole minute before the action
+    # credited with bringing it back - so the action did not. Attribution, said
+    # rather than hidden by ending the incident at the action.
+    back_before_the_action: bool = False
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -165,19 +172,31 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # the onset beside it: a duration measured to recovery and a rise measured
     # to the close would be two incidents on one page, which is the failure
     # this function exists to prevent.
-    metrics = sources.metrics(began - BASELINE_WINDOW, evidence.ended_at, evidence.rule)
-    recovered_at = _when_the_service_came_back(
-        evidence.recorded_recovery_at,
-        evidence.watched_and_never_recovered,
-        metrics,
-        sources.thresholds,
-        began
+    # Back as far as the error rate's own variation needs, for an incident as
+    # long as it can have been - bounded by its close, since how long it was
+    # broken is only known once the read is in.
+    metrics = sources.metrics(began - calm_to_read_for(evidence.ended_at - began),
+                              evidence.ended_at,
+                              evidence.rule)
+    # Where the service came back is judged on the hour before it, as it always
+    # was: the readers find their own quiet half in what they are handed, and a
+    # noisier stretch hours earlier would move the bar a minute is told apart by.
+    back_to_normal_at, back_before_the_action = _found_back_before(
+        _when_the_service_came_back(
+            evidence.recorded_recovery_at,
+            evidence.watched_and_never_recovered,
+            [bucket for bucket in metrics
+             if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
+            sources.thresholds,
+            began
+        ),
+        evidence
     )
     # The read has to end somewhere even when nothing says the service came
     # back, so it ends at the close - the boundary a query needs. What must
-    # not happen is the substitution going unmarked, and `recovered_at` is the
+    # not happen is the substitution going unmarked, and `back_to_normal_at` is the
     # mark: absent, and every figure below is a lower bound.
-    measured_until = recovered_at or evidence.ended_at
+    measured_until = back_to_normal_at or evidence.ended_at
     duration = duration_in_hours(began, measured_until)
     rates = sources.rates()
     # Like with like: the incident against its own clock hours whole weeks
@@ -204,17 +223,18 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
 
     return Measurements(
         duration_in_hours=duration,
-        recovered_at=recovered_at,
+        back_to_normal_at=back_to_normal_at,
+        back_before_the_action=back_before_the_action,
         # From the alert rather than from the onset. The minutes before the
         # alert are the fault's, not the responder's - nobody had been told
         # yet - and charging them to the response would price Argus for a
         # delay in somebody else's monitoring.
         time_to_close_in_hours=duration_in_hours(
             evidence.started_at, evidence.ended_at),
-        # The recovery itself, not the bound the read fell back to. Where the
-        # service never came back there is no first well minute to stop at,
+        # The end of the harm itself, not the bound the read fell back to. Where
+        # the service never came back there is no first well minute to stop at,
         # and every minute read is part of the incident.
-        error_rates=error_rates_over(metrics, began, recovered_at),
+        error_rates=error_rates_over(metrics, began, back_to_normal_at),
         loss=loss,
         currency=sources.reporting_currency if loss is not None else None,
         baseline_revenue=baseline_revenue,
@@ -230,8 +250,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         unobserved_from=_when_the_sight_was_lost(
             metrics, began, evidence.ended_at, sources.metrics_reporting_lag_minutes),
         # Over the same stretch as the error rate, for the same reason.
-        rule_series=rule_series_over(metrics, began, recovered_at),
-        error_rates_unmeasured=why_no_error_rates(metrics, began, recovered_at)
+        rule_series=rule_series_over(metrics, began, back_to_normal_at),
+        error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at)
     )
 
 
@@ -335,9 +355,12 @@ def _when_the_service_came_back(recorded: datetime | None,
                                 began: datetime) -> datetime | None:
     """The instant the incident ended, or `None` where nothing ever said.
 
-    The minute Mitigation recorded, where it recorded one, and nothing is
-    checked against the series afterwards. That is the correction, and it is
-    about *windows* rather than about rules: the rule was always one rule, but
+    Looked for from the minute Mitigation recorded, where it recorded one: the
+    first minute from there the service was back to normal
+    (`_back_to_normal_from`), which is a different question from the
+    recovery's and is asked here. The recovery itself is not checked against
+    the series. That is the correction, and it is about *windows* rather than
+    about rules: the rule was always one rule, but
     Mitigation asks it of the window it is polling and this asks it of a window
     bounded by the incident's close, so two evaluations of one rule over two
     spans of minutes could always disagree. They cannot disagree if the question
@@ -373,14 +396,62 @@ def _when_the_service_came_back(recorded: datetime | None,
     incident started can open on an earlier episode and end that one instead.
     """
     if recorded is not None:
-        return recorded
+        return _back_to_normal_from(recorded, metrics, thresholds)
 
     if watched_and_never_recovered:
         return None
 
     recovered = find_recovery(metrics, thresholds, since=to_iso(began))
 
-    return parse_iso(recovered) if recovered is not None else None
+    return (_back_to_normal_from(parse_iso(recovered), metrics, thresholds)
+            if recovered is not None else None)
+
+
+def _back_to_normal_from(recovered: datetime,
+                         metrics: list[MetricBucket],
+                         thresholds: AnomalyThresholds) -> datetime | None:
+    """Where the service was back inside the range it keeps when nothing is
+    wrong, looking from the minute it fell off the incident's level - `None`
+    where the minutes read from there never get back.
+
+    A different question from the recovery's, asked once and here: the recovery
+    is what a verdict on an action needs, and the end of the harm is what an
+    impact needs, and a fix landing mid-minute leaves the minutes between the
+    two still broken. The recovery is where looking starts and nothing before
+    it is looked at, so a lull before Mitigation saw the service leave the
+    incident is not the end of it.
+
+    The recovery itself where the read holds no minute from it on: nothing
+    read then says otherwise.
+    """
+    looking_from = recovered.replace(second=0, microsecond=0)
+    if not any(parse_iso(bucket.bucket_id) >= looking_from for bucket in metrics):
+        return recovered
+
+    back = find_back_to_normal(metrics, thresholds, since=to_iso(looking_from))
+
+    return parse_iso(back) if back is not None else None
+
+
+def _found_back_before(back: datetime | None,
+                       evidence: IncidentEvidence) -> tuple[datetime | None, bool]:
+    """The end of the harm against the action credited with ending it, and
+    whether the service was back before that action.
+
+    A minute holding the action reads as normal for its seconds after the
+    action, and says nothing of the seconds before - so there the end is the
+    action. A whole normal minute ending at or before it says the service was
+    back before Argus acted, which is a finding about attribution and is kept
+    rather than tidied away by ending the incident at the action.
+    """
+    credited = evidence.credited_action
+    if back is None or credited is None:
+        return back, False
+
+    if back <= credited.taken_at < back + timedelta(minutes=1):
+        return credited.taken_at, False
+
+    return back, back + timedelta(minutes=1) <= credited.taken_at
 
 
 def _what_the_response_cost(engaged: EngagementAnswer | NotPaged | None,

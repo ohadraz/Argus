@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
+from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import ChangeEvent
 from deployment_platform import DeploymentPlatformReads
 from repository_source import (
@@ -177,7 +178,7 @@ def _said(service: str, difference: SourceDifference) -> list[str]:
 
         if changed.patch is None:
             said.append(
-                "  (no diff: the comparison carries none for this file - it is "
+                f"{PATCH_LINE_INDENT}(no diff: the comparison carries none for this file - it is "
                 "not text, or its change was too large to list)"
             )
             continue
@@ -188,7 +189,7 @@ def _said(service: str, difference: SourceDifference) -> list[str]:
             unshown += 1
             continue
 
-        said.extend(f"  {line}" for line in patch)
+        said.extend(f"{PATCH_LINE_INDENT}{line}" for line in patch)
         lines_left -= len(patch)
 
     return said + _whatever_was_left_out(difference, unshown)

@@ -21,6 +21,7 @@ line while fpdf2 logs it, so the file is still made.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from itertools import accumulate, pairwise
 from pathlib import Path
 from typing import Final
 
@@ -418,11 +419,16 @@ class _RuledAcross(TableBordersLayout):
     cell is. So it keeps where each row under the headings was drawn - `tops`,
     its page and top by its place among them - and writes each line in `lines`
     into its cell there and then, so the line is read in its cell's place.
+
+    A row that goes on from the one above it (`going_on`) - the rest of a row
+    no page holds - has no rule between it and that one.
     """
 
-    def __init__(self, pdf: _Sheet, lines: dict[tuple[int, int], tuple[Line, float]]) -> None:
+    def __init__(self, pdf: _Sheet, lines: dict[tuple[int, int], tuple[Line, float]],
+                 going_on: frozenset[int] = frozenset()) -> None:
         self._pdf = pdf
         self._lines = lines
+        self._going_on = going_on
         self.tops: dict[int, tuple[int, float]] = {}
 
     def cell_style_getter(self, row_idx: int, col_idx: int, col_pos: int,
@@ -437,39 +443,50 @@ class _RuledAcross(TableBordersLayout):
                 _a_line_in_a_cell(self._pdf, line, width)
 
         under_the_headings = num_heading_rows > 0 and row_idx == num_heading_rows - 1
+        body_row = row_idx - num_heading_rows
         return TableCellStyle(
             left=False,
             right=False,
-            top=row_idx > 0 and row_idx != num_heading_rows,
+            top=row_idx > 0 and row_idx != num_heading_rows and body_row not in self._going_on,
             bottom=(TableBorderStyle(thickness=0.26, color=_INK) if under_the_headings
-                    else row_idx < num_rows - 1))
+                    else row_idx < num_rows - 1 and body_row + 1 not in self._going_on))
 
 
 def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequence[_Cell]],
              widths: Sequence[float], align: Sequence[str] | None = None,
-             landings: Sequence[str | None] = ()) -> None:
+             landings: Sequence[tuple[str, ...]] = ()) -> None:
     """A table ruled across between its rows, its headings small and
     capitalised over an ink rule and repeated on every page it runs onto - or
     a table with no headings where `headings` is `None`. `widths` are in
     millimetres; `align` sets each column, left where it is not given;
-    `landings` is the label each row goes by, `None` for a row without one.
+    `landings` are the labels each row goes by, none for a row without one.
 
     A cell given as a line is left empty, as tall as the line needs, and the
     line written into it as its row is drawn.
 
     The fill colour is put back to the default first, because the table fills
     every cell in any other: it takes the colour in force as its own, and the
-    fill comes after the line written into the cell, painting it out."""
+    fill comes after the line written into the cell, painting it out.
+
+    A table draws no row across two pages, and refuses one taller than a page,
+    so a row that tall is set as rows that go on from one another
+    (`_as_the_pages_hold_them`), its labels landing on the first."""
     pdf.set_font(_BODY, "", _TABLE_PT)
     pdf.set_text_color(*_INK)
     pdf.set_draw_color(*_RULE)
     pdf.set_fill_color(pdf.DEFAULT_FILL_COLOR)
     pdf.set_line_width(0.26)
     aligned = list(align) if align else ["L"] * len(widths)
+    pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None)
+    starts = list(accumulate((len(each) for each in pieces[:-1]), initial=0))
+    rows = [piece for each in pieces for piece in each]
     layout = _RuledAcross(pdf, {(place, column): (cell, widths[column])
                                 for place, cells in enumerate(rows)
                                 for column, cell in enumerate(cells)
-                                if isinstance(cell, Line)})
+                                if isinstance(cell, Line)},
+                          going_on=frozenset(start + later
+                                             for start, each in zip(starts, pieces, strict=True)
+                                             for later in range(1, len(each))))
     with pdf.table(col_widths=tuple(widths), width=sum(widths), align="LEFT",
                    text_align="LEFT", v_align="TOP", line_height=_CELL_LINE,
                    borders_layout=layout, padding=_CELL_PADDING,
@@ -482,7 +499,7 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
                 heading_row.cell(heading.upper(), align=side)
         for cells in rows:
             row = table.row(min_height=max(
-                (_cell_height(pdf, cell.said, width)
+                (_A_ROW + _CELL_LINE * _how_many_lines(pdf, cell, width)
                  for cell, width in zip(cells, widths, strict=True) if isinstance(cell, Line)),
                 default=None))
             for cell, side in zip(cells, aligned, strict=True):
@@ -492,10 +509,231 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
                     text, style, address = cell
                     row.cell(text, style=style, link=address, align=side)
 
-    for place, label in enumerate(landings):
-        if label is not None:
-            pdf.lands_at(label, *layout.tops[place])
+    for place, labels in enumerate(landings):
+        for label in labels:
+            pdf.lands_at(label, *layout.tops[starts[place]])
     pdf.ln(1.5)
+
+
+def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
+                            widths: Sequence[float],
+                            under_headings: bool) -> list[list[list[_Cell]]]:
+    """Each row as the rows the pages hold it in: itself, where it fits on the
+    page it begins on or on a fresh one, and otherwise cut - its first piece
+    as many lines as the room left where it begins, so whatever is set above
+    it is not left alone at the foot of a page, and each piece after it as
+    many as a fresh page holds below the running header and the headings the
+    table repeats there.
+
+    Where each row begins is followed down the pages as the table will set
+    them, a row going to a fresh page where it does not fit the room left. A
+    first piece with room for too few lines is not begun there: the row
+    starts on the next page instead."""
+    headings = _A_ROW + _CELL_LINE if under_headings else 0.0
+    bottom = pdf.h - pdf.b_margin
+    fresh = _BELOW_THE_HEADER + headings
+    most = _lines_in(bottom - fresh)
+    at = pdf.y + headings
+    placed = []
+
+    for cells in rows:
+        tall = _A_ROW + _CELL_LINE * max((_how_many_lines(pdf, cell, width)
+                                          for cell, width in zip(cells, widths, strict=True)),
+                                         default=1)
+        if at + tall <= bottom:
+            at += tall
+            placed.append([list(cells)])
+            continue
+        if tall <= bottom - fresh:
+            at = fresh + tall
+            placed.append([list(cells)])
+            continue
+
+        room = _lines_in(bottom - at)
+        first = room if room >= _FEWEST_LINES_BEGUN else most
+        cut = [_cut(pdf, cell, width, first, most)
+               for cell, width in zip(cells, widths, strict=True)]
+        pieces = [[parts[place] if place < len(parts) else _NOTHING for parts in cut]
+                  for place in range(max(len(parts) for parts in cut))]
+        last = max(_how_many_lines(pdf, cell, width)
+                   for cell, width in zip(pieces[-1], widths, strict=True))
+        at = fresh + _A_ROW + _CELL_LINE * last
+        placed.append(pieces)
+
+    return placed
+
+
+# A row's own height besides its lines: the cell's padding above and below.
+_A_ROW: Final = _CELL_PADDING.top + _CELL_PADDING.bottom
+
+# The fewest lines a row taller than a page begins with at the foot of one.
+_FEWEST_LINES_BEGUN: Final = 3
+
+# What a cell holds below its last piece, in a row that goes on from its own.
+_NOTHING: Final[_Cell] = ("", None, None)
+
+
+def _lines_in(room: float) -> int:
+    """How many lines of a cell fit in `room` millimetres, with one to spare."""
+    return max(1, int((room - _A_ROW - _CELL_LINE) // _CELL_LINE))
+
+
+def _how_many_lines(pdf: _Sheet, cell: _Cell, width: float) -> int:
+    """How many lines a cell `width` wide holds its text in: a line as it is
+    written into its cell (`_where_the_lines_lie`), any other as the table sets
+    it, in the face it is set in."""
+    if isinstance(cell, Line):
+        return len(_where_the_lines_lie(pdf, cell.said, width))
+
+    text, style, _ = cell
+    _set_in(pdf, style)
+    lines = len(_cell_lines(pdf, text, width))
+    pdf.set_font(_BODY, "", _TABLE_PT)
+    return lines
+
+
+def _cut(pdf: _Sheet, cell: _Cell, width: float, first: int, most: int) -> list[_Cell]:
+    """A cell `width` wide as pieces: the first of at most `first` lines, each
+    after of at most `most` - or itself, where it fits in the first. A run cut
+    in two is two runs going where the one went.
+
+    A line is cut between the lines it is written in. Any other cell the table
+    sets itself, so each piece of it is the longest the table is measured to
+    set in its lines, ending where a line may break - and the pieces put back
+    together are the cell less the one space or line break between each two,
+    whatever the table's lines make of the characters in them."""
+    if isinstance(cell, Line):
+        spans = _where_the_lines_lie(pdf, cell.said, width)
+        if len(spans) <= first:
+            return [cell]
+
+        bounds = [0, *range(first, len(spans), most), len(spans)]
+        return [_a_piece_of(cell, spans[start][0], spans[end - 1][1])
+                for start, end in pairwise(bounds)]
+
+    text = cell[0]
+    pieces: list[_Cell] = []
+    begins, fits = 0, first
+
+    while _how_many_lines(pdf, rest := _a_piece_of(cell, begins, len(text)), width) > fits:
+        ends = _the_most_that_fits(text, begins, len(text),
+                                   _fitting(pdf, cell, width, begins, fits))
+        pieces.append(_a_piece_of(cell, begins, ends))
+        begins = ends + 1 if text[ends:ends + 1] in _BREAKS else ends
+        fits = most
+
+    return [*pieces, rest]
+
+
+def _fitting(pdf: _Sheet, cell: _Cell, width: float, begins: int,
+             fits: int) -> Callable[[int], bool]:
+    """Whether the piece of a cell from `begins` to a place in it is set in
+    `fits` lines or fewer."""
+    return lambda ends: _how_many_lines(pdf, _a_piece_of(cell, begins, ends), width) <= fits
+
+
+def _where_the_lines_lie(pdf: _Sheet, text: str, width: float) -> list[tuple[int, int]]:
+    """Where in `text` each line a cell `width` wide writes it in, in body
+    text, begins and ends: a line break ends one, and otherwise each is the
+    longest measured to fit across the cell, ending before a space where one
+    leaves it fitting.
+
+    Measured rather than looked for: the lines fpdf2 hands back are not the
+    text's own characters - a non-breaking space comes back a plain one, a
+    soft hyphen dropped or a hyphen - and a line looked for by its characters
+    is a line not found. Measured as wide as it is written, each piece its
+    characters' widths added up. A line's height, where it is cut and what is
+    written on each of its lines all come from here, so the three agree."""
+    pdf.set_font(_BODY, "", _TABLE_PT)
+    # The room across the cell as the table leaves it: less its padding, and
+    # the cell margin on the left, the side with none.
+    room = width - _CELL_PADDING.left - _CELL_PADDING.right - pdf.c_margin
+    # How far across each place in the text is from its start: each character
+    # measured once, so a piece is measured without being read again.
+    wide = {character: pdf.get_string_width(character) for character in set(text)}
+    across = list(accumulate((wide[character] for character in text), initial=0.0))
+
+    def fitting(begins: int) -> Callable[[int], bool]:
+        return lambda ends: across[ends] - across[begins] <= room
+
+    spans: list[tuple[int, int]] = []
+    paragraph = 0
+    for said in text.split("\n"):
+        begins, ends_by = paragraph, paragraph + len(said)
+        while not fitting(begins)(ends_by):
+            ends = _the_most_that_fits(text, begins, ends_by, fitting(begins))
+            spans.append((begins, ends))
+            begins = ends + 1 if text[ends:ends + 1] == " " else ends
+        spans.append((begins, ends_by))
+        paragraph = ends_by + 1
+
+    return spans
+
+
+def _the_most_that_fits(text: str, begins: int, ends_by: int,
+                        fitting: Callable[[int], bool]) -> int:
+    """Where the longest piece of `text` from `begins`, and ending by
+    `ends_by`, that is `fitting` ends: before the last space or line break
+    that leaves it fitting, or - where a word alone is wider than the cell -
+    wherever the measure says.
+
+    The longest is found by doubling a reach until it no longer fits and then
+    halving between the two, so a cell many pages long is measured in pieces
+    near the size of one rather than whole at every step."""
+    shortest, reach = begins + 1, _A_FIRST_REACH
+    while begins + reach < ends_by and fitting(begins + reach):
+        shortest, reach = begins + reach, reach * 2
+
+    longest = min(begins + reach, ends_by)
+    while shortest < longest:
+        middle = (shortest + longest + 1) // 2
+        if fitting(middle):
+            shortest = middle
+        else:
+            longest = middle - 1
+
+    if text[shortest:shortest + 1] in _BREAKS:
+        return shortest
+
+    space = max(text.rfind(each, begins, shortest) for each in _BREAKS)
+    return space if space > begins else shortest
+
+
+# How far a piece is first reached for, in characters, before the reach doubles.
+_A_FIRST_REACH: Final = 256
+
+# Where a cell is cut between pieces: a space or a line break, and never a
+# non-breaking space, which is there to say its two sides stay together.
+_BREAKS: Final = (" ", "\n")
+
+
+def _set_in(pdf: _Sheet, style: FontFace | None) -> None:
+    """The face a plain cell is set in: its own style's, over the table's body."""
+    if style is None:
+        pdf.set_font(_BODY, "", _TABLE_PT)
+        return
+
+    pdf.set_font(style.family or _BODY,
+                 style.emphasis.style if style.emphasis else "",
+                 style.size_pt or _TABLE_PT)
+
+
+def _a_piece_of(cell: _Cell, begins: int, ends: int) -> _Cell:
+    """The part of a cell between two places in its text - a line's runs each
+    kept with its role and address, and only where it has any of that part."""
+    if not isinstance(cell, Line):
+        text, style, address = cell
+        return text[begins:ends], style, address
+
+    runs = []
+    at = 0
+    for run in cell.runs:
+        piece = run.text[max(begins - at, 0):max(ends - at, 0)]
+        if piece:
+            runs.append(run.model_copy(update={"text": piece}))
+        at += len(run.text)
+
+    return Line(runs=tuple(runs))
 
 
 def _cell_lines(pdf: _Sheet, text: str, width: float) -> list[str]:
@@ -507,15 +745,6 @@ def _cell_lines(pdf: _Sheet, text: str, width: float) -> list[str]:
     return lines
 
 
-def _cell_height(pdf: _Sheet, text: str, width: float) -> float:
-    """How tall a table cell `width` wide is with `text` in it, in body text."""
-    pdf.set_font(_BODY, "", _TABLE_PT)
-    height = pdf.multi_cell(width, _CELL_LINE, text, max_line_height=_CELL_LINE,
-                            padding=_CELL_PADDING, dry_run=True, output="HEIGHT")
-    assert isinstance(height, float)
-    return height
-
-
 def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
     """A line written in body text into the cell the table left for it, from
     the cell's top left corner where the page is now: broken where the table
@@ -524,6 +753,7 @@ def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
     x, top = pdf.x, pdf.y
     pdf.set_font(_BODY, "", _TABLE_PT)
     text = line.said
+    spans = _where_the_lines_lie(pdf, text, width)
     runs: list[tuple[int, Run]] = []
     start = 0
     for run in _cited(pdf, line.runs):
@@ -535,10 +765,7 @@ def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
     # one before it.
     left, margin = x + pdf.c_margin, pdf.c_margin
     pdf.c_margin = 0
-    cursor = 0
-    for place, wrapped in enumerate(_cell_lines(pdf, text, width)):
-        begins = text.find(wrapped, cursor)
-        ends = cursor = begins + len(wrapped)
+    for place, (begins, ends) in enumerate(spans):
         pdf.set_xy(left, top + _CELL_PADDING.top + place * _CELL_LINE)
         for at, run in runs:
             piece = text[max(at, begins):min(at + len(run.text), ends)]
@@ -642,10 +869,10 @@ def _the_hypotheses(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         return
 
     _a_table(pdf, hypotheses.headings,
-             [[(row.label, _NUMBER, None), (row.summary, None, None),
+             [[(", ".join(row.labels), _NUMBER, None), (row.summary, None, None),
                (row.confidence, _TIME, None), (row.result, None, None)]
               for row in hypotheses.rows],
-             widths=(13, 91, 26, 44), landings=[row.label for row in hypotheses.rows])
+             widths=(18, 86, 26, 44), landings=[row.labels for row in hypotheses.rows])
 
 
 def _the_trigger(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -671,7 +898,7 @@ def _the_resolution(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
                          (step.by, None, None), (step.kind, None, None),
                          (step.outcome, None, None)])
         _a_table(pdf, taken.headings, rows, widths=(18, 54, 24, 37, 41),
-                 landings=[step.label for step in steps])
+                 landings=[(step.label,) if step.label else () for step in steps])
     elif taken.absent:
         _quiet(pdf, taken.absent)
 
@@ -698,7 +925,7 @@ def _the_action_items(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
                          (row.tracking.said, _LINKED if address else None, address),
                          (row.status, _DONE if row.status == "done" else None, None)])
         _a_table(pdf, items.headings, rows, widths=(13, 48, 17, 21, 62, 13),
-                 landings=[row.number for row in items.rows])
+                 landings=[(row.number,) for row in items.rows])
 
     if items.recommended is not None:
         _a_paragraph(pdf, items.recommended)
@@ -733,6 +960,8 @@ def _the_lessons(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
 
 def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
+    """Each line in a row: when, its marker, and who said what - written run by
+    run, so a candidate the line names leads to its row."""
     timeline = rendered.timeline
     if timeline.absent:
         _quiet(pdf, timeline.absent)
@@ -740,10 +969,10 @@ def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
     _a_table(pdf, None,
              [[(row.at, _TIME, None), (row.marker or "", _MARKER, None),
-               (" ".join(part for part in (row.who, row.text.said) if part), None, None)]
+               Line(runs=(*((Run(text=f"{row.who} "),) if row.who else ()), *row.text.runs))]
               for row in timeline.rows],
              widths=(31, 24, 119), align=("R", "L", "L"),
-             landings=[row.label for row in timeline.rows])
+             landings=[(row.label,) if row.label else () for row in timeline.rows])
 
 
 def _the_leads(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -774,8 +1003,10 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     copy from paper. Each line's words up to its first colon are its label,
     and the assumptions are the list's last entry.
 
-    Between the two, the changes and the log messages read, each a table of
-    rows under the labels the prose cites them by."""
+    Between the two, the changes and the log messages read, what each
+    deployment looked into changed and what Code-Fix read in the source, each
+    a table of rows under the labels the prose cites them by - the last two
+    only where there is any."""
     supporting = rendered.supporting
     for line in supporting.links:
         opening, *rest = line.runs
@@ -785,15 +1016,19 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
 
     for heading, rows, absent in (
         (supporting.changes_heading, supporting.changes, supporting.changes_absent),
-        (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent)
+        (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent),
+        (supporting.deployment_changes_heading, supporting.deployment_changes, None),
+        (supporting.code_read_heading, supporting.code_read, None)
     ):
+        if not rows and absent is None:
+            continue
         _a_subheading(pdf, heading)
         if absent:
             _quiet(pdf, absent)
         else:
             _a_table(pdf, None,
                      [[(row.label, _NUMBER, None), row.said] for row in rows],
-                     widths=(16, 158), landings=[row.label for row in rows])
+                     widths=(16, 158), landings=[(row.label,) for row in rows])
     pdf.ln(2.0)
 
     assumptions = [[*assumption.runs] for assumption in supporting.assumptions]

@@ -27,7 +27,12 @@ from agent_postmortem.assumptions import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.briefing import STANDING_BRIEF, postmortem_policy
-from agent_postmortem.evidence import ActionRecord, CandidateRecord, IncidentEvidence
+from agent_postmortem.evidence import (
+    ActionRecord,
+    CandidateRecord,
+    DeploymentChangesRecord,
+    IncidentEvidence,
+)
 from agent_postmortem.reviewing import (
     ANALYSIS_COMPLETE,
     IMPACT_ASSESSED,
@@ -68,6 +73,7 @@ __all__ = [
     "WORKING_YEAR_ASSUMPTION_LABEL",
     "ActionRecord",
     "CandidateRecord",
+    "DeploymentChangesRecord",
     "EngagedResponder",
     "EngagementAnswer",
     "IncidentEvidence",

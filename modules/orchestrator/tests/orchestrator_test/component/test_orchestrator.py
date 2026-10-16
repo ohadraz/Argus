@@ -38,6 +38,7 @@ from argus_core.models import (
     IncidentStatus,
     Leads,
     PostmortemDocument,
+    ProposedFix,
     Reading,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -112,7 +113,8 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
         change_landed=_a_change_that_never_landed(),
-        propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: None,
+        propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: (
+            ProposedFix(pull_request=None, explanation=None)),
         actions_taken=lambda dont_care_incident: [],
         recall_similar=lambda dont_care_description, dont_care_service: [],
         remember_incident=lambda dont_care_record: None,
@@ -1041,12 +1043,12 @@ def _a_fix_channel_whose_question_is_traced(asked: list[str],
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> None:
+                leads: Leads = no_leads) -> ProposedFix:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
 
-        return None
+        return ProposedFix(pull_request=None, explanation=None)
 
     return propose
 
@@ -1059,10 +1061,10 @@ def _a_fix_channel_noting_what_it_was_told(told: list[list[ThreadMessage]]
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> None:
+                leads: Leads = no_leads) -> ProposedFix:
         told.append(leads())
 
-        return None
+        return ProposedFix(pull_request=None, explanation=None)
 
     return propose
 

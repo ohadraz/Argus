@@ -31,7 +31,7 @@ THE_CHANGES_MOMENT = datetime(2026, 10, 11, 14, 0, tzinfo=UTC)
 
 
 @pytest.mark.unit
-def test_the_walk_the_fix_and_the_evidence_are_listed_with_every_address_in_full() -> None:
+def test_the_walk_and_the_fix_are_listed_with_every_address_in_full() -> None:
     # Read away from the screen it came from, an address relative to nothing
     # leads nowhere.
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
@@ -39,7 +39,7 @@ def test_the_walk_the_fix_and_the_evidence_are_listed_with_every_address_in_full
 
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(pull_request=some_fix, evidence_read=14)
+            some_postmortem := a_postmortem(pull_request=some_fix)
         ) \
         .when(
             lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).links
@@ -51,23 +51,23 @@ def test_the_walk_the_fix_and_the_evidence_are_listed_with_every_address_in_full
                 Line(runs=(Run(text="The fix it proposed: "),
                            Run(text=f"#7 {some_fix.url}", role=Role.LINK, address=some_fix.url),
                            Run(text=" "),
-                           Run(text="draft - nobody has merged it", role=Role.STATUS))),
-                Line(runs=(Run(text="Evidence read: 14"),)))))
+                           Run(text="draft - nobody has merged it", role=Role.STATUS))))))
 
 
 @pytest.mark.unit
-def test_an_incident_with_no_fix_and_uncounted_evidence_lists_the_walk_and_says_so() -> None:
+def test_an_incident_with_no_fix_lists_the_walk_alone() -> None:
+    # No count of the evidence the writer was shown: it is a number of labels
+    # in a prompt, and tells a reader nothing they can act on.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(pull_request=None, evidence_read=None)
+            some_postmortem := a_postmortem(pull_request=None)
         ) \
         .when(
             lambda: tuple(line.said for line in the_supporting_information(
                 some_postmortem, SOME_INCIDENT_ADDRESS).links)
         ) \
         .then(
-            the_answer_was((f"The incident's walk: {SOME_INCIDENT_ADDRESS}",
-                            "Evidence read: not counted")))
+            the_answer_was((f"The incident's walk: {SOME_INCIDENT_ADDRESS}",)))
 
 
 @pytest.mark.unit
@@ -206,6 +206,114 @@ def test_some_read_of_both_says_nothing_in_their_place() -> None:
         ) \
         .then(
             the_answer_was((None, None)))
+
+
+@pytest.mark.unit
+def test_what_each_deployment_changed_is_a_row_of_its_lines_its_revisions_leading_to_them() -> None:
+    # The prose says "as D1 shows"; this is the row that shows it - every line
+    # as the model read it, and each revision a change read names leading to
+    # its commit, as in the change's own row.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+    some_diff = CitedEvidence(
+        label="D1",
+        text=(f"Deployment of revision some-revision to io-shop, compared against "
+              f"{SOME_DEPLOYED_REVISION} - the revision deployed before it.\n"
+              f"modified deploy/values-production.yaml\n"
+              f"  -  model: v1\n"
+              f"  +  model: v2"))
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P1")],
+                                            deployment_changes_read=[some_diff])
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).deployment_changes
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="D1", said=Line(runs=(
+                Run(text="Deployment of revision some-revision to io-shop, compared against "),
+                Run(text=SOME_DEPLOYED_REVISION, role=Role.LINK, address=commit),
+                Run(text=" - the revision deployed before it.\n"
+                         "modified deploy/values-production.yaml\n"
+                         "  -  model: v1\n"
+                         "  +  model: v2")))),)))
+
+
+@pytest.mark.unit
+def test_what_each_deployment_changed_is_headed_as_what_was_looked_into() -> None:
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).deployment_changes_heading
+        ) \
+        .then(
+            the_answer_was("What each deployment looked into changed"))
+
+
+@pytest.mark.unit
+def test_an_incident_that_looked_into_no_deployment_has_no_row_for_one() -> None:
+    # Nothing in its place either: most incidents look into no deployment, and
+    # "none read" under a heading for them would say a read was missed.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(deployment_changes_read=[])
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).deployment_changes
+        ) \
+        .then(
+            the_answer_was(()))
+
+
+@pytest.mark.unit
+def test_what_code_fix_read_in_the_source_is_a_row_under_its_label() -> None:
+    some_reading = CitedEvidence(label="F1", text="the categoriser does not lowercase")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).code_read
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="F1",
+                                        said=Line(runs=(Run(text=some_reading.text),))),)))
+
+
+@pytest.mark.unit
+def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran() -> None:
+    # The mechanism as it was read off the source: a reader weighs a cause
+    # resting on it by knowing that nothing ran it.
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).code_read_heading
+        ) \
+        .then(
+            the_answer_was("What Code-Fix read in the source - a static reading, nothing ran it"))
+
+
+@pytest.mark.unit
+def test_an_incident_code_fix_said_nothing_of_has_no_row_for_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).code_read
+        ) \
+        .then(
+            the_answer_was(()))
 
 
 @pytest.mark.unit

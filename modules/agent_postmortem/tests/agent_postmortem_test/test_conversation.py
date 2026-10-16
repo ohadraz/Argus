@@ -520,6 +520,38 @@ def test_a_step_resting_on_a_candidate_cause_is_asked_for_again_naming_it() -> N
 
 
 @pytest.mark.unit
+def test_a_step_resting_on_a_candidate_shown_under_another_s_label_is_asked_for_again() -> None:
+    # Shown on the line of the candidate it is one cause with, C2 is still a
+    # candidate - and still no evidence for a step.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_citing_a_guess := a_model_answering_in_turn(
+                an_answer(causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: ["T1", "C2"]}]),
+                an_answer(causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: ["T1"]}]),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_citing_a_guess,
+                an_evidence_bundle(candidates=[
+                    a_candidate("dont care", subject="categoriser.model",
+                                from_state="v1", to_state="v2"),
+                    a_candidate("dont care either", subject="categoriser.model",
+                                from_state="v1", to_state="v2")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "cites [C2], a candidate cause"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_answer_asked_for_again_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:

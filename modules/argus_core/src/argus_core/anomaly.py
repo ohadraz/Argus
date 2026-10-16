@@ -524,6 +524,65 @@ def find_recovery(buckets: Sequence[MetricBucket],
     return None
 
 
+def find_back_to_normal(buckets: Sequence[MetricBucket],
+                        thresholds: AnomalyThresholds,
+                        since: str) -> str | None:
+    """The `bucket_id` of the first minute, from `since` on, at which every
+    series the incident moved is back inside the range it keeps when nothing is
+    wrong - and stays there for as long as a recovery has to hold - or `None`
+    where the window ends before one is.
+
+    A different question from `find_recovery`'s, and asked beside it rather than
+    instead of it. That one asks when the service fell off the incident's own
+    level, which is what a verdict on an action needs: an action that brought a
+    service most of the way down has done what it was taken to do. This asks when
+    the harm was over, which is what an impact's end is. A fix landing half way
+    through a minute leaves that minute off the incident's level and still
+    outside the service's range - recovered, and not yet normal - and an impact
+    ended there leaves out a minute the service was still broken in.
+
+    `since` is where to start looking, and the caller's recovered minute is the
+    answer worth starting from: nothing before the service left the incident can
+    be it back to normal.
+
+    The incident's series only, judged against the departure bar - the bar an
+    onset is found against, so "back inside its range" and "departed" are one
+    line read from either side. A series the incident never moved has nothing to
+    come back from, and a noisy minute in one is that series being itself. Moved
+    means persisted before `since`, for the reason a lone departed minute is not
+    an onset. Where nothing persisted there is nothing to come back from, and
+    `since` itself is back.
+
+    Held for the clear minutes `_clear_minutes_a_recovery_has_to_show` measures,
+    because a service flapping across its range is not back at the first minute
+    it happens to be inside it.
+    """
+    # As instants, as `find_recovery` reads its own `since`: a minute's id and an
+    # instant at that minute are spelled differently and do not order as text.
+    looking_from = parse_iso(since)
+    start = next((index for index, bucket in enumerate(buckets)
+                  if parse_iso(bucket.bucket_id) >= looking_from), None)
+    if start is None:
+        return None
+
+    moved = [
+        departed for departed in (
+            _minutes_above(values, _departure_threshold(_read(values), thresholds,
+                                                        _THE_QUIETEST_MINUTES))
+            for values in _the_judged_series(buckets)
+        )
+        if any(departed[index] and (index == 0 or not departed[index - 1])
+               and _run_length_from(departed, index) >= thresholds.persistence_minutes
+               for index in range(start))
+    ]
+    inside = [not any(series[index] for series in moved) for index in range(len(buckets))]
+    hold = _clear_minutes_a_recovery_has_to_show(
+        _departures_from_the_incident(buckets, thresholds), thresholds)
+
+    return next((buckets[index].bucket_id for index in range(start, len(buckets))
+                 if _run_length_from(inside, index) >= hold), None)
+
+
 def _where_the_incident_persisted_from(buckets: Sequence[MetricBucket],
                                        thresholds: AnomalyThresholds) -> int | None:
     """Where in the window the first departure run long enough to be a state

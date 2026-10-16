@@ -23,6 +23,7 @@ import psycopg
 from agent_postmortem import (
     ActionRecord,
     CandidateRecord,
+    DeploymentChangesRecord,
     IncidentEvidence,
     Sources,
     write_postmortem,
@@ -32,22 +33,29 @@ from argus_core.events import (
     ActionRecommended,
     ActionTaken,
     ChangesRetrieved,
+    DeploymentChangesRead,
     FixAttempted,
     FlagChangesRetrieved,
+    IncidentRemembered,
     LogsRetrieved,
     OnsetDetected,
     RecoveryChecked,
+    RememberingFailed,
     StatusChanged,
 )
 from argus_core.llm import ClientFor
 from argus_core.models import (
+    AcceleratorPinUndo,
     ActionType,
     Alert,
+    AutoscalerUndo,
     ChangeEvent,
+    DeploymentRollbackUndo,
     Hypothesis,
     IncidentStatus,
     OpenedPullRequest,
     PostmortemDocument,
+    ReplicaUndo,
     TakenAction,
     TimelineEntry,
     Verdict,
@@ -128,6 +136,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         incident_id=incident_id,
         started_at=incident.created_at,
         ended_at=incident.ended_at,
+        alerted_at=_when_it_was_alerted(incident.alert_payload) or incident.created_at,
         onset_at=_when_it_actually_began(conn, incident_id),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
@@ -139,8 +148,10 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         actions=_what_was_done(conn, incident_id),
         log_lines=_what_was_read(conn, incident_id),
         changes=_what_changed(conn, incident_id),
+        deployment_changes=_what_each_deployment_changed(conn, incident_id),
         tokens_spent=replay.get_tokens_spent(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
+        fix_explanation=_what_code_fix_said(conn, incident_id),
         recommended_action=_what_is_still_owed(conn, incident_id),
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
@@ -194,6 +205,21 @@ def _what_was_proposed(conn: psycopg.Connection,
                 if isinstance(event, FixAttempted) and event.pull_request]
 
     return proposed[-1] if proposed else None
+
+
+def _what_code_fix_said(conn: psycopg.Connection, incident_id: str) -> str | None:
+    """What Code-Fix last said of the code, as it published it - `None` where
+    it said nothing.
+
+    The last, for the reason the proposal is: an incident that went back to
+    investigate can reach the code twice, and what stands is what was said of
+    it last.
+    """
+    said = [event.explanation
+            for event in events.get_by_incident(conn, incident_id)
+            if isinstance(event, FixAttempted) and event.explanation]
+
+    return said[-1] if said else None
 
 
 def _when_it_actually_began(conn: psycopg.Connection,
@@ -297,6 +323,12 @@ def _the_rule_that_paged(alert_payload: dict[str, object]) -> str | None:
     return Alert.model_validate(alert_payload).rule
 
 
+def _when_it_was_alerted(alert_payload: dict[str, object]) -> datetime | None:
+    """When the alert fired, as its sender dated it, read back through the
+    alert's own model as the rule is - `None` where the sender dated nothing."""
+    return Alert.model_validate(alert_payload).started_at
+
+
 def _what_was_alerted(alert_payload: dict[str, object]) -> str:
     """The alert in a line, for the postmortem's prompt.
 
@@ -347,7 +379,19 @@ def _what_happened(conn: psycopg.Connection,
     saying whether it is the walk's own. Both are timing - how many looks a
     wait took, and where a person's message fell - and a document numbering
     by either would number one walk differently on every telling.
+
+    And two lines the page shows and the document leaves out. What was filed
+    for the next incident, or that nothing could be: that is Argus keeping its
+    books for an incident that has not happened yet, and says nothing about
+    this one. And a read of what a deployment changed, which the document
+    gives a row of its own (`_what_each_deployment_changed`), so a line for it
+    too would tell it twice.
     """
+    about_this_incident = [
+        event for event in events.get_by_incident(conn, incident_id)
+        if not isinstance(event, IncidentRemembered | RememberingFailed | DeploymentChangesRead)
+    ]
+
     return [
         TimelineEntry(at=line.at,
                       who=line.who,
@@ -356,7 +400,7 @@ def _what_happened(conn: psycopg.Connection,
                                   for candidate in line.candidates
                                   if candidate.hypothesis_id in considered],
                       outside_the_walk=line.outside_the_walk)
-        for line in each_wait_told_once(build_narration(events.get_by_incident(conn, incident_id)))
+        for line in each_wait_told_once(build_narration(about_this_incident))
     ]
 
 
@@ -404,9 +448,28 @@ def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[ActionRec
                      action=_what_it_did(taken_action, said),
                      reversible=taken_action.has_a_way_back,
                      verdict=taken_action.outcome,
-                     standing=_what_became_of(taken_action))
+                     standing=_what_became_of(taken_action),
+                     paused_sync_of=_whose_sync_it_left_stopped(taken_action))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
+
+
+def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
+    """The application whose automatic sync the action stopped, where it is
+    still stopped: the change stands, and sync was on when Argus found it.
+
+    A change put back puts sync back with it, and an application nobody had
+    syncing was not stopped by Argus - so neither owes anybody anything.
+    """
+    if not taken_action.has_a_way_back or taken_action.outcome is Verdict.REFUTED:
+        return None
+
+    match taken_action.undo_descriptor:
+        case (DeploymentRollbackUndo() | ReplicaUndo() | AutoscalerUndo()
+              | AcceleratorPinUndo()) as undo if undo.was_syncing_itself:
+            return undo.application
+        case _:
+            return None
 
 
 def _when_it_was_taken(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> datetime:
@@ -478,6 +541,23 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEven
                     read.append(change)
 
     return sorted(read, key=lambda change: parse_iso(change.occurred_at))
+
+
+def _what_each_deployment_changed(conn: psycopg.Connection,
+                                  incident_id: str) -> list[DeploymentChangesRecord]:
+    """What each deployment the investigation looked into changed, in the order
+    it first asked.
+
+    Each deployment once. The model may ask after one deployment twice, and a
+    row per read would number the deployments by how often it happened to.
+    """
+    read: dict[str, DeploymentChangesRecord] = {}
+    for event in events.get_by_incident(conn, incident_id):
+        if isinstance(event, DeploymentChangesRead) and event.revision not in read:
+            read[event.revision] = DeploymentChangesRecord(revision=event.revision,
+                                                           said=event.said)
+
+    return list(read.values())
 
 
 def _the_same_change(one: ChangeEvent, other: ChangeEvent) -> bool:
