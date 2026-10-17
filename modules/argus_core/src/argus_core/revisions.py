@@ -1,5 +1,6 @@
 """A revision said short: as git abbreviates it, and as long as it takes to
-name it alone among the revisions an incident read.
+name it alone among the revisions an incident read - and found in a sentence,
+whole or by a start of it, as the one revision that start names.
 
 One rule in one place, because the postmortem, the dashboard and the channel
 each say a revision, and two shortenings are two chances to disagree.
@@ -7,11 +8,32 @@ each say a revision, and two shortenings are two chances to disagree.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 # How long a revision's short form is, as git abbreviates one - and longer only
 # where two revisions the incident read start alike for that long.
 _SHORT_FORM: Final = 7
+
+# A revision as a deploy names it, short or whole: a run of hex with a digit and
+# a letter in it, so that no English word reads as one, standing as a word of
+# its own - the hash inside a pod's name is part of that name.
+A_REVISION: Final = re.compile(
+    r"(?<![\w-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w-])"
+)
+
+
+def the_revision_named(named: str, revisions: frozenset[str]) -> str | None:
+    """The one revision among `revisions` that `named` is, whole, or is the
+    start of - `None` where it starts several, since nothing here can say which
+    was meant, or none.
+
+    A start a few characters off is no start of anything here: putting that
+    right is a guess about what a writer meant, and belongs to whoever can ask
+    the writer again."""
+    starting = [revision for revision in revisions if revision.startswith(named)]
+
+    return starting[0] if len(starting) == 1 else None
 
 
 def short_form(revision: str, revisions: frozenset[str]) -> str:

@@ -250,12 +250,14 @@ def test_a_name_the_walk_quoted_is_said_without_its_brackets(
 
 
 @pytest.mark.component
-def test_a_revision_the_incident_read_is_said_short(
+def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
         slack: str, a_clean_database: None) -> None:
     # Said whole in the record; forty characters in a channel read as noise.
-    # Short as the postmortem says it, from the changes the incident read.
+    # Short as the postmortem says it, from the changes the incident read -
+    # and, short, a name a reader cannot look up by hand, so it opens there.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    its_commit = f"https://github.invalid/acme/shop/commit/{some_revision}"
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert)
@@ -271,7 +273,8 @@ def test_a_revision_the_incident_read_is_said_short(
                                                                           some_revision)),
                                   Register.ANNOUNCED)) \
             .then(
-                _that_message_marks(slack, f"{some_revision[:7]} made every page slow")
+                _that_message_marks(slack,
+                                    f"<{its_commit}|{some_revision[:7]}> made every page slow")
             )
 
 

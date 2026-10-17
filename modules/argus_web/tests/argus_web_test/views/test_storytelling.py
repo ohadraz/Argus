@@ -43,6 +43,7 @@ from argus_core.models import (
 )
 from argus_testkit import Assertion, Scenario
 from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
+from postmortem_rendering import Role, Run
 
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 
@@ -50,6 +51,7 @@ SOME_MINUTE = "2026-08-30T10:14:00Z"
 AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
 SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+SOME_REPOSITORY = "https://github.invalid/acme/shop"
 
 
 @pytest.mark.unit
@@ -233,6 +235,58 @@ def test_a_revision_the_incident_read_is_shown_short() -> None:
 
 
 @pytest.mark.unit
+def test_a_revision_a_line_names_opens_its_commit() -> None:
+    # Short, it is a name a reader cannot look up by hand.
+    Scenario() \
+        .given(
+            a_candidate_naming_a_revision := [
+                _changes_showing_a_deploy_of(SOME_REVISION),
+                _a_candidate_selected(f"[{SOME_REVISION}] made every page slow")]
+        ) \
+        .when(lambda: build_story(a_candidate_naming_a_revision)) \
+        .then(_a_line_shown_links({SOME_REVISION[:7]: _the_commit_of(SOME_REVISION)}))
+
+
+@pytest.mark.unit
+def test_a_change_read_is_named_as_the_postmortem_s_row_names_it() -> None:
+    # Short, and opening where it was committed: the page and the postmortem
+    # name one revision one way.
+    Scenario() \
+        .given(
+            a_deploy_read := [_changes_showing_a_deploy_of(SOME_REVISION)]
+        ) \
+        .when(lambda: build_story(a_deploy_read)) \
+        .then(_the_changes_are_named([
+            Run(text=SOME_REVISION[:7], role=Role.LINK, address=_the_commit_of(SOME_REVISION))
+        ]))
+
+
+@pytest.mark.unit
+def test_a_change_with_nowhere_to_open_is_named_as_a_name() -> None:
+    Scenario() \
+        .given(
+            a_flag_move_read := [_changes_showing_a_flag_toggle_of(SOME_FLAG)]
+        ) \
+        .when(lambda: build_story(a_flag_move_read)) \
+        .then(_the_changes_are_named([Run(text=SOME_FLAG, role=Role.CODE)]))
+
+
+@pytest.mark.unit
+def test_what_a_change_did_says_its_revision_short_and_opens_what_it_names() -> None:
+    # In the words the postmortem's row says it in: the revision short, and it
+    # and the repository each opening where they are.
+    Scenario() \
+        .given(
+            a_deploy_read := [_changes_showing_a_deploy_of(
+                SOME_REVISION, summary=f"deployed revision {SOME_REVISION} from the acme/shop "
+                                       f"repository")]
+        ) \
+        .when(lambda: build_story(a_deploy_read)) \
+        .then(_what_the_changes_did_opens([[(SOME_REVISION[:7], _the_commit_of(SOME_REVISION)),
+                                             ("acme/shop", SOME_REPOSITORY)]]))
+
+
+@pytest.mark.unit
 def test_two_polls_showing_the_same_thing_carry_the_same_version() -> None:
     # The page polls every two seconds and almost every poll returns what is
     # already on screen. Re-rendering it anyway destroys everything the reader
@@ -337,20 +391,34 @@ def _flag_history(changes: list[FlagChange]) -> FlagChangesRetrieved:
     return FlagChangesRetrieved(incident_id=new_id(), changes=changes)
 
 
-def _changes_showing_a_deploy_of(revision: str) -> IncidentEvent:
+def _changes_showing_a_deploy_of(revision: str, summary: str = "dont care") -> IncidentEvent:
     """A deploy of `revision` read, which can be opened where its repository is."""
     return ChangesRetrieved(
         incident_id=new_id(),
         window_start=AN_EARLIER_MINUTE,
         window_end=SOME_MINUTE,
         changes=[ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
-                             reference=revision, summary="dont care",
+                             reference=revision, summary=summary,
                              revision_source=RevisionSource(
                                  repository="acme/shop",
-                                 repository_address="https://github.invalid/acme/shop",
-                                 revision_address=(f"https://github.invalid/acme/shop/"
-                                                   f"commit/{revision}")))]
+                                 repository_address=SOME_REPOSITORY,
+                                 revision_address=_the_commit_of(revision)))]
     )
+
+
+def _changes_showing_a_flag_toggle_of(flag: str) -> IncidentEvent:
+    """A flag's move read, which has nowhere to be opened."""
+    return ChangesRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE, occurred_at=AN_EARLIER_MINUTE,
+                             reference=flag, summary="dont care")]
+    )
+
+
+def _the_commit_of(revision: str) -> str:
+    return f"{SOME_REPOSITORY}/commit/{revision}"
 
 
 def _a_line_shown_reads(text: str, emphasis: str) -> Assertion[Story]:
@@ -360,6 +428,46 @@ def _a_line_shown_reads(text: str, emphasis: str) -> Assertion[Story]:
 
         if (text, emphasis) not in shown:
             raise AssertionError(f"Expected a line reading {(text, emphasis)}, got {shown}.")
+
+        return True
+
+    return assertion
+
+
+def _a_line_shown_links(expected: dict[str, str]) -> Assertion[Story]:
+    """Some line as the page shows it leads exactly where `expected` says."""
+    def assertion(story: Story) -> bool:
+        linked = [line.links for line in story.narration]
+
+        if expected not in linked:
+            raise AssertionError(f"Expected a line linking {expected}, got {linked}.")
+
+        return True
+
+    return assertion
+
+
+def _the_changes_are_named(expected: list[Run]) -> Assertion[Story]:
+    def assertion(story: Story) -> bool:
+        named = [change.reference for change in story.changes]
+
+        if named != expected:
+            raise AssertionError(f"Expected the changes named {expected}, got {named}.")
+
+        return True
+
+    return assertion
+
+
+def _what_the_changes_did_opens(expected: list[list[tuple[str, str | None]]]) -> Assertion[Story]:
+    """Each change's words that open somewhere, and where."""
+    def assertion(story: Story) -> bool:
+        opened = [[(run.text, run.address) for run in change.summary if run.role is Role.LINK]
+                  for change in story.changes]
+
+        if opened != expected:
+            raise AssertionError(f"Expected what the changes did to open {expected}, "
+                                 f"got {opened}.")
 
         return True
 

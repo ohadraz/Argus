@@ -140,22 +140,35 @@ def _a_change(cited: CitedChange) -> Line:
 
     return Line(runs=(Run.a_moment(parse_iso(change.occurred_at)),
                       Run(text=f" {_A_KIND_IN_WORDS[change.kind]} "),
-                      a_reference(cited),
+                      a_reference(change, cited.short_reference),
                       Run(text=f" by {change.actor or _NOBODY_NAMED}: "),
-                      *_shortened(Run(text=change.summary).with_links(_the_addresses_of(change)),
-                                  _the_short_forms([cited]))))
+                      *what_a_change_did(change, cited.short_reference)))
 
 
-def a_reference(cited: CitedChange) -> Run:
-    """A change read named as its row names it: short, as the prose writes it,
-    leading where it can be opened - and, where it cannot, a name said as one.
+def a_reference(change: ChangeEvent, short: str) -> Run:
+    """A change read named as its row names it: by `short`, as the prose
+    writes it, leading where it can be opened - and, where it cannot, a name
+    said as one.
 
     Public because the trigger names the deploy that carried it the same way,
-    and a document naming one revision two ways reads as naming two."""
-    source = cited.change.revision_source
+    and so does the dashboard's table of the changes read: one revision named
+    two ways reads as two."""
+    source = change.revision_source
 
-    return (Run(text=cited.short_reference, role=Role.LINK, address=source.revision_address)
-            if source is not None else Run(text=cited.short_reference, role=Role.CODE))
+    return (Run(text=short, role=Role.LINK, address=source.revision_address)
+            if source is not None else Run(text=short, role=Role.CODE))
+
+
+def what_a_change_did(change: ChangeEvent, short: str) -> tuple[Run, ...]:
+    """What a change read did, in the words the model read, but the revision
+    those words name whole said by `short` - and the revision, the repository
+    and the directory each leading where they open.
+
+    Public because the dashboard's table of the changes read says it too, and
+    in these words rather than in a second wording of its own."""
+    shorts = {change.reference: short} if change.revision_source is not None else {}
+
+    return _shortened(Run(text=change.summary).with_links(_the_addresses_of(change)), shorts)
 
 
 def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:

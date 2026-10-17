@@ -17,8 +17,8 @@ from http import HTTPStatus as HttpStatus
 import httpx2
 import psycopg
 import pytest
-from argus_core import connect_from_env
-from argus_core.events import StatusChanged
+from argus_core import connect_from_env, new_id
+from argus_core.events import CandidateSelected, ChangesRetrieved, StatusChanged
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -1959,6 +1959,65 @@ def test_a_revision_the_root_cause_names_opens_its_commit() -> None:
 
 
 @pytest.mark.component
+def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> None:
+    # Said short as the postmortem says it, and so a name a reader cannot look
+    # up by hand.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_repository = "https://github.com/acme/shop"
+    commit = f"{some_repository}/commit/{some_revision}"
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
+        events.record(conn, CandidateSelected(incident_id=incident_id, hypothesis_id=new_id(),
+                                              summary=f"[{some_revision}] made every page slow",
+                                              confidence=None))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            the_page_says(f'<a href="{commit}" target="_blank" rel="noopener noreferrer">'
+                          f'{some_revision[:7]}</a> made every page slow')
+        )
+
+
+@pytest.mark.component
+def test_a_change_read_is_named_on_the_incident_page_as_its_postmortem_row_names_it() -> None:
+    # Short, and opening where it was committed; what it did in the same words,
+    # its revision and repository each opening where they are.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_repository = "https://github.com/acme/shop"
+    commit = f"{some_repository}/commit/{some_revision}"
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        events.record(conn, _a_deploy_read_on(
+            incident_id, some_revision, some_repository,
+            summary=f"deployed revision {some_revision} from the acme/shop repository"))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            _the_page_does_not_read(f"<code>{some_revision}</code>"),
+            the_page_says(f'deployed revision <a href="{commit}" target="_blank" '
+                          f'rel="noopener noreferrer">{some_revision[:7]}</a> from the '),
+            the_page_links_to(some_repository)
+        ))
+
+
+@pytest.mark.component
 def test_a_contributing_factor_links_to_the_action_items_that_answer_it() -> None:
     # The items are named, not written out, so the name is the only way from
     # the condition to what is being done about it.
@@ -2251,6 +2310,25 @@ def _the_page_has_stopped_asking() -> Assertion[str]:
         return True
 
     return assertion
+
+
+def _a_deploy_read_on(incident_id: str,
+                      revision: str,
+                      repository: str,
+                      summary: str = "dont care") -> ChangesRetrieved:
+    """A deploy of `revision` read, which can be opened where `repository` is."""
+    return ChangesRetrieved(
+        incident_id=incident_id,
+        window_start="2026-10-11T13:55:00Z",
+        window_end="2026-10-11T14:05:00Z",
+        changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                             occurred_at="2026-10-11T14:00:00Z",
+                             reference=revision,
+                             summary=summary,
+                             revision_source=RevisionSource(
+                                 repository="acme/shop",
+                                 repository_address=repository,
+                                 revision_address=f"{repository}/commit/{revision}"))])
 
 
 def _a_candidate_recorded_for(conn: psycopg.Connection,

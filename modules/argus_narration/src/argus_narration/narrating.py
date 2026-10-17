@@ -83,7 +83,7 @@ from argus_core.models import (
     RetrievalChannel,
     Undone,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from argus_narration.clock import a_minute, a_moment, a_window
 from argus_narration.findings import Finding, a_finding
@@ -259,6 +259,11 @@ class NarrationLine(BaseModel):
     # attempt the marked word is the refusal, so a destination that linked
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
+    # Each word of the line as it is shown that opens somewhere, and where - so
+    # far, a revision the incident read, said short and leading to its commit.
+    # Set where a line is shown (`shown`) and nowhere else: the record and what
+    # a model is told name the revision as written, and link nothing.
+    links: dict[str, str] = Field(default_factory=dict)
     # The message a person wrote that this line asks them to confirm, where it
     # asks - an offer to resolve, or to withdraw. A reference rather than words,
     # because a destination that can carry a button makes one of it, and the

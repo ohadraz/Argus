@@ -51,7 +51,7 @@ from postmortem_rendering import (
 
 from argus_web import reads
 from argus_web.chat import receive_chat_delivery
-from argus_web.formatting import with_references
+from argus_web.formatting import marked_up, with_references
 from argus_web.grafana import parse_grafana_alert, reports_only_resolutions
 from argus_web.oncall import OnCallDeliverySettings, receive_delivery
 from argus_web.pushes import (
@@ -205,6 +205,7 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 templates.env.filters["utc"] = in_utc
 templates.env.filters["clock"] = on_the_clock
 templates.env.filters["references"] = with_references
+templates.env.filters["marked_up"] = marked_up
 
 
 @app.post("/webhooks/alerts", status_code=202)

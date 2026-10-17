@@ -19,7 +19,7 @@ from unittest.mock import create_autospec
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from chat_platform import Line, Link, Posted
-from chat_platform.slack_posting import as_slack_says_it, update_message
+from chat_platform.slack_posting import as_slack_says_it, post_message, update_message
 from slack_sdk import WebClient
 
 SOME_AGENT = "Mitigation Agent"
@@ -27,6 +27,8 @@ SOME_CHANNEL = "C-war-room"
 SOME_MESSAGE = "1760000300.000400"
 
 DONT_CARE_TEXT = "dont care"
+SOME_COMMIT = ("https://github.invalid/acme/shop/commit/"
+               "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2")
 
 
 @pytest.mark.unit
@@ -65,6 +67,69 @@ def test_a_link_goes_on_a_line_of_its_own_under_the_sentence() -> None:
 
 
 @pytest.mark.unit
+def test_a_word_the_line_leads_somewhere_is_linked_where_it_is_said() -> None:
+    # A revision's link belongs to the word naming it, not to the line.
+    some_line = Line(who=SOME_AGENT, text="Rolled io-shop back off revision 26f1d7e",
+                     links={"26f1d7e": SOME_COMMIT})
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: Rolled io-shop back off revision <{SOME_COMMIT}|26f1d7e>"))
+
+
+@pytest.mark.unit
+def test_a_word_the_line_leads_somewhere_is_linked_in_whichever_part_says_it() -> None:
+    some_line = Line(who=SOME_AGENT,
+                     text="Moving on to 26f1d7e made every page slow",
+                     before_emphasis="Moving on to ",
+                     emphasis="26f1d7e made every page slow",
+                     links={"26f1d7e": SOME_COMMIT})
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: Moving on to "
+                       f"*<{SOME_COMMIT}|26f1d7e> made every page slow*"))
+
+
+@pytest.mark.unit
+def test_a_linked_word_inside_another_is_not_linked() -> None:
+    # Matched whole, as a name is.
+    some_line = Line(who=SOME_AGENT, text="26f1d7e9 is not 26f1d7e",
+                     links={"26f1d7e": SOME_COMMIT})
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: 26f1d7e9 is not <{SOME_COMMIT}|26f1d7e>"))
+
+
+@pytest.mark.unit
+def test_what_slack_reads_as_markup_is_said_as_text() -> None:
+    # Slack reads &, < and > as its own markup; a model's "error rate > 5%" is
+    # neither a tag nor the start of a link (docs.slack.dev, "Formatting text
+    # for app surfaces"). Escaped before any link is written in, or the link
+    # would be escaped too.
+    some_line = Line(who=SOME_AGENT, text="26f1d7e: error rate > 5% & <rising>",
+                     links={"26f1d7e": SOME_COMMIT})
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: <{SOME_COMMIT}|26f1d7e>: "
+                       f"error rate &gt; 5% &amp; &lt;rising&gt;"))
+
+
+@pytest.mark.unit
+def test_a_message_is_posted_without_previews_of_what_it_links() -> None:
+    # Slack previews every link it is posted by default. A commit named
+    # mid-sentence would bring a card into the war room on every line, and
+    # previewing the postmortem's link has Slack fetch an internal page.
+    slack = _a_client()
+
+    Scenario() \
+        .when(lambda: post_message(SOME_CHANNEL, DONT_CARE_TEXT, slack=slack)) \
+        .then(_it_was_posted_without_previews(slack))
+
+
+@pytest.mark.unit
 def test_a_rewrite_takes_every_block_away_by_naming_none() -> None:
     # What a rewrite is for is taking a button away. Said with an empty list,
     # so it does not rest on the SDK dropping a `None` and on Slack then
@@ -95,8 +160,10 @@ def test_a_rewrite_to_a_workspace_that_cannot_be_reached_is_survived_and_worth_a
 
 
 def _a_client(failing_with: Exception | None = None) -> Any:
-    """A Slack client whose rewrite answers with the message's id, or fails."""
+    """A Slack client whose post and rewrite answer with the message's id, or
+    whose rewrite fails."""
     slack = create_autospec(WebClient, instance=True)
+    slack.chat_postMessage.return_value = {"ts": SOME_MESSAGE}
     slack.chat_update.return_value = {"ts": SOME_MESSAGE}
     slack.chat_update.side_effect = failing_with
 
@@ -107,6 +174,22 @@ def _it_says(expected: str) -> Assertion[str]:
     def assertion(said: str) -> bool:
         if said != expected:
             raise AssertionError(f"Expected the line said as [{expected!r}], got [{said!r}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_posted_without_previews(slack: Any) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        asked = [(call.kwargs.get("unfurl_links", "<absent>"),
+                  call.kwargs.get("unfurl_media", "<absent>"))
+                 for call in slack.chat_postMessage.call_args_list]
+
+        if asked != [(False, False)]:
+            raise AssertionError(
+                f"Expected one post asking for no previews of its links or media, got {asked}."
+            )
 
         return True
 

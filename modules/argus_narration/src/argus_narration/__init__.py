@@ -36,7 +36,7 @@ from argus_narration.narrating import (
     where_a_report_came_from,
 )
 from argus_narration.prose import said_plainly
-from argus_narration.showing import as_shown, shown, the_short_forms
+from argus_narration.showing import ShownRevision, as_shown, shown, the_revisions
 
 __all__ = [
     "BucketRow",
@@ -45,6 +45,7 @@ __all__ = [
     "FlagToggleRow",
     "LogLine",
     "NarrationLine",
+    "ShownRevision",
     "a_bucket_row",
     "a_finding",
     "a_flag_history",
@@ -64,7 +65,7 @@ __all__ = [
     "said_plainly",
     "shown",
     "the_minutes_logged",
-    "the_short_forms",
+    "the_revisions",
     "what_the_action_does",
     "what_was_done",
     "where_a_report_came_from"

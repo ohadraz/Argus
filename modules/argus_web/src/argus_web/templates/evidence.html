@@ -100,13 +100,15 @@
     {# A table of its own rather than a list inside the timeline row that
        retrieved it: what changed on the service is the third channel's
        evidence, and it is read the same way the other two are. #}
-    {% for change in story.changes %}
-      <tr data-change="{{ change.reference }}">
-        <td class="when">{{ change.occurred_at }}</td>
-        <td>{{ change.kind }}</td>
-        <td><code>{{ change.reference }}</code></td>
-        <td>{{ change.summary }}</td>
-        <td>{{ change.actor or "-" }}</td>
+    {# Each named as its postmortem row names it - a revision short, leading
+       to its commit - so the page and the document name it one way. #}
+    {% for row in story.changes %}
+      <tr data-change="{{ row.change.reference }}">
+        <td class="when">{{ row.change.occurred_at }}</td>
+        <td>{{ row.change.kind }}</td>
+        <td>{{ [row.reference] | marked_up }}</td>
+        <td>{{ row.summary | marked_up }}</td>
+        <td>{{ row.change.actor or "-" }}</td>
       </tr>
     {% else %}
       {# An empty answer is a finding, not an absent one: nothing was deployed

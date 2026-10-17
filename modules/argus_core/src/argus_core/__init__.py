@@ -34,7 +34,7 @@ from argus_core.config import (
 )
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
-from argus_core.revisions import short_form
+from argus_core.revisions import A_REVISION, short_form, the_revision_named
 from argus_core.timestamps import (
     in_real_time,
     parse_iso,
@@ -45,6 +45,7 @@ from argus_core.timestamps import (
 )
 
 __all__ = [
+    "A_REVISION",
     "Clock",
     "Connections",
     "DatabaseSettings",
@@ -65,6 +66,7 @@ __all__ = [
     "short_form",
     "sleep_on_the_clock",
     "the_clock_named_by",
+    "the_revision_named",
     "to_iso",
     "to_iso_minute",
     "utc_now"

@@ -39,7 +39,12 @@ from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import RenderedPostmortem, render
 from postmortem_rendering.resolution import ReportedResolution, the_reported_resolution
 from postmortem_rendering.review import ReviewRow, ReviewSection, the_review
-from postmortem_rendering.supporting import SupportingSection, the_supporting_information
+from postmortem_rendering.supporting import (
+    SupportingSection,
+    a_reference,
+    the_supporting_information,
+    what_a_change_did,
+)
 from postmortem_rendering.timeline import TimelineRow, TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
@@ -71,6 +76,7 @@ __all__ = [
     "TimelineSection",
     "TriggerSection",
     "a_head",
+    "a_reference",
     "a_title",
     "as_money",
     "as_pdf",
@@ -93,5 +99,6 @@ __all__ = [
     "the_review",
     "the_supporting_information",
     "the_timeline",
-    "the_trigger"
+    "the_trigger",
+    "what_a_change_did"
 ]

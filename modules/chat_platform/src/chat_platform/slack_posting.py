@@ -14,6 +14,8 @@ because Slack rate-limited it would be a worse outcome than one nobody saw.
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Mapping
 from typing import Any, Final
 
 from slack_sdk import WebClient
@@ -29,6 +31,12 @@ logger = logging.getLogger(__name__)
 # (docs.slack.dev, "Formatting text for app surfaces").
 _BOLD: Final = "*"
 _LINK: Final = "<{url}|{label}>"
+
+# The three characters Slack reads as its own markup, and what each is written
+# as where it is only text (docs.slack.dev, "Formatting text for app
+# surfaces"). The ampersand first, or the others' entities would be escaped
+# again.
+_ESCAPED: Final = (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"))
 
 # The field Slack answers a delivered message with - its id, and the name of
 # the thread any reply to it belongs to. The arguments going the other way are
@@ -73,16 +81,46 @@ def as_slack_says_it(line: Line) -> str:
 
     The marked word is marked from the split the line already carries rather
     than by searching the sentence for it, so a word that happens to appear
-    twice is not marked in the wrong place. A link goes on a line of its own
-    under the sentence, where it reads as somewhere to go rather than as part of
-    what was said.
+    twice is not marked in the wrong place. The page that holds more than the
+    line goes on a line of its own under the sentence, where it reads as
+    somewhere to go rather than as part of what was said; a word that opens
+    somewhere of its own is linked where it is said, since the link is that
+    word's.
+
+    Every part is said as text before any link is written in: Slack reads &,
+    < and > as markup, and escaped afterwards, the links would be escaped too.
     """
-    said = (f"{line.before_emphasis}{_BOLD}{line.emphasis}{_BOLD}{line.after_emphasis}"
-            if line.emphasis else line.text)
+    def as_said(part: str) -> str:
+        return _linked(_escaped(part), line.links)
+
+    said = (f"{as_said(line.before_emphasis)}{_BOLD}{as_said(line.emphasis)}{_BOLD}"
+            f"{as_said(line.after_emphasis)}"
+            if line.emphasis else as_said(line.text))
     linked = (f"\n{_LINK.format(url=line.link.url, label=line.link.label)}"
               if line.link is not None else "")
 
     return f"{line.who}: {said}{linked}"
+
+
+def _escaped(text: str) -> str:
+    """`text` with each character Slack reads as markup written as text."""
+    for character, entity in _ESCAPED:
+        text = text.replace(character, entity)
+
+    return text
+
+
+def _linked(text: str, links: Mapping[str, str]) -> str:
+    """`text` with each word of `links` it says, matched whole, linked to
+    where it opens."""
+    if not links:
+        return text
+
+    named = "|".join(re.escape(word) for word in sorted(links, key=len, reverse=True))
+
+    return re.sub(rf"(?<![\w-])({named})(?![\w-])",
+                  lambda found: _LINK.format(url=links[found.group(1)], label=found.group(1)),
+                  text)
 
 
 def a_line_with_a_button(said: str,
@@ -126,6 +164,12 @@ def post_message(channel: str,
 
     `blocks` absent is a message that is only its text, which is every message
     but one that asks for a press.
+
+    Posted with no previews of what it links. Slack previews every link a
+    message carries unless asked not to, so a commit named mid-sentence would
+    bring a card into the war room on every line - and the postmortem's link
+    would have Slack's servers fetch an internal page. Only a post can ask:
+    an update takes no such argument.
     """
     try:
         # `thread_ts=None` is not the same as a thread of `None`: the SDK drops
@@ -134,7 +178,8 @@ def post_message(channel: str,
         # branching here would put the channel-or-thread decision in the one
         # place that has no opinion about it.
         answered = slack.chat_postMessage(channel=channel, text=text, thread_ts=thread_ts,
-                                          blocks=blocks)
+                                          blocks=blocks, unfurl_links=False,
+                                          unfurl_media=False)
     except SlackApiError as refused:
         # A no Slack understood and answered with. Whether it is worth another
         # go is the one thing the caller cannot work out for itself, so it is

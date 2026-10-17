@@ -22,17 +22,19 @@
       <td class="who">{{ line.who }}</td>
       <td class="said">
         {# The marked word arrives as three plain strings rather than as
-           markup, so nothing the model wrote can carry a tag into the page.
-           A status wears the same badge it wears in the header, so `resolved`
-           is the same green in both places. #}
+           markup, so nothing the model wrote can carry a tag into the page;
+           the only markup is the page's own links, each to where a word the
+           line names opens - a revision, at its commit. A status wears the
+           same badge it wears in the header, so `resolved` is the same green
+           in both places. #}
         {% if line.emphasis %}
-          {{ line.before_emphasis }}<!--
+          {{ line.before_emphasis | references([], line.links) }}<!--
           -->{% if line.emphasis_class %}<span class="{{ line.emphasis_class }}">{{ line.emphasis }}</span>
              {% elif line.emphasis_href %}<a class="went" href="{{ line.emphasis_href }}" target="_blank" rel="noopener noreferrer">{{ line.emphasis }}</a>
-             {% else %}<em>{{ line.emphasis }}</em>{% endif %}<!--
-          -->{{ line.after_emphasis }}
+             {% else %}<em>{{ line.emphasis | references([], line.links) }}</em>{% endif %}<!--
+          -->{{ line.after_emphasis | references([], line.links) }}
         {% else %}
-          {{ line.text }}
+          {{ line.text | references([], line.links) }}
         {% endif %}
         {# The same struck-out transition the flag table shows, so a change
            reads as a change wherever it appears on the page. #}

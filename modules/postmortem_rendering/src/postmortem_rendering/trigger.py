@@ -68,7 +68,8 @@ def the_trigger(postmortem: PostmortemDocument, alert: Alert) -> TriggerSection:
     if carrier is not None:
         # Whoever started the deploy, not whoever wrote the setting: the
         # deploy is the change the record holds.
-        runs += [Run(text=", in the deploy of "), a_reference(carrier)]
+        runs += [Run(text=", in the deploy of "),
+                 a_reference(carrier.change, carrier.short_reference)]
         if trigger.actor:
             runs.append(Run(text=f" that {trigger.actor} started"))
     elif trigger.actor:
@@ -94,7 +95,7 @@ def _a_state_of(trigger: Trigger,
                  if trigger.kind is ChangeKind.DEPLOY and state
                  and cited.change.reference == state), None)
     if read is not None:
-        return a_reference(read).model_copy(update={"role": role})
+        return a_reference(read.change, read.short_reference).model_copy(update={"role": role})
 
     return Run(text=_a_state(state, trigger.kind), role=role)
 

@@ -13,7 +13,7 @@ wins, because it is the later read that Argus acted on.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
 
@@ -25,16 +25,31 @@ from argus_narration import (
     FlagToggleRow,
     LogLine,
     NarrationLine,
+    ShownRevision,
     a_flag_history,
     build_narration,
     pointed_at,
     shown,
     the_minutes_logged,
-    the_short_forms,
+    the_revisions,
 )
+from postmortem_rendering import Run, a_reference, what_a_change_did
 from pydantic import BaseModel
 
 from argus_web.views.decorating import DecoratedLine, decorated
+
+
+class ChangeRow(BaseModel):
+    """One change the incident read, as its row in the postmortem names it:
+    the change, what it is called - short where it is a revision, leading to
+    its commit - and what it did, in the postmortem's own words.
+
+    The words come from the postmortem's renderer rather than from a second
+    wording here, so the page and the document name one revision one way."""
+
+    change: ChangeEvent
+    reference: Run
+    summary: tuple[Run, ...]
 
 
 class Story(BaseModel):
@@ -54,7 +69,7 @@ class Story(BaseModel):
     narration: list[DecoratedLine]
     metrics: list[BucketRow]
     logs: list[LogLine]
-    changes: list[ChangeEvent]
+    changes: list[ChangeRow]
     flag_changes: list[FlagToggleRow]
     # Whether the change channel was read at all. An empty answer from it is a
     # finding - it is what rules a deploy out - and a table that simply did not
@@ -103,7 +118,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     later read wins, because it is the later read that Argus acted on.
     """
     narration = build_narration(events)
-    shorts = the_short_forms(events)
+    revisions = the_revisions(events)
 
     minutes: dict[str, BucketRow] = {}
     lines: dict[str, LogLine] = {}
@@ -122,13 +137,14 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
 
     return Story(
         narration=[
-            decorated(_pointed_at(shown(line, shorts), list(minutes),
+            decorated(_pointed_at(shown(line, revisions), list(minutes),
                                   the_minutes_logged(lines.values())))
             for line in narration
         ],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
         logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
-        changes=sorted(changed.values(), key=lambda change: change.occurred_at),
+        changes=[_a_row(change, revisions)
+                 for change in sorted(changed.values(), key=lambda change: change.occurred_at)],
         flag_changes=a_flag_history(
             sorted(toggled.values(), key=lambda toggle: toggle.occurred_at)
         ),
@@ -158,6 +174,17 @@ def build_live_incident(incident: Incident,
         story=story,
         version=_a_version_of(incident, finished_at, story)
     )
+
+
+def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision]) -> ChangeRow:
+    """A change read, named by the short form a line says its revision by -
+    and, where it is no revision the incident can open, as it was read."""
+    shown_as = revisions.get(change.reference)
+    short = shown_as.short if shown_as is not None else change.reference
+
+    return ChangeRow(change=change,
+                     reference=a_reference(change, short),
+                     summary=what_a_change_did(change, short))
 
 
 def _pointed_at(line: NarrationLine,
