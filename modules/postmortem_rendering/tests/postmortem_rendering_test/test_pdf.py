@@ -478,8 +478,8 @@ def test_an_item_the_chain_rests_on_leads_to_its_row() -> None:
 
 @pytest.mark.unit
 def test_a_revision_in_an_item_the_chain_rests_on_opens_its_commit() -> None:
-    # Said the way the change's own row says it, the revision linked as there:
-    # short in the reference, and whole in what the deploy did.
+    # Said the way the change's own row says it, the revision linked as there,
+    # in the reference and in what the deploy did.
     commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
     without_the_chain = as_pdf(render(a_postmortem(changes_read=[a_deploy_read("P2")]),
                                       an_alert(), [], SOME_ADDRESS))

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Final
 
 from argus_core import parse_iso
+from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
     ChangeEvent,
     ChangeKind,
@@ -104,9 +105,11 @@ def the_supporting_information(postmortem: PostmortemDocument,
                     for cited in postmortem.changes_read)
     log_messages = _rows(postmortem.log_messages_read)
     revision_addresses = _the_revision_addresses(postmortem.changes_read)
+    shorts = _the_short_forms(postmortem.changes_read)
     deployment_changes = tuple(
         EvidenceRow(label=cited.label,
-                    said=Line(runs=Run(text=cited.text).with_links(revision_addresses)))
+                    said=Line(runs=_shortened(Run(text=cited.text).with_links(revision_addresses),
+                                              shorts)))
         for cited in postmortem.deployment_changes_read)
     assumptions = tuple(Line(runs=(Run(text=assumption, role=Role.PROSE),))
                         for assumption in postmortem.assumptions)
@@ -128,9 +131,10 @@ def _a_change(cited: CitedChange) -> Line:
     it did.
 
     Its reference short, as the prose names it, and what it did in the words
-    the model read, which name a revision whole. Where it can be opened, the
-    revision - short and whole - the repository and the directory each lead
-    there; where it cannot, the reference is a name, said as one.
+    the model read - but the revision those words name whole said short too,
+    since one revision said two ways reads as two. Where it can be opened, the
+    revision, the repository and the directory each lead there; where it
+    cannot, the reference is a name, said as one.
     """
     change = cited.change
 
@@ -138,7 +142,8 @@ def _a_change(cited: CitedChange) -> Line:
                       Run(text=f" {_A_KIND_IN_WORDS[change.kind]} "),
                       a_reference(cited),
                       Run(text=f" by {change.actor or _NOBODY_NAMED}: "),
-                      *Run(text=change.summary).with_links(_the_addresses_of(change))))
+                      *_shortened(Run(text=change.summary).with_links(_the_addresses_of(change)),
+                                  _the_short_forms([cited]))))
 
 
 def a_reference(cited: CitedChange) -> Run:
@@ -165,6 +170,31 @@ def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:
         addresses[source.directory] = source.directory_address
 
     return addresses
+
+
+def _the_short_forms(changes: list[CitedChange]) -> dict[str, str]:
+    """Each revision a change that can be opened names whole, and its short
+    form - the one the prose writes."""
+    return {cited.change.reference: cited.short_reference
+            for cited in changes if cited.change.revision_source is not None}
+
+
+def _shortened(runs: tuple[Run, ...], shorts: dict[str, str]) -> tuple[Run, ...]:
+    """The runs with every revision linked whole said by its short form, as
+    the prose and the timeline say it - the link still to the whole.
+
+    Except on a patch line, set in by `PATCH_LINE_INDENT`: that is the file's
+    own content quoted - an image tag pinned to the commit - and said short it
+    would misquote the file. Only Argus's own lines are re-said."""
+    said: list[Run] = []
+    line = ""
+    for run in runs:
+        quoted = line.startswith(PATCH_LINE_INDENT)
+        said.append(run.model_copy(update={"text": shorts[run.text]})
+                    if run.role is Role.LINK and run.text in shorts and not quoted else run)
+        line = run.text.rsplit("\n", 1)[-1] if "\n" in run.text else line + run.text
+
+    return tuple(said)
 
 
 def _the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:

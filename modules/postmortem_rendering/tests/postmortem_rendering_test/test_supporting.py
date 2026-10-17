@@ -71,11 +71,11 @@ def test_an_incident_with_no_fix_lists_the_walk_alone() -> None:
 
 
 @pytest.mark.unit
-def test_a_deploy_read_is_a_row_naming_its_revision_short_then_whole_each_a_link_to_it() -> None:
+def test_a_deploy_read_is_a_row_naming_its_revision_short_each_time_a_link_to_it() -> None:
     # The prose says "the deploy P2"; this is the row that says what P2 was.
-    # Its revision short first, as the prose writes it, then whole in what the
-    # deploy shipped - and the revision, the repository and the directory each
-    # lead to where a reader opens them.
+    # Its revision short wherever the row names it, as the prose writes it - one
+    # revision said two ways reads as two - and the revision, the repository
+    # and the directory each lead to where a reader opens them.
     commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
     directory = f"{SOME_REPOSITORY_ADDRESS}/tree/{SOME_DEPLOYED_REVISION}/deploy"
 
@@ -93,7 +93,7 @@ def test_a_deploy_read_is_a_row_naming_its_revision_short_then_whole_each_a_link
                 Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
                 Run(text=" by kuki: "),
                 Run(text="deployed revision "),
-                Run(text=SOME_DEPLOYED_REVISION, role=Role.LINK, address=commit),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
                 Run(text=" from the "),
                 Run(text="acme/shop", role=Role.LINK, address=SOME_REPOSITORY_ADDRESS),
                 Run(text=" repository's "),
@@ -211,8 +211,8 @@ def test_some_read_of_both_says_nothing_in_their_place() -> None:
 @pytest.mark.unit
 def test_what_each_deployment_changed_is_a_row_of_its_lines_its_revisions_leading_to_them() -> None:
     # The prose says "as D1 shows"; this is the row that shows it - every line
-    # as the model read it, and each revision a change read names leading to
-    # its commit, as in the change's own row.
+    # as the model read it, and each revision a change read names said short,
+    # as the change's own row says it, and leading to its commit.
     commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
     some_diff = CitedEvidence(
         label="D1",
@@ -234,11 +234,39 @@ def test_what_each_deployment_changed_is_a_row_of_its_lines_its_revisions_leadin
         .then(
             the_answer_was((EvidenceRow(label="D1", said=Line(runs=(
                 Run(text="Deployment of revision some-revision to io-shop, compared against "),
-                Run(text=SOME_DEPLOYED_REVISION, role=Role.LINK, address=commit),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
                 Run(text=" - the revision deployed before it.\n"
                          "modified deploy/values-production.yaml\n"
                          "  -  model: v1\n"
                          "  +  model: v2")))),)))
+
+
+@pytest.mark.unit
+def test_a_revision_a_diff_line_quotes_is_kept_as_the_file_says_it() -> None:
+    # A patch line is the file's own content - an image tag pinned to the
+    # commit is common - and said short it would misquote the file. Only
+    # Argus's own lines say a revision short; both still lead to the commit.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+    some_diff = CitedEvidence(
+        label="D1",
+        text=(f"Deployment of revision {SOME_DEPLOYED_REVISION} to io-shop.\n"
+              f"  +  tag: {SOME_DEPLOYED_REVISION}"))
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P1")],
+                                            deployment_changes_read=[some_diff])
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).deployment_changes
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="D1", said=Line(runs=(
+                Run(text="Deployment of revision "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
+                Run(text=" to io-shop.\n  +  tag: "),
+                Run(text=SOME_DEPLOYED_REVISION, role=Role.LINK, address=commit)))),)))
 
 
 @pytest.mark.unit
