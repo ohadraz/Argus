@@ -75,12 +75,12 @@ def _the_timeline_was_detected_before_it_was_mitigated() -> Assertion[httpx2.Res
     def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
         markers = [entry.marker for entry in postmortem.timeline if entry.marker is not None]
-        wanted = [TimelineMarker.DETECTED, TimelineMarker.MITIGATED]
+        wanted = [TimelineMarker.DETECTED, TimelineMarker.MITIGATION_APPLIED]
 
         if [marker for marker in markers if marker in wanted] != wanted:
             raise AssertionError(
                 f"Postmortem for [{postmortem.incident_id}] marks its timeline "
-                f"{markers}, not detected and then mitigated.")
+                f"{markers}, not detected and then the mitigation applied.")
 
         return True
 

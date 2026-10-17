@@ -1123,6 +1123,67 @@ def test_an_action_is_dated_by_when_it_was_taken_not_by_when_it_was_claimed(
 
 
 @pytest.mark.component
+def test_each_action_points_at_its_own_line_once_each_wait_is_told_once(
+        a_clean_database: None) -> None:
+    # The document marks the line that took the action credited with the
+    # recovery, by its place in the timeline. The timeline tells a wait by its
+    # last look alone, so a place counted before the looks were dropped puts an
+    # action that followed a wait on a line further on.
+    some_other_flag = "some-other-flag"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_first = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.REFUTED)
+        the_second = _a_candidate_acted_on(conn, incident_id, some_other_flag, Verdict.CONFIRMED)
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    _announced(incident_id, the_first, SOME_FLAG, "2026-09-02T12:05:00Z"),
+                    RecoveryChecked(incident_id=incident_id, at=parse_iso("2026-09-02T12:06:10Z"),
+                                    minute="2026-09-02T12:06:00Z", recovered=False),
+                    RecoveryChecked(incident_id=incident_id, at=parse_iso("2026-09-02T12:06:20Z"),
+                                    minute="2026-09-02T12:06:00Z", recovered=False),
+                    RecoveryChecked(incident_id=incident_id, at=parse_iso("2026-09-02T12:07:10Z"),
+                                    minute="2026-09-02T12:07:00Z", recovered=False),
+                    _announced(incident_id, the_second, some_other_flag, "2026-09-02T12:08:00Z")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _each_action_is_said_by_the_line_it_points_at()
+            )
+
+
+@pytest.mark.component
+def test_an_action_announced_twice_points_at_the_announcement_it_was_taken_by(
+        a_clean_database: None) -> None:
+    # A walk that stopped after announcing an action and before taking it
+    # announces it again when it resumes, on the same candidate. The second
+    # line is the one the action is dated and said by, so it is the line the
+    # document marks.
+    the_resumed_announcement = "2026-09-02T12:09:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_candidate = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.CONFIRMED)
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    _announced(incident_id, the_candidate, SOME_FLAG, "2026-09-02T12:05:00Z"),
+                    _announced(incident_id, the_candidate, SOME_FLAG, the_resumed_announcement)]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _dates_its_one_action_at(parse_iso(the_resumed_announcement)),
+                _each_action_is_said_by_the_line_it_points_at()))
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_fix_that_was_proposed(a_clean_database: None) -> None:
     # Read off the event rather than left in the timeline for the model to
     # notice. The walk opened the pull request and recorded where; a document
@@ -1522,6 +1583,57 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                     action_type=REVERT_FEATURE_FLAG,
                                     subject=SOME_FLAG,
                                     at=taken_at))
+
+
+def _a_candidate_acted_on(conn: psycopg.Connection,
+                          incident_id: str,
+                          subject: str,
+                          outcome: Verdict) -> str:
+    """A candidate and its action's row, the account's lines about it left to
+    the case - a walk can announce one action more than once."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.record(conn, incident_id,
+                         hypothesis_id=candidate.id,
+                         action_type=REVERT_FEATURE_FLAG,
+                         subject=subject,
+                         outcome=outcome,
+                         undo_descriptor=FlagUndo(flag=subject, was_enabled=True))
+
+    return candidate.id
+
+
+def _announced(incident_id: str, hypothesis_id: str, subject: str, at: str) -> ActionTaken:
+    return ActionTaken(incident_id=incident_id,
+                       hypothesis_id=hypothesis_id,
+                       action_type=REVERT_FEATURE_FLAG,
+                       subject=subject,
+                       at=parse_iso(at))
+
+
+def _each_action_is_said_by_the_line_it_points_at() -> Assertion[IncidentEvidence]:
+    """The line at each action's place in the timeline is the one its moment
+    and its words were read from."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        expected = [(action.taken_at, action.action) for action in evidence.actions]
+        pointed_at = [(evidence.timeline[action.line].at, evidence.timeline[action.line].text)
+                      if action.line is not None and 0 <= action.line < len(evidence.timeline)
+                      else None
+                      for action in evidence.actions]
+
+        if not expected or any(line is None or line[0] != at or not line[1].startswith(words)
+                               for (at, words), line in zip(expected, pointed_at, strict=True)):
+            raise AssertionError(
+                f"Expected each action to point at its own line, said as {expected}, "
+                f"and they point at {pointed_at}.")
+
+        return True
+
+    return assertion
 
 
 def _dates_its_one_action_at(expected: datetime) -> Assertion[IncidentEvidence]:

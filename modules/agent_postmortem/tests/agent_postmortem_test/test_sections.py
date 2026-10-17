@@ -802,10 +802,10 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
 @pytest.mark.unit
 def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
     # The onset and the recovery are properties of the metrics rather than
-    # lines anybody said, so they arrive as markers of their own. The alert's
-    # marker sits before the line about it, because the line is the reaction;
-    # the mitigation's sits after the line that took it, because it is the
-    # result.
+    # lines anybody said, so they arrive as rows of their own; so does the
+    # alert, before the line about it, because the line is the reaction. The
+    # mitigation was said - by the line that took the action - so its marker
+    # is on that line.
     the_mitigation = STARTED_AT + timedelta(minutes=2)
     some_line_before = a_timeline_entry("received the alert", at=STARTED_AT)
     some_line_after = a_timeline_entry("turned the flag off", at=the_mitigation)
@@ -819,7 +819,8 @@ def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
                 timeline=[some_line_before, some_line_after],
                 actions=[an_action("revert-feature-flag on monthly-spend-feature",
                                    verdict=Verdict.CONFIRMED,
-                                   taken_at=the_mitigation)])
+                                   taken_at=the_mitigation,
+                                   line=1)])
         ) \
         .when(
             lambda: [(entry.at, entry.marker) for entry in
@@ -830,8 +831,7 @@ def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
                 (ONSET, TimelineMarker.IMPACT_BEGINS),
                 (STARTED_AT, TimelineMarker.DETECTED),
                 (STARTED_AT, None),
-                (the_mitigation, None),
-                (the_mitigation, TimelineMarker.MITIGATED),
+                (the_mitigation, TimelineMarker.MITIGATION_APPLIED),
                 (RECOVERED_AT + timedelta(minutes=5), TimelineMarker.IMPACT_ENDS)
             ])
         )
@@ -839,9 +839,10 @@ def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
 
 @pytest.mark.unit
 def test_each_line_of_the_narration_is_labelled_as_the_prompt_named_it() -> None:
-    # The model cites a line of the narration as T1, T2. The markers are
-    # placed among those lines by code, were never shown to the model, and so
-    # have no label - which is why the label is the line's own, not its row's.
+    # The model cites a line of the narration as T1, T2. The markers with rows
+    # of their own are placed among those lines by code, were never shown to
+    # the model, and so have no label - which is why the label is the line's
+    # own, not its row's. A marker on a line keeps the line's label.
     the_mitigation = STARTED_AT + timedelta(minutes=2)
 
     Scenario() \
@@ -852,7 +853,7 @@ def test_each_line_of_the_narration_is_labelled_as_the_prompt_named_it() -> None
                 timeline=[a_timeline_entry("dont care", at=STARTED_AT),
                           a_timeline_entry("dont care either", at=the_mitigation)],
                 actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
-                                   taken_at=the_mitigation)])
+                                   taken_at=the_mitigation, line=1)])
         ) \
         .when(
             lambda: [(entry.marker, entry.label) for entry in
@@ -863,8 +864,7 @@ def test_each_line_of_the_narration_is_labelled_as_the_prompt_named_it() -> None
                 (TimelineMarker.IMPACT_BEGINS, None),
                 (TimelineMarker.DETECTED, None),
                 (None, "T1"),
-                (None, "T2"),
-                (TimelineMarker.MITIGATED, None),
+                (TimelineMarker.MITIGATION_APPLIED, "T2"),
                 (TimelineMarker.IMPACT_ENDS, None)
             ])
         )
@@ -929,6 +929,75 @@ def test_a_marker_whose_moment_is_unknown_is_left_out() -> None:
         ) \
         .when(
             lambda: [entry.marker for entry in timeline_of(evidence, back_to_normal_at=None)]
+        ) \
+        .then(
+            the_answer_was([TimelineMarker.DETECTED])
+        )
+
+
+@pytest.mark.unit
+def test_the_mitigation_applied_marker_is_the_line_that_took_the_action() -> None:
+    # The line already says what was done, by whom and when. A row of the
+    # marker's own would say the same action twice, back to back.
+    the_line = a_timeline_entry("Turned the flag off", who="Mitigation Agent",
+                                at=STARTED_AT + timedelta(minutes=2))
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=None,
+                timeline=[the_line],
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, line=0)])
+        ) \
+        .when(
+            lambda: [entry for entry in timeline_of(evidence, back_to_normal_at=None)
+                     if entry.marker is TimelineMarker.MITIGATION_APPLIED]
+        ) \
+        .then(
+            the_answer_was([the_line.model_copy(
+                update={"marker": TimelineMarker.MITIGATION_APPLIED, "label": "T1"})])
+        )
+
+
+@pytest.mark.unit
+def test_a_marked_line_keeps_its_place_among_lines_said_at_the_same_moment() -> None:
+    # The agent is called in and takes the action in one breath, and under a
+    # frozen clock the two lines share an instant. Marked, the action's line is
+    # still the line after the one that called the agent in.
+    the_mitigation = STARTED_AT + timedelta(minutes=2)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=None,
+                timeline=[a_timeline_entry("Called in the Mitigation Agent", at=the_mitigation),
+                          a_timeline_entry("Turned the flag off", at=the_mitigation)],
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, line=1)])
+        ) \
+        .when(
+            lambda: [entry.text for entry in timeline_of(evidence, back_to_normal_at=None)
+                     if entry.at == the_mitigation]
+        ) \
+        .then(
+            the_answer_was(["Called in the Mitigation Agent", "Turned the flag off"])
+        )
+
+
+@pytest.mark.unit
+def test_a_mitigation_no_line_says_is_not_marked() -> None:
+    # Without its line, the action's only moment is the row's claim, written
+    # before the action was taken - a marker placed there would be a moment
+    # invented.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=None,
+                timeline=[a_timeline_entry("dont care", at=STARTED_AT + timedelta(minutes=2))],
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, line=None)])
+        ) \
+        .when(
+            lambda: [entry.marker for entry in timeline_of(evidence, back_to_normal_at=None)
+                     if entry.marker is not None]
         ) \
         .then(
             the_answer_was([TimelineMarker.DETECTED])

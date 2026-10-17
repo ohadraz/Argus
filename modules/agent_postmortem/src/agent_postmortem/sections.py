@@ -448,6 +448,12 @@ def timeline_of(evidence: IncidentEvidence,
     """The narration in order, each line under the label the prompt cited it
     by, with the four markers placed by code.
 
+    Three of the markers are rows of their own, because nobody said them: the
+    onset and the end are properties of the metrics, and the alert is what the
+    line about it reacts to. The fourth is on the line that took the action
+    credited with the recovery, which already says what was done, by whom and
+    when - a row of the marker's own would say the same action twice.
+
     `back_to_normal_at` is where the service was back to normal rather than the
     recorded recovery: the document's duration ends there, and a timeline
     ending somewhere else would contradict the figure beside it. The end says
@@ -455,10 +461,10 @@ def timeline_of(evidence: IncidentEvidence,
     since the order of the two markers is otherwise left to be noticed.
 
     A marker whose moment is unknown is left out rather than placed near where
-    it probably was. At the same moment, a marker sorts before the line about
-    it where the line is the reaction - the alert fired, and Argus received it
-    - and after it where the marker is the result: the mitigation is the line
-    that took it, done.
+    it probably was - and so is the mitigation's where no line says it, since
+    its only other moment is the row's claim, written before anything was done.
+    At the same moment, a marker's own row sorts before the lines, because the
+    line is the reaction: the alert fired, and Argus received it.
     """
     markers = [
         *([_a_marker(evidence.onset_at, TimelineMarker.IMPACT_BEGINS,
@@ -466,19 +472,22 @@ def timeline_of(evidence: IncidentEvidence,
           if evidence.onset_at is not None else []),
         _a_marker(evidence.alerted_at, TimelineMarker.DETECTED,
                   f"{evidence.alert_title} fired"),
-        *([_a_marker(mitigated.taken_at, TimelineMarker.MITIGATED, mitigated.action)]
-          if (mitigated := evidence.credited_action) is not None else []),
         *([_a_marker(back_to_normal_at, TimelineMarker.IMPACT_ENDS,
                      "the service was back to normal, before the action credited with it"
                      if back_before_the_action else "the service was back to normal")]
           if back_to_normal_at is not None else [])
     ]
 
+    credited = evidence.credited_action
+    marked = credited.line if credited is not None else None
     narration = [entry.model_copy(update={"label": label,
-                                          "text": said_of_a_line(entry)})
-                 for entry, label in zip(evidence.timeline,
-                                         labels_of_the_narration(evidence.timeline),
-                                         strict=True)]
+                                          "text": said_of_a_line(entry),
+                                          "marker": TimelineMarker.MITIGATION_APPLIED
+                                          if position == marked else entry.marker})
+                 for position, (entry, label) in enumerate(
+                     zip(evidence.timeline,
+                         labels_of_the_narration(evidence.timeline),
+                         strict=True))]
 
     return sorted([*markers, *narration], key=_in_order)
 
@@ -517,12 +526,13 @@ def labels_of_the_narration(timeline: list[TimelineEntry]) -> list[str]:
 
 
 def _in_order(entry: TimelineEntry) -> tuple[datetime, int]:
-    """When it happened, and then which comes first at that moment: a marker
-    the line reacts to, the line, and a marker that is the line's result."""
-    if entry.marker is TimelineMarker.MITIGATED:
-        return entry.at, 2
+    """When it happened, and then which comes first at that moment: a marker's
+    own row, which the lines react to, and then the lines, as they were said.
 
-    return entry.at, 0 if entry.marker is not None else 1
+    A marker's own row by its having no label, not by its carrying a marker: a
+    line the mitigation marks is still a line, and sorted as a marker it would
+    jump ahead of the line said before it at the same instant."""
+    return entry.at, 0 if entry.label is None else 1
 
 
 def _a_marker(at: datetime, marker: TimelineMarker, text: str) -> TimelineEntry:

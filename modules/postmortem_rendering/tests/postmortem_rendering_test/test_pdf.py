@@ -155,6 +155,24 @@ def test_the_timeline_names_the_zone_its_times_are_in() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("marker", list(TimelineMarker),
+                         ids=lambda marker: marker.value.replace(" ", "-"))
+def test_every_marker_is_printed_on_one_line(marker: TimelineMarker) -> None:
+    # A marker is what a reader runs down the timeline looking for, and one
+    # broken over two lines reads as two.
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(timeline=[a_marker(marker, SOME_ONSET)]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _set_on_one_line(marker.value.upper()))
+
+
+@pytest.mark.unit
 def test_the_proposed_fix_and_the_incident_are_written_with_their_full_addresses() -> None:
     # Written out, for a reader of paper; and links, for a reader of the file.
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
@@ -1081,6 +1099,27 @@ def _text_under(page: PageObject, top: float, depth: float = 20.0) -> str:
 
     page.extract_text(visitor_text=visit)
     return re.sub(r"\s+", " ", " ".join(pieces)).strip()
+
+
+def _set_on_one_line(expected: str) -> Assertion[bytes]:
+    """`expected` is written whole by one piece of the PDF's text - a cell
+    that wraps it writes each of its lines apart."""
+    def assertion(pdf: bytes) -> bool:
+        pieces: list[str] = []
+        for page in PdfReader(io.BytesIO(pdf)).pages:
+
+            def visit(text: str, *_: object) -> None:
+                pieces.append(text)
+
+            page.extract_text(visitor_text=visit)
+
+        if not any(expected in piece for piece in pieces):
+            raise AssertionError(f"Expected [{expected}] set on one line, and no piece of "
+                                 f"the PDF's text holds it whole: {pieces}.")
+
+        return True
+
+    return assertion
 
 
 def _set_lower_than(later: str, earlier: str) -> Assertion[bytes]:

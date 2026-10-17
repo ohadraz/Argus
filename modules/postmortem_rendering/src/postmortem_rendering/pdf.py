@@ -991,7 +991,7 @@ def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
              [[(row.at, _TIME, None), (row.marker or "", _MARKER, None),
                Line(runs=(*((Run(text=f"{row.who} "),) if row.who else ()), *row.text.runs))]
               for row in timeline.rows],
-             widths=(31, 24, 119), align=("R", "L", "L"),
+             widths=(31, 29, 114), align=("R", "L", "L"),
              landings=[(row.label,) if row.label else () for row in timeline.rows])
 
 

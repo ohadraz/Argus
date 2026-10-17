@@ -118,7 +118,7 @@ class TimelineMarker(StrEnum):
 
     IMPACT_BEGINS = "impact begins"
     DETECTED = "detected"
-    MITIGATED = "mitigated"
+    MITIGATION_APPLIED = "mitigation applied"
     IMPACT_ENDS = "impact ends"
 
 

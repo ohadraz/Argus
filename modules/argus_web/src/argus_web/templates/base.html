@@ -501,8 +501,8 @@
      inside a section. */
   section[data-section] h3 { font-size: .78em; font-weight: 400; text-transform: uppercase;
                              letter-spacing: .1em; margin: 1.4em 0 .5em; }
-  /* The four markers are the timeline's spine - began, detected, mitigated,
-     ended - so their rows stand out from the narration between them. */
+  /* The four markers are the timeline's spine - began, detected, mitigation
+     applied, ended - so their rows stand out from the narration between them. */
   section[data-section] h2 .zone { font-size: .75em; text-transform: none; letter-spacing: 0;
                                    opacity: .6; font-weight: 400; }
   .postmortem-timeline table.timeline td { padding: 9px 14px; border-bottom: 1px solid var(--muted);
@@ -518,7 +518,7 @@
                                           font-size: .85em; letter-spacing: .06em; margin-right: .5em; }
   .postmortem-timeline span.marker.impact-begins { color: var(--bad); }
   .postmortem-timeline span.marker.detected { color: var(--amber); }
-  .postmortem-timeline span.marker.mitigated,
+  .postmortem-timeline span.marker.mitigation-applied,
   .postmortem-timeline span.marker.impact-ends { color: var(--good); }
   /* Who did it, apart from what they did. */
   .postmortem-timeline .who { color: var(--eye); font-weight: 600; margin-right: .3em; }

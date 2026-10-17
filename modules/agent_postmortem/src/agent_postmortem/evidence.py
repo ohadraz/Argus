@@ -56,6 +56,11 @@ class ActionRecord(BaseModel):
     a platform refuses to have a live application changed under it otherwise,
     and would put the repository's version back at its next pass. `None`
     wherever sync is as Argus found it.
+
+    `line` is where, in the incident's timeline, the line saying the action
+    was taken sits - the line `taken_at` and `action` are read off - so the
+    document can mark that line rather than say the action again beside it.
+    `None` where the account holds no such line.
     """
 
     taken_at: datetime
@@ -64,6 +69,7 @@ class ActionRecord(BaseModel):
     verdict: str | None
     standing: str
     paused_sync_of: str | None = None
+    line: int | None = None
 
 
 class DeploymentChangesRecord(BaseModel):

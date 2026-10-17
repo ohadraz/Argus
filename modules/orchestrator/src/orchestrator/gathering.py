@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping
 from datetime import datetime
-from typing import get_args
+from typing import Final, get_args
 
 import psycopg
 from agent_postmortem import (
@@ -36,6 +36,7 @@ from argus_core.events import (
     DeploymentChangesRead,
     FixAttempted,
     FlagChangesRetrieved,
+    IncidentEvent,
     IncidentRemembered,
     LogsRetrieved,
     OnsetDetected,
@@ -72,12 +73,17 @@ from argus_incidents.repository import (
     taken_actions,
 )
 from argus_narration import (
+    NarrationLine,
     build_narration,
     each_wait_told_once,
     said_in_full,
     what_the_action_does,
     what_was_done,
 )
+
+# The kind a line telling an announcement carries: the event's own, read off
+# its type rather than spelled a second time.
+_ACTION_TAKEN: Final[str] = ActionTaken.model_fields["kind"].default
 
 
 def write_postmortem_for(incident_id: str,
@@ -131,6 +137,10 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
     # Read once, because two things are made of it - the candidates, and the
     # lines saying which of them each formed - and two reads could disagree.
     considered = hypotheses.get_all_by_incident(conn, incident_id)
+    # The account read once and told once, for the same reason: the timeline,
+    # and where in it each action's line sits.
+    account = events.get_by_incident(conn, incident_id)
+    told = _the_account_told(account)
 
     return IncidentEvidence(
         incident_id=incident_id,
@@ -143,9 +153,9 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         rule=_the_rule_that_paged(incident.alert_payload),
         alert_title=_what_was_alerted(incident.alert_payload),
         alert_finding=_what_the_alert_found(incident.alert_payload),
-        timeline=_what_happened(conn, incident_id, [hypothesis.id for hypothesis in considered]),
+        timeline=_what_happened(told, [hypothesis.id for hypothesis in considered]),
         candidates=_what_was_considered(considered),
-        actions=_what_was_done(conn, incident_id),
+        actions=_what_was_done(conn, incident_id, account, told),
         log_lines=_what_was_read(conn, incident_id),
         changes=_what_changed(conn, incident_id),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
@@ -354,9 +364,7 @@ def _what_the_alert_found(alert_payload: dict[str, object]) -> str | None:
     return summary if isinstance(summary, str) else None
 
 
-def _what_happened(conn: psycopg.Connection,
-                   incident_id: str,
-                   considered: list[str]) -> list[TimelineEntry]:
+def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[TimelineEntry]:
     """The narration, as the page shows it: who did what, in order.
 
     The page's own renderer rather than a second one written here. The
@@ -373,6 +381,21 @@ def _what_happened(conn: psycopg.Connection,
     the hypotheses in the order the document lists them. By id rather than by
     counting: that list is best first across every round, so a second round's
     best sits between the first round's own.
+    """
+    return [
+        TimelineEntry(at=line.at,
+                      who=line.who,
+                      text=said_in_full(line),
+                      candidates=[considered.index(candidate.hypothesis_id)
+                                  for candidate in line.candidates
+                                  if candidate.hypothesis_id in considered],
+                      outside_the_walk=line.outside_the_walk)
+        for line in told
+    ]
+
+
+def _the_account_told(account: list[IncidentEvent]) -> list[NarrationLine]:
+    """The incident's account in lines, as the document numbers them.
 
     Two things the page does not need and a document citing lines by number
     does: each wait told once, by the look that settled it, and every line
@@ -388,20 +411,11 @@ def _what_happened(conn: psycopg.Connection,
     too would tell it twice.
     """
     about_this_incident = [
-        event for event in events.get_by_incident(conn, incident_id)
+        event for event in account
         if not isinstance(event, IncidentRemembered | RememberingFailed | DeploymentChangesRead)
     ]
 
-    return [
-        TimelineEntry(at=line.at,
-                      who=line.who,
-                      text=said_in_full(line),
-                      candidates=[considered.index(candidate.hypothesis_id)
-                                  for candidate in line.candidates
-                                  if candidate.hypothesis_id in considered],
-                      outside_the_walk=line.outside_the_walk)
-        for line in each_wait_told_once(build_narration(about_this_incident))
-    ]
+    return each_wait_told_once(build_narration(about_this_incident))
 
 
 def _what_was_considered(considered: list[Hypothesis]) -> list[CandidateRecord]:
@@ -424,7 +438,10 @@ def _what_was_considered(considered: list[Hypothesis]) -> list[CandidateRecord]:
     ]
 
 
-def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[ActionRecord]:
+def _what_was_done(conn: psycopg.Connection,
+                   incident_id: str,
+                   account: list[IncidentEvent],
+                   told: list[NarrationLine]) -> list[ActionRecord]:
     """Every action, with what it came to and whether it still stands.
 
     Whether it still stands because a person who resolved the incident left
@@ -438,10 +455,17 @@ def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[ActionRec
     account's words for the same reason: the line is the action as a reader
     met it, where the row holds only its tag. The row stands only where the
     account holds no such line.
+
+    And where that line sits in `told`, the timeline the document numbers, so
+    the document can mark the line rather than say the action again beside it.
+    `told` is `account` told, so the two cannot disagree about how many
+    announcements there were. A walk resumed after announcing an action and
+    before taking it announces it again; the last announcement is the one it
+    was taken by, and the one all three are read off.
     """
-    said = {event.hypothesis_id: event
-            for event in events.get_by_incident(conn, incident_id)
-            if isinstance(event, ActionTaken) and event.hypothesis_id is not None}
+    announced = [event for event in account if isinstance(event, ActionTaken)]
+    said = {event.hypothesis_id: event for event in announced if event.hypothesis_id is not None}
+    where = _where_each_is_said(announced, told)
 
     return [
         ActionRecord(taken_at=_when_it_was_taken(taken_action, said),
@@ -449,9 +473,27 @@ def _what_was_done(conn: psycopg.Connection, incident_id: str) -> list[ActionRec
                      reversible=taken_action.has_a_way_back,
                      verdict=taken_action.outcome,
                      standing=_what_became_of(taken_action),
-                     paused_sync_of=_whose_sync_it_left_stopped(taken_action))
+                     paused_sync_of=_whose_sync_it_left_stopped(taken_action),
+                     line=where.get(taken_action.hypothesis_id or ""))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
+
+
+def _where_each_is_said(announced: list[ActionTaken],
+                        told: list[NarrationLine]) -> dict[str, int]:
+    """Where in `told` each candidate's action is said, by its last
+    announcement.
+
+    By order rather than by moment. Every announcement is told as a line of its
+    own, in the order it was published, so the k-th line about an action taken
+    is the k-th announcement - where two announcements can share a moment under
+    a frozen clock, and a resumed walk's two of one action share a candidate.
+    """
+    lines = [position for position, line in enumerate(told) if line.kind == _ACTION_TAKEN]
+
+    return {event.hypothesis_id: position
+            for event, position in zip(announced, lines, strict=True)
+            if event.hypothesis_id is not None}
 
 
 def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:

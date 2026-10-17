@@ -263,14 +263,17 @@ def an_action(action: str,
               standing: str = "still in place",
               reversible: bool = True,
               taken_at: datetime = STARTED_AT + timedelta(minutes=2),
-              paused_sync_of: str | None = None) -> ActionRecord:
-    """One action Argus took - with no verdict, unless a test names one."""
+              paused_sync_of: str | None = None,
+              line: int | None = None) -> ActionRecord:
+    """One action Argus took - with no verdict, unless a test names one, and
+    no line of the account saying it, unless a test says where it sits."""
     return ActionRecord(taken_at=taken_at,
                         action=action,
                         reversible=reversible,
                         verdict=verdict,
                         standing=standing,
-                        paused_sync_of=paused_sync_of)
+                        paused_sync_of=paused_sync_of,
+                        line=line)
 
 
 def a_lead(words: str,
