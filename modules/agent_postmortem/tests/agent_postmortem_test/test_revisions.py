@@ -24,7 +24,6 @@ from agent_postmortem.prompting import (
 from agent_postmortem.revisions import (
     ENOUGH_TO_BE_THE_SAME,
     revisions_of,
-    short_form,
     with_revisions_corrected,
 )
 from argus_core.models import ActionItemType, ChangeEvent, ChangeKind, Lessons
@@ -119,22 +118,6 @@ def test_two_revisions_alike_for_seven_characters_are_written_as_long_as_tells_t
         ) \
         .then(
             the_answer_was(SubmittedPostmortem(root_cause="revision abcdef12 broke it"))
-        )
-
-
-@pytest.mark.unit
-def test_a_short_form_and_the_whole_revision_it_names_are_one_revision_not_two() -> None:
-    # A change's short form beside a candidate naming the same revision whole -
-    # or a candidate's short form beside the change's whole one - are two names
-    # for one revision, and neither makes the other longer. Taken for rivals,
-    # the short one could never be told apart from the whole, however long.
-    Scenario() \
-        .when(
-            lambda: (short_form(SOME_SHORT_FORM, frozenset({SOME_SHORT_FORM, SOME_REVISION})),
-                     short_form(SOME_REVISION, frozenset({SOME_REVISION, SOME_REVISION[:9]})))
-        ) \
-        .then(
-            the_answer_was((SOME_SHORT_FORM, SOME_SHORT_FORM))
         )
 
 

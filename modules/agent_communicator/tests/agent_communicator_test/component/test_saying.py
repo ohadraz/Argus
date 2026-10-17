@@ -29,6 +29,7 @@ from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
     ActionTaken,
     CandidateSelected,
+    ChangesRetrieved,
     CommunicationFailed,
     IncidentEvent,
     OfferExpired,
@@ -42,10 +43,13 @@ from argus_core.models import (
     CHAT_RESOLUTION_OFFER,
     CHAT_THREAD,
     Alert,
+    ChangeEvent,
+    ChangeKind,
     IncidentStatus,
     Reference,
     Report,
     ReportChannel,
+    RevisionSource,
     a_chat_message,
     a_chat_resolution_offer,
     a_chat_withdrawal_offer,
@@ -242,6 +246,32 @@ def test_a_name_the_walk_quoted_is_said_without_its_brackets(
                                   Register.ANNOUNCED)) \
             .then(
                 _that_message_marks(slack, "categoriser.model went from v1 to v2")
+            )
+
+
+@pytest.mark.component
+def test_a_revision_the_incident_read_is_said_short(
+        slack: str, a_clean_database: None) -> None:
+    # Said whole in the record; forty characters in a channel read as noise.
+    # Short as the postmortem says it, from the changes the incident read.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        events.record(conn, _a_deploy_read_on(incident_id, some_revision))
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_a_candidate_naming_on(incident_id,
+                                                                          some_revision)),
+                                  Register.ANNOUNCED)) \
+            .then(
+                _that_message_marks(slack, f"{some_revision[:7]} made every page slow")
             )
 
 
@@ -859,6 +889,28 @@ def _a_candidate_quoting_names_on(incident_id: str) -> IncidentEvent:
     return CandidateSelected(incident_id=incident_id,
                              hypothesis_id=new_id(),
                              summary="[categoriser.model] went from [v1] to [v2]",
+                             confidence=None)
+
+
+def _a_deploy_read_on(incident_id: str, revision: str) -> IncidentEvent:
+    """A deploy of `revision` read, which can be opened where its repository is."""
+    return ChangesRetrieved(
+        incident_id=incident_id,
+        window_start="2026-10-11T12:00:00Z",
+        window_end="2026-10-11T12:05:00Z",
+        changes=[ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-10-11T12:00:00Z",
+                             reference=revision, summary="dont care",
+                             revision_source=RevisionSource(
+                                 repository="acme/shop",
+                                 repository_address="https://github.invalid/acme/shop",
+                                 revision_address=(f"https://github.invalid/acme/shop/"
+                                                   f"commit/{revision}")))])
+
+
+def _a_candidate_naming_on(incident_id: str, revision: str) -> IncidentEvent:
+    return CandidateSelected(incident_id=incident_id,
+                             hypothesis_id=new_id(),
+                             summary=f"[{revision}] made every page slow",
                              confidence=None)
 
 

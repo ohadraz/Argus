@@ -15,6 +15,7 @@ find again is a channel of loose sentences.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Final
 
 from argus_core import Connections
@@ -30,7 +31,7 @@ from argus_core.models import (
     the_place_of,
 )
 from argus_incidents.repository import events, references
-from argus_narration import NarrationLine, shown
+from argus_narration import NarrationLine, shown, the_short_forms
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
 
 from agent_communicator.policy import Register
@@ -159,7 +160,7 @@ def a_chat_destination(connections: Connections,
         # mid-incident, and a line in the wrong shape is worth more than
         # silence about an incident being worked.
         replying_to = thread if register is Register.FOLLOWED else None
-        said = _the_chat_line(line, link)
+        said = _the_chat_line(line, link, _the_short_forms_of(connections, incident_id))
         about = line.asks_to_confirm
         ending = line.offers_to_end_as
         offer = (Offer(about=about, label=_CONFIRMING[ending])
@@ -212,15 +213,16 @@ def a_chat_destination(connections: Connections,
     return say
 
 
-def _the_chat_line(line: NarrationLine, link: Link | None) -> Line:
+def _the_chat_line(line: NarrationLine, link: Link | None, shorts: Mapping[str, str]) -> Line:
     """One line of the account, as the chat platform is handed it: who said
     it, what they said, the word set apart, and where to read more.
 
     The split is the narration's, made once for every view, so that the page
     and the chat mark the same word - and shown as the page shows it, without
-    the brackets the walk quotes a name in for its model.
+    the brackets the walk quotes a name in for its model, and each revision
+    the incident read said by its short form (`shorts`).
     """
-    said = shown(line)
+    said = shown(line, shorts)
 
     return Line(who=said.who,
                 text=said.text,
@@ -295,6 +297,14 @@ def _write_the_gap_down(connections: Connections,
             refusal=refusal,
             about_kind=line.kind
         ))
+
+
+def _the_short_forms_of(connections: Connections, incident_id: str) -> dict[str, str]:
+    """Each revision the incident has read so far, and the short form a line
+    says it by - read from the record each time, since the relay may be
+    saying a line long after the read that named its revision."""
+    with connections() as conn:
+        return the_short_forms(events.get_by_incident(conn, incident_id))
 
 
 def _the_thread_of(connections: Connections,

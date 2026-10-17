@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Final
 
-from argus_core import parse_iso, to_iso
+from argus_core import parse_iso, short_form, to_iso
 from argus_core.models import (
     ActionItemType,
     Ask,
@@ -70,7 +70,7 @@ from agent_postmortem.figures import (
 )
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements
-from agent_postmortem.revisions import revisions_of, short_form
+from agent_postmortem.revisions import revisions_of
 from agent_postmortem.sections import (
     ACTION_PREFIX,
     CODE_READING_PREFIX,

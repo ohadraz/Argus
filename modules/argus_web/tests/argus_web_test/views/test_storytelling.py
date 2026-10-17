@@ -31,7 +31,16 @@ from argus_core.events import (
     MetricsRetrieved,
     StatusChanged,
 )
-from argus_core.models import Alert, FlagChange, Incident, IncidentStatus, MetricBucket
+from argus_core.models import (
+    Alert,
+    ChangeEvent,
+    ChangeKind,
+    FlagChange,
+    Incident,
+    IncidentStatus,
+    MetricBucket,
+    RevisionSource,
+)
 from argus_testkit import Assertion, Scenario
 from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
 
@@ -40,6 +49,7 @@ _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 SOME_MINUTE = "2026-08-30T10:14:00Z"
 AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
+SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 
 
 @pytest.mark.unit
@@ -208,6 +218,21 @@ def test_a_name_the_walk_quoted_is_shown_without_its_brackets() -> None:
 
 
 @pytest.mark.unit
+def test_a_revision_the_incident_read_is_shown_short() -> None:
+    # Said whole in the record; forty characters on the page read as noise.
+    # Short as the postmortem says it, and only where the line is shown.
+    Scenario() \
+        .given(
+            a_candidate_naming_a_revision := [
+                _changes_showing_a_deploy_of(SOME_REVISION),
+                _a_candidate_selected(f"[{SOME_REVISION}] made every page slow")]
+        ) \
+        .when(lambda: build_story(a_candidate_naming_a_revision)) \
+        .then(_a_line_shown_reads(f"Moving on to {SOME_REVISION[:7]} made every page slow",
+                                  f"{SOME_REVISION[:7]} made every page slow"))
+
+
+@pytest.mark.unit
 def test_two_polls_showing_the_same_thing_carry_the_same_version() -> None:
     # The page polls every two seconds and almost every poll returns what is
     # already on screen. Re-rendering it anyway destroys everything the reader
@@ -310,6 +335,35 @@ def _changes_showing_nothing() -> ChangesRetrieved:
 
 def _flag_history(changes: list[FlagChange]) -> FlagChangesRetrieved:
     return FlagChangesRetrieved(incident_id=new_id(), changes=changes)
+
+
+def _changes_showing_a_deploy_of(revision: str) -> IncidentEvent:
+    """A deploy of `revision` read, which can be opened where its repository is."""
+    return ChangesRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        changes=[ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                             reference=revision, summary="dont care",
+                             revision_source=RevisionSource(
+                                 repository="acme/shop",
+                                 repository_address="https://github.invalid/acme/shop",
+                                 revision_address=(f"https://github.invalid/acme/shop/"
+                                                   f"commit/{revision}")))]
+    )
+
+
+def _a_line_shown_reads(text: str, emphasis: str) -> Assertion[Story]:
+    """Some line as the page shows it: the whole of it, and the word it marks."""
+    def assertion(story: Story) -> bool:
+        shown = [(line.text, line.emphasis) for line in story.narration]
+
+        if (text, emphasis) not in shown:
+            raise AssertionError(f"Expected a line reading {(text, emphasis)}, got {shown}.")
+
+        return True
+
+    return assertion
 
 
 def _a_candidate_selected(summary: str) -> CandidateSelected:

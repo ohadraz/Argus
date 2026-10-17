@@ -20,6 +20,8 @@ import os
 import re
 from typing import TYPE_CHECKING, Final
 
+from argus_core import short_form
+
 from agent_postmortem.evidence import IncidentEvidence
 
 # For the annotations alone: the prompt labels each change with its revision's
@@ -38,10 +40,6 @@ A_REVISION: Final = re.compile(
 # How many leading characters a misremembered revision has to share with a real
 # one to be read as it: one chance in sixty-five thousand by accident.
 ENOUGH_TO_BE_THE_SAME: Final = 4
-
-# How long a revision's short form is, as git abbreviates one - and longer only
-# where two revisions the incident read start alike for that long.
-_SHORT_FORM: Final = 7
 
 
 def revisions_of(evidence: IncidentEvidence) -> frozenset[str]:
@@ -91,28 +89,6 @@ def _the_revision_named(named: str, revisions: frozenset[str]) -> str | None:
         return starting[0] if len(starting) == 1 else None
 
     return _the_one_it_starts_like(named, revisions)
-
-
-def short_form(revision: str, revisions: frozenset[str]) -> str:
-    """The revision as short as git would write it, and as long as it takes to
-    name it alone among the revisions the incident read.
-
-    A revision this one starts with, or that starts with this one, is another
-    name for the same commit rather than a rival, and makes it no longer: a
-    change's short form beside a candidate naming it whole is one revision.
-
-    Public because the document's rows name each change's revision as the
-    prose does, and a second shortening is a second chance to disagree."""
-    rivals = [other for other in revisions
-              if not (other.startswith(revision) or revision.startswith(other))]
-    length = _SHORT_FORM
-
-    # Ends: a rival never starts with the whole revision, or it would be
-    # another name for it.
-    while any(other.startswith(revision[:length]) for other in rivals):
-        length += 1
-
-    return revision[:length]
 
 
 def _the_one_it_starts_like(named: str, revisions: frozenset[str]) -> str | None:

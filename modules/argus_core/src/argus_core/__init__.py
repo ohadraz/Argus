@@ -5,7 +5,7 @@ two modules both name - a contract kept inside one of the parties is one the
 other installs an agent to read. `argus_core.llm` holds asking a model something.
 What is exported here is the rest: how a process is configured, how it reaches
 the database, how an id is minted and how a timestamp is spelled - the vocabulary
-every module uses and none of them owns.
+every module uses and none of them owns - a revision's short form among them.
 
 Configuration is exported twice over, and the pair is the point. `Settings` is
 the whole environment, which a process reads once where it starts; a
@@ -34,6 +34,7 @@ from argus_core.config import (
 )
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
+from argus_core.revisions import short_form
 from argus_core.timestamps import (
     in_real_time,
     parse_iso,
@@ -61,6 +62,7 @@ __all__ = [
     "new_id",
     "open_pool",
     "parse_iso",
+    "short_form",
     "sleep_on_the_clock",
     "the_clock_named_by",
     "to_iso",

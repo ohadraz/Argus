@@ -30,6 +30,7 @@ from argus_narration import (
     pointed_at,
     shown,
     the_minutes_logged,
+    the_short_forms,
 )
 from pydantic import BaseModel
 
@@ -102,6 +103,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     later read wins, because it is the later read that Argus acted on.
     """
     narration = build_narration(events)
+    shorts = the_short_forms(events)
 
     minutes: dict[str, BucketRow] = {}
     lines: dict[str, LogLine] = {}
@@ -120,7 +122,8 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
 
     return Story(
         narration=[
-            decorated(_pointed_at(shown(line), list(minutes), the_minutes_logged(lines.values())))
+            decorated(_pointed_at(shown(line, shorts), list(minutes),
+                                  the_minutes_logged(lines.values())))
             for line in narration
         ],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
