@@ -9,6 +9,7 @@ each say a revision, and two shortenings are two chances to disagree.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Final
 
 # How long a revision's short form is, as git abbreviates one - and longer only
@@ -34,6 +35,23 @@ def the_revision_named(named: str, revisions: frozenset[str]) -> str | None:
     starting = [revision for revision in revisions if revision.startswith(named)]
 
     return starting[0] if len(starting) == 1 else None
+
+
+def said_short(text: str, shorts: Mapping[str, str]) -> str:
+    """`text` with each revision in `shorts` it names - whole, or by a start
+    only that one begins - said by its short form, the revision's value in
+    `shorts`. A start several begin, and a revision `shorts` does not hold,
+    are left as written."""
+    if not shorts:
+        return text
+
+    whole = frozenset(shorts)
+
+    def as_said(named: re.Match[str]) -> str:
+        meant = the_revision_named(named.group(0), whole)
+        return shorts[meant] if meant is not None else named.group(0)
+
+    return A_REVISION.sub(as_said, text)
 
 
 def short_form(revision: str, revisions: frozenset[str]) -> str:

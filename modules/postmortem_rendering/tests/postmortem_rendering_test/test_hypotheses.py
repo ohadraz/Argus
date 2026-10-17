@@ -1,5 +1,6 @@
 """What the investigation considered: every candidate it ranked, how confident
-it was, and what became of each.
+it was, and what became of each - each revision it names said short, as the
+rest of the document says it, and leading to its commit.
 
 Each case is one postmortem and the table the section says it as.
 """
@@ -10,8 +11,14 @@ import pytest
 from argus_core.models import HypothesisConsidered
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.hypotheses import HypothesisRow, the_hypotheses
+from postmortem_rendering.lines import Line, Role, Run
 
-from postmortem_rendering_test.framework.builders import a_postmortem
+from postmortem_rendering_test.framework.builders import (
+    SOME_DEPLOYED_REVISION,
+    SOME_REPOSITORY_ADDRESS,
+    a_deploy_read,
+    a_postmortem,
+)
 
 
 @pytest.mark.unit
@@ -29,9 +36,9 @@ def test_each_candidate_is_a_row_with_its_confidence_to_two_places() -> None:
         ) \
         .then(
             the_answer_was((
-                HypothesisRow(label="C1", summary="a flag change on account pages",
+                HypothesisRow(label="C1", summary=_said("a flag change on account pages"),
                               confidence="0.80", result="confirmed"),
-                HypothesisRow(label="C2", summary="a bad deploy",
+                HypothesisRow(label="C2", summary=_said("a bad deploy"),
                               confidence="-", result="never tried"))))
 
 
@@ -48,8 +55,34 @@ def test_a_row_standing_for_several_candidates_goes_by_each_of_their_labels() ->
         ) \
         .then(
             the_answer_was((
-                HypothesisRow(label="C1", also=("C2",), summary="the model was upgraded",
+                HypothesisRow(label="C1", also=("C2",), summary=_said("the model was upgraded"),
                               confidence="0.80", result="confirmed"),)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("named", [SOME_DEPLOYED_REVISION, SOME_DEPLOYED_REVISION[:8]],
+                         ids=["whole", "by-a-start-of-it"])
+def test_a_revision_a_candidate_names_is_said_short_and_leads_where_it_opens(named: str) -> None:
+    # The candidate says it as the model wrote it - whole, mostly, or by as
+    # much of it as the model liked - and the trigger and the timeline say it
+    # short. Left so, one document names one revision two ways, and only one
+    # of them opens.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                changes_read=[a_deploy_read("P2")],
+                hypotheses=[HypothesisConsidered(summary=f"{named} made every page slow",
+                                                 confidence=0.8, result="confirmed",
+                                                 label="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
+                Run(text=" made every page slow")))))
 
 
 @pytest.mark.unit
@@ -91,3 +124,8 @@ def test_a_ranked_investigation_says_nothing_of_absence() -> None:
         ) \
         .then(
             the_answer_was(None))
+
+
+def _said(summary: str) -> Line:
+    """A candidate's words that name nothing that opens, as its row says them."""
+    return Line(runs=(Run(text=summary),))

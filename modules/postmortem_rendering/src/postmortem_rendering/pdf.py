@@ -875,14 +875,15 @@ def _a_factor(pdf: _Sheet, text: Sequence[Run], addressed_by: Line | None) -> No
 
 def _the_hypotheses(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     """Each candidate under the label the prose cites it by, then what it
-    said, how confident the ranking was and what became of it."""
+    said - written run by run, so a revision it names opens its commit - how
+    confident the ranking was and what became of it."""
     hypotheses = rendered.hypotheses
     if hypotheses.absent:
         _quiet(pdf, hypotheses.absent)
         return
 
     _a_table(pdf, hypotheses.headings,
-             [[(", ".join(row.labels), _NUMBER, None), (row.summary, None, None),
+             [[(", ".join(row.labels), _NUMBER, None), row.summary,
                (row.confidence, _TIME, None), (row.result, None, None)]
               for row in hypotheses.rows],
              widths=(18, 86, 26, 44), landings=[row.labels for row in hypotheses.rows])

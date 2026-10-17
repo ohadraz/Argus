@@ -34,7 +34,7 @@ from argus_core.config import (
 )
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
-from argus_core.revisions import A_REVISION, short_form, the_revision_named
+from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
 from argus_core.timestamps import (
     in_real_time,
     parse_iso,
@@ -63,6 +63,7 @@ __all__ = [
     "new_id",
     "open_pool",
     "parse_iso",
+    "said_short",
     "short_form",
     "sleep_on_the_clock",
     "the_clock_named_by",

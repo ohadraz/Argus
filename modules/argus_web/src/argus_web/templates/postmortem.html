@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <thead><tr>{% for heading in hypotheses.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
   {% for row in hypotheses.rows %}
-    <tr id="{{ row.label }}"><td class="label">{{ row.labels | join(", ") }}</td><td>{% for label in row.also %}<span id="{{ label }}"></span>{% endfor %}{{ row.summary }}</td>
+    <tr id="{{ row.label }}"><td class="label">{{ row.labels | join(", ") }}</td><td>{% for label in row.also %}<span id="{{ label }}"></span>{% endfor %}{{ said(row.summary) }}</td>
       <td>{{ row.confidence }}</td><td>{{ row.result }}</td></tr>
   {% endfor %}
   </tbody>

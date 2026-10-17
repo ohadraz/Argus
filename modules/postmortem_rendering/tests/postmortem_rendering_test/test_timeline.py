@@ -122,6 +122,32 @@ def test_a_revision_a_line_names_whole_is_said_short_and_leads_where_it_opens() 
 
 
 @pytest.mark.unit
+def test_a_revision_a_line_names_by_a_start_of_it_is_said_short_and_leads_where_it_opens() -> None:
+    # The model names a revision by as much of it as it likes - eight
+    # characters, often - and a candidate's line says it as the model wrote it.
+    # Left so, one document names one revision two ways, and only one opens.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                changes_read=[a_deploy_read("P2")],
+                timeline=[TimelineEntry(
+                    at=SOME_MOMENT, who="Investigator Agent",
+                    text=f"Moving on to [{SOME_DEPLOYED_REVISION[:8]}] made every page slow",
+                    label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Moving on to ", role=Role.NARRATION),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
+                Run(text=" made every page slow", role=Role.NARRATION)))))
+
+
+@pytest.mark.unit
 def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
     # The walk's brackets quote a name for the model and are left off where a
     # line is shown; a person's are theirs.
@@ -136,6 +162,26 @@ def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text="the [checkout] flag again?",
+                                          role=Role.NARRATION),))))
+
+
+@pytest.mark.unit
+def test_a_revision_a_person_wrote_is_said_as_they_wrote_it() -> None:
+    # As the dashboard and the channel say it: a person's words are theirs,
+    # a revision they wrote whole among them.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                changes_read=[a_deploy_read("P2")],
+                timeline=[TimelineEntry(at=SOME_MOMENT, who="kuki",
+                                        text=f"was it {SOME_DEPLOYED_REVISION}?",
+                                        label="XW1", outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text=f"was it {SOME_DEPLOYED_REVISION}?",
                                           role=Role.NARRATION),))))
 
 

@@ -104,8 +104,8 @@ def the_supporting_information(postmortem: PostmortemDocument,
     changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))
                     for cited in postmortem.changes_read)
     log_messages = _rows(postmortem.log_messages_read)
-    revision_addresses = _the_revision_addresses(postmortem.changes_read)
-    shorts = _the_short_forms(postmortem.changes_read)
+    revision_addresses = the_revision_addresses(postmortem.changes_read)
+    shorts = the_short_forms(postmortem.changes_read)
     deployment_changes = tuple(
         EvidenceRow(label=cited.label,
                     said=Line(runs=_shortened(Run(text=cited.text).with_links(revision_addresses),
@@ -185,9 +185,12 @@ def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:
     return addresses
 
 
-def _the_short_forms(changes: list[CitedChange]) -> dict[str, str]:
+def the_short_forms(changes: list[CitedChange]) -> dict[str, str]:
     """Each revision a change that can be opened names whole, and its short
-    form - the one the prose writes."""
+    form - the one the prose writes.
+
+    Public because the timeline and the hypotheses say a revision short too,
+    and by the same forms."""
     return {cited.change.reference: cited.short_reference
             for cited in changes if cited.change.revision_source is not None}
 
@@ -210,9 +213,11 @@ def _shortened(runs: tuple[Run, ...], shorts: dict[str, str]) -> tuple[Run, ...]
     return tuple(said)
 
 
-def _the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
+def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
     """Each revision a change that can be opened names, short and whole, and
-    where it opens."""
+    where it opens.
+
+    Public for the same reason as `the_short_forms`."""
     return {reference: cited.change.revision_source.revision_address
             for cited in changes if cited.change.revision_source is not None
             for reference in (cited.short_reference, cited.change.reference)}

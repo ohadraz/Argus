@@ -235,6 +235,32 @@ def test_a_revision_the_prose_names_links_out_to_its_commit() -> None:
 
 
 @pytest.mark.unit
+def test_a_revision_a_hypothesis_names_links_out_to_its_commit() -> None:
+    # Said short, as the rest of the file says it, it is a name a reader cannot
+    # look up by hand - so it opens from the row naming it, one link more than
+    # the change's own row gives.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+
+    Scenario() \
+        .given(
+            unnamed := as_pdf(render(
+                a_postmortem(hypotheses=[_a_hypothesis("a deploy made every page slow")],
+                             changes_read=[a_deploy_read()]),
+                an_alert(), [], SOME_ADDRESS)),
+            some_rendered := render(
+                a_postmortem(hypotheses=[_a_hypothesis(
+                                 f"{SOME_DEPLOYED_REVISION} made every page slow")],
+                             changes_read=[a_deploy_read()]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _one_more_link_out_to(commit, than=unnamed))
+
+
+@pytest.mark.unit
 def test_a_citation_of_what_the_alert_said_leads_to_its_row() -> None:
     some_detection = Detection(alerted_at=SOME_ONSET, rule="dont care", onset_at=None, gap=None,
                                said=CitedEvidence(label="AL1", text="240 totals are off"))
@@ -773,6 +799,10 @@ def test_the_first_page_carries_argus_s_mark_and_no_other_does() -> None:
         ) \
         .then(
             _only_the_first_page_has_an_image())
+
+
+def _a_hypothesis(summary: str) -> HypothesisConsidered:
+    return HypothesisConsidered(summary=summary, confidence=0.8, result="dont care", label="C1")
 
 
 def _a_lead(person_name: str, text: str = "dont care") -> PostmortemLead:

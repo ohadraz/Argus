@@ -160,7 +160,7 @@ def _the_rows(hypotheses: HypothesesSection,
     can run to pages, and the label leads to it."""
     rows: dict[str, Line] = {}
     for candidate in hypotheses.rows:
-        said = Line(runs=(Run(text=candidate.summary), Run(text=" - "),
+        said = Line(runs=(*candidate.summary.runs, Run(text=" - "),
                           Run(text=candidate.result)))
         rows |= {label: said for label in (candidate.label, *candidate.also)}
 

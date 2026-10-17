@@ -30,7 +30,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Final
 
-from argus_core import A_REVISION, short_form, the_revision_named
+from argus_core import said_short, short_form
 from argus_core.events import ChangesRetrieved, IncidentEvent
 from pydantic import BaseModel, ConfigDict
 
@@ -68,10 +68,10 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
     if line.outside_the_walk:
         return line
 
-    whole = frozenset(revisions)
+    shorts = {whole: revision.short for whole, revision in revisions.items()}
 
     def said(text: str) -> str:
-        return as_shown(_shortened(text, whole, revisions))
+        return as_shown(said_short(text, shorts))
 
     parts = {"text": said(line.text),
              "before_emphasis": said(line.before_emphasis),
@@ -95,22 +95,6 @@ def the_revisions(events: Sequence[IncidentEvent]) -> dict[str, ShownRevision]:
 
     return {revision: ShownRevision(short=short_form(revision, revisions), address=address)
             for revision, address in opened_at.items()}
-
-
-def _shortened(text: str,
-               whole: frozenset[str],
-               revisions: Mapping[str, ShownRevision]) -> str:
-    """`text` with each revision it names - whole, or by a start only it
-    begins - said by its short form. A start several begin names none of them,
-    and is left as written."""
-    if not revisions:
-        return text
-
-    def as_said(named: re.Match[str]) -> str:
-        meant = the_revision_named(named.group(0), whole)
-        return revisions[meant].short if meant is not None else named.group(0)
-
-    return A_REVISION.sub(as_said, text)
 
 
 def _the_links_in(parts: Iterable[str], revisions: Mapping[str, ShownRevision]) -> dict[str, str]:

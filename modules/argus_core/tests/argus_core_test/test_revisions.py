@@ -9,7 +9,7 @@ each say a revision, and two shortenings are two chances to disagree.
 from __future__ import annotations
 
 import pytest
-from argus_core import A_REVISION, short_form, the_revision_named
+from argus_core import A_REVISION, said_short, short_form, the_revision_named
 from argus_testkit import Scenario, the_answer_was
 
 # Two revisions starting nothing alike.
@@ -124,4 +124,41 @@ def test_hex_that_is_part_of_a_name_or_could_be_a_word_is_no_revision(said: str)
         ) \
         .then(
             the_answer_was([])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("named", [SOME_REVISION, SOME_REVISION[:8]],
+                         ids=["whole", "by-a-start-of-it"])
+def test_a_revision_a_sentence_names_is_said_by_its_short_form(named: str) -> None:
+    Scenario() \
+        .when(
+            lambda: said_short(f"rolled back off [{named}]", {SOME_REVISION: SOME_SHORT_FORM})
+        ) \
+        .then(
+            the_answer_was(f"rolled back off [{SOME_SHORT_FORM}]")
+        )
+
+
+@pytest.mark.unit
+def test_a_start_two_revisions_share_is_said_as_written() -> None:
+    Scenario() \
+        .when(
+            lambda: said_short(f"rolled back off {SOME_SHORT_FORM}",
+                               {SOME_REVISION: SOME_REVISION[:8], SOME_RIVAL: SOME_RIVAL[:8]})
+        ) \
+        .then(
+            the_answer_was(f"rolled back off {SOME_SHORT_FORM}")
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_the_incident_never_read_is_said_as_written() -> None:
+    Scenario() \
+        .when(
+            lambda: said_short(f"rolled back off {SOME_OTHER_REVISION}",
+                               {SOME_REVISION: SOME_SHORT_FORM})
+        ) \
+        .then(
+            the_answer_was(f"rolled back off {SOME_OTHER_REVISION}")
         )

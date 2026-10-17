@@ -1,14 +1,23 @@
 """What the investigation considered: every candidate it ranked, how confident
 it was, and what became of each - from the record, ruled-out ones included,
 since what was ruled out is half of what a reader is owed.
+
+A candidate names a revision as the model wrote it - whole, mostly, or by as
+much of it as the model liked - and the trigger and the timeline beside it say
+it short. So it is said short here too, and leads to its commit: one document
+naming one revision two ways reads as naming two.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
+from argus_core import said_short
 from argus_core.models import PostmortemDocument
 from pydantic import BaseModel, ConfigDict
+
+from postmortem_rendering.lines import Line, Run
+from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
 
 _HEADINGS: Final = ("", "Hypothesis", "Confidence", "Result")
 
@@ -22,7 +31,7 @@ class HypothesisRow(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     label: str
-    summary: str
+    summary: Line
     confidence: str
     result: str
     also: tuple[str, ...] = ()
@@ -46,8 +55,11 @@ class HypothesesSection(BaseModel):
 
 def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
     """Every candidate ranked, in the order the investigation ranked them."""
+    shorts = the_short_forms(postmortem.changes_read)
+    addresses = the_revision_addresses(postmortem.changes_read)
     rows = tuple(HypothesisRow(label=hypothesis.label,
-                               summary=hypothesis.summary,
+                               summary=Line(runs=Run(text=said_short(hypothesis.summary, shorts))
+                                            .with_links(addresses)),
                                confidence=(f"{hypothesis.confidence:.2f}"
                                            if hypothesis.confidence is not None else "-"),
                                result=hypothesis.result,

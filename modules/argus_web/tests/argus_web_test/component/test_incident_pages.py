@@ -1959,6 +1959,48 @@ def test_a_revision_the_root_cause_names_opens_its_commit() -> None:
 
 
 @pytest.mark.component
+def test_a_revision_a_hypothesis_names_opens_its_commit() -> None:
+    # The candidate wrote it whole; the row says it short, as the trigger and
+    # the timeline beside it do, and a reader opens it from there.
+    some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+    some_repository = "https://github.com/acme/shop"
+    commit = f"{some_repository}/commit/{some_revision}"
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "hypotheses": [HypothesisConsidered(
+                summary=f"{some_revision} made every page slow", confidence=0.8,
+                result="confirmed", label="C1")],
+            "changes_read": [CitedChange(
+                label="P1",
+                change=ChangeEvent(
+                    kind=ChangeKind.DEPLOY,
+                    occurred_at="2026-10-11T14:00:00Z",
+                    reference=some_revision,
+                    summary="dont care",
+                    revision_source=RevisionSource(
+                        repository="acme/shop",
+                        repository_address=some_repository,
+                        revision_address=commit)),
+                short_reference=some_revision[:7])]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says(f'<a href="{commit}" target="_blank" rel="noopener noreferrer">'
+                          f'{some_revision[:7]}</a> made every page slow')
+        )
+
+
+@pytest.mark.component
 def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> None:
     # Said short as the postmortem says it, and so a name a reader cannot look
     # up by hand.
