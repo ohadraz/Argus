@@ -44,7 +44,7 @@ def test_a_document_with_everything_meets_all_three_and_leaves_two_to_people() -
             a_complete_document := _a_document()
         ) \
         .when(
-            lambda: review_of(a_complete_document, faults=[])
+            lambda: review_of(a_complete_document, faults=[], reaches_a_cause=True)
         ) \
         .then(
             the_answer_was([
@@ -64,7 +64,7 @@ def test_key_data_is_not_collected_without_a_timeline() -> None:
             a_document_with_no_timeline := _a_document(timeline=[])
         ) \
         .when(
-            lambda: review_of(a_document_with_no_timeline, faults=[])
+            lambda: review_of(a_document_with_no_timeline, faults=[], reaches_a_cause=True)
         ) \
         .then(
             _says(KEY_DATA_COLLECTED, met=False)
@@ -80,7 +80,8 @@ def test_key_data_is_not_collected_while_a_step_cites_nothing() -> None:
             ])
         ) \
         .when(
-            lambda: review_of(a_document_with_an_uncited_step, faults=[SOME_FAULT])
+            lambda: review_of(a_document_with_an_uncited_step, faults=[SOME_FAULT],
+                              reaches_a_cause=True)
         ) \
         .then(
             _says(KEY_DATA_COLLECTED, met=False)
@@ -96,7 +97,7 @@ def test_impact_is_not_assessed_without_a_loss_figure() -> None:
             a_document_with_no_loss := _a_document(customer_loss_estimate=None)
         ) \
         .when(
-            lambda: review_of(a_document_with_no_loss, faults=[])
+            lambda: review_of(a_document_with_no_loss, faults=[], reaches_a_cause=True)
         ) \
         .then(
             _says(IMPACT_ASSESSED, met=False)
@@ -113,7 +114,8 @@ def test_impact_is_not_assessed_while_the_end_of_it_is_unknown() -> None:
             ])
         ) \
         .when(
-            lambda: review_of(a_document_that_never_saw_recovery, faults=[])
+            lambda: review_of(a_document_that_never_saw_recovery, faults=[],
+                              reaches_a_cause=True)
         ) \
         .then(
             _says(IMPACT_ASSESSED, met=False)
@@ -128,7 +130,7 @@ def test_an_analysis_of_one_step_is_not_complete() -> None:
             a_document_with_one_step := _a_document(causal_chain=[_a_step("account pages failed")])
         ) \
         .when(
-            lambda: review_of(a_document_with_one_step, faults=[])
+            lambda: review_of(a_document_with_one_step, faults=[], reaches_a_cause=True)
         ) \
         .then(
             _says(ANALYSIS_COMPLETE, met=False)
@@ -142,7 +144,7 @@ def test_an_analysis_the_answer_still_had_faults_in_is_not_complete() -> None:
             a_complete_document := _a_document()
         ) \
         .when(
-            lambda: review_of(a_complete_document, faults=[SOME_FAULT])
+            lambda: review_of(a_complete_document, faults=[SOME_FAULT], reaches_a_cause=True)
         ) \
         .then(
             all_of(
@@ -165,10 +167,30 @@ def test_an_analysis_that_confirmed_no_cause_is_not_complete() -> None:
             ])
         ) \
         .when(
-            lambda: review_of(a_document_confirming_nothing, faults=[])
+            lambda: review_of(a_document_confirming_nothing, faults=[], reaches_a_cause=True)
         ) \
         .then(
             _says(ANALYSIS_COMPLETE, met=False)
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_that_stops_at_the_change_that_set_it_off_is_not_complete() -> None:
+    # A rollback can confirm which change set the incident off and say nothing
+    # of why that change broke the service. A chain ending on the change is a
+    # trigger found, not a cause, and the model's own answer is what says so.
+    Scenario() \
+        .given(
+            a_complete_document := _a_document()
+        ) \
+        .when(
+            lambda: review_of(a_complete_document, faults=[], reaches_a_cause=False)
+        ) \
+        .then(
+            all_of(
+                _says(ANALYSIS_COMPLETE, met=False),
+                _says(KEY_DATA_COLLECTED, met=True)
+            )
         )
 
 

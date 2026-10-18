@@ -2,96 +2,108 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I should avoid stating specific figures and keep things at the level of placeholders. I'm working through how to describe the fraud-hold symptom without overstating it\u2014thinking about how the FraudHoldsHigh alert fired alongside a modest error-rate uptick, and how to phrase what shoppers actually experienced when their orders got flagged for review.\n\nBuilding the causal chain: fraud-hold rates climbed and errors ticked up, traced back to a replica getting scheduled onto a different accelerator type (A100 instead of V100) because the pod spec didn't pin accelerator affinity, letting the scheduler place it inconsistently. I'm noting that the exact mechanism for why the model behaves differently on the new card is unconfirmed\u2014only the correlation and the fix (pinning to V100, which stopped the rule from firing) are verified\u2014so I need to flag that as an assumption rather than a settled fact, and list the missing accelerator pinning as a contributing factor.\n\nI'm numbering new action items AI-3 and AI-4 after the existing ones: one to validate fraud scorer consistency across accelerator types before allowing heterogeneous deployment, and another to alert on accelerator mix or per-replica score divergence. For the executive summary I'm keeping it to placeholders for duration and error rate, and reminding myself to avoid writing out small counting words like \"one\" or \"two\" when describing cards.\n\n",
+      "signature": "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",
+      "thinking": "I need to avoid writing any actual figures here, using placeholders instead. The core issue is that legitimate customer purchases were wrongly held for review, and I'm noting the pattern of the metric before, during, and at the worst point of the incident, along with its duration \u2014 while error rates themselves stayed flat.\n\nTracing the causal chain: the share of held purchases crossed a threshold right when a replica started running on an A100 node instead of V100, and the likely mechanism is that the fraud_logit model rounds operands to TF32 on Ampere cards when ALLOW_TF32 is enabled, which can reduce precision enough to flip decisions near the threshold \u2014 this is an unverified reading, but pinning to V100 confirmed it as the fix. I've also ruled out production or flag changes as causes, and noted that scheduling had no constraint tying replicas to a specific accelerator type, which explains why one replica ended up on A100 in the first place.\n\nNow I'm thinking through contributing factors and action items: pods weren't pinned to accelerator type, the automatic config sync was disabled, and a fix exists but hasn't been merged. There's also a process gap where the investigator didn't check logs initially, and no automated test caught the cross-accelerator discrepancy. I'm proposing concrete follow-ups \u2014 adding the accelerator constraint directly into the deployment manifest so it survives sync re-enablement, adding a per-replica breakdown of held share to detection tooling, and adding tests comparing behavior across accelerator types.\n\nI need to be careful with phrasing throughout \u2014 avoiding specific numbers, time durations, and words like \"one\" or \"half,\" using placeholders instead, and keeping assumptions about unread logs and unverified static readings explicit. Now I'll write up the final summary.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01VnoeyBEM1aEfDFqKjY9Vik",
+      "id": "toolu_01X3jCdZ83mKWWEqccHbxbdF",
       "input": {
         "action_items": [
           {
-            "item": "Before allowing mixed accelerator types for the fraud scorer, compare its outputs on the A100 and V100 cards on a fixed test set, find why they differ, and record the acceptable difference.",
+            "item": "Put the accelerator constraint for io-shop in its deployment manifest, so the hold to V100 is declared in configuration and survives re-enabling sync. Remove it only after the fix is deployed and verified on A100.",
             "type": "prevent"
           },
           {
-            "item": "Alert when replicas of a service run on different accelerator types, and track the fraud-hold measure per replica so a single divergent replica is visible quickly.",
+            "item": "Add a per-replica and per-accelerator breakdown of the held-for-review share to the FraudHoldsHigh alert and dashboard, so an outlier replica is visible at once.",
             "type": "detect"
           }
         ],
         "causal_chain": [
           {
             "cites": [
-              "T6",
-              "Gbac1"
+              "AL1",
+              "T6"
             ],
-            "step": "Users and the paging rule saw the fraud-hold measure jump from {series_before} to {series_while_broken} on average (peak {series_at_worst}) from {began}, with account page errors rising slightly (peak {errors_at_worst} against {errors_before} before)."
+            "step": "Customers saw an unusually large share of their purchases held for review. The held share rose from {series_before} to {series_while_broken} on average and {series_at_worst} at its worst, and crossed the alert threshold {A1} for {A2}. Requests did not fail more than usual: errors were {errors_while_broken} against {errors_before} before."
           },
           {
             "cites": [
               "T7",
-              "Gd066"
-            ],
-            "step": "The change began at the same minute a new replica (io-shop-7d9c4f8b6-x2k9p) started serving the fraud scorer on an NVIDIA-A100-SXM4-40GB card, while the other replicas ran on Tesla-V100-SXM2-16GB cards."
-          },
-          {
-            "cites": [
-              "T21",
-              "T9",
-              "T14"
-            ],
-            "step": "The replica landed on a different card type because the pods were held to no particular card, so the scheduler could place them on any available accelerator. No deploy, release or flag change accounts for it."
-          },
-          {
-            "cites": [
+              "T15",
               "T17",
-              "T19",
-              "T20",
-              "T21"
+              "T18"
             ],
-            "step": "Holding the pods to Tesla-V100-SXM2-16GB brought the service back to baseline and stopped the paging rule firing, which supports the card type as the cause. Why the model's output differs between card types is not shown by the record, so the chain stops here."
+            "step": "The extra holds came from a replica that started at the onset on an A100 node (io-shop-7d9c4f8b6-x2k9p). The two older replicas were on V100 cards. Holding all the pods to V100 made the metric return to normal, which points at the card type as the difference."
+          },
+          {
+            "cites": [
+              "F1",
+              "T7"
+            ],
+            "step": "The A100 replica scored purchases differently. The static code reading (F1, unverified because nothing ran it) is that fraud_logit rounds its operands to TF32 on Ampere cards when ALLOW_TF32 is on. It then adds two products in the thousands, built from weights {F1.1} and {F1.2}, that should cancel to about {F1.3} per pound. TF32 keeps about {F1.4} significant digits, so the rounding error is larger than the real signal and many purchases come out held."
+          },
+          {
+            "cites": [
+              "T9",
+              "T12",
+              "T19",
+              "C1"
+            ],
+            "step": "The placement could cause harm because the pods were not held to any accelerator type, so a replica could land on a card the scoring code had not been checked on. This was not a change: no production change was found, and the flag provider showed no recent flag change. That rules out a deploy or a flag flip as the trigger. The record does not show why the scheduler chose an A100 node at that moment."
           }
         ],
         "contributing_factors": [
           {
             "addressed_by": [
               "AI-1",
+              "AI-3",
+              "AI-4"
+            ],
+            "factor": "Pods were not held to an accelerator type, so a replica could be placed on a card with different numeric behaviour. The hold Argus applied is a manual mitigation, and automatic sync is off, so it is not yet in the deployed configuration."
+          },
+          {
+            "addressed_by": [
               "AI-2"
             ],
-            "factor": "Nothing in the deployment constrained which accelerator type pods could be scheduled on, so a mixed fleet could form without any change being made. The pin applied during the incident is a mitigation and the permanent fix is still awaiting review."
+            "factor": "The scoring code was unsafe with TF32 on Ampere cards. No test was seen that compares the held share across accelerators. The proposed fix and its tests are not yet merged."
           },
           {
             "addressed_by": [
               "AI-3"
             ],
-            "factor": "The fraud scorer's output was never checked for consistency across accelerator types, so a model that answers differently on another card went unnoticed until production."
+            "factor": "Automatic sync of io-shop is off, so a merged fix will not reach the service until it is turned back on."
           },
           {
             "addressed_by": [
-              "AI-4"
+              "AI-5"
             ],
-            "factor": "Detection was slow and indirect: the alert was raised at {alert_raised}, {alert_raised - began} after the onset, and nothing flagged that a replica had started on a different card type."
+            "factor": "The alert only watches the overall held share. It does not show which replica or card type is responsible, and the paging rule waits before firing, so diagnosis relied on reading placement afterwards. The Investigator did not read logs."
           }
         ],
-        "executive_summary": "For {duration}, from {began} to {recovered}, the shop's fraud-scoring output drifted away from normal and a small share of account page requests failed (error rate peaked at {errors_at_worst}, against {errors_before} beforehand). No deployment or configuration change happened. A new copy of the service started on a different type of GPU than the others, and the fraud model gave different answers there. Argus restricted the service to the original GPU type, the measure returned to baseline, and a draft code fix was proposed for review.",
+        "executive_summary": "For a short stretch, {duration}, many more purchases than usual on the shop were held for manual fraud review. The held share rose from {series_before} to {series_while_broken} on average and {series_at_worst} at its worst. Customers whose purchases were wrongly held were delayed. Nothing failed outright: the error rate stayed at its usual level and there was no deploy or flag change. The cause was a new copy of the service landing on a different type of GPU server, which scores purchases slightly differently. Argus pinned the service to the original GPU type and the held share returned to normal. A draft fix is open for review.",
         "lessons": {
           "got_lucky": [
-            "The impact was small: errors rose only slightly and request latency and volume stayed at baseline, so the drift in fraud scoring was caught before it did wider harm."
+            "Only one replica was on the new card type, so the effect was limited and the held share stayed well below what a fleet-wide shift would produce.",
+            "The problem was visible as a business metric. A skew like this could go unnoticed where no such metric exists."
           ],
           "went_well": [
-            "Argus placed the onset correctly, recorded the replica's card type and ruled out deploys, releases and flag changes within seconds.",
-            "The mitigation was confirmed by the service returning to baseline and the paging rule going quiet, and a draft fix was proposed straight after."
+            "Argus tied the onset to a new replica on a different card type and acted on that quickly.",
+            "The mitigation was confirmed: the metrics were back to normal and the paging rule stopped firing.",
+            "A draft fix with tests that fail against the old code was proposed soon after mitigation."
           ],
           "went_wrong": [
-            "The paging rule only fired after the onset had been under way for a while, and no signal pointed at the replica placement.",
-            "The fix is still an open draft, so until it merges the pin is the only protection."
+            "The pods were not held to an accelerator type, so a single replica on a different card changed the service's decisions.",
+            "Because nothing failed, error and latency signals could not show the problem. Only the held-share metric did.",
+            "Logs were not read during the investigation, so the cause rests on a static code reading."
           ]
         },
-        "root_cause": "The service's pods were not held to a particular accelerator card, so a new replica was scheduled onto an NVIDIA-A100-SXM4-40GB card while the other replicas ran on Tesla-V100-SXM2-16GB cards. The fraud-scoring model on the new card answered differently, and the fraud-hold measure stepped up at the onset. The exact reason the model differs between card types was not established.",
-        "symptom": "Fraud-hold scores drifted and some account pages failed"
+        "reaches_a_cause": true,
+        "root_cause": "A new io-shop replica was scheduled on an A100 node at the onset, while the pods were not held to any accelerator type. The code reading (F1, not run) is that fraud_logit rounds its inputs to TF32 on Ampere cards when ALLOW_TF32 is on. The scorer adds two large, nearly cancelling products, and TF32 keeps too few digits to preserve the small difference. That would make the A100 replica hold far more purchases than the V100 replicas. Holding the pods to V100 ended the problem, which supports this. The record does not show the rounding itself being observed, and it does not show why the scheduler picked an A100 node.",
+        "symptom": "Far more purchases than usual were held for review"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
@@ -100,26 +112,27 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_015FuNdUqEvKseCaoSECmgfo",
+      "id": "toolu_01DqmNAkuG72HfsG16Nbyc6N",
       "input": {
         "action_items": [],
         "causal_chain": [],
         "contributing_factors": [],
-        "executive_summary": "x",
+        "executive_summary": "placeholder",
         "lessons": {
           "got_lucky": [],
           "went_well": [],
           "went_wrong": []
         },
-        "root_cause": "x",
-        "symptom": "x"
+        "reaches_a_cause": false,
+        "root_cause": "placeholder",
+        "symptom": "placeholder"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg3nntFZwBxU6HKeziWYZ",
+  "id": "msg_011CgAJ9o5zxgEwTrcTx2q3Q",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -129,16 +142,17 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3081
+      "ephemeral_5m_input_tokens": 3037
     },
-    "cache_creation_input_tokens": 3081,
-    "cache_read_input_tokens": 2046,
+    "cache_creation_input_tokens": 3037,
+    "cache_read_input_tokens": 2531,
     "inference_geo": "global",
     "input_tokens": 4,
-    "output_tokens": 2641,
+    "output_tokens": 3429,
     "output_tokens_details": {
-      "thinking_tokens": 893
+      "thinking_tokens": 1198
     },
-    "service_tier": "standard"
+    "service_tier": "standard",
+    "speed": "standard"
   }
 }

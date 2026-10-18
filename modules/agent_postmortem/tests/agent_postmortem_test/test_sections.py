@@ -800,6 +800,41 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
 
 
 @pytest.mark.unit
+def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
+    # The resolution says sync was left off; this is somebody turning it back
+    # on, without which nothing merged reaches the service. After the fix, since
+    # the fix is what should arrive once it is on, and once per application
+    # however many actions stopped it.
+    some_fix = OpenedPullRequest(number=7,
+                                 url="https://github.invalid/ohadraz/io-shop/pull/7",
+                                 branch="argus/fix-abc")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                actions=[an_action("scaled io-shop out", verdict=Verdict.CONFIRMED,
+                                   standing="still in place", paused_sync_of="io-shop"),
+                         an_action("rolled back io-shop", verdict=Verdict.CONFIRMED,
+                                   standing="still in place", paused_sync_of="io-shop")],
+                pull_request=some_fix)
+        ) \
+        .when(
+            lambda: [(item.number, item.text, item.type, item.status)
+                     for item in record_action_items_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([
+                ("AI-1", "scaled io-shop out", ActionItemType.MITIGATE, ActionItemStatus.DONE),
+                ("AI-2", "rolled back io-shop", ActionItemType.MITIGATE, ActionItemStatus.DONE),
+                ("AI-3", "Review and merge the proposed fix", ActionItemType.PREVENT,
+                 ActionItemStatus.OPEN),
+                ("AI-4", "Turn automatic sync of io-shop back on - until then, nothing "
+                         "merged reaches it", ActionItemType.MITIGATE, ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
     # The onset and the recovery are properties of the metrics rather than
     # lines anybody said, so they arrive as rows of their own; so does the

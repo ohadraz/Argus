@@ -339,6 +339,35 @@ def test_the_review_is_of_the_document_as_written_with_the_faults_still_in_it() 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("reaches_a_cause", [True, False], ids=["reaches", "stops"])
+def test_the_review_is_told_whether_the_answer_says_its_chain_reaches_a_cause(
+        reaches_a_cause: bool) -> None:
+    # The model's own word on its chain, and the review's only source for it:
+    # nothing in the document as written says whether a step got past the
+    # change that set the incident off.
+    reviewing = _reviewing_that_returns([])
+
+    Scenario() \
+        .given(
+            an_answer_about_its_chain := _asking_that_answers(
+                a_submitted_answer(reaches_a_cause=reaches_a_cause))
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=an_answer_about_its_chain,
+                                     disclose=_disclosing_that_returns([]),
+                                     review=reviewing)
+        ) \
+        .then(
+            _reviewed_knowing(reviewing, reaches_a_cause)
+        )
+
+
+@pytest.mark.unit
 def test_the_sections_the_record_holds_are_the_sections_published() -> None:
     # Each written by code from the record, and never asked of the model.
     Scenario() \
@@ -1131,6 +1160,22 @@ def _reviewed_as_written(reviewing: MagicMock,
             raise AssertionError(
                 f"Expected the review to be given the faults {faults}, got "
                 f"{reviewed_with}.")
+
+        return True
+
+    return assertion
+
+
+def _reviewed_knowing(reviewing: MagicMock,
+                      reaches_a_cause: bool) -> Assertion[PostmortemDocument]:
+    """The review was told what the answer said of its own chain."""
+    def assertion(dont_care_document: PostmortemDocument) -> bool:
+        told = reviewing.call_args.kwargs.get("reaches_a_cause")
+
+        if told is not reaches_a_cause:
+            raise AssertionError(
+                f"Expected the review to be told the chain reaches a cause: "
+                f"{reaches_a_cause}, got {told}.")
 
         return True
 

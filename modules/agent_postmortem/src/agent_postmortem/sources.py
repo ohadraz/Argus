@@ -61,6 +61,11 @@ type Rates = Callable[[], RateTable | None]
 # carries beside the five. `None` for an incident paged by no rule.
 type Metrics = Callable[[datetime, datetime, str | None], list[MetricBucket]]
 
+# How long the paging rule's condition has to hold before it fires, in seconds,
+# or `None` if nobody could say. The rule as it is defined when the document is
+# written, minutes after it paged - the same rule the metrics are read for.
+type RuleWait = Callable[[str], int | None]
+
 
 class EngagedResponder(BaseModel):
     """One person's own share of the response: their minutes, and what they
@@ -186,6 +191,7 @@ class Sources:
     engagement: Engagement
     bands: PayBands
     metrics: Metrics
+    rule_wait: RuleWait
     # Where the algorithm draws its lines, on the same terms as
     # `working_hours_a_year` below: a number rather than a port, read from the
     # deployment at the same moment as the source it is applied to. It decides

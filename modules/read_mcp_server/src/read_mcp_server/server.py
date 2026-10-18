@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from functools import partial
 from typing import Any, Final
 
 from argus_core import (
@@ -40,6 +41,7 @@ from deployment_platform import DeploymentPlatformReads
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
+from repository_source import the_head_of
 
 from read_mcp_server import (
     alert_rules,
@@ -374,12 +376,13 @@ def build_server(endpoint: ReadMcpEndpoint,
     def get_alert_rule(rule: str) -> AlertRuleStanding:
         """Returns whether an alert rule has stopped firing, as of its last
         evaluation, and how the rule reads its service - how far back it looks,
-        how often it is evaluated, and how long it keeps firing once its
-        condition stops holding.
+        how often it is evaluated, how long it keeps firing once its condition
+        stops holding, and how long that condition must hold before it fires.
 
         Read by Mitigation, which judges an action on a series alert by the rule
-        that paged: the rule defines what is acceptable for the service. Not
-        offered to a model. A rule that cannot be read raises rather than
+        that paged: the rule defines what is acceptable for the service. And by
+        the postmortem, for how long the rule waits before it fires. Not offered
+        to a model. A rule that cannot be read raises rather than
         answering normal, which is the answer that would confirm whatever was
         just done. The behavior lives in `alert_rules.how_the_rule_stands`; this
         is registration only."""
@@ -484,6 +487,7 @@ def build_server(endpoint: ReadMcpEndpoint,
     indexed_sha = meaning.the_commit_indexed_for(
         repository_settings.github_repository, connections
     )
+    head_of = partial(the_head_of, settings=repository.the_source_settings(repository_settings))
 
     @mcp.tool()
     def get_repository_index_freshness(ref: str) -> str:
@@ -500,7 +504,7 @@ def build_server(endpoint: ReadMcpEndpoint,
 
         The behavior lives in `meaning.the_index_notice`; this is registration
         only."""
-        return meaning.the_index_notice(ref=ref, indexed_sha=indexed_sha)
+        return meaning.the_index_notice(ref=ref, head_of=head_of, indexed_sha=indexed_sha)
 
     @mcp.tool()
     def search_repository_by_meaning(description: str, ref: str) -> list[str]:
@@ -532,6 +536,7 @@ def build_server(endpoint: ReadMcpEndpoint,
             settings=repository_settings,
             embed=embed,
             find=find_passages,
+            head_of=head_of,
             indexed_sha=indexed_sha
         )
 

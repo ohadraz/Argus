@@ -87,7 +87,6 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_HALF_FINISHED_ROLLOUT,
-    RECORDED_LARGE_CODE_FIX,
     RECORDED_LEAD_BEFORE_THE_WALK,
     RECORDED_LEAD_MID_INVESTIGATION,
     RECORDED_MONITORING_BLIND_SPOT,
@@ -111,6 +110,7 @@ from tests.e2e.framework.argus import (
     the_held_call_arrived,
     the_model_answers_from,
 )
+from tests.e2e.framework.builders import THE_ERROR_RATE_RULES_WORDS
 from tests.e2e.framework.chat import (
     RECORDED_INTENT_INFORMATION,
     RECORDED_INTENT_RESOLVE,
@@ -775,27 +775,6 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # the walk this recording is of.
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
     ),
-    # The flag scenario again, with the fault moved into the largest module the
-    # shop has. Everything a reader of the telemetry sees is the first
-    # recording's incident - same flag, same cohort, same error rate - and the
-    # answers are not the first recording's, because the file Code-Fix is sent
-    # to is twenty-odd thousand tokens rather than seven hundred. A whole-file
-    # answer of that size is what it is captured for.
-    #
-    # Worth capturing under `both` alone. The case that replays it is collected
-    # in that mode only - see `noxfile._the_cases_for`, which argues it - so a
-    # `grep` or `meaning` run of this name costs a real investigation and
-    # stores it where nothing looks.
-    _Recording(
-        RECORDED_LARGE_CODE_FIX,
-        "monthly-statement-panel",
-        "HighErrorRate",
-        IncidentStatus.MITIGATED,
-        # The fix alone, though this walk mitigates too. What the case replaying
-        # it asserts is the size of the written file, and that claim rests on
-        # Code-Fix having answered at all.
-        (_A_FIX_WAS_PROPOSED,)
-    ),
     # Nothing beyond the ending. The shop's logs say nothing is wrong, so there
     # is no cause to name and nothing to act on - escalation and a postmortem
     # are the entire claim, and a `must_have` invented to fill the column would
@@ -1017,13 +996,41 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
 EVERY_RECORDING_KEYWORD = "all"
 
 
-def _an_alert_for(service: str, alert_name: str, rule_uid: str | None) -> dict[str, Any]:
+# The words each scenario's rule pages with, where that rule is not the shop's
+# error-rate rule: the shop's own `_WHAT_FIRED` (`monitoring.py` in the demo
+# app), word for word, as the e2e case replaying each recording sends them.
+# Three latency rules share one alert name, so the words are the only thing in
+# the page that says which percentile moved - and Argus names the paging rule's
+# series by them.
+_WHAT_EACH_SCENARIO_PAGES_WITH: Final[dict[str, str]] = {
+    "bad-deployment": "p95 latency above threshold for 5m",
+    "cache-misconfigured": "p50 latency above threshold for 5m",
+    "slow-canary-rollout": "p99 latency above threshold for 5m",
+    "resource-leak": "Memory usage climbing against the container limit for 15m",
+    "pricing-service-degraded": "p95 latency above threshold for 5m",
+    "cpu-saturation": "p95 latency above threshold for 5m",
+    "autoscaler-flapping": "p95 latency above threshold for 5m",
+    "flag-revert-leaves-a-flap": "Error rate above 2.5% averaged over 10m",
+    "categoriser-model-upgraded": "Share of purchases categorised confidently below 80% for 5m",
+    "scorer-replica-rescheduled": "Share of purchases held for review above 10% for 5m"
+}
+
+
+def _an_alert_for(service: str,
+                  alert_name: str,
+                  rule_uid: str | None,
+                  scenario: str | None = None) -> dict[str, Any]:
     """A Grafana webhook payload, as Grafana would send it.
 
     `startsAt` is now, and that matters: retrieval is anchored on the alert
     time and the Target Service stages a scenario relative to the moment it was
     staged, so a fixed timestamp would point the window at minutes the fixture
     never wrote.
+
+    `summary` is the words the staged scenario's rule pages with. Argus reads
+    them as the sender's own account and names the paging rule's series by
+    them, so a recording captured under other words is a model answering an
+    alert no replay of it sends.
 
     `generatorURL` links to the rule the staged scenario trips, which is the
     one place Grafana's webhook names the rule that fired, and the e2e suite's
@@ -1033,7 +1040,7 @@ def _an_alert_for(service: str, alert_name: str, rule_uid: str | None) -> dict[s
     other. Where nothing is staged the link is the one the suite's builder
     sends.
     """
-    summary = f"Error rate above threshold on {service}"
+    summary = _WHAT_EACH_SCENARIO_PAGES_WITH.get(scenario or "", THE_ERROR_RATE_RULES_WORDS)
     linked = service if rule_uid is None else rule_uid
 
     return {
@@ -1256,7 +1263,8 @@ def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
 
 def _an_incident_was_opened_by(service: str,
                                alert_name: str | None,
-                               rule_uid: str | None) -> str:
+                               rule_uid: str | None,
+                               scenario: str | None) -> str:
     """Fires the alert and returns the incident the webhook wrote down.
 
     Two ways in, and which one is used is the recording's to say. A named alert
@@ -1290,7 +1298,7 @@ def _an_incident_was_opened_by(service: str,
 
     response = httpx2.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
-        json=_an_alert_for(service, alert_name, rule_uid),
+        json=_an_alert_for(service, alert_name, rule_uid, scenario),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -1724,7 +1732,7 @@ def _capture(recording: _Recording,
         recording.and_then()
 
     incident_id = _an_incident_was_opened_by(
-        service, recording.alert_name, staged.rule_uid
+        service, recording.alert_name, staged.rule_uid, recording.scenario
     )
 
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")

@@ -93,6 +93,8 @@ from tests.e2e.framework.world import (
 # errors are the leak's late signal and borrowing them would blur the one pair of
 # scenarios this case exists to separate.
 A_LATENCY_ALERT = "HighLatency"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "p95 latency above threshold for 5m"
 
 # The size the shop is declared with, in `deploy/values-production.yaml`. Named
 # rather than derived, because what is being asserted is that Argus left the
@@ -113,7 +115,8 @@ def test_a_shop_that_outgrew_its_capacity_is_scaled_out_and_left_mitigated() -> 
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

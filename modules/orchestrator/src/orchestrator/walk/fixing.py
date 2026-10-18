@@ -133,6 +133,19 @@ def codefix_node(state: IncidentState,
             detail=f"the fix could not be proposed: {_what_went_wrong(error)}",
         )
 
+    if proposed.needs_code_outside:
+        # Written and held back. Not "no fix found": the model found one and
+        # said what else it needs, and that is what the explanation carries.
+        return _said(
+            narrator,
+            found=False,
+            outcome=FixOutcome.NOT_OPENED,
+            proposal=None,
+            action="a code-level fix was written but not opened",
+            detail="it helps only once code outside the repository changes as well",
+            explanation=proposed.explanation
+        )
+
     if proposed.pull_request is None:
         return _said(
             narrator,

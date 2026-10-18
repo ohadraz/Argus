@@ -36,6 +36,8 @@ TYPE_KEY: Final = "type"
 TOOL_RESULT_TYPE: Final = "tool_result"
 TOOL_USE_ID_KEY: Final = "tool_use_id"
 IS_ERROR_KEY: Final = "is_error"
+TEXT_TYPE: Final = "text"
+TEXT_KEY: Final = "text"
 
 
 @pytest.mark.unit
@@ -172,6 +174,42 @@ def test_an_exchange_reaches_the_model_in_the_order_it_happened() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_turn_that_only_talked_goes_back_as_what_it_said() -> None:
+    # A turn that asked for nothing is the model's words alone, and a loop that
+    # carries on after one sends it back. Sent as its calls - none - it is an
+    # assistant message with nothing in it, which the API refuses.
+    some_words = "The deadline belongs in the pricing call."
+
+    Scenario() \
+        .given(
+            some_transcript := [_a_turn_that_said(some_words)]
+        ) \
+        .when(
+            lambda: to_messages(some_transcript)
+        ) \
+        .then(
+            _the_turn_at(0, says=[some_words])
+        )
+
+
+@pytest.mark.unit
+def test_a_turn_that_said_nothing_still_goes_back_with_something_in_it() -> None:
+    # Thinking only: no words and no calls. The API refuses a message with no
+    # content and a text block with no text alike, so what goes back has to
+    # carry something - and that is the adapter's to know, not each loop's.
+    Scenario() \
+        .given(
+            some_transcript := [_a_turn_that_said("")]
+        ) \
+        .when(
+            lambda: to_messages(some_transcript)
+        ) \
+        .then(
+            _the_message_at_is_not_empty(0)
+        )
+
+
 def _the_messages_are_from(roles: list[str]) -> Assertion[list[dict[str, Any]]]:
     """Who each message is attributed to, in order - and how many there are."""
     def assertion(messages: list[dict[str, Any]]) -> bool:
@@ -241,6 +279,56 @@ def _the_result_blocks_of(message: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
     return [block for block in content if block.get(TYPE_KEY) == TOOL_RESULT_TYPE]
+
+
+def _the_turn_at(position: int, says: list[str]) -> Assertion[list[dict[str, Any]]]:
+    """The words one assistant message carries, block by block."""
+    def assertion(messages: list[dict[str, Any]]) -> bool:
+        said = [block.get(TEXT_KEY) for block in _the_text_blocks_of(messages[position])]
+        if said != says:
+            raise AssertionError(f"Expected message {position} to say {says}, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_message_at_is_not_empty(position: int) -> Assertion[list[dict[str, Any]]]:
+    """Something in one message for the API to accept: content that is not
+    empty, and no text block with no text."""
+    def assertion(messages: list[dict[str, Any]]) -> bool:
+        content = messages[position].get(CONTENT_KEY)
+        empty_text = [
+            block for block in _the_text_blocks_of(messages[position])
+            if not block.get(TEXT_KEY)
+        ]
+        if not content or empty_text:
+            raise AssertionError(
+                f"Expected message {position} to carry something, got [{content}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_text_blocks_of(message: dict[str, Any]) -> list[dict[str, Any]]:
+    content = message.get(CONTENT_KEY)
+    if not isinstance(content, list):
+        return []
+
+    return [block for block in content if block.get(TYPE_KEY) == TEXT_TYPE]
+
+
+def _a_turn_that_said(words: str) -> Turn:
+    dont_care_tokens = 1
+
+    return Turn(
+        text=words,
+        tool_calls=[],
+        input_tokens=dont_care_tokens,
+        output_tokens=dont_care_tokens
+    )
 
 
 def _a_turn_that_asked_for(call_id: str) -> Turn:

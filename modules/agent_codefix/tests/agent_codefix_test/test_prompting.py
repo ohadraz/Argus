@@ -277,6 +277,17 @@ def test_nothing_to_change_is_its_own_tool_and_carries_its_reasoning() -> None:
 
 
 @pytest.mark.unit
+def test_a_fix_is_submitted_with_an_explanation_of_what_it_found() -> None:
+    # Left optional, a recorded walk submitted its patch without one, and the
+    # postmortem - which reads the mechanism from it - wrote that nothing
+    # showed why the new model scored lower, beside a patch that fixed exactly
+    # that.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(_the_schema_requires(EXPLANATION_FIELD))
+
+
+@pytest.mark.unit
 def test_a_file_wrapped_in_a_stray_closing_tag_is_read_without_it() -> None:
     # A real answer, on a whole recorded walk: every file in the patch ended
     # with a literal `</content>`, so each one was syntactically invalid Python

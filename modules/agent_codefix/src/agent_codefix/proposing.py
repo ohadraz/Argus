@@ -46,6 +46,7 @@ from argus_core.models import (
     ModelPolicy,
     OpenedPullRequest,
     ProposedFix,
+    ToolCall,
     ToolResult,
     ToolResults,
     Turn,
@@ -74,10 +75,15 @@ from agent_codefix.opening import (
     what_people_wrote_since,
 )
 from agent_codefix.prompting import (
+    ANSWER_TOOL_NAME,
     EXPLANATION_FIELD,
+    NOT_AN_ANSWER,
+    NOT_RUN_WHILE_ASKED,
     REPORT_TOOL_NAME,
     STANDING_BRIEF,
     SUBMIT_TOOL_NAME,
+    THE_QUESTION_A_SUBMISSION_IS_ASKED,
+    AnswerToTheQuestion,
     SubmittedFix,
     the_paths_whose_content_is_not_source,
 )
@@ -198,6 +204,16 @@ _ONE_CALL_LEFT: Final = (
     "change."
 )
 
+# What a turn that asked for nothing is answered with, as the investigator's
+# loop answers one. Some answer has to go back, because the API refuses an
+# empty reply; and the empty one this replaced ended a live walk on a 400
+# rather than on anything the model concluded.
+_A_TURN_THAT_ASKED_FOR_NOTHING: Final = (
+    "That turn asked for nothing. Read what you need, submit the fix with "
+    f"{SUBMIT_TOOL_NAME}, or say there is nothing to change with "
+    f"{REPORT_TOOL_NAME}."
+)
+
 
 def fixes_over(read: McpClient,
                write: McpClient,
@@ -254,6 +270,11 @@ def propose_fix(hypothesis: Hypothesis | None,
     diff with nothing in it. Why there was nothing comes back all the same,
     since it is as much a finding about the code as a fix would be.
 
+    No pull request with `needs_code_outside` is a fix the model wrote and
+    said helps nobody until code outside the repository changes too. Nothing is
+    written for it either: merged alone it spares no one, and what comes back
+    is what would have to change there.
+
     Raises `FixNotAnswered` when the model never submitted within its budget,
     which is a different thing entirely and used to arrive looking identical.
 
@@ -306,6 +327,15 @@ def propose_fix(hypothesis: Hypothesis | None,
         leads=leads
     )
 
+    if isinstance(submitted, AnswerToTheQuestion):
+        # Written and not opened: merged alone it spares nobody. What comes
+        # back is what would have to change outside, for whoever takes it
+        # there.
+        logger.info("fix not opened, it needs code outside the repository")
+        return ProposedFix(pull_request=None,
+                           explanation=submitted.explanation,
+                           needs_code_outside=True)
+
     patch = submitted.patch()
 
     if not patch:
@@ -348,13 +378,21 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               read_file: FileReader,
                               converse: Conversation,
                               still_wanted: StillWanted,
-                              leads: Leads) -> SubmittedFix:
-    """The conversation, until the model submits or runs out of budget.
+                              leads: Leads) -> SubmittedFix | AnswerToTheQuestion:
+    """The conversation, until the model submits and answers for its patch, or
+    runs out of budget.
 
     Every turn that is not a submission is answered and put back, including the
     ones that failed: a model guessing at a path is doing its job badly for one
     turn, not failing, and ending here would throw away every file it had read
     correctly up to then.
+
+    A submission is not the end. It is asked whether it helps this incident's
+    users only once code outside the repository changes too, and the answer
+    decides: no, and the submission comes back to be opened; yes, and the answer
+    comes back instead, to be held. A patch sent on the last call the budget
+    allows gets one more for its answer - the answer is part of the submission,
+    not another read - and a report made once asked is a verdict like any other.
 
     Raises rather than returning nothing when the budget runs out. What
     stopped it is the whole of what a reader can act on, and only here is it
@@ -371,8 +409,14 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         ))
     ]
     spend = a_budget_for(settings)
+    # The submission the question is open about, and whether the budget has
+    # been stretched by one turn so it can be answered.
+    asked: SubmittedFix | None = None
+    room_for_its_answer = False
 
-    while not spend.bounds_reached():
+    while not spend.bounds_reached() or room_for_its_answer:
+        room_for_its_answer = False
+
         if not still_wanted():
             logger.info("fix stopped, incident no longer wanted")
             raise FixStopped("the incident is no longer wanted")
@@ -406,14 +450,24 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             return verdict
 
         submitted = _the_submission_in(turn)
+        answered = _the_answer_in(turn)
 
         results: list[ToolResult]
 
-        if submitted is not None and submitted.files:
+        if submitted is not None and submitted.files and not (
+            the_paths_whose_content_is_not_source(submitted.files)
+        ):
+            # Asked about rather than returned. A second submission replaces
+            # the first, and is asked about in turn.
+            asked = submitted
+            room_for_its_answer = bool(spend.bounds_reached())
+            results = [_the_question_or_not_run(call) for call in turn.tool_calls]
+        elif answered is not None and asked is not None and submitted is None:
+            # The answer about the patch in hand. Yes holds it back; no lets it
+            # be opened.
+            return answered if answered.answer else asked
+        elif submitted is not None and submitted.files:
             not_source = the_paths_whose_content_is_not_source(submitted.files)
-
-            if not not_source:
-                return submitted
 
             # A patch that cannot be read as the language it is written in,
             # which is a submission to recover from rather than one to
@@ -438,7 +492,9 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             results = [_no_patch_was_attached(turn)]
         else:
             results = [
-                the_answer_to(
+                _an_answer_that_counts_for_nothing(call, asked)
+                if call.name == ANSWER_TOOL_NAME
+                else the_answer_to(
                     call, settings, search, search_by_meaning, list_files, read_file
                 )
                 for call in turn.tool_calls
@@ -450,11 +506,21 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         written_since = not_yet_shown(leads(), shown)
         shown = [*shown, *written_since]
 
+        # No warning to submit while a question is open: what is wanted then
+        # is the answer, and "submit the fix now" would ask for the patch
+        # already sent.
         transcript.append(_what_it_is_told_next(
             results,
-            one_call_left=spend.is_on_its_last_call(),
-            news=what_people_wrote_since(written_since)
+            one_call_left=spend.is_on_its_last_call() and asked is None,
+            news=what_people_wrote_since(written_since),
+            question_open=asked is not None
         ))
+
+    if asked is not None:
+        raise FixNotAnswered(
+            "the agent submitted a fix and never said whether it needs code "
+            "outside the repository"
+        )
 
     # Which bound ended it, named for the human who has to act on it. It was
     # "turns" while the call count was the only way to run out; there are
@@ -469,7 +535,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
 def _what_it_is_told_next(results: list[ToolResult],
                           one_call_left: bool,
-                          news: str = "") -> Exchange:
+                          news: str = "",
+                          question_open: bool = False) -> Exchange:
     """What comes back from one turn's requests, and the warning if it is due.
 
     The warning rides on the last result rather than travelling as a message
@@ -479,22 +546,29 @@ def _what_it_is_told_next(results: list[ToolResult],
     what people wrote in the thread since the last turn - rides the same way,
     for the reason it arrives at all: between two turns, never inside one.
 
-    A turn that asked for nothing has no result to ride on, so both are said
-    plainly instead. Dropped there, the news would be counted as shown and
-    never sent, and the thread would not be asked about it again.
+    A turn that asked for nothing has no result to ride on, so it is answered
+    in words of its own and both ride on those instead. Dropped there, the news
+    would be counted as shown and never sent, and the thread would not be asked
+    about it again.
 
     Without it a model spends its last call asking for one more file and
     everything it read is thrown away as no fix proposed - which reads as a
     verdict on code nobody finished looking at. That costs more here than
     anywhere else: the turns being discarded are whole files.
+
+    With `question_open`, a turn that asked for nothing is asked the question
+    again: what is wanted then is the answer, not another read or patch.
     """
     postscript = news + (_ONE_CALL_LEFT if one_call_left else "")
 
+    if not results:
+        reply = (THE_QUESTION_A_SUBMISSION_IS_ASKED if question_open
+                 else _A_TURN_THAT_ASKED_FOR_NOTHING)
+
+        return Ask(text=reply + postscript)
+
     if not postscript:
         return ToolResults(results=results)
-
-    if not results:
-        return Ask(text=postscript.strip())
 
     last = results[-1]
 
@@ -593,6 +667,53 @@ def _the_verdict_in(turn: Turn) -> SubmittedFix | None:
         )
     except (ValidationError, TypeError):
         return None
+
+
+def _the_answer_in(turn: Turn) -> AnswerToTheQuestion | None:
+    """The answer to the question a submission is asked, if this turn gave one
+    that could be read."""
+    answering = next(
+        (call for call in turn.tool_calls if call.name == ANSWER_TOOL_NAME), None
+    )
+
+    if answering is None:
+        return None
+
+    try:
+        return AnswerToTheQuestion.model_validate(answering.arguments)
+    except (ValidationError, TypeError):
+        return None
+
+
+def _the_question_or_not_run(call: ToolCall) -> ToolResult:
+    """What each call in a turn that submitted a patch is told.
+
+    The submission is asked its question. Anything else sent with it waits for
+    the answer - including an answer, which was given before anything was
+    asked and so is not the answer to it.
+    """
+    if call.name == SUBMIT_TOOL_NAME:
+        return ToolResult(call_id=call.id, content=THE_QUESTION_A_SUBMISSION_IS_ASKED)
+
+    if call.name == ANSWER_TOOL_NAME:
+        return ToolResult(call_id=call.id, content=NOT_AN_ANSWER, failed=True)
+
+    return ToolResult(call_id=call.id, content=NOT_RUN_WHILE_ASKED)
+
+
+def _an_answer_that_counts_for_nothing(call: ToolCall,
+                                       asked: SubmittedFix | None) -> ToolResult:
+    """An answer with no question open, or one that could not be read.
+
+    With no patch asked about, it is told so. With one, the answer did not
+    parse, so the question is put again.
+    """
+    if asked is None:
+        return ToolResult(call_id=call.id, content=NOT_AN_ANSWER, failed=True)
+
+    return ToolResult(
+        call_id=call.id, content=THE_QUESTION_A_SUBMISSION_IS_ASKED, failed=True
+    )
 
 
 def _the_submission_in(turn: Turn) -> SubmittedFix | None:

@@ -101,6 +101,11 @@ THE_SIZE_THE_SHOP_IS_DECLARED_WITH = 3
 # restoring it returns the shop to flapping.
 THE_FLOOR_THE_AUTOSCALER_IS_DECLARED_WITH = 3
 
+# The words the shop's p95 latency rule pages with, which the three latency
+# scenarios withdrawn below all trip (`_WHAT_FIRED` in the demo app's
+# `monitoring.py`).
+WHAT_THE_LATENCY_ALERT_SAYS = "p95 latency above threshold for 5m"
+
 # How the platform addresses the autoscaler, in Kubernetes' own vocabulary. The
 # resource route answers about the Deployment unless it is told which kind, and a
 # deployment whose size a controller decides has two resources worth asking about.
@@ -226,7 +231,8 @@ def test_a_withdrawn_rollback_puts_the_deployment_back_and_resumes_reconciliatio
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=some_alert_name,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_LATENCY_ALERT_SAYS)
 
     Scenario() \
         .given(
@@ -267,7 +273,8 @@ def test_a_withdrawn_scale_out_puts_the_count_back_and_resumes_reconciliation() 
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=some_alert_name,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_LATENCY_ALERT_SAYS)
 
     Scenario() \
         .given(
@@ -306,7 +313,8 @@ def test_a_withdrawn_pin_puts_the_floor_back_and_resumes_reconciliation() -> Non
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=some_alert_name,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_LATENCY_ALERT_SAYS)
 
     Scenario() \
         .given(

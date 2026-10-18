@@ -44,6 +44,7 @@ from agent_postmortem_test.framework.builders import (
     a_band_source_that_cannot_answer,
     a_bucket,
     a_revenue_source_that_cannot_answer,
+    a_rule_waiting,
     an_action,
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
@@ -931,6 +932,65 @@ def test_the_metrics_are_read_for_the_rule_that_paged() -> None:
 
 
 @pytest.mark.unit
+def test_how_long_the_paging_rule_waits_is_read_for_the_rule_that_paged() -> None:
+    # The rule as it is defined when the document is written, minutes after it
+    # paged - the same rule the metrics are read for.
+    some_rule = "kuki-rule"
+    rules_asked_about: Kept[str] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=some_rule)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                rule_wait=a_rule_waiting(300, asked=rules_asked_about)))
+        ) \
+        .then(
+            all_of(
+                _the_rule_waits(timedelta(minutes=5)),
+                _asked_how_long_these_rules_wait([some_rule], rules_asked_about)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_whose_wait_could_not_be_read_is_measured_as_unread() -> None:
+    # Unread is not "fires at once": a write-up told the rule waits for nothing
+    # would call the rule's own wait slow detection.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(rule_wait=a_rule_waiting(None)))
+        ) \
+        .then(
+            _the_rule_wait_was_unread()
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_no_rule_paged_for_asks_no_rule_how_long_it_waits() -> None:
+    rules_asked_about: Kept[str] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=None)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                rule_wait=a_rule_waiting(300, asked=rules_asked_about)))
+        ) \
+        .then(
+            all_of(
+                _the_rule_waits(None),
+                _asked_how_long_these_rules_wait([], rules_asked_about)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_rules_series_is_measured_over_the_stretch_the_service_was_broken() -> None:
     # Over the same stretch as the error rate, bounded by the same onset and the
     # same recovery: a series measured to a different end would be a second
@@ -1344,6 +1404,44 @@ def _the_rules_series_was(expected: RuleSeriesLevels) -> Assertion[Measurements]
             or got.worse_when != expected.worse_when
         ):
             raise AssertionError(f"Expected the rule's series at {expected}, got [{got}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rule_waits(expected: timedelta | None) -> Assertion[Measurements]:
+    """How long the paging rule waits, as read - and read, not unread."""
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_waits != expected or measured.rule_wait_unread:
+            raise AssertionError(
+                f"Expected the rule to wait [{expected}], read, got "
+                f"[{measured.rule_waits}], unread [{measured.rule_wait_unread}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rule_wait_was_unread() -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_waits is not None or not measured.rule_wait_unread:
+            raise AssertionError(
+                f"Expected how long the rule waits to be unread, got "
+                f"[{measured.rule_waits}], unread [{measured.rule_wait_unread}].")
+
+        return True
+
+    return assertion
+
+
+def _asked_how_long_these_rules_wait(rules: list[str],
+                                     asked: Kept[str]) -> Assertion[Measurements]:
+    def assertion(dont_care_measured: Measurements) -> bool:
+        if asked.taken != rules:
+            raise AssertionError(
+                f"Expected the rules {rules} to be asked how long they wait, got "
+                f"{asked.taken}.")
 
         return True
 

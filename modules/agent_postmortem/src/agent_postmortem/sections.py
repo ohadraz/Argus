@@ -73,6 +73,8 @@ CODE_READING_PREFIX: Final = "F"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
+TURN_SYNC_BACK_ON: Final = ("Turn automatic sync of {application} back on - until then, "
+                            "nothing merged reaches it")
 
 # How a line of a configuration file says it is a comment: YAML's, TOML's and
 # INI's `#`, INI's `;`, and the `//` of JSON with comments.
@@ -424,9 +426,15 @@ def record_action_items_of(evidence: IncidentEvidence) -> list[ActionItem]:
     document is written, so whoever takes one on does so somewhere else. An
     action that did not help is in the resolution and is not left to do.
 
+    Automatic sync an action left off is open too, once for each application:
+    until somebody turns it back on, nothing merged reaches the service. After
+    the fix, because the fix is what should arrive when it is.
+
     Numbered here, before the model is asked, so the model's contributing
     factors can name these and its own proposals follow on.
     """
+    left_off = dict.fromkeys(action.paused_sync_of for action in evidence.actions
+                             if action.paused_sync_of is not None)
     implied = [
         *(_an_item(ActionItemType.MITIGATE, action.action, owner=TAKEN_BY,
                    status=ActionItemStatus.DONE)
@@ -434,6 +442,8 @@ def record_action_items_of(evidence: IncidentEvidence) -> list[ActionItem]:
         *([_an_item(ActionItemType.PREVENT, REVIEW_THE_FIX,
                     tracking=evidence.pull_request.url)]
           if evidence.pull_request is not None else []),
+        *(_an_item(ActionItemType.MITIGATE, TURN_SYNC_BACK_ON.format(application=application))
+          for application in left_off),
         *([_an_item(ActionItemType.MITIGATE, evidence.recommended_action)]
           if evidence.recommended_action is not None else [])
     ]

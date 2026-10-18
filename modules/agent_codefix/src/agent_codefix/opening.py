@@ -23,6 +23,7 @@ from argus_core import to_iso
 from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage
 
 from agent_codefix.budget import FixSettings
+from agent_codefix.naming import files_named_in
 from agent_codefix.prompting import SUBMIT_TOOL_NAME
 from agent_codefix.retrieval import FileLister, IndexNotice
 from agent_codefix.tools import SEARCH_BY_MEANING_TOOL, SEARCH_TOOL
@@ -77,16 +78,24 @@ def the_opening_message(hypothesis: Hypothesis | None,
     conditional on what this deployment can do, what the investigation
     actually found and whether anybody wrote in the incident's thread - and an
     empty heading tells a model there is something it has failed to see.
+
+    The repository is listed once, for the two paragraphs that read it: the
+    files the evidence names are checked against the same listing the model
+    is handed.
     """
+    listing = _the_listing(settings, list_files)
+
     return "\n".join([
-        "An incident has been investigated and traced to a cause in this "
-        "service's code. Your job is to fix that cause permanently.",
+        "An incident has been investigated. Your job is to find what in this "
+        "service's code let it happen or made it worse, and to fix that "
+        "permanently.",
         "",
         f"What the investigation concluded: {what_it_concluded(hypothesis)}",
         *_and_what_it_rests_on(hypothesis),
+        *_and_the_files_it_names(hypothesis, listing),
         *_and_what_it_already_wrote(hypothesis),
         *_and_what_people_wrote(leads),
-        *_what_the_repository_holds(settings, list_files),
+        *_what_the_repository_holds(listing),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
@@ -241,8 +250,70 @@ def _how_to_start_looking(settings: FixSettings) -> str:
     )
 
 
-def _what_the_repository_holds(settings: FixSettings,
-                               list_files: FileLister) -> list[str]:
+def _and_the_files_it_names(hypothesis: Hypothesis | None,
+                            listing: Sequence[str]) -> list[str]:
+    """The files the evidence names, as a list under the evidence that names
+    them, and every file-shaped name the repository does not hold.
+
+    The evidence carries the file and the line inside a sentence the model has
+    to parse; this says them where they cannot be missed. Called what they
+    are - named in the evidence - rather than the files to fix: the list is
+    every file the evidence's words name, down to a word that happens to be a
+    file's stem, and a list that reads as authoritative is one a model stops
+    looking past.
+
+    A name the repository does not hold is said rather than dropped. Dropped, a
+    stale path is invisible, and the model spends turns finding out what this
+    could have told it.
+
+    Said alone where nothing else is named, nothing where nothing is named, and
+    nothing without a listing to check the names against: a heading with
+    nothing under it, and an "also" with nothing before it, tell the model
+    there is something it has failed to see.
+    """
+    if hypothesis is None or not listing:
+        return []
+
+    named = files_named_in([found.claim for found in hypothesis.supporting_evidence],
+                           listing)
+
+    if not named.held:
+        return ["", *(_missing(name, "names") for name in named.absent)] if named.absent else []
+
+    return [
+        "",
+        "Files named in the evidence:",
+        *(f"  {path}" for path in named.held),
+        *(_missing(name, "also names") for name in named.absent),
+        "These are what the evidence names, which is not always where the fault lives."
+    ]
+
+
+def _missing(name: str, names: str) -> str:
+    """That the evidence named a file the repository does not hold."""
+    return f"The evidence {names} {name}, which the repository does not hold at this commit."
+
+
+def _the_listing(settings: FixSettings, list_files: FileLister) -> list[str]:
+    """Every path in the repository - or none, where it could not be listed.
+
+    None for a listing that could not be fetched at all, which is the same
+    sentence to the model as an empty one and a very different one to the walk.
+    This call is made while the message is being built, before the conversation
+    exists, and the walk reads anything escaping `propose_fix` as "no fix could
+    be proposed". So a raise here would spend the whole attempt on one flaky
+    call, where the same failure a turn later costs a single tool result and a
+    model that reads it.
+    """
+    try:
+        return list_files(settings.github_base_branch)
+    except Exception:
+        logger.warning("repository could not be listed", exc_info=True)
+
+        return []
+
+
+def _what_the_repository_holds(listing: Sequence[str]) -> list[str]:
     """Every path in the repository, handed over rather than left to be asked for.
 
     Asked once before the conversation starts, as the index notice is. The
@@ -257,25 +328,12 @@ def _what_the_repository_holds(settings: FixSettings,
     not only this one - each time it varied.
 
     Empty for an empty listing, for the reason the evidence is: a heading over
-    nothing tells the model there is something it has failed to see - and empty
-    for a listing that could not be fetched at all, which is the same sentence
-    to the model and a very different one to the walk. This call is made while
-    the message is being built, before the conversation exists, and the walk
-    reads anything escaping `propose_fix` as "no fix could be proposed". So a
-    raise here would spend the whole attempt on one flaky call, where the same
-    failure a turn later costs a single tool result and a model that reads it.
+    nothing tells the model there is something it has failed to see.
     """
-    try:
-        held = list_files(settings.github_base_branch)
-    except Exception:
-        logger.warning("repository could not be listed", exc_info=True)
-
+    if not listing:
         return []
 
-    if not held:
-        return []
-
-    return ["", "The repository holds:", *(f"  {path}" for path in held)]
+    return ["", "The repository holds:", *(f"  {path}" for path in listing)]
 
 
 def _what_is_known_about_the_index(settings: FixSettings,

@@ -138,7 +138,11 @@ def _one_explanation() -> dict[str, Any]:
         "properties": {
             "summary": {
                 "type": _STRING_TYPE,
-                "description": "One or two sentences: what happened and, if known, why."
+                "description": (
+                    "One or two sentences: what happened and, if known, why. Not "
+                    "what to do about it: the action is chosen from the failure "
+                    "mode, and the fix by an agent that reads the code."
+                )
             },
             "failure_mode": {
                 # `anyOf` rather than a union type carrying the enum, which the

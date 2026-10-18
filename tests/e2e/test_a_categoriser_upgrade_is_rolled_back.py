@@ -61,6 +61,8 @@ from tests.e2e.framework.world import (
 # What the shop's own monitoring pages on here: its rule on the share of purchases
 # filed with confidence, which no other scenario trips.
 A_CONFIDENCE_ALERT = "CategorisationConfidenceLow"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "Share of purchases categorised confidently below 80% for 5m"
 
 # The shop's name for the series its rule watches, as its own metrics report it.
 # Read straight from the shop rather than through Argus, for the reason every
@@ -79,7 +81,8 @@ def test_a_categoriser_upgrade_that_files_purchases_worse_is_rolled_back() -> No
     some_severity = "warning"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_CONFIDENCE_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     # The scenario's id is also the recording's name, so one constant serves both.
     Scenario() \

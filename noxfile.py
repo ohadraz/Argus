@@ -565,19 +565,43 @@ def integration(session: nox.Session) -> None:
     still runs these too - it brings up the whole stack anyway - but nothing
     about them needs it to.
 
-    Its database and its double are its own (`_INTEGRATION_STACK`), so this can
+    The GitHub double and the write MCP server come up beside the Anthropic
+    double, for the case that follows a fix onto a branch: the write tier is
+    a process in production, so a suite that called its functions in-process
+    would be skipping the transport the fix travels over. Both are pointed at
+    each other here and at nothing real - a pull request opened against GitHub
+    is numbered out of a counter that never goes back.
+
+    Its database and its doubles are its own (`_INTEGRATION_STACK`), so this can
     run beside an `e2e` or `e2e_replay` session rather than behind it. Set on
     this process's environment rather than passed to each call, because the
     `conftest` that starts postgres is the one thing here that cannot be handed
     an environment of its own - it inherits this one.
     """
     os.environ.update(_INTEGRATION_STACK)
-    name, _, _ = _ANTHROPIC_DOUBLE
-    double_process = _start_service(
-        ["-m", "uvicorn", "anthropic_double.server:app",
-         "--port", _INTEGRATION_ANTHROPIC_DOUBLE_PORT])
+    github_at_the_double = _GITHUB_AT_THE_DOUBLE | {
+        "GITHUB_API_URL": _INTEGRATION_GITHUB_DOUBLE_BASE_URL
+    }
+    # Started in order and stopped in reverse, every one of them whatever the
+    # suite did: a host process outliving its run holds its port, and the next
+    # run refuses to start on it.
+    services: list[subprocess.Popen[bytes]] = []
     try:
+        name, _, _ = _ANTHROPIC_DOUBLE
+        services.append(_start_service(
+            ["-m", "uvicorn", "anthropic_double.server:app",
+             "--port", _INTEGRATION_ANTHROPIC_DOUBLE_PORT]))
         _wait_for_http(name, f"{_INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL}/health")
+
+        name, module_args, _ = _GITHUB_DOUBLE
+        services.append(_start_service(module_args))
+        _wait_for_http(name, f"{_INTEGRATION_GITHUB_DOUBLE_BASE_URL}/health")
+
+        services.append(_start_service(["-m", "write_mcp_server.server"],
+                                       env=github_at_the_double))
+        _wait_for_http("write_mcp",
+                       f"http://localhost:{_INTEGRATION_WRITE_MCP_PORT}/mcp")
+
         session.run(
             "uv", "run", "python", "-m", "pytest", "tests/integration", "-v",
             external=True,
@@ -588,14 +612,18 @@ def integration(session: nox.Session) -> None:
             # it - a suite that spends tokens on a push, silently.
             #
             # The key is a placeholder the double never reads; the SDK simply
-            # refuses to construct a client without one.
+            # refuses to construct a client without one. GitHub's settings are
+            # the write server's own, so a case reading the branch back
+            # addresses the repository the fix was written to.
             env={
                 "ANTHROPIC_BASE_URL": _INTEGRATION_ANTHROPIC_DOUBLE_BASE_URL,
-                "ANTHROPIC_API_KEY": "the-double-never-reads-this"
+                "ANTHROPIC_API_KEY": "the-double-never-reads-this",
+                **github_at_the_double
             }
         )
     finally:
-        _stop_service(double_process)
+        for service in reversed(services):
+            _stop_service(service)
 
 # The one eval that costs nothing, named here because nothing else tells it
 # apart. It lives in `tests/eval` with the paid ones - it scores the model's
@@ -1332,9 +1360,20 @@ def _a_database_of_its_own(project: str, port: str) -> dict[str, str]:
     }
 
 
+# The write tier and the repository it writes to, for the one case that follows
+# a fix all the way onto a branch. Ports of their own for the reason the double
+# above has one: the e2e stack runs both, on 8092 and 8096.
+_INTEGRATION_WRITE_MCP_PORT = "8089"
+_INTEGRATION_GITHUB_DOUBLE_PORT = "8099"
+_INTEGRATION_GITHUB_DOUBLE_BASE_URL = f"http://localhost:{_INTEGRATION_GITHUB_DOUBLE_PORT}"
+
 _INTEGRATION_STACK = _a_database_of_its_own(
     "argus-integration", _INTEGRATION_POSTGRES_PORT
-) | {"ANTHROPIC_DOUBLE_PORT": _INTEGRATION_ANTHROPIC_DOUBLE_PORT}
+) | {
+    "ANTHROPIC_DOUBLE_PORT": _INTEGRATION_ANTHROPIC_DOUBLE_PORT,
+    "WRITE_MCP_PORT": _INTEGRATION_WRITE_MCP_PORT,
+    "GITHUB_DOUBLE_PORT": _INTEGRATION_GITHUB_DOUBLE_PORT
+}
 
 # The module suites bring up a database of their own - four of them do, from
 # their own conftests, which is what a `component` test needing real postgres
@@ -2074,26 +2113,12 @@ def e2e(session: nox.Session) -> None:
     answer replayed from a recording, see `e2e_replay` - that is the one CI
     runs on every push.
 
-    One case is left out of the default run: the large-fix case, which stages
-    an incident whose fault is in the largest module the Target Service has, so
-    that the fix Code-Fix writes is a whole file of twenty-odd thousand tokens.
-    Under replay that costs nothing and is the only case that exercises an
-    answer of that size at all. Here it is billed as output on every run, at
-    several times what any other case spends, to re-establish something the
-    free run already establishes - which is the definition of a bad reason to
-    spend money before a merge.
-
-    Left uncollected rather than skipped, for the reason `_the_cases_for`
-    gives: a skip is a result, and a run reporting the same one every time
-    teaches a reader to read past the line that will one day say something
-    else. Run it deliberately by naming it -
-    `nox -s e2e -- tests/e2e/test_proposing_a_large_code_fix.py` - which is
-    also how any other subset of this suite is run against the real API.
+    A subset of the suite is run against the real API by naming it -
+    `nox -s e2e -- tests/e2e/<case>.py`.
     """
     # Nothing at all when a case was named: `_run_against_the_stack` appends
-    # `session.posargs` to pytest itself, so naming them here as well would
-    # collect the same file twice - and the default's `--ignore` would then
-    # quietly win over the very case somebody asked for by name.
+    # `session.posargs` to pytest itself, so naming the suite here as well would
+    # collect the whole of it beside the case somebody asked for by name.
     # Against the real repository, because this is the run that reaches the
     # real model. What Code-Fix proposes is decided by the source in front of
     # it, so a paid run reading a fixture is paying to watch the agent work on
@@ -2108,7 +2133,7 @@ def e2e(session: nox.Session) -> None:
 
     _run_against_the_stack(
         session,
-        [] if named_cases else _THE_CASES_WORTH_PAYING_FOR,
+        [] if named_cases else ["tests/e2e"],
         # Both real, because both are the deliverable. This run exists to show
         # the whole thing working against the real world, and an incident that
         # reached a person is half of what it has to show - a message posted at
@@ -2120,15 +2145,9 @@ def e2e(session: nox.Session) -> None:
     )
 
 
-# The one case whose answer is a whole large file, and so the one whose cost
-# under the real API is unlike every other case here. It stays in `e2e_replay`,
-# where it is free and is the only thing that drives a fix of that size end to
-# end; it is what this session leaves out.
-_THE_LARGE_FIX_CASE: Final = "tests/e2e/test_proposing_a_large_code_fix.py"
-
-# The scale-out case, left to `both` for the large-fix case's reason rather than
-# for the index cases': this stack has the mechanism, and the claim simply does
-# not vary by which tool found a file. What it proves is a mode reaching the
+# The scale-out case, left to `both` because its claim does not vary by which
+# tool found a file, rather than for the index cases' reason: this stack has the
+# mechanism. What it proves is a mode reaching the
 # fourth strategy, the gate admitting it, the tier reading what is running before
 # it doubles it, and the shop answering for the capacity - none of which a search
 # tool touches.
@@ -2162,9 +2181,6 @@ _THE_PIN_CASE: Final = "tests/e2e/test_a_flapping_autoscaler.py"
 _THE_UNREACHABLE_PLATFORM_CASE: Final = (
     "tests/e2e/test_an_unreachable_platform_is_narrowed_around.py"
 )
-
-_THE_CASES_WORTH_PAYING_FOR: Final = ["tests/e2e", f"--ignore={_THE_LARGE_FIX_CASE}"]
-
 
 @nox.session
 @nox.parametrize("mode", _CODE_SEARCH_MODES)
@@ -2314,22 +2330,20 @@ def _the_cases_for(mode: str) -> list[str]:
     store, no watermark and no push to move one - those cases are not pending
     against this stack, they are about a mechanism it does not have.
 
-    The large-fix, scale-out, pin, unreachable-platform, undated-finding,
-    categoriser and rescheduled-scorer cases, the two endings reached without a
-    cause and the three resolutions, are left out of the other two modes
-    for a different reason, and it is a decision rather than an absence. One
-    claims that an answer the size of a whole large file survives the round trip
-    - streamed, reassembled, parsed and written; another that a mode reaches the
-    fourth mitigation and the platform answers for the capacity; the third that a
-    controller re-derives a count Argus set, and that the fifth mitigation is what
-    holds; the fourth that a walk narrows itself to the one platform still
-    answering; the fifth that a finding nobody can date is walked from the minute
-    it paged; the sixth that a walk dates and judges an incident on the rule's own
-    series; the seventh that a walk pins a deployment to the card its record says
-    the fleet ran on; the next two that a window nobody could read escalates and
-    a flat one is disproven, both before the model is offered a tool at all; the
-    last three that a person reporting the incident over leaves Argus's changes
-    in place and is written up.
+    The scale-out, pin, unreachable-platform, undated-finding, categoriser and
+    rescheduled-scorer cases, the two endings reached without a cause and the
+    three resolutions, are left out of the other two modes for a different
+    reason, and it is a decision rather than an absence. One claims that a mode
+    reaches the fourth mitigation and the platform answers for the capacity;
+    another that a controller re-derives a count Argus set, and that the fifth
+    mitigation is what holds; the third that a walk narrows itself to the one
+    platform still answering; the fourth that a finding nobody can date is walked
+    from the minute it paged; the fifth that a walk dates and judges an incident
+    on the rule's own series; the sixth that a walk pins a deployment to the card
+    its record says the fleet ran on; the next two that a window nobody could
+    read escalates and a flat one is disproven, both before the model is offered
+    a tool at all; the last three that a person reporting the incident over
+    leaves Argus's changes in place and is written up.
     Nothing in any of those varies by which tool the model found a file with, and
     the walks that do
     differ per mode are covered by their siblings - so recording them three times
@@ -2353,7 +2367,6 @@ def _the_cases_for(mode: str) -> list[str]:
         left_out.append(f"--ignore={_THE_STALE_CACHE_CASE}")
 
     if mode != _SEARCHING_BOTH_WAYS:
-        left_out.append(f"--ignore={_THE_LARGE_FIX_CASE}")
         left_out.append(f"--ignore={_THE_SCALE_OUT_CASE}")
         left_out.append(f"--ignore={_THE_PIN_CASE}")
         left_out.append(f"--ignore={_THE_UNREACHABLE_PLATFORM_CASE}")

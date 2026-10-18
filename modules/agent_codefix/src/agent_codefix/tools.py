@@ -7,10 +7,10 @@ they are one decision. A channel whose description promises something its
 answering does not do is the one bug no schema catches, and the two drifting apart
 is what putting them in separate modules invites.
 
-The submission tools are not here. `submit_fix` and `report_nothing_to_change`
-end the conversation rather than feeding it, they retrieve nothing, and what is
-written about them is the shape of an answer - so they stay in `prompting`, beside
-the brief and the schema that reads them back.
+The answering tools are not here. `submit_fix`, `report_nothing_to_change` and
+`answer_question` end the conversation rather than feeding it, they retrieve
+nothing, and what is written about them is the shape of an answer - so they stay
+in `prompting`, beside the brief and the schema that reads them back.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Final
 from argus_core.models import CodeSearch, ToolCall, ToolDefinition, ToolResult
 
 from agent_codefix.budget import FixSettings
-from agent_codefix.prompting import REPORT_NOTHING_TO_CHANGE, SUBMIT_FIX
+from agent_codefix.prompting import ANSWER_QUESTION, REPORT_NOTHING_TO_CHANGE, SUBMIT_FIX
 from agent_codefix.retrieval import (
     FileLister,
     FileReader,
@@ -152,7 +152,8 @@ def tools_for(settings: FixSettings) -> list[ToolDefinition]:
         LIST_FILES,
         READ_FILE,
         SUBMIT_FIX,
-        REPORT_NOTHING_TO_CHANGE
+        REPORT_NOTHING_TO_CHANGE,
+        ANSWER_QUESTION
     ]
 
 

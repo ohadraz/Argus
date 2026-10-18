@@ -29,6 +29,7 @@ from code_index.indexing import Embedder
 from code_index.store import Found
 from read_mcp_server.meaning import (
     NEAR_ENOUGH_TO_ANSWER,
+    HeadOf,
     IndexedSha,
     IndexUnreachable,
     NearestPassages,
@@ -39,6 +40,9 @@ from read_mcp_server.repository import RepositoryReadSettings
 
 THE_COMMIT_DEPLOYED = "77296acf1d2b4e5a6c7d8e9f0a1b2c3d4e5f6a7b"
 AN_EARLIER_COMMIT = "3f1b9d2c8a7e6f5d4c3b2a1908f7e6d5c4b3a291"
+
+# What Code-Fix actually asks about: the branch it cuts its fix from, by name.
+THE_BRANCH_DEPLOYED = "main"
 
 DONT_CARE_DESCRIPTION = "something the service does"
 SOME_VECTOR = [0.1, 0.2, 0.3]
@@ -75,6 +79,7 @@ def test_a_description_comes_back_as_the_passages_nearest_it() -> None:
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
@@ -109,6 +114,7 @@ def test_the_nearest_passage_is_answered_first() -> None:
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
@@ -132,6 +138,7 @@ def test_what_is_searched_for_is_the_description_that_was_asked_about() -> None:
                 settings=some_settings(),
                 embed=embed,
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
@@ -165,6 +172,7 @@ def test_a_passage_no_nearer_than_anything_else_is_not_offered() -> None:
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
@@ -185,6 +193,7 @@ def test_nothing_near_enough_is_an_answer_rather_than_a_failure() -> None:
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=an_index_holding(),
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
@@ -209,6 +218,7 @@ def test_a_store_that_could_not_be_reached_is_not_answered_as_nothing_found() ->
                     settings=some_settings(),
                     embed=an_embedder_answering(SOME_VECTOR),
                     find=index,
+                    head_of=a_head_nobody_asks_for(),
                     indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
                 )
             )
@@ -242,6 +252,7 @@ def test_a_passage_outside_the_service_s_own_source_is_not_answered() -> None:
                 settings=some_settings(source_paths="src/io_shop"),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
@@ -267,6 +278,7 @@ def test_an_index_behind_the_commit_asked_about_says_so_before_it_answers() -> N
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(AN_EARLIER_COMMIT)
             )
         ) \
@@ -298,10 +310,115 @@ def test_an_index_describing_the_commit_asked_about_adds_nothing_to_its_answer()
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
         .then(_the_answer_opens_with("src/io_shop/spend_summary.py:14-15"))
+
+
+@pytest.mark.unit
+def test_a_branch_at_the_commit_indexed_adds_nothing_to_its_answer() -> None:
+    # Code-Fix asks about the branch it cuts its fix from, by name, and a name is
+    # never a commit. Compared as it was spelled, "main" differed from every
+    # indexed commit there is, and every both-mode walk was told its index might
+    # be stale - a line a model learns to skip, which is how it ignores the one
+    # time the line is true.
+    index = an_index_holding(
+        a_passage(path="src/io_shop/spend_summary.py", first_line=14, last_line=15,
+                  text=_THE_DIVISION)
+    )
+
+    Scenario() \
+        .when(
+            lambda: search_repository_by_meaning(
+                DONT_CARE_DESCRIPTION,
+                ref=THE_BRANCH_DEPLOYED,
+                settings=some_settings(),
+                embed=an_embedder_answering(SOME_VECTOR),
+                find=index,
+                head_of=a_branch_at(THE_COMMIT_DEPLOYED),
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(_the_answer_opens_with("src/io_shop/spend_summary.py:14-15"))
+
+
+@pytest.mark.unit
+def test_a_branch_ahead_of_the_index_names_the_commit_it_is_at() -> None:
+    # The warning the branch's name could never give: two commits a reader can
+    # compare, rather than a commit and a word.
+    index = an_index_holding(
+        a_passage(path="src/io_shop/spend_summary.py", first_line=14, last_line=15,
+                  text=_THE_DIVISION)
+    )
+
+    Scenario() \
+        .when(
+            lambda: search_repository_by_meaning(
+                DONT_CARE_DESCRIPTION,
+                ref=THE_BRANCH_DEPLOYED,
+                settings=some_settings(),
+                embed=an_embedder_answering(SOME_VECTOR),
+                find=index,
+                head_of=a_branch_at(THE_COMMIT_DEPLOYED),
+                indexed_sha=an_index_describing(AN_EARLIER_COMMIT)
+            )
+        ) \
+        .then(_the_answer_opens_with_a_notice_naming(AN_EARLIER_COMMIT, THE_COMMIT_DEPLOYED))
+
+
+@pytest.mark.unit
+def test_a_commit_asked_about_is_not_looked_up_as_a_branch() -> None:
+    # A commit is already what is compared, and a branch lookup can only be
+    # asked about branches: handed a commit, it fails, and a search that needed
+    # nothing from it would answer with a warning it had no reason to give.
+    head_of = a_head_nobody_asks_for()
+
+    Scenario() \
+        .when(
+            lambda: search_repository_by_meaning(
+                DONT_CARE_DESCRIPTION,
+                ref=THE_COMMIT_DEPLOYED,
+                settings=some_settings(),
+                embed=an_embedder_answering(SOME_VECTOR),
+                find=an_index_holding(),
+                head_of=head_of,
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(_no_branch_was_looked_up(head_of))
+
+
+@pytest.mark.unit
+def test_a_branch_that_could_not_be_looked_up_still_answers_and_says_so() -> None:
+    # Not knowing where the branch is is not knowing whether the index is
+    # behind - it is not a store that could not be reached. The passages are as
+    # good as they ever were, so they are answered; what is said is that nobody
+    # could check them against what is deployed.
+    index = an_index_holding(
+        a_passage(path="src/io_shop/spend_summary.py", first_line=14, last_line=15,
+                  text=_THE_DIVISION)
+    )
+
+    Scenario() \
+        .when(
+            lambda: search_repository_by_meaning(
+                DONT_CARE_DESCRIPTION,
+                ref=THE_BRANCH_DEPLOYED,
+                settings=some_settings(),
+                embed=an_embedder_answering(SOME_VECTOR),
+                find=index,
+                head_of=a_branch_nobody_can_look_up(),
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(
+            all_of(
+                _the_answer_opens_with_a_notice_saying("could not be checked"),
+                _a_passage_quotes("return total(purchases) / len(purchases)")
+            )
+        )
 
 
 @pytest.mark.unit
@@ -318,6 +435,7 @@ def test_an_index_that_was_never_built_says_so_rather_than_finding_nothing() -> 
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=an_index_holding(),
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(None)
             )
         ) \
@@ -334,6 +452,7 @@ def test_an_index_behind_what_is_deployed_has_something_to_say_on_its_own() -> N
         .when(
             lambda: the_index_notice(
                 ref=THE_COMMIT_DEPLOYED,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(AN_EARLIER_COMMIT)
             )
         ) \
@@ -349,10 +468,72 @@ def test_an_index_describing_what_is_deployed_has_nothing_to_say() -> None:
         .when(
             lambda: the_index_notice(
                 ref=THE_COMMIT_DEPLOYED,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
             )
         ) \
         .then(_nothing_was_said())
+
+
+@pytest.mark.unit
+def test_a_branch_at_the_commit_indexed_has_nothing_to_say() -> None:
+    # The notice Code-Fix opens every both-mode walk with, asked about the
+    # branch by name - which is how it is asked, and why it said the index was
+    # behind on every walk there was.
+    Scenario() \
+        .when(
+            lambda: the_index_notice(
+                ref=THE_BRANCH_DEPLOYED,
+                head_of=a_branch_at(THE_COMMIT_DEPLOYED),
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(_nothing_was_said())
+
+
+@pytest.mark.unit
+def test_a_branch_ahead_of_the_index_has_both_commits_to_say() -> None:
+    Scenario() \
+        .when(
+            lambda: the_index_notice(
+                ref=THE_BRANCH_DEPLOYED,
+                head_of=a_branch_at(THE_COMMIT_DEPLOYED),
+                indexed_sha=an_index_describing(AN_EARLIER_COMMIT)
+            )
+        ) \
+        .then(_what_was_said_names(AN_EARLIER_COMMIT, THE_COMMIT_DEPLOYED))
+
+
+@pytest.mark.unit
+def test_a_commit_asked_about_has_nothing_looked_up_before_the_notice() -> None:
+    head_of = a_head_nobody_asks_for()
+
+    Scenario() \
+        .when(
+            lambda: the_index_notice(
+                ref=THE_COMMIT_DEPLOYED,
+                head_of=head_of,
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(_no_branch_was_looked_up(head_of))
+
+
+@pytest.mark.unit
+def test_a_branch_that_could_not_be_looked_up_says_so_rather_than_raising() -> None:
+    # Code-Fix builds its opening message with this, before the conversation
+    # exists, and nothing there catches: raised, one flaky call to the
+    # repository would cost the whole attempt at a fix. Said instead, because
+    # silence would read as an index known to be current.
+    Scenario() \
+        .when(
+            lambda: the_index_notice(
+                ref=THE_BRANCH_DEPLOYED,
+                head_of=a_branch_nobody_can_look_up(),
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(_what_was_said_includes("could not be checked"))
 
 
 @pytest.mark.unit
@@ -365,6 +546,7 @@ def test_an_index_that_was_never_built_says_that_rather_than_that_it_is_behind()
         .when(
             lambda: the_index_notice(
                 ref=THE_COMMIT_DEPLOYED,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(None)
             )
         ) \
@@ -390,6 +572,7 @@ def test_an_index_behind_the_commit_asked_about_is_logged_as_a_warning(
                 settings=some_settings(),
                 embed=an_embedder_answering(SOME_VECTOR),
                 find=index,
+                head_of=a_head_nobody_asks_for(),
                 indexed_sha=an_index_describing(AN_EARLIER_COMMIT)
             )
         ) \
@@ -397,6 +580,27 @@ def test_an_index_behind_the_commit_asked_about_is_logged_as_a_warning(
             one_record_was_logged(caplog, "read_mcp_server.meaning", logging.WARNING,
                                   "index is not current",
                                   values={"ref": THE_COMMIT_DEPLOYED})
+        )
+
+
+@pytest.mark.unit
+def test_a_branch_that_could_not_be_looked_up_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The model is told it could not be checked; whoever runs the read tier is
+    # told why, which the model never needs to be.
+    Scenario() \
+        .when(
+            lambda: the_index_notice(
+                ref=THE_BRANCH_DEPLOYED,
+                head_of=a_branch_nobody_can_look_up(),
+                indexed_sha=an_index_describing(THE_COMMIT_DEPLOYED)
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "read_mcp_server.meaning", logging.WARNING,
+                                  "deployed commit not looked up",
+                                  values={"ref": THE_BRANCH_DEPLOYED})
         )
 
 
@@ -427,6 +631,19 @@ def _nothing_was_said() -> Assertion[str]:
     def assertion(said: str) -> bool:
         if said:
             raise AssertionError(f"Expected nothing to be said, got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _no_branch_was_looked_up(head_of: Any) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if head_of.called:
+            raise AssertionError(
+                f"Expected no branch to be looked up for a commit, got "
+                f"{head_of.call_args_list}."
+            )
 
         return True
 
@@ -481,6 +698,20 @@ def _the_answer_opens_with_a_notice_naming(indexed: str,
             raise AssertionError(
                 f"Expected an opening notice naming [{indexed}] and [{deployed}], "
                 f"got [{opened}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_answer_opens_with_a_notice_saying(text: str) -> Assertion[list[str]]:
+    def assertion(answered: list[str]) -> bool:
+        opened = answered[0] if answered else ""
+
+        if not opened.startswith("note:") or text not in opened:
+            raise AssertionError(
+                f"Expected the answer to open with a notice saying [{text}], got [{opened}]."
             )
 
         return True
@@ -562,6 +793,24 @@ def an_index_holding(*passages: Found) -> Any:
 def an_index_describing(sha: str | None) -> Any:
     """What the stored passages were built from, or nothing at all."""
     return create_autospec(IndexedSha, instance=True, return_value=sha)
+
+
+def a_branch_at(sha: str) -> Any:
+    """Where the repository says a branch points."""
+    return create_autospec(HeadOf, instance=True, return_value=sha)
+
+
+def a_head_nobody_asks_for() -> Any:
+    """A branch lookup for a test that asks about a commit, which needs none."""
+    return create_autospec(HeadOf, instance=True)
+
+
+def a_branch_nobody_can_look_up() -> Any:
+    """A repository that could not be asked where its branch points."""
+    head_of = create_autospec(HeadOf, instance=True)
+    head_of.side_effect = ConnectionError("no route to the repository")
+
+    return head_of
 
 
 def an_embedder_answering(vector: list[float]) -> Any:

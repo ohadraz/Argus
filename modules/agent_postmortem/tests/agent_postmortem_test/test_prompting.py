@@ -38,6 +38,7 @@ from agent_postmortem.figures import (
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
+    RULE_WAITS_FIGURE,
     Figure,
     figures_of,
     named,
@@ -60,6 +61,7 @@ from agent_postmortem.prompting import (
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
     LESSONS_FIELD,
+    REACHES_A_CAUSE_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
@@ -114,6 +116,7 @@ from agent_postmortem_test.framework.builders import (
     a_timeline_entry,
     an_action,
     an_answer,
+    an_answer_without,
     an_evidence_bundle,
 )
 
@@ -147,13 +150,24 @@ SOME_FINDING = ("240 of 240 shopper totals do not reconcile with the purchases b
 # was measured.
 THE_SERIES_AS_THE_HARM = "harm"
 
+# What the model is asked of a series that got worse: what that meant for the
+# people using the service.
+WHAT_IT_MEANT_FOR_USERS = "meant for the people using the service"
+
+# What the paging rule's wait before firing is told as: how long it is, that
+# there is none, and that it could not be read.
+A_RULE_S_WAIT = "before it fires"
+A_RULE_FIRING_AT_ONCE = "fires as soon as its condition holds"
+A_WAIT_NOBODY_COULD_READ = "waits before it fires could not be read"
+
 # A clock time carrying a fraction of a second, in either separator ISO allows.
 A_TIME_FINER_THAN_THE_SECOND = re.compile(r"\d{2}:\d{2}:\d{2}[.,]\d")
 
 # Every field the tool offers on an incident nobody wrote about.
 EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, ASSUMPTIONS_FIELD,
                      CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
-                     ACTION_ITEMS_FIELD, LESSONS_FIELD, SYMPTOM_FIELD)
+                     ACTION_ITEMS_FIELD, LESSONS_FIELD, SYMPTOM_FIELD,
+                     REACHES_A_CAUSE_FIELD)
 
 # Error rates in each relation to their baseline that the prompt tells apart.
 ERRORS_THAT_STAYED_FLAT = ErrorRates(baseline=0.02, while_broken=0.02, at_its_worst=0.03,
@@ -749,6 +763,69 @@ def test_a_span_is_told_in_days_hours_and_minutes(span: timedelta, in_words: str
 
 
 @pytest.mark.unit
+def test_the_model_is_told_how_long_the_paging_rule_waits_before_it_fires() -> None:
+    # Part of the time from the onset to the alert. Not told it, a write-up
+    # called the rule's own wait slow detection.
+    Scenario() \
+        .given(
+            an_incident_paged_by_a_waiting_rule := a_measured_incident(
+                rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_by_a_waiting_rule)
+        ) \
+        .then(
+            _says(f"waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding")
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_is_told_as_firing_at_once() -> None:
+    Scenario() \
+        .given(
+            an_incident_paged_at_once := a_measured_incident(rule_waits=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_at_once)
+        ) \
+        .then(
+            _says(A_RULE_FIRING_AT_ONCE)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_whose_wait_could_not_be_read_is_told_so() -> None:
+    # Unread is not "fires at once", and a model told nothing assumed one.
+    Scenario() \
+        .given(
+            an_incident_whose_rule_was_unread := a_measured_incident(rule_wait_unread=True)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_rule_was_unread)
+        ) \
+        .then(
+            _says(A_WAIT_NOBODY_COULD_READ)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_no_rule_paged_for_is_told_nothing_of_a_wait() -> None:
+    Scenario() \
+        .given(
+            an_incident_no_rule_paged_for := a_measured_incident()
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_no_rule_paged_for)
+        ) \
+        .then(
+            all_of(
+                _does_not_say(A_RULE_S_WAIT),
+                _does_not_say(A_RULE_FIRING_AT_ONCE)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_no_instant_is_told_finer_than_the_second() -> None:
     # The record keeps its microseconds, because the timeline is sorted on
     # them. The model is told none of them: a fraction of a second is precision
@@ -1000,6 +1077,27 @@ def test_the_rules_series_is_named_by_the_alert_it_paged_under() -> None:
 
 
 @pytest.mark.unit
+def test_the_rules_series_is_named_by_the_alerts_own_words_where_it_sent_any() -> None:
+    # A title is the rule's name, and three latency rules share one. The words
+    # the alert was sent with say which series it is - which percentile, which
+    # share of purchases - and that is what a write-up has to name. Its figures
+    # go by the names the alert's own line gives them, being the same figures.
+    some_words = "Share of purchases categorised confidently below 80% for 5m"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"alert_finding": some_words})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(rule_series=SOME_RULE_SERIES))
+        ) \
+        .then(
+            _says_on_one_line("confidently below 80% {A1} for 5m {A2}",
+                              f"{SOME_RULE_SERIES.baseline:g}")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("error_rates", [ERRORS_THAT_STAYED_FLAT, ERRORS_THAT_FELL, None],
                          ids=["flat", "fell", "not known"])
 def test_where_no_rise_in_errors_was_measured_the_rules_series_is_the_harm(
@@ -1037,6 +1135,57 @@ def test_where_the_errors_rose_they_are_left_to_say_what_the_harm_was() -> None:
         .then(
             _does_not_say(THE_SERIES_AS_THE_HARM)
         )
+
+
+@pytest.mark.unit
+def test_where_the_errors_rose_the_model_is_still_asked_what_the_series_meant_for_users() -> None:
+    # The rule that pages on the error rate: its series rose with the failed
+    # requests, and those stay the harm. What the rise meant for the people
+    # using the service is still the write-up's to say - asked only where
+    # nothing failed, it was never asked of the incident most rules page on.
+    the_error_rate_as_the_rules_series = RuleSeriesLevels(
+        baseline=ERRORS_THAT_ROSE.baseline, while_broken=ERRORS_THAT_ROSE.while_broken,
+        at_its_worst=ERRORS_THAT_ROSE.at_its_worst, worse_when="above")
+
+    Scenario() \
+        .given(
+            an_incident_paged_on_its_error_rate := a_measured_incident(
+                error_rates=ERRORS_THAT_ROSE, rule_series=the_error_rate_as_the_rules_series)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_its_error_rate)
+        ) \
+        .then(
+            _says(WHAT_IT_MEANT_FOR_USERS)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("series", [
+    RuleSeriesLevels(baseline=0.95, while_broken=0.95, at_its_worst=0.9, worse_when="below"),
+    RuleSeriesLevels(baseline=0.95, while_broken=0.97, at_its_worst=0.93, worse_when="below"),
+    RuleSeriesLevels(baseline=0.2, while_broken=0.2, at_its_worst=0.25, worse_when="above"),
+    RuleSeriesLevels(baseline=0.2, while_broken=0.15, at_its_worst=0.22, worse_when="above")
+], ids=["level falling-worse", "better falling-worse", "level rising-worse",
+        "better rising-worse"])
+@pytest.mark.parametrize("error_rates", [ERRORS_THAT_STAYED_FLAT, ERRORS_THAT_ROSE],
+                         ids=["errors flat", "errors rose"])
+def test_a_rules_series_that_did_not_get_worse_is_not_reported_as_the_harm(
+        series: RuleSeriesLevels, error_rates: ErrorRates) -> None:
+    # Asked what a series that held meant for the people using the service, a
+    # model has to invent a meaning for it or report nothing as the harm.
+    Scenario() \
+        .given(
+            an_incident_whose_series_held := a_measured_incident(
+                error_rates=error_rates, rule_series=series)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_series_held)
+        ) \
+        .then(all_of(
+            _does_not_say(WHAT_IT_MEANT_FOR_USERS),
+            _does_not_say(THE_SERIES_AS_THE_HARM)
+        ))
 
 
 @pytest.mark.unit
@@ -1320,6 +1469,42 @@ def test_the_cause_is_asked_for_as_the_five_whys_from_the_symptom() -> None:
         .then(all_of(
             _the_description_mentions("five whys", "symptom"),
             _the_description_avoids("about people")
+        ))
+
+
+@pytest.mark.unit
+def test_the_cause_is_asked_to_say_what_else_the_record_ruled_out() -> None:
+    # A write-up once said, unasked, that the earlier deploy came hours before
+    # the onset and no flag had changed, so neither explained it. Asked for
+    # nothing of the kind, the next three spent their steps on the mechanism
+    # and dropped it - and what was ruled out is half of why the cause is the
+    # cause.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("ruled out")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD])
+def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: str) -> None:
+    # Told once, in the tool's own description, to state only what the evidence
+    # shows, a write-up still gave "nothing checked output quality before it
+    # reached production" as a factor and as what went wrong - in the field
+    # whose description asked for "a missing safeguard". Said where the claim
+    # is written, and never asked for as missing.
+    what_an_unseen_check_is_written_as = "no check was seen"
+
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[field]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions(what_an_unseen_check_is_written_as),
+            _the_description_avoids("missing safeguard")
         ))
 
 
@@ -1790,6 +1975,76 @@ def test_a_submission_carrying_nothing_usable_is_empty_rather_than_refused() -> 
                 _left_unanswered(LESSONS_FIELD),
                 _disclosed([])
             )
+        )
+
+@pytest.mark.unit
+def test_the_model_is_asked_whether_its_chain_reaches_past_the_change_as_a_yes_or_no() -> None:
+    # A rollback confirms which change set an incident off and says nothing of
+    # why that change broke the service. Only the model knows whether its chain
+    # went further, and a yes or no is the one answer no prose can blur.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["type"]
+        ) \
+        .then(
+            the_answer_was("boolean")
+        )
+
+
+@pytest.mark.unit
+def test_a_chain_that_does_not_show_why_is_answered_as_reaching_no_cause() -> None:
+    # A recorded answer said the evidence did not show why the new model scored
+    # lower, and still answered that its chain reached a cause - taking the
+    # swap and the drop it caused for the mechanism. That is what the change
+    # did, not why it broke the service.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("what the change did", "does not show why")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("answered", "read_as"), [
+    (True, True),
+    (False, False),
+    ("yes", False),
+    (1, False),
+    (None, False)
+], ids=["yes", "no", "a word", "a number", "null"])
+def test_only_a_plain_yes_reads_as_a_chain_that_reaches_a_cause(answered: object,
+                                                                read_as: bool) -> None:
+    # The box it ticks is one a person signs off on, so anything short of a
+    # plain yes reads as no - and costs that box alone, never the answer.
+    Scenario() \
+        .given(
+            a_submission := {REACHES_A_CAUSE_FIELD: answered}
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(a_submission).reaches_a_cause
+        ) \
+        .then(
+            the_answer_was(read_as)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_that_never_said_whether_its_chain_reaches_a_cause_reads_as_no() -> None:
+    # Every answer recorded before the question existed carries no such field.
+    # Read as a chain that stopped at the change, it unticks one box; refused,
+    # it would cost a document that was otherwise whole.
+    Scenario() \
+        .given(
+            an_answer_from_before_the_question := an_answer_without(REACHES_A_CAUSE_FIELD)
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                an_answer_from_before_the_question).reaches_a_cause
+        ) \
+        .then(
+            the_answer_was(False)
         )
 
 

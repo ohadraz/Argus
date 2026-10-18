@@ -152,6 +152,19 @@ def test_every_line_is_timed_by_the_moment_its_event_happened() -> None:
 
 
 @pytest.mark.unit
+def test_the_alert_line_names_the_alert_first() -> None:
+    # The first line in the channel, read in a busy one: what fired and where
+    # comes first, in the alert's own name, rather than behind "Received the
+    # alert".
+    some_event = AlertAcknowledged(incident_id=new_id(), alert=_an_alert())
+
+    Scenario() \
+        .given(some_event) \
+        .when(lambda: build_narration([some_event])) \
+        .then(_the_only_line_mentions("HighErrorRate fired on io-shop"))
+
+
+@pytest.mark.unit
 def test_a_retrieval_line_names_the_channel_and_the_window_it_asked_about() -> None:
     # A retrieval whose window is not shown cannot be checked against what came
     # back, which is the one thing a reader wants from it.
@@ -1871,6 +1884,25 @@ def test_a_fix_that_was_not_warranted_reads_as_a_verdict_on_the_code() -> None:
         .given(nothing_to_change) \
         .when(lambda: build_narration([nothing_to_change])) \
         .then(all_of(_the_only_line_mentions("no code-level fix"),
+                     _the_lines_are_credited_to(["Code-Fix Agent"])))
+
+
+@pytest.mark.unit
+def test_a_fix_that_needs_code_outside_reads_as_written_and_not_opened() -> None:
+    # Neither a proposal nor a verdict. The model wrote a fix and said it helps
+    # nobody until code outside the repository changes too - so a reader told
+    # "no code-level fix" would close the question the fix answers.
+    not_opened = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_OPENED,
+        pull_request=None,
+        detail="dont care what the node said"
+    )
+
+    Scenario() \
+        .given(not_opened) \
+        .when(lambda: build_narration([not_opened])) \
+        .then(all_of(_the_only_line_mentions("did not open it"),
                      _the_lines_are_credited_to(["Code-Fix Agent"])))
 
 

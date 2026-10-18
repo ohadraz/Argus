@@ -1,0 +1,131 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01UJfqBNZBSk9AQGDeBrv5AS",
+      "input": {
+        "action_items": [
+          {
+            "item": "Put the accelerator constraint for io-shop in its deployment manifest, so the hold to V100 is declared in configuration and survives re-enabling sync. Remove it only after the fix is deployed and verified on A100.",
+            "type": "prevent"
+          },
+          {
+            "item": "Add a per-replica and per-accelerator breakdown of the held-for-review share to the FraudHoldsHigh alert and dashboard, so an outlier replica is visible at once.",
+            "type": "detect"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T6"
+            ],
+            "step": "Customers saw an unusually large share of their purchases held for review. The held share rose from {series_before} to {series_while_broken} on average and {series_at_worst} at its worst, and crossed the alert threshold {A1} for {A2}. Requests did not fail more than usual: errors were {errors_while_broken} against {errors_before} before."
+          },
+          {
+            "cites": [
+              "T7",
+              "T15",
+              "T17",
+              "T18"
+            ],
+            "step": "The extra holds came from a replica that started at the onset on an A100 node (io-shop-7d9c4f8b6-x2k9p). The two older replicas were on V100 cards. Holding all the pods to V100 made the metric return to normal, which points at the card type as the difference."
+          },
+          {
+            "cites": [
+              "F1",
+              "T7"
+            ],
+            "step": "The A100 replica scored purchases differently. The static code reading (F1, unverified because nothing ran it) is that fraud_logit rounds its operands to TF32 on Ampere cards when ALLOW_TF32 is on. It then adds two products in the thousands, built from weights {F1.1} and {F1.2}, that should cancel to about {F1.3} per pound. TF32 keeps about {F1.4} significant digits, so the rounding error is larger than the real signal and many purchases come out held."
+          },
+          {
+            "cites": [
+              "T9",
+              "T12",
+              "T15",
+              "T19"
+            ],
+            "step": "The placement could cause harm because the pods were not held to any accelerator type, so a replica could land on a card the scoring code had not been checked on. This was not a change: no production change was found, and the flag provider showed no recent flag change. That rules out a deploy or a flag flip as the trigger. The record does not show why the scheduler chose an A100 node at that moment."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-1",
+              "AI-3",
+              "AI-4"
+            ],
+            "factor": "Pods were not held to an accelerator type, so a replica could be placed on a card with different numeric behaviour. The hold Argus applied is a manual mitigation, and automatic sync is off, so it is not yet in the deployed configuration."
+          },
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "The scoring code was unsafe with TF32 on Ampere cards. No test was seen that compares the held share across accelerators. The proposed fix and its tests are not yet merged."
+          },
+          {
+            "addressed_by": [
+              "AI-3"
+            ],
+            "factor": "Automatic sync of io-shop is off, so a merged fix will not reach the service until it is turned back on."
+          },
+          {
+            "addressed_by": [
+              "AI-5"
+            ],
+            "factor": "The alert only watches the overall held share. It does not show which replica or card type is responsible, and the paging rule waits before firing, so diagnosis relied on reading placement afterwards. The Investigator did not read logs."
+          }
+        ],
+        "executive_summary": "For a short stretch, {duration}, many more purchases than usual on the shop were held for manual fraud review. The held share rose from {series_before} to {series_while_broken} on average and {series_at_worst} at its worst. Customers whose purchases were wrongly held were delayed. Nothing failed outright: the error rate stayed at its usual level and there was no deploy or flag change. The cause was a new copy of the service landing on a different type of GPU server, which scores purchases slightly differently. Argus pinned the service to the original GPU type and the held share returned to normal. A draft fix is open for review.",
+        "lessons": {
+          "got_lucky": [
+            "Only one replica was on the new card type, so the effect was limited and the held share stayed well below what a fleet-wide shift would produce.",
+            "The problem was visible as a business metric. A skew like this could go unnoticed where no such metric exists."
+          ],
+          "went_well": [
+            "Argus tied the onset to a new replica on a different card type and acted on that quickly.",
+            "The mitigation was confirmed: the metrics were back to normal and the paging rule stopped firing.",
+            "A draft fix with tests that fail against the old code was proposed soon after mitigation."
+          ],
+          "went_wrong": [
+            "The pods were not held to an accelerator type, so a single replica on a different card changed the service's decisions.",
+            "Because nothing failed, error and latency signals could not show the problem. Only the held-share metric did.",
+            "Logs were not read during the investigation, so the cause rests on a static code reading."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "A new io-shop replica was scheduled on an A100 node at the onset, while the pods were not held to any accelerator type. The code reading (F1, not run) is that fraud_logit rounds its inputs to TF32 on Ampere cards when ALLOW_TF32 is on. The scorer adds two large, nearly cancelling products, and TF32 keeps too few digits to preserve the small difference. That would make the A100 replica hold far more purchases than the V100 replicas. Holding the pods to V100 ended the problem, which supports this. The record does not show the rounding itself being observed, and it does not show why the scheduler picked an A100 node.",
+        "symptom": "Far more purchases than usual were held for review"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgAJBpFFoH4jVsud6uK9W",
+  "model": "claude-sonnet-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2730
+    },
+    "cache_creation_input_tokens": 2730,
+    "cache_read_input_tokens": 5568,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 2009,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

@@ -17,6 +17,7 @@ quotes a figure from the incident the recording was made against.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import timedelta
 
 import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
@@ -32,6 +33,7 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
+    RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
@@ -135,7 +137,7 @@ def test_the_span_between_two_instants_is_written_in_as_one() -> None:
         .given(
             figures := figures_of(an_evidence_bundle(), a_measured_incident()),
             an_answer_naming_the_span := SubmittedPostmortem(
-                root_cause="It was broken for {recovered - began}.")
+                root_cause="It was broken for {back_to_normal - began}.")
         ) \
         .when(
             lambda: with_figures_written(an_answer_naming_the_span, figures)
@@ -500,6 +502,41 @@ def test_a_recovery_nobody_saw_is_no_figure() -> None:
         ) \
         .then(
             _the_figures_leave_out(BACK_TO_NORMAL_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_how_long_the_paging_rule_waits_is_named_as_a_span() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                RULE_WAITS_FIGURE: Figure(given="5 minutes", written="5 minutes")
+            })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("rule_waits", [None, timedelta()], ids=["unread", "nothing"])
+def test_a_wait_for_nothing_or_one_never_read_is_no_figure(rule_waits: timedelta | None) -> None:
+    # A rule that fires at once is said in words, and a span of no time is no
+    # figure to work with.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(rule_waits=rule_waits)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(RULE_WAITS_FIGURE)
         )
 
 

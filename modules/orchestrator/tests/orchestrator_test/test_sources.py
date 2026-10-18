@@ -21,9 +21,9 @@ import pytest
 from agent_postmortem import Sources
 from argus_core import Connections, get_settings, to_iso
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.mcp_transport import McpClient
-from argus_core.models import MetricBucket
-from argus_testkit import Assertion, Scenario, one_record_was_logged, the_answer_was
+from argus_core.mcp_transport import McpClient, McpToolError, McpUnreachable
+from argus_core.models import AlertRuleStanding, MetricBucket
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from orchestrator.sources import the_real_sources
 from responder_rate_source import PayBandsUnavailable
 
@@ -124,6 +124,49 @@ def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
         )
 
 
+@pytest.mark.unit
+def test_how_long_the_paging_rule_waits_is_asked_of_the_read_tier() -> None:
+    # The rule's own definition, over the session the metrics are read on.
+    some_rule = "kuki-rule"
+
+    Scenario() \
+        .given(
+            read := _a_session_answering_that_the_rule_waits(some_rule, 300)
+        ) \
+        .when(
+            lambda: _the_sources_over(read).rule_wait(some_rule)
+        ) \
+        .then(
+            all_of(
+                the_answer_was(300),
+                _the_rules_asked_for_were(read, [some_rule])
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", [McpToolError("some failure"),
+                                     McpUnreachable("some failure")],
+                         ids=["tool-failed", "unreachable"])
+def test_a_rule_the_read_tier_cannot_read_waits_for_no_known_time(
+    failure: Exception,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # `None`, never nothing: a rule that fires at once and one nobody could read
+    # are told to the model differently.
+    Scenario() \
+        .given(read := _a_session_whose_tool_fails(failure)) \
+        .when(lambda: _the_sources_over(read).rule_wait("dont-care-rule")) \
+        .then(
+            all_of(
+                the_answer_was(None),
+                one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
+                                      "alert rule could not be read",
+                                      failure=type(failure))
+            )
+        )
+
+
 def _the_sources_over(read: McpClient) -> Sources:
     return the_real_sources(
         get_settings(), _connections_that_must_not_be_opened(), read, DONT_CARE_THRESHOLDS,
@@ -196,6 +239,28 @@ def _a_session_answering(*answers: list[MetricBucket]) -> Mock:
     """A client answering each call with the next of `answers`, in turn."""
     client: Mock = create_autospec(McpClient, instance=True)
     client.call.side_effect = list(answers)
+
+    return client
+
+
+def _a_session_answering_that_the_rule_waits(rule: str, seconds: int) -> Mock:
+    """A client answering the rule's standing, every part of it arbitrary but
+    which rule it is and how long it waits before firing."""
+    client: Mock = create_autospec(McpClient, instance=True)
+    client.call.return_value = AlertRuleStanding(rule=rule,
+                                                 is_normal=True,
+                                                 evaluated_at=DONT_CARE_END,
+                                                 range_seconds=60,
+                                                 interval_seconds=60,
+                                                 keep_firing_for_seconds=0,
+                                                 pending_seconds=seconds)
+
+    return client
+
+
+def _a_session_whose_tool_fails(failure: Exception) -> Mock:
+    client: Mock = create_autospec(McpClient, instance=True)
+    client.call.side_effect = failure
 
     return client
 

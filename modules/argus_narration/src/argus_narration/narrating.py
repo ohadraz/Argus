@@ -379,7 +379,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
     match event:
         case AlertAcknowledged():
             who = _ARGUS
-            text = f"Received the alert {event.alert.alert_name} on {event.alert.service}"
+            text = f"{event.alert.alert_name} fired on {event.alert.service}"
         case AgentInvoked():
             who = _ARGUS
             text = f"Called in the {_an_agent(event.agent)}"
@@ -992,8 +992,12 @@ def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
             # goes looking for something to repair: the model was asked and
             # said no, and the same question would be declined again.
             return "", f"The model declined to propose a fix - {event.detail}"
-
-    return "", event.detail
+        case FixOutcome.NOT_OPENED:
+            # Neither a proposal nor a verdict: a fix exists, and what else it
+            # needs is the reason it is not on a branch.
+            return "", f"Wrote a fix and did not open it - {event.detail}"
+        case unreachable:
+            assert_never(unreachable)
 
 
 def _the_postmortem_in_short(event: PostmortemWritten) -> str:

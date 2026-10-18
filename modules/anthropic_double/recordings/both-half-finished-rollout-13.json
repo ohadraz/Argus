@@ -1,0 +1,158 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS0ggKEAgSGAI4AUIIdGhpbmtpbmcSDKTxuJjmvIbudp2EqxoMk52rjV3zXtQkS1XAIjDDak0A2tVt3TUES1DuPgAdvqFx7/z5tS/yHqVuwK0nfNWpPbj0GHl4m7hzdtbNE20q7weFaxkTLnBwdT8DRqEGaC9Z2OpW5iA8Qe2QIqqjuVjbxkRf9X8IaW4ayFbH9wGSqtBII6XNtByyZLbyidDtiHvtCPD8QW7IVFbclkZt7mp9Oh3jn3qgfDvbNNoSltQbbmKYDTUokjzyjWJ/p4VIaVwckL3Aw4BisNbmMWC+6lwWwPR7YyXXYH2WKHx9a/IRlxXvVtRdvnpuOgqoVpuQQJbPDmDFZvltRlWf6tSI9Vi0ETQLg43Vr1F5R9qcmbvB4Y7DLK0AiJjSCS97miezFLAnNYRYylJod/tmnDXZTVq7jH8kjWwFImNpTBfg25EgU/VjaI0BrKdAB34QMbs/Blq2svIsqC9OCJqjuFfVKIq3MhfeJRdfnLXR0IyL7b1j5Nogkkty10kFV8YpM080dlSKTJ7Oyu5L1sWSfqDZZgJxe2lSauC7GMJSZDikMPMHmY7Sj9totIZ9kF5Nh+63EC2qZPkNWDwT7TTjCBQG7oBu/Y9A5w+J6rW/Gm74IV5lorD/w9NP3ZDqJoy/xRBT4fPdwqzOqMjKpKIA2anreHPFQDqiP38RW+GlMvLDuLPA4h+UoLQh1u0RTFj5liCY+NtC53zvjHqVa+I4wayi+6d3TieaxHU/1XM5ksWhGaK4ifMqD8UIUOcIsmz/qePLgSj7FxQPIh/jGSL/fx6mX+vL/YWnM6lo+nrlr6FFLQQM1GYm2iKNa9qxGtNbIDlLRhgfVx/ofw1s5UP9OCWuNhZV0wVGvH/H5HuL5hJ5bA/CLX4+We3uXy1vVRgTMBEH8KvrYWeKkSXvnItrvQLZb6gVYyYHyMLxkGIQWArmVGSKMjfo0nFLyUspAAa8VY+5uxjiBvvCRN2H7/6qSfdWcR7Q26L++wyXPhpdYizHqXFDwmBhzqqqMwq9DSlxlpEZOsqBTUToWSM58IdAAk+aVLmPN/5nEB0L7qCx0bRZnVyumopMysrbuH0o49ufvGPobWduAOpGPbf7a7eSPGYAFhjVk1oAHWTswQaU/g7hjR1aaHs5hz282o9wINpl2ZXrJLYqNF1j6AfbxjMVcVMFV0yQxCcBas+yZzgg/5hilXs7MZG61JlLVzJMgR4APDqxNT8lwgA8xz+bGENUVS8Y3rlbfNQFLamGnuAs/AvYx8UXeOgUrUb4KumJ/2lEw/bcoNY0rDMAjljvlaSkeJvCkTRly5vRSxK5UhoTO8MSRIeBoKTf4wBW6SpkpuCLjjWnlYbeElqHeY3v8MVUYDxm3BhSGk7k6JVnTIRuruwU/iQCCHaUyM6xQDbaXUsDkS3LfeY4T32tvA+knimrxwh2mELcW+VYBqX4pafpaVAV1v0JbRgB",
+      "thinking": "I need to fix the citation issue and clean up placeholder text, and number the proposed action items continuing from AI-1 and AI-2, so the new ones become AI-3 through AI-6 covering the two-step fix, the check, the writer, and the cache clear.\n\nI'm also scanning for stray number words to remove, like \"two steps\" and \"one step,\" while keeping phrases like \"both\" and \"hours before the onset\" intact, and confirming the ValueError reference stays as-is.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Qytx3kVP1tRn1AqsPgVNpY",
+      "input": {
+        "action_items": [
+          {
+            "item": "Roll out cache format changes in stages: first ship readers that accept both the bare figure and the new text, then ship the writer once no old reader serves. Or write the new format under a versioned key that old readers never see.",
+            "type": "prevent"
+          },
+          {
+            "item": "Add a pre-deploy or canary check that runs the previous revision's cache reader against entries written by the new revision, and the reverse. It should block a rollout where either cannot read the other's entries.",
+            "type": "detect"
+          },
+          {
+            "item": "Change the writer and the production lookup outside this repository so they store and fetch entries under the versioned key the reader is given. Then open the drafted fix.",
+            "type": "prevent"
+          },
+          {
+            "item": "Check the shared cache for slash-shaped entries left under bare shopper ids after the rollback, and clear them if any remain.",
+            "type": "mitigate"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "Gbac1",
+              "G3714"
+            ],
+            "step": "Shoppers loading their account page got errors. The error rate rose from {errors_before} to {errors_while_broken} on average and {errors_at_worst} at worst, from {began} until {back_to_normal}. The rate was at its highest in the last minute before the alert."
+          },
+          {
+            "cites": [
+              "G3714",
+              "Gc956",
+              "G46bc"
+            ],
+            "step": "The failed account page requests raised a ValueError: the summary cache entry '{G3714.1}' is not a figure in cents. These errors are logged only from the onset minute. The baseline ClientDisconnected errors are a separate, older pattern that this one does not account for."
+          },
+          {
+            "cites": [
+              "D1",
+              "P2",
+              "Gc956"
+            ],
+            "step": "The cache entry was in a new text format, amount and item count joined by a slash. The deployment started at {began} introduced that format. Before it, the reader took a bare figure in cents. The new reader's parser returns nothing for text it cannot parse, so it tolerates both shapes. The reader that raised the error is therefore the older one."
+          },
+          {
+            "cites": [
+              "T20",
+              "M1",
+              "F1",
+              "D1"
+            ],
+            "step": "Old-format readers and new-format entries were live at the same time, and the old readers have no tolerance for the new text. The Investigator's account of a paused rollout with both revisions serving fits this, but the record does not show the replica split directly. Rolling back to the earlier revision ended the errors, which is consistent with a version mix. The Code-Fix reading, which nothing ran, adds that the new entries sit under the bare shopper id the old readers also use."
+          },
+          {
+            "cites": [
+              "D1",
+              "F1"
+            ],
+            "step": "The change did not keep the entry format readable by the revision still running. The reader tolerance and the new written format shipped in the same deployment. The writer and the production lookup that store entries are outside this repository, per the unverified static reading. The record shows no check that an old-revision reader could survive new-format entries, and does not show why the format change shipped as it did."
+          },
+          {
+            "cites": [
+              "P1",
+              "T15",
+              "D1",
+              "G3714"
+            ],
+            "step": "Other causes were ruled out. The earlier deploy was hours before the onset, when the error rate was still at its normal level. The flag provider showed no recent flag changes. The new reader's code tolerates the old text and returns nothing for text it cannot parse, so the errors come from the older reader and not from a fault in the new code alone."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-3",
+              "AI-4"
+            ],
+            "factor": "No check was seen that a revision's cache reader and writer stay compatible with the previous revision while both serve against the same cache. The cache is shared and the entry format changed without a versioned key."
+          },
+          {
+            "addressed_by": [
+              "AI-5"
+            ],
+            "factor": "The writer of cache entries and the production lookup are outside this repository, so the Code-Fix Agent could not make a fix that works on its own. It wrote a fix and did not open it."
+          },
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "Automatic sync of io-shop is still off, so nothing merged reaches the service until it is turned back on."
+          },
+          {
+            "addressed_by": [
+              "AI-6"
+            ],
+            "factor": "Entries in the new format may remain in the shared cache after the rollback. The earlier revision's reader cannot parse them. The record does not show whether any remain."
+          }
+        ],
+        "executive_summary": "For {duration}, a share of shoppers' account pages failed to load on io-shop. On average {errors_while_broken} of requests failed, peaking at {errors_at_worst}, against a normal level of {errors_before}. That is {errors_rise} of traffic failing that otherwise would not have. A deployment changed how a cached spend figure is stored. Servers still running the earlier version could not read the new format and returned errors. Argus rolled the deployment back, and the metrics returned to normal. The paging alert fired after its built-in wait. A code fix was drafted but not opened, because it only helps once code outside this repository changes as well. Automatic sync for the service is still off.",
+        "lessons": {
+          "got_lucky": [
+            "The failing readers errored on a share of requests and not on all of them. The new reader falls back to recomputing the figure when it cannot read an entry, so the damage stayed bounded.",
+            "The record does not show whether new-format entries remain in the cache. Errors had stopped at the point the rollback was judged, but leftover entries could still hurt the earlier revision's readers."
+          ],
+          "went_well": [
+            "Argus placed the onset at {began} and recorded the deployment and the flag history, which pointed at the deployment. The rollback was applied and confirmed, and the rule that paged stopped firing.",
+            "The Code-Fix Agent did not open a fix that would not have worked. It said what outside code must change."
+          ],
+          "went_wrong": [
+            "The format change shipped in a way the previous revision's readers could not survive. The paging rule's wait is part of the time before the alert, so it should not be counted as slow detection.",
+            "Automatic sync remains off after the incident, so merges do not reach the service."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The new revision changed the shared summary cache entry from a bare cents integer to a text holding the amount and the item count joined by a slash. Its own reader returns nothing for text it cannot parse, but the previous revision's reader still expects a figure in cents and raises a ValueError on the new text. While both revisions were serving against the same cache, requests that read a new-format entry on an old-revision reader failed. The mixed-version serving is inferred from the Investigator's account and the rollback result. The record does not show the replica split directly. That the writer and the production lookup sit outside this repository is a static reading that nothing ran.",
+        "symptom": "Account pages failed for a share of shoppers"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cg9zwrhUa5xPbwcrgkdsH",
+  "model": "claude-sonnet-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2720
+    },
+    "cache_creation_input_tokens": 2720,
+    "cache_read_input_tokens": 9855,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 2588,
+    "output_tokens_details": {
+      "thinking_tokens": 239
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

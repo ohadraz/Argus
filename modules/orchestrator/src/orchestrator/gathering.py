@@ -403,16 +403,19 @@ def _the_account_told(account: list[IncidentEvent]) -> list[NarrationLine]:
     wait took, and where a person's message fell - and a document numbering
     by either would number one walk differently on every telling.
 
-    And two lines the page shows and the document leaves out. What was filed
-    for the next incident, or that nothing could be: that is Argus keeping its
+    And one line the page shows and the document leaves out: what was filed
+    for the next incident, or that nothing could be. That is Argus keeping its
     books for an incident that has not happened yet, and says nothing about
-    this one. And a read of what a deployment changed, which the document
-    gives a row of its own (`_what_each_deployment_changed`), so a line for it
-    too would tell it twice.
+    this one.
+
+    A read of what a deployment changed stays a line, though the document gives
+    what was read a row of its own (`_what_each_deployment_changed`). The row
+    says what changed; only the line says when it was read, among the steps the
+    investigation took - and left out, the timeline skipped the one it turned on.
     """
     about_this_incident = [
         event for event in account
-        if not isinstance(event, IncidentRemembered | RememberingFailed | DeploymentChangesRead)
+        if not isinstance(event, IncidentRemembered | RememberingFailed)
     ]
 
     return each_wait_told_once(build_narration(about_this_incident))

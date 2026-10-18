@@ -82,6 +82,8 @@ from tests.e2e.framework.world import (
 # What the shop's own monitoring pages on here, as the surge next door does.
 # Latency is the only judged series this incident moves.
 A_LATENCY_ALERT = "HighLatency"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "p95 latency above threshold for 5m"
 
 # The bounds the autoscaler is declared with in `deploy/values-production.yaml`.
 # Named as well as read back, and the two readings answer different questions: the
@@ -104,7 +106,8 @@ def test_a_flapping_autoscaler_is_pinned_and_left_mitigated() -> None:
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

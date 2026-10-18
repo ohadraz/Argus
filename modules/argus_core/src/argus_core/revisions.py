@@ -29,9 +29,15 @@ def the_revision_named(named: str, revisions: frozenset[str]) -> str | None:
     start of - `None` where it starts several, since nothing here can say which
     was meant, or none.
 
+    Nor a start shorter than a short form, which git abbreviates one to by
+    default: that short, a start of a revision is any small number.
+
     A start a few characters off is no start of anything here: putting that
     right is a guess about what a writer meant, and belongs to whoever can ask
     the writer again."""
+    if len(named) < _SHORT_FORM:
+        return None
+
     starting = [revision for revision in revisions if revision.startswith(named)]
 
     return starting[0] if len(starting) == 1 else None

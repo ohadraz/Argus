@@ -107,7 +107,6 @@ RECORDED_RESOURCE_LEAK = "resource-leak"
 RECORDED_UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
 RECORDED_CACHE_MISCONFIGURED = "cache-misconfigured"
 RECORDED_SLOW_CANARY_ROLLOUT = "slow-canary-rollout"
-RECORDED_LARGE_CODE_FIX = "monthly-statement-panel"
 RECORDED_PRICING_SERVICE_DEGRADED = "pricing-service-degraded"
 RECORDED_CPU_SATURATION = "cpu-saturation"
 RECORDED_AUTOSCALER_FLAPPING = "autoscaler-flapping"
@@ -142,7 +141,6 @@ THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_FLAG_TOGGLE,
     RECORDED_RESOURCE_LEAK,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
-    RECORDED_LARGE_CODE_FIX,
     RECORDED_OUTPUT_QUALITY_DEGRADATION,
     RECORDED_ACCELERATOR_HETEROGENEITY
 })
@@ -495,6 +493,31 @@ def argus_proposed_a_fix() -> Assertion[httpx2.Response]:
                 f"Expected Code-Fix to have proposed a fix for incident "
                 f"[{incident_id}], since the cause is still in the code. It "
                 f"reported {[(attempt.outcome, attempt.detail) for attempt in attempts]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def argus_proposed_no_fix() -> Assertion[httpx2.Response]:
+    """Code-Fix opened nothing, on any attempt.
+
+    For the cases where any pull request is a wrong one: a person may merge
+    what Argus proposes, so a wrong proposal costs more than none.
+    """
+    def assertion(response: httpx2.Response) -> bool:
+        incident_id = incident_id_from(response)
+        proposed = [
+            event for event in _the_incidents_events(incident_id)
+            if isinstance(event, FixAttempted) and event.outcome is FixOutcome.PROPOSED
+        ]
+
+        if proposed:
+            raise AssertionError(
+                f"Expected Code-Fix to propose nothing for incident "
+                f"[{incident_id}], and it proposed "
+                f"{[attempt.pull_request for attempt in proposed]}."
             )
 
         return True

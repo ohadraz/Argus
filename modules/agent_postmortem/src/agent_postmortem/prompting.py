@@ -57,6 +57,7 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
+    RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
@@ -117,6 +118,9 @@ LESSONS_FIELD: Final = "lessons"
 WENT_WELL_FIELD: Final = "went_well"
 WENT_WRONG_FIELD: Final = "went_wrong"
 GOT_LUCKY_FIELD: Final = "got_lucky"
+# Whether the chain says why the change that set the incident off broke the
+# service, rather than stopping at that change.
+REACHES_A_CAUSE_FIELD: Final = "reaches_a_cause"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
@@ -125,7 +129,8 @@ REQUIRED_FIELDS: Final = [
     CAUSAL_CHAIN_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     ACTION_ITEMS_FIELD,
-    LESSONS_FIELD
+    LESSONS_FIELD,
+    REACHES_A_CAUSE_FIELD
 ]
 
 
@@ -190,6 +195,11 @@ class SubmittedPostmortem(BaseModel):
     contributing_factors: list[SubmittedFactor] | None = None
     action_items: list[SubmittedItem] | None = None
     lessons: Lessons | None = None
+    # Never `None`: an answer that did not say reads as a chain that stopped at
+    # the change, which unticks one box of the review. So `checking`, which
+    # names a required field that is `None`, never puts it back - a retry spent
+    # on it would ask every answer recorded before the question for a turn more.
+    reaches_a_cause: bool = False
 
     def sentences(self) -> Iterator[str]:
         """Every sentence the answer would publish as written.
@@ -384,6 +394,13 @@ class SubmittedPostmortem(BaseModel):
                        went_wrong=_the_strings_in(value.get(WENT_WRONG_FIELD)),
                        got_lucky=_the_strings_in(value.get(GOT_LUCKY_FIELD)))
 
+    @field_validator(REACHES_A_CAUSE_FIELD, mode="before")
+    @classmethod
+    def _only_a_plain_yes(cls, value: Any) -> Any:
+        """Yes only where the model said so plainly. The box this ticks is one a
+        person signs off on, so "yes" in words, a one or a null reads as no."""
+        return value is True
+
 
 def _the_strings_in(value: Any) -> list[str]:
     """The sentences in a list, and nothing where there is no list."""
@@ -406,6 +423,15 @@ def _a_list_of(item_properties: dict[str, Any],
 
 _SENTENCES: Final[dict[str, Any]] = {"type": "array", "items": {"type": "string"}}
 
+# What a check the record does not show is written as, said in the two fields a
+# missing safeguard is written in. Said once in the tool's description, a
+# write-up still gave "nothing checked output quality before it reached
+# production" as a factor and as what went wrong.
+_A_SAFEGUARD_NOBODY_SAW: Final = (
+    "A safeguard the record does not show is one not seen, never one absent: "
+    "write that no check was seen, not that none ran."
+)
+
 
 SUBMIT_POSTMORTEM = ToolDefinition(
     name=SUBMIT_TOOL_NAME,
@@ -424,15 +450,22 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "works it out from the figures as you were shown them. Say any other "
         "size with no number in it, not even in a word - \"most requests\", "
         "\"for several minutes\", never \"twenty minutes\", \"a third\" or "
-        "\"tripled\". Labels you cite (T2, G3fa2, C1, M1, L1, AI-3) are "
-        "names and may be written as given."
+        "\"tripled\". A number is a figure even with a unit or a clock's marks "
+        "on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a "
+        "name - a label you cite (T2, G3fa2, C1, AI-3), a version (v2), a "
+        "revision, a pod - and is written as given. State only what the "
+        "evidence you are shown says: where the record does not show something "
+        "- a check that was or was not run, how many replicas - leave it out "
+        "or say it was not seen."
     ),
     properties={
         ROOT_CAUSE_FIELD: {
             "type": "string",
             "description": (
                 "What caused the incident, in one or two sentences, written "
-                "for an engineer who was not on the call."
+                "for an engineer who was not on the call. Not the change that "
+                "set it off - the document states the trigger itself. Say why "
+                "that change broke the service, as far as the evidence goes."
             )
         },
         EXECUTIVE_SUMMARY_FIELD: {
@@ -463,13 +496,17 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         CAUSAL_CHAIN_FIELD: _a_list_of(
             {STEP_FIELD: {"type": "string"},
              CITES_FIELD: {**_SENTENCES,
-                           "description": ("The labels of the evidence this step "
-                                           "rests on: T3, G3fa2.")}},
+                           "description": ("The labels of the evidence that shows "
+                                           "this step: T3, G3fa2. Not rows that "
+                                           "merely happened at the same time.")}},
             [STEP_FIELD, CITES_FIELD],
             "The cause as the five whys, from the symptom down: the first step is "
             "what users saw, and each step after it answers why the one before "
             "happened. Every step cites at least one piece of evidence by its "
-            "label. Stop where the evidence stops."
+            "label. At the step that ties the incident to the change that set it "
+            "off, say what else the record ruled out and why - an earlier "
+            "change, a flag the provider showed unchanged, a candidate refuted - "
+            "citing what ruled it out. Stop where the evidence stops."
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
             {FACTOR_FIELD: {"type": "string"},
@@ -477,8 +514,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                   "description": "The action items that answer it: AI-2."}},
             [FACTOR_FIELD, ADDRESSED_BY_FIELD],
             "Conditions that had to hold for the incident to happen and did not "
-            "cause it alone - a missing safeguard, a gap in detection or review. "
-            "Each names at least one action item that answers it."
+            "cause it alone - a safeguard that did not stop it, a gap in detection "
+            f"or review. {_A_SAFEGUARD_NOBODY_SAW} Each names at least one action "
+            "item that answers it."
         ),
         ACTION_ITEMS_FIELD: _a_list_of(
             {ITEM_FIELD: {"type": "string"},
@@ -487,7 +525,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             [ITEM_FIELD, ITEM_TYPE_FIELD],
             "What should be done that the record does not already hold, each "
             "one thing a person could take on. Empty where the record's own "
-            "items answer every factor."
+            "items answer every factor. Propose nothing to confirm a cause the "
+            "record already confirmed - a mitigation that worked, a hypothesis "
+            "marked confirmed."
         ),
         LESSONS_FIELD: {
             "type": "object",
@@ -497,7 +537,20 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "required": [WENT_WELL_FIELD, WENT_WRONG_FIELD, GOT_LUCKY_FIELD],
             "description": (
                 "What went well, what went wrong, and where the incident got "
-                "lucky - a risk that went unnoticed this time. Any list may be empty."
+                "lucky - a risk that went unnoticed this time. Any list may be "
+                f"empty. {_A_SAFEGUARD_NOBODY_SAW}"
+            )
+        },
+        REACHES_A_CAUSE_FIELD: {
+            "type": "boolean",
+            "description": (
+                "Whether the chain says why the change that set the incident off "
+                "broke the service, rather than stopping at that change. A step "
+                "resting only on F rows - a reading of the code nothing ran - "
+                "counts only where it says the reading is unverified. That a new "
+                "version does worse is what the change did, not why it broke the "
+                "service: answer false where the chain says the evidence does not "
+                "show why."
             )
         }
     },
@@ -585,13 +638,14 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *([f"What the alert said [{cited.label}]: {the_finding_named(cited.text)}"
            for cited in the_alert_labelled(evidence)]),
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
+        *_how_long_the_rule_waits(measured, figures),
         *_how_long_it_was_broken(measured, evidence.credited_action, figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
-        f"until {_shown(CLOSED_FIGURE, figures)}. That is a measure of the response, "
-        f"not of the fault - do not report it as how long the service was broken.",
+        f"until {_shown(CLOSED_FIGURE, figures)}. That is how long the response took, "
+        f"not how long the fault lasted - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                   figures),
-        *_what_the_rules_series_did(measured.rule_series, evidence.alert_title,
+        *_what_the_rules_series_did(measured.rule_series, evidence,
                                     measured.error_rates, figures),
         *(line
           for heading, cited in _the_evidence_by_kind(evidence)
@@ -1067,8 +1121,32 @@ def _the_errors_rose(rates: ErrorRates | None) -> bool:
     return rates is not None and rates.rise > 0 and rates.rose_beyond_its_variation is True
 
 
+def _how_long_the_rule_waits(measured: Measurements,
+                             figures: Mapping[str, Figure]) -> list[str]:
+    """How long the paging rule waits with its condition holding before it
+    fires, which is part of the time from the onset to the alert.
+
+    Not told it, a write-up called the rule's own wait slow detection. Said as
+    a rule that fires at once where it waits for nothing, and as unread where
+    nobody could read it - which is not the same rule. Nothing where no rule
+    paged.
+    """
+    if measured.rule_wait_unread:
+        return ["How long the paging rule waits before it fires could not be read."]
+
+    if measured.rule_waits is None:
+        return []
+
+    if not measured.rule_waits:
+        return ["The paging rule fires as soon as its condition holds."]
+
+    return [f"The paging rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
+            f"condition holding before it fires: that wait is part of the time from "
+            f"the onset to the alert - count it before calling detection slow."]
+
+
 def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
-                               alert: str,
+                               evidence: IncidentEvidence,
                                rates: ErrorRates | None,
                                figures: Mapping[str, Figure]) -> list[str]:
     """The series the paging rule evaluates, at the error rate's levels.
@@ -1078,31 +1156,65 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
     entirely. Its direction is said with it, because its worst is its lowest or
     its highest according to the rule, and the number alone does not say which.
 
-    Named by the alert it paged under, which is the one name for it a write-up
-    can use: "the series the paging rule evaluates" says that something moved
-    and not what.
+    Named by the words the alert was sent with, where it was sent any, and by
+    its title otherwise: "the series the paging rule evaluates" says that
+    something moved and not what, and a title is the rule's name - three latency
+    rules share one - where the words say which percentile, which share. Its
+    figures carry the names the alert's line shows them by, being the same
+    figures.
 
     Plain numbers rather than percentages: the series is in whatever unit its
     rule watches, and only the rule knows what that is.
 
-    Where no rise in failed requests was measured, the series is said to be the
-    harm. Every request succeeded, so the failed requests say nothing happened,
-    and a write-up reading them called the harm "small to none" while its series
-    tripled.
+    A series that got worse is asked what that meant for the people using the
+    service, whatever the failed requests did: the failed requests are a share
+    of traffic, and say nothing of a purchase filed in the wrong place or a page
+    that took a second longer. Where no rise in them was measured, the series is
+    said to be the harm as well - every request succeeded, and a write-up
+    reading the failed requests alone called the harm "small to none" while its
+    series tripled. A series that held is asked neither: nothing is not a harm,
+    and a model asked to say what it meant has to make a meaning up.
     """
     if levels is None:
         return []
 
     worse = "worse falling" if levels.worse_when == "below" else "worse rising"
+    named = (the_finding_named(evidence.alert_finding) if evidence.alert_finding
+             else evidence.alert_title)
 
     return [
-        f"The series behind the alert ({alert}), which its paging rule evaluates "
+        f"The series behind the alert ({named}), which its paging rule evaluates "
         f"and calls {worse}: {_shown(SERIES_BEFORE_FIGURE, figures)} before it began, "
         f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
         f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst.",
-        *([] if _the_errors_rose(rates) else [
-            "No rise in failed requests was measured, so the harm to report is "
-            "what this series did: say what it meant for the people using the "
-            "service, not that little or nothing failed."
-        ])
+        *_what_it_meant(levels, rates)
     ]
+
+
+def _what_it_meant(levels: RuleSeriesLevels, rates: ErrorRates | None) -> list[str]:
+    """What the model is asked of the series beyond its levels: nothing where it
+    held, and what it meant for the people using the service where it got worse
+    - as the harm itself where the failed requests did not rise."""
+    if not _it_got_worse(levels):
+        return []
+
+    if _the_errors_rose(rates):
+        return ["Failed requests rose as well, as a share of traffic - say also what "
+                "this series getting worse meant for the people using the service."]
+
+    return ["No rise in failed requests was measured, so the harm to report is "
+            "what this series did: say what it meant for the people using the "
+            "service, not that little or nothing failed."]
+
+
+def _it_got_worse(levels: RuleSeriesLevels) -> bool:
+    """Whether the series sat on its rule's worse side of where it was before,
+    on average while the service was broken.
+
+    No band of usual variation, as the error rate has: the rule fired on this
+    series, so it crossed a line its owner drew, and the levels carry no
+    spread to draw one from."""
+    if levels.worse_when == "below":
+        return levels.while_broken < levels.baseline
+
+    return levels.while_broken > levels.baseline

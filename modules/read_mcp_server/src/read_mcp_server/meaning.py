@@ -26,6 +26,7 @@ accident.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Final, Protocol
 
 from argus_core import Connections, SettingsSlice
@@ -90,6 +91,17 @@ MOST_PASSAGES_WORTH_ANSWERING: Final = 8
 # is a warning a model may try to read a file for.
 NOTICE_PREFIX: Final = "note: "
 
+# A ref spelled as a whole commit, which is compared as it is. Anything else is a
+# branch, and is looked up: the lookup can only be asked about branches.
+_A_WHOLE_COMMIT: Final = re.compile(r"[0-9a-f]{40}")
+
+# What is said when nobody could find out which commit a branch is at. Said
+# rather than left out, because silence would read as an index known current.
+_UNCHECKED: Final = (
+    "whether the passages retrievable here describe what [{ref}] is at could not "
+    "be checked - code that changed recently may not be findable by meaning yet"
+)
+
 
 class IndexReadSettings(SettingsSlice):
     """Where the passages are kept, and whether this deployment keeps any.
@@ -147,6 +159,17 @@ class IndexedSha(Protocol):
     def __call__(self) -> str | None: ...
 
 
+class HeadOf(Protocol):
+    """The commit a branch of the served repository points at.
+
+    Bound at the composition root, as the watermark read is. A caller asks
+    about the branch it cuts its fix from, by name, and a name compared with
+    the indexed commit differs from every commit there is.
+    """
+
+    def __call__(self, branch: str, /) -> str: ...
+
+
 def the_index_at(settings: IndexReadSettings) -> NearestPassages:
     """The real query, aimed at the store this deployment keeps its index in.
 
@@ -190,14 +213,16 @@ def search_repository_by_meaning(description: str,
                                  settings: RepositoryReadSettings,
                                  embed: Embedder,
                                  find: NearestPassages,
+                                 head_of: HeadOf,
                                  indexed_sha: IndexedSha) -> list[str]:
     """The passages nearest `description`, nearest first, as `path:start-end`.
 
-    `ref` is the commit the caller is working against, and is what the index's
-    own commit is compared to. When they differ the answer opens with a notice
-    naming both, because an index that has fallen behind still answers and what
-    it answers may simply be old - and a reader that knows both commits can
-    judge whether the gap matters, where one told only "possibly stale" cannot.
+    `ref` is what the caller is working against - a branch or a commit - and
+    the commit it is at is what the index's own commit is compared to. When they
+    differ the answer opens with a notice naming both, because an index that has
+    fallen behind still answers and what it answers may simply be old - and a
+    reader that knows both commits can judge whether the gap matters, where one
+    told only "possibly stale" cannot.
 
     Scoped by the same configuration the substring channel is, so a file one
     channel will not answer from is a file the other will not either. Applied
@@ -213,7 +238,7 @@ def search_repository_by_meaning(description: str,
         if found.score >= NEAR_ENOUGH_TO_ANSWER
         if belongs_to_the_service(found.chunk.path, settings.github_source_paths)
     ]
-    notice = the_index_notice(ref=ref, indexed_sha=indexed_sha)
+    notice = the_index_notice(ref=ref, head_of=head_of, indexed_sha=indexed_sha)
 
     if not notice:
         return passages
@@ -223,7 +248,7 @@ def search_repository_by_meaning(description: str,
     return [f"{NOTICE_PREFIX}{notice}", *passages]
 
 
-def the_index_notice(*, ref: str, indexed_sha: IndexedSha) -> str:
+def the_index_notice(*, ref: str, head_of: HeadOf, indexed_sha: IndexedSha) -> str:
     """What has to be said about the index before anything it answers is acted
     on, or nothing when there is nothing to say.
 
@@ -235,8 +260,26 @@ def the_index_notice(*, ref: str, indexed_sha: IndexedSha) -> str:
     Empty rather than a reassurance when the index is current. A line saying
     "the index is up to date" costs tokens to say nothing, and teaches a reader
     to skip the place where the warning that matters appears.
+
+    A branch that could not be looked up is said as not checked, never raised:
+    Code-Fix builds its opening message with this, where nothing catches, and
+    one flaky call to the repository would otherwise cost the whole attempt.
+    An index never built is said as that whatever the branch is at, so the
+    branch is only looked up once there is a commit to compare it with.
     """
-    return Freshness(indexed_sha=indexed_sha(), deployed_sha=ref).notice or ""
+    indexed = indexed_sha()
+
+    if indexed is None:
+        return Freshness(indexed_sha=None, deployed_sha=ref).notice or ""
+
+    try:
+        deployed = ref if _A_WHOLE_COMMIT.fullmatch(ref) else head_of(ref)
+    except Exception:
+        logger.warning("deployed commit not looked up", extra={"ref": ref}, exc_info=True)
+
+        return _UNCHECKED.format(ref=ref)
+
+    return Freshness(indexed_sha=indexed, deployed_sha=deployed).notice or ""
 
 
 def _the_nearest_to(description: str,

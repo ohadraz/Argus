@@ -23,18 +23,25 @@ ITEMS_OWNED_AND_DATED: Final = "Every action item owned and dated"
 REVIEWED_AND_SHARED: Final = "Reviewed and shared"
 
 
-def review_of(document: PostmortemDocument, faults: list[str]) -> list[ReviewCriterion]:
+def review_of(document: PostmortemDocument,
+              faults: list[str],
+              *,
+              reaches_a_cause: bool) -> list[ReviewCriterion]:
     """The five criteria, in Google's order, judged against `document`.
 
     `faults` are what the checks still found in the model's answer. They bear
     on the analysis alone: the timeline and the figures are written by code,
     and an answer that misspoke does not make them any less collected.
+
+    `reaches_a_cause` is the answer's own word on its chain - whether it says
+    why the change that set the incident off broke the service. Nothing in the
+    document as written says so: a rollback confirms the change and stops there.
     """
     return [
         ReviewCriterion(criterion=KEY_DATA_COLLECTED, met=_key_data_collected(document)),
         ReviewCriterion(criterion=IMPACT_ASSESSED, met=_impact_assessed(document)),
         ReviewCriterion(criterion=ANALYSIS_COMPLETE,
-                        met=_analysis_complete(document, faults)),
+                        met=_analysis_complete(document, faults) and reaches_a_cause),
         ReviewCriterion(criterion=ITEMS_OWNED_AND_DATED, met=None),
         ReviewCriterion(criterion=REVIEWED_AND_SHARED, met=None)
     ]

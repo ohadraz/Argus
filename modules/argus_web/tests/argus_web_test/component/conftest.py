@@ -31,4 +31,4 @@ def postgres() -> Iterator[None]:
             reset_schema(conn)
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop", "postgres"], check=True)
+        subprocess.run(["docker", "compose", "stop"], check=True)

@@ -1,9 +1,11 @@
 """What a rule's standing may say about how the rule reads its service.
 
-The three durations are how long a recovery takes to show in the rule, and a
+Three of the durations are how long a recovery takes to show in the rule, and a
 rule still firing is judged at their sum past the change. A negative one brings
 that moment forward, to before the rule could have seen a recovery - and a
-mitigation that worked would be refuted for it.
+mitigation that worked would be refuted for it. The fourth, how long the rule's
+condition holds before it fires, is part of the time from an onset to its alert,
+and a negative one would make a late alert read as an early one.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from argus_core.models import AlertRuleStanding
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from pydantic import ValidationError
 
-DURATIONS = ["range_seconds", "interval_seconds", "keep_firing_for_seconds"]
+DURATIONS = ["range_seconds", "interval_seconds", "keep_firing_for_seconds", "pending_seconds"]
 
 
 @pytest.mark.unit
@@ -49,6 +51,7 @@ def a_standing(**overrides: int) -> dict[str, Any]:
         "range_seconds": 300,
         "interval_seconds": 60,
         "keep_firing_for_seconds": 120,
+        "pending_seconds": 300,
         **overrides
     }
 

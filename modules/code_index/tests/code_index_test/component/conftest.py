@@ -59,7 +59,7 @@ def qdrant() -> Iterator[str]:
         _wait_until_it_answers(_the_stores_url())
         yield _the_stores_url()
     finally:
-        subprocess.run(["docker", "compose", "stop", "qdrant"], check=True)
+        subprocess.run(["docker", "compose", "stop"], check=True)
 
 
 @pytest.fixture(scope="session")
@@ -80,7 +80,7 @@ def postgres() -> Iterator[None]:
 
         yield
     finally:
-        subprocess.run(["docker", "compose", "stop", "postgres"], check=True)
+        subprocess.run(["docker", "compose", "stop"], check=True)
 
 
 @pytest.fixture(autouse=True)

@@ -5,7 +5,7 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01Pefhhyts1CaahVKHtiPM4t",
+      "id": "toolu_01GdRhqGmeH3gB4XtpK9RDwf",
       "input": {
         "revision": "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
       },
@@ -16,14 +16,14 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01DyBxVJyc3UhdhQDuc8ntzZ",
+      "id": "toolu_01BFT3BzGbEbKDczoT3B3Tqd",
       "input": {},
       "name": "get_rollout_state",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cfy99UBcuDrtT7juDuUX6",
+  "id": "msg_011CgA1hKi8Tk6mzejSyjvXf",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -33,16 +33,17 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 494
+      "ephemeral_5m_input_tokens": 546
     },
-    "cache_creation_input_tokens": 494,
-    "cache_read_input_tokens": 29191,
+    "cache_creation_input_tokens": 546,
+    "cache_read_input_tokens": 29226,
     "inference_geo": "global",
     "input_tokens": 2,
     "output_tokens": 113,
     "output_tokens_details": {
       "thinking_tokens": 0
     },
-    "service_tier": "standard"
+    "service_tier": "standard",
+    "speed": "standard"
   }
 }

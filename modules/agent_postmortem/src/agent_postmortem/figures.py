@@ -9,8 +9,9 @@ ninety-seven and thirty-one hundredths". So each figure the model is shown
 carries its name after it, the model writes the name where the figure goes,
 and code writes the figure in, in digits, exactly as the incident gave it.
 
-A figure the incident never gave as one - how long until it recovered, how many
-times worse it got - is a working of two it did, `{recovered - began}`, which
+A figure the incident never gave as one - how long until it was back to normal,
+how many times worse it got - is a working of two it did,
+`{back_to_normal - began}`, which
 code works out from the two figures as the model was shown them: by their kinds,
 so an instant less an instant is a span and two shares subtract to points, and
 from what was shown rather than what was measured, so the result never
@@ -47,10 +48,11 @@ if TYPE_CHECKING:
 # not.
 ALERT_RAISED_FIGURE: Final = "alert_raised"
 BEGAN_FIGURE: Final = "began"
-BACK_TO_NORMAL_FIGURE: Final = "recovered"
+BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
 UNOBSERVED_FROM_FIGURE: Final = "unobserved_from"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
+RULE_WAITS_FIGURE: Final = "rule_waits"
 CLOSED_FIGURE: Final = "closed"
 ACTED_FIGURE: Final = "acted"
 ERRORS_BEFORE_FIGURE: Final = "errors_before"
@@ -97,7 +99,7 @@ _A_NAME: Final = r"[A-Za-z][A-Za-z0-9_]*(?:\.\d+)?"
 # A figure's name as the prose writes it.
 A_FIGURE_NAME: Final = re.compile(rf"\{{({_A_NAME})\}}")
 
-# One operation on two figures as the prose writes it, `{recovered - began}`:
+# One operation on two figures as the prose writes it, `{back_to_normal - began}`:
 # the model names what it wants worked out, and code works it out.
 _A_WORKING: Final = re.compile(rf"\{{\s*({_A_NAME})\s*([-+/])\s*({_A_NAME})\s*\}}")
 
@@ -130,6 +132,7 @@ _KINDS: Final = {
     ACTED_FIGURE: _Kind.INSTANT,
     DURATION_FIGURE: _Kind.SPAN,
     HELD_FIGURE: _Kind.SPAN,
+    RULE_WAITS_FIGURE: _Kind.SPAN,
     ERRORS_BEFORE_FIGURE: _Kind.SHARE,
     ERRORS_WHILE_BROKEN_FIGURE: _Kind.SHARE,
     ERRORS_AT_WORST_FIGURE: _Kind.SHARE,
@@ -242,6 +245,11 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)
     figures[CLOSED_FIGURE] = _an_instant(evidence.ended_at)
+
+    # A wait of nothing is said in words - the rule fires as soon as its
+    # condition holds - and a span of no time is no figure to work with.
+    if measured.rule_waits:
+        figures[RULE_WAITS_FIGURE] = _a_span(measured.rule_waits / timedelta(hours=1))
 
     # Only where it is said: the service back before the action credited with
     # it, which the write-up cannot say without the action's time.

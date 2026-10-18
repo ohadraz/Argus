@@ -49,6 +49,7 @@ from collections.abc import Sequence
 from itertools import pairwise
 from typing import Final
 
+from argus_core import the_revision_named
 from argus_core.models import ThreadMessage, labelled
 from pydantic import BaseModel
 
@@ -147,7 +148,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
             + _factors_nothing_answers(answer, given)
-            + _numbers_in_digits(answer)
+            + _numbers_in_digits(answer, given)
             + _figures_spelled_out(answer)
             + _figures_said_in_a_word(answer)
             + _figures_nobody_gave(answer, given)
@@ -237,7 +238,7 @@ def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[
     return faults
 
 
-def _numbers_in_digits(answer: SubmittedPostmortem) -> list[str]:
+def _numbers_in_digits(answer: SubmittedPostmortem, given: Given) -> list[str]:
     """Every word of the prose that is a figure written in digits.
 
     Word by word, so the fault names the number as the reader would see it -
@@ -245,6 +246,10 @@ def _numbers_in_digits(answer: SubmittedPostmortem) -> list[str]:
 
     Not a line of source. "line 47" says where in a file, not how much of
     anything, and refused it could only be spelled out - which is refused too.
+
+    Nor a revision the incident read, named by a start that happens to be all
+    digits: one in about thirty begins with seven digits, and its short form is the
+    name the evidence gives it.
     """
     return [
         f"your answer writes [{word}] in digits - {_STATE_IT_BY_ITS_NAME}"
@@ -252,8 +257,15 @@ def _numbers_in_digits(answer: SubmittedPostmortem) -> list[str]:
         for before, word in pairwise(
             ["", *(each.strip(AROUND_A_WORD) for each in prose.split())]
         )
-        if is_a_figure(word) and before.lower() not in _A_PLACE_IN_A_FILE
+        if is_a_figure(word)
+        and before.lower() not in _A_PLACE_IN_A_FILE
+        and not _names_a_revision_read(word, given)
     ]
+
+
+def _names_a_revision_read(word: str, given: Given) -> bool:
+    """Whether `word` is the start of exactly one revision the incident read."""
+    return the_revision_named(word, given.revisions) is not None
 
 
 def _figures_spelled_out(answer: SubmittedPostmortem) -> list[str]:

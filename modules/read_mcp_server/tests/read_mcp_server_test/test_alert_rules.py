@@ -34,6 +34,7 @@ from read_mcp_server.alert_rules import (
     EXPRESSION,
     EXPRESSION_DATASOURCE,
     FOLDER_UID,
+    FOR,
     FROM,
     GROUPS,
     GT,
@@ -196,6 +197,25 @@ def test_keep_firing_for_is_read_from_the_rules_duration(keep_firing_for: str | 
             )
         ) \
         .then(_it_keeps_firing_for(expected))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("pending", "expected"), [
+    (None, timedelta()),
+    ("0s", timedelta()),
+    ("5m", timedelta(minutes=5)),
+    ("1m30s", timedelta(minutes=1, seconds=30))
+])
+def test_how_long_the_rule_waits_before_firing_is_read_from_its_for(pending: str | None,
+                                                                     expected: timedelta) -> None:
+    # Grafana's `for`: how long the condition has to hold before the rule fires.
+    # It is part of the time from an onset to its alert, so a write-up calling
+    # detection slow has to know it.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(pending=pending))
+        ) \
+        .then(_it_waits_before_firing(expected))
 
 
 @pytest.mark.unit
@@ -520,6 +540,7 @@ def a_grafana_holding(state: str | None = INACTIVE,
                       ranges_seconds: tuple[int, ...] = (60,),
                       interval_seconds: int = 60,
                       keep_firing_for: str | None = "0s",
+                      pending: str | None = "0s",
                       health: str = HEALTHY,
                       others_firing: tuple[str, ...] = (),
                       missing: str | None = None) -> FetchFromGrafana:
@@ -546,6 +567,8 @@ def a_grafana_holding(state: str | None = INACTIVE,
     }
     if keep_firing_for is not None:
         definition[KEEP_FIRING_FOR] = keep_firing_for
+    if pending is not None:
+        definition[FOR] = pending
     group: dict[str, Any] = {INTERVAL: interval_seconds}
     # As Grafana writes it: RFC 3339, in UTC.
     evaluated = SOME_EVALUATION.isoformat().replace("+00:00", "Z")
@@ -738,6 +761,19 @@ def _it_keeps_firing_for(expected: timedelta) -> Assertion[AlertRuleStanding]:
             raise AssertionError(
                 f"Expected the rule to keep firing for [{expected.total_seconds():.0f}]s, "
                 f"got [{standing.keep_firing_for_seconds}]s."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_waits_before_firing(expected: timedelta) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.pending_seconds != expected.total_seconds():
+            raise AssertionError(
+                f"Expected the rule to wait [{expected.total_seconds():.0f}]s before "
+                f"firing, got [{standing.pending_seconds}]s."
             )
 
         return True

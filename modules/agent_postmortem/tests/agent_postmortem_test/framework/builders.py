@@ -39,6 +39,7 @@ from agent_postmortem.prompting import (
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
     LESSONS_FIELD,
+    REACHES_A_CAUSE_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
     SYMPTOM_FIELD,
@@ -57,6 +58,7 @@ from agent_postmortem.sources import (
     Rates,
     RateTable,
     Revenue,
+    RuleWait,
     Sources,
 )
 from argus_core.anomaly import AnomalyThresholds
@@ -305,7 +307,9 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED,
                         unobserved_from: datetime | None = None,
                         rule_series: RuleSeriesLevels | None = None,
-                        back_before_the_action: bool = False) -> Measurements:
+                        back_before_the_action: bool = False,
+                        rule_waits: timedelta | None = None,
+                        rule_wait_unread: bool = False) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -340,7 +344,9 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         bands=bands,
         unobserved_from=unobserved_from,
         rule_series=rule_series,
-        back_before_the_action=back_before_the_action
+        back_before_the_action=back_before_the_action,
+        rule_waits=rule_waits,
+        rule_wait_unread=rule_wait_unread
     )
 
 
@@ -352,7 +358,8 @@ def some_sources(revenue: Revenue | None = None,
                  thresholds: AnomalyThresholds = SOME_THRESHOLDS,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
                  reporting_currency: str = SOME_CURRENCY,
-                 metrics_reporting_lag_minutes: int = DONT_CARE_REPORTING_LAG_MINUTES) -> Sources:
+                 metrics_reporting_lag_minutes: int = DONT_CARE_REPORTING_LAG_MINUTES,
+                 rule_wait: RuleWait | None = None) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
 
     A test names only the source it is about and leaves the other five alone,
@@ -375,7 +382,8 @@ def some_sources(revenue: Revenue | None = None,
         thresholds=thresholds,
         working_hours_a_year=working_hours_a_year,
         reporting_currency=reporting_currency,
-        metrics_reporting_lag_minutes=metrics_reporting_lag_minutes
+        metrics_reporting_lag_minutes=metrics_reporting_lag_minutes,
+        rule_wait=rule_wait if rule_wait is not None else a_rule_waiting(300)
     )
 
 
@@ -695,6 +703,18 @@ def metrics_recording_the_rule_into(rules: Kept[str | None]) -> Metrics:
     return metrics_between
 
 
+def a_rule_waiting(seconds: int | None, asked: Kept[str] | None = None) -> RuleWait:
+    """A rule source answering how long the paging rule waits before it fires -
+    `None` where it could not be read - and noting each rule it was asked about."""
+    def waits(rule: str) -> int | None:
+        if asked is not None:
+            asked.take(rule)
+
+        return seconds
+
+    return waits
+
+
 def a_bucket(at: datetime,
              error_rate: float,
              rule_reading: RuleReading | None = None) -> MetricBucket:
@@ -721,7 +741,8 @@ def an_answer(root_cause: str = "dont care",
               contributing_factors: list[dict[str, Any]] | None = None,
               action_items: list[dict[str, Any]] | None = None,
               lessons: dict[str, Any] | None = None,
-              symptom: str = "dont care") -> dict[str, Any]:
+              symptom: str = "dont care",
+              reaches_a_cause: bool = True) -> dict[str, Any]:
     """The arguments of a submission that would be accepted as it stands.
 
     Saying what each lead changed only where a test hands it leads to say it
@@ -743,7 +764,8 @@ def an_answer(root_cause: str = "dont care",
                                      else []),
         ACTION_ITEMS_FIELD: action_items if action_items is not None else [],
         LESSONS_FIELD: (lessons if lessons is not None
-                        else {WENT_WELL_FIELD: [], WENT_WRONG_FIELD: [], GOT_LUCKY_FIELD: []})
+                        else {WENT_WELL_FIELD: [], WENT_WRONG_FIELD: [], GOT_LUCKY_FIELD: []}),
+        REACHES_A_CAUSE_FIELD: reaches_a_cause
     }
 
     if lead_effects is not None:
@@ -763,7 +785,8 @@ def an_answer_without(field: str) -> dict[str, Any]:
 def a_submitted_answer(root_cause: str = "dont care",
                        executive_summary: str = "dont care",
                        assumptions: list[str] | None = None,
-                       lead_effects: Mapping[str, str] | None = None
+                       lead_effects: Mapping[str, str] | None = None,
+                       reaches_a_cause: bool = True
                        ) -> SubmittedPostmortem:
     """The same submission, once it has been read out of the call.
 
@@ -772,7 +795,8 @@ def a_submitted_answer(root_cause: str = "dont care",
     the whole reason the answer became a model.
     """
     return SubmittedPostmortem.model_validate(
-        an_answer(root_cause, executive_summary, assumptions, lead_effects))
+        an_answer(root_cause, executive_summary, assumptions, lead_effects,
+                  reaches_a_cause=reaches_a_cause))
 
 
 def a_model_answering(root_cause: str = "dont care",

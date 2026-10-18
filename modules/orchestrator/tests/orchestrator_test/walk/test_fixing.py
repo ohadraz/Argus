@@ -221,6 +221,53 @@ def test_what_code_fix_said_of_the_code_is_published_with_what_came_of_it(
 
 
 @pytest.mark.unit
+def test_a_fix_that_needs_code_outside_is_published_as_written_and_not_opened() -> None:
+    # Neither a proposal nor "nothing to change": the model wrote a fix and
+    # said it helps nobody until code outside the repository changes too. A
+    # reader told "no fix found" would close the question the fix answers.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_holding_back := _an_agent_holding_back()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_holding_back,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(FixOutcome.NOT_OPENED, None, published),
+            the_updates_carry("fix_found", False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_fix_that_needs_code_outside_publishes_what_would_have_to_change_there() -> None:
+    # What the postmortem reads of the code, and what the person taking it to
+    # whoever owns that code needs.
+    published: list[IncidentEvent] = []
+    what_has_to_change_outside = "the cache writer has to write under the new key too"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_holding_back := _an_agent_holding_back(
+                explaining=what_has_to_change_outside
+            )
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_holding_back,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_explains(what_has_to_change_outside, published)
+        )
+
+
+@pytest.mark.unit
 def test_a_proposal_that_could_not_be_made_is_published_as_a_failure() -> None:
     # The outcome somebody can go and repair, and the one this whole event
     # exists for: a repository that refused reached the timeline looking
@@ -588,6 +635,20 @@ def _an_agent_offering(proposal: OpenedPullRequest | None,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads) -> ProposedFix:
         return ProposedFix(pull_request=proposal, explanation=explaining)
+
+    return propose
+
+
+def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
+    """Code-Fix, having written a fix it says helps nobody until code outside
+    the repository changes too."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads) -> ProposedFix:
+        return ProposedFix(pull_request=None, explanation=explaining,
+                           needs_code_outside=True)
 
     return propose
 

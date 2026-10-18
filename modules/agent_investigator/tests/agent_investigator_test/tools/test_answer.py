@@ -107,6 +107,24 @@ def test_the_field_that_names_a_service_says_when_it_has_to_be_filled_in() -> No
         )
 
 
+@pytest.mark.unit
+def test_the_summary_says_what_happened_and_leaves_what_to_do_to_others() -> None:
+    # A summary that ended "The fix is to get the fleet onto one revision,
+    # either by rolling back or by completing the rollout" says what to do, and
+    # nothing reads it for that: the action is chosen from the failure mode and
+    # the fix by an agent that reads the code. Code-Fix is the one reader that
+    # takes it literally, and everywhere else it is shown - the page, Slack, the
+    # postmortem, the pull request - it reads as Argus's plan, beside the action
+    # Argus actually took.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _the_field("summary").says("Not what to do about it")
+        )
+
+
 def _an_explanation(tool: ToolDefinition) -> dict[str, Any]:
     """One entry of the ranked list, as the model is asked to fill it in."""
     explanation: dict[str, Any] = tool.properties[HYPOTHESES_ARG]["items"]
@@ -200,6 +218,20 @@ class _Field:
 
     def __init__(self, name: str) -> None:
         self._name = name
+
+    def says(self, phrase: str) -> Assertion[ToolDefinition]:
+        def assertion(tool: ToolDefinition) -> bool:
+            described = _an_explanation(tool)["properties"][self._name]["description"]
+
+            if phrase not in described:
+                raise AssertionError(
+                    f"Expected the description of [{self._name}] to say [{phrase}]; "
+                    f"it says [{described}]."
+                )
+
+            return True
+
+        return assertion
 
     def says_it_is_needed_for(self, cause: FailureMode) -> Assertion[ToolDefinition]:
         def assertion(tool: ToolDefinition) -> bool:

@@ -13,14 +13,14 @@ the assertion does not need it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final
 
 import httpx2
 import psycopg
 from argus_core import get_settings
 from argus_core.anomaly import has_recovered_since
 from argus_core.models import MetricBucket
-from argus_testkit import Assertion
+from argus_testkit import Assertion, eventually
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS, TARGET_SERVICE_BASE_URL
 from tests.framework.investigating import the_configured_thresholds
@@ -249,20 +249,74 @@ def _the_flags_the_provider_holds() -> list[str]:
     return [feature["name"] for feature in body.get("features", [])]
 
 
+# The stage the provider records once it has finished archiving a flag, and how
+# long that may take before something is wrong. The provider's own vocabulary,
+# read from its lifecycle API - verified against the pinned version.
+_ARCHIVED_STAGE: Final = "archived"
+_ARCHIVING_SETTLES_WITHIN_SECONDS: Final = 10.0
+# How often to look. The stage lands within milliseconds of the archiving, and
+# the suite's default half-second would spend most of every removal waiting.
+_ARCHIVING_CHECKED_EVERY_SECONDS: Final = 0.05
+
+
 def _delete_flag(flag: str) -> None:
+    """Archives a flag, waits for the provider to finish archiving it, and
+    removes it from the archive.
+
+    The wait is what keeps the provider alive. Archiving answers before the
+    provider is done with it: the flag's archived stage is written afterwards,
+    by a listener that checks the flag still exists and then writes. A removal
+    landing between the check and the write fails that write, nothing in the
+    provider catches the failure, and its process exits - taking every case
+    after it down with it. The stage appearing in the flag's lifecycle is that
+    write having happened, so the removal waits on the provider's own record
+    rather than on a guess at how long it takes. Measured against the pinned
+    version: archive-then-remove crashed it within 16 and 200 rounds, and 800
+    rounds with this wait did not.
+    """
     settings = get_settings()
     headers = {"Authorization": THE_HUMANS_ADMIN_TOKEN}
     httpx2.delete(
         f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
         f"/features/{flag}",
         headers=headers,
-        timeout=REQUEST_TIMEOUT_SECONDS,
+        timeout=REQUEST_TIMEOUT_SECONDS
     )
+    eventually(_archived_in_its_lifecycle(flag),
+               timeout=_ARCHIVING_SETTLES_WITHIN_SECONDS,
+               interval=_ARCHIVING_CHECKED_EVERY_SECONDS)(None)
+    # Checked, where the archiving is not: a name left in the archive cannot be
+    # created again, and the next case staging it would quietly go without it.
     httpx2.delete(
         f"{settings.unleash_base_url}/api/admin/archive/{flag}",
         headers=headers,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+        timeout=REQUEST_TIMEOUT_SECONDS
+    ).raise_for_status()
+
+
+def _archived_in_its_lifecycle(flag: str) -> Assertion[None]:
+    """That the provider has recorded `flag` as archived - the write a removal
+    must not overtake."""
+    def assertion(_: None) -> bool:
+        settings = get_settings()
+        response = httpx2.get(
+            f"{settings.unleash_base_url}/api/admin/projects/{settings.unleash_project}"
+            f"/features/{flag}/lifecycle",
+            headers={"Authorization": THE_HUMANS_ADMIN_TOKEN},
+            timeout=REQUEST_TIMEOUT_SECONDS
+        )
+        stages = [entry.get("stage") for entry in response.json()] if response.is_success else []
+
+        if _ARCHIVED_STAGE not in stages:
+            raise AssertionError(
+                f"Expected the flag provider to record [{flag}] as [{_ARCHIVED_STAGE}] "
+                f"before it is removed from the archive, got stages {stages} "
+                f"(HTTP {response.status_code})."
+            )
+
+        return True
+
+    return assertion
 
 
 def _create_flag_if_absent(flag: str) -> None:

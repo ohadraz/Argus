@@ -570,7 +570,7 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(all_of(
-                _timeline_begins_with("Received the alert"),
+                _timeline_begins_with("HighErrorRate fired on"),
                 _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
             ))
 
@@ -630,10 +630,11 @@ def test_filing_the_incident_for_the_next_one_is_not_carried(
 
 
 @pytest.mark.component
-def test_a_read_of_what_a_deployment_changed_is_not_a_line_of_the_timeline(
+def test_a_read_of_what_a_deployment_changed_is_a_line_of_the_timeline(
         a_clean_database: None) -> None:
-    # The page shows it, and the document gives what was read a row of its own -
-    # so a line for it too would tell it twice, and renumber every line after it.
+    # The document gives what was read a row of its own, and the line says when
+    # it was read - which the row does not. Left out, the timeline skipped the
+    # step the investigation turned on.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
@@ -647,7 +648,7 @@ def test_a_read_of_what_a_deployment_changed_is_not_a_line_of_the_timeline(
                 lambda: _the_evidence_after_publishing(conn, incident_id, some_read)
             ) \
             .then(
-                _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
+                _timeline_ends_with("Read what the deployment of some-revision changed")
             )
 
 
@@ -1428,7 +1429,8 @@ def _sources_recording_into(
         thresholds=DONT_CARE_THRESHOLDS,
         working_hours_a_year=DONT_CARE_WORKING_YEAR,
         reporting_currency="USD",
-        metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES
+        metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES,
+        rule_wait=lambda dont_care_rule: None
     )
 
 

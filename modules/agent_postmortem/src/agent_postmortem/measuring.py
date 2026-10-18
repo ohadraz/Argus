@@ -152,6 +152,12 @@ class Measurements(BaseModel):
     # credited with bringing it back - so the action did not. Attribution, said
     # rather than hidden by ending the incident at the action.
     back_before_the_action: bool = False
+    # How long the paging rule waits with its condition holding before it
+    # fires - part of the time from the onset to the alert. `None` where no rule
+    # paged, or where its wait could not be read, which `rule_wait_unread` says:
+    # a rule nobody could read is not one that fires at once.
+    rule_waits: timedelta | None = None
+    rule_wait_unread: bool = False
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -220,6 +226,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
             if evidence.onset_at is not None else None)
     engaged = sources.engagement(evidence.incident_id)
     bands = sources.bands()
+    waits = sources.rule_wait(evidence.rule) if evidence.rule is not None else None
 
     return Measurements(
         duration_in_hours=duration,
@@ -251,7 +258,9 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
             metrics, began, evidence.ended_at, sources.metrics_reporting_lag_minutes),
         # Over the same stretch as the error rate, for the same reason.
         rule_series=rule_series_over(metrics, began, back_to_normal_at),
-        error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at)
+        error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at),
+        rule_waits=timedelta(seconds=waits) if waits is not None else None,
+        rule_wait_unread=evidence.rule is not None and waits is None
     )
 
 

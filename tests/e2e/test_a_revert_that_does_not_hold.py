@@ -42,6 +42,8 @@ from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_event
 # What the shop's own monitoring pages on here: the burn-rate rule, which stays
 # firing while any minute in ten fails.
 AN_ERROR_RATE_ALERT = "ErrorRateSustained"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "Error rate above 2.5% averaged over 10m"
 
 
 @pytest.mark.e2e
@@ -49,7 +51,8 @@ def test_a_revert_the_shop_goes_on_flapping_after_is_refuted() -> None:
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=AN_ERROR_RATE_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     # The scenario's id is also the recording's name, so one constant serves both.
     Scenario() \

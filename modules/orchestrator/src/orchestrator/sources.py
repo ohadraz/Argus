@@ -39,7 +39,7 @@ from agent_postmortem import (
 )
 from argus_core import Connections, Settings, to_iso
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.mcp_transport import McpClient
+from argus_core.mcp_transport import McpClient, McpToolError, McpUnreachable
 from argus_core.models import NOTIFICATION_KEY, ON_CALL_INCIDENT, MetricBucket, Reference
 from argus_incidents.repository import exchange_rates, incidents, references
 from exchange_rate_source.frankfurter import (
@@ -48,7 +48,7 @@ from exchange_rate_source.frankfurter import (
 )
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
-from read_mcp_client import get_metrics_summary
+from read_mcp_client import get_alert_rule, get_metrics_summary
 from responder_rate_source import (
     PayBandsUnavailable,
     ResponderRateSettings,
@@ -115,6 +115,7 @@ def the_real_sources(settings: Settings,
                       settings=ResponderRateSettings.of(settings)),
         metrics=partial(_metrics_between, client=read,
                         served=timedelta(minutes=settings.metrics_window_minutes)),
+        rule_wait=partial(_how_long_the_rule_waits, client=read),
         working_hours_a_year=settings.working_hours_a_year,
         reporting_currency=settings.reporting_currency,
         metrics_reporting_lag_minutes=settings.metrics_reporting_lag_minutes
@@ -300,6 +301,22 @@ def _what_a_title_is_worth(*,
                            maximum=band.maximum,
                            currency=band.currency)
             for title, band in read.items()}
+
+
+def _how_long_the_rule_waits(rule: str, *, client: McpClient) -> int | None:
+    """How long `rule` waits with its condition holding before it fires, read
+    off its definition by the read tier - over the session the metrics are read
+    on.
+
+    `None` where the tier could not read the rule, never nothing: a rule that
+    fires at once and one nobody could read are told differently.
+    """
+    try:
+        return get_alert_rule(rule, client=client).pending_seconds
+    except (McpToolError, McpUnreachable):
+        logger.warning("alert rule could not be read", exc_info=True, extra={"rule": rule})
+
+        return None
 
 
 def _metrics_between(window_start: datetime,

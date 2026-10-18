@@ -73,6 +73,8 @@ from tests.e2e.framework.world import (
 # which is the point: the summary names the median, and nothing else about the
 # alert says which of the two this is.
 A_LATENCY_ALERT = "HighLatency"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "p50 latency above threshold for 5m"
 
 # What the two latencies do across the change, measured from the fixture
 # rather than guessed: p50 grows about sevenfold and p95 about six percent. The
@@ -94,7 +96,8 @@ def test_a_cache_nobody_can_reach_is_ended_by_rolling_the_configuration_back() -
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

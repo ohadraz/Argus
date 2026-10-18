@@ -5,11 +5,18 @@ from typing import Any
 
 from argus_core import to_iso, utc_now
 
+# The words the shop's own monitoring pages with wherever its other rules do not
+# fire: its error-rate rule's summary (`_BY_DEFAULT` in the demo app's
+# `monitoring.py`). A case whose scenario trips another rule passes that rule's
+# words, as its alert name names that rule.
+THE_ERROR_RATE_RULES_WORDS = "Error rate above threshold for 5m"
+
 
 def a_grafana_style_alert_with(service: str = "some-service",
                                 alert_name: str = "some-error-name",
                                 severity: str = "some-severity",
-                                started_at: datetime | None = None) -> dict[str, Any]:
+                                started_at: datetime | None = None,
+                                summary: str = THE_ERROR_RATE_RULES_WORDS) -> dict[str, Any]:
     """A Grafana webhook payload, as Grafana would send it.
 
     `startsAt` defaults to now, and that default matters: retrieval is
@@ -18,8 +25,12 @@ def a_grafana_style_alert_with(service: str = "some-service",
     metrics window somewhere the fixture's minutes are not, so Argus
     retrieves nothing and honestly reports that it found nothing - a green
     test turning red for a reason that has nothing to do with Argus.
+
+    `summary` is the words the alert was sent with, which Argus reads as the
+    sender's own account of what it measured and names the paging rule's
+    series by. Three latency rules share one alert name, so the words are the
+    only thing in the page that says which percentile moved.
     """
-    summary = f"Error rate above threshold on {service}"
     alert_time = started_at if started_at is not None else utc_now()
 
     return {

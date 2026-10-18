@@ -64,6 +64,8 @@ from tests.e2e.framework.world import (
 # cache raises, and that is the point: the two are told apart by the evidence and
 # never by the page.
 A_LATENCY_ALERT = "HighLatency"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "p95 latency above threshold for 5m"
 
 THE_SCENARIO = "bad-deployment"
 
@@ -73,7 +75,8 @@ def test_a_revision_that_slowed_every_page_is_ended_by_rolling_the_deployment_ba
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

@@ -37,26 +37,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from anthropic_double.recordings import RECORDINGS_DIR
-from github_double.repository import DEFAULT_FILES
 
-# The walk a set is built from by default, and the one it is stored as. Both
-# carry the mode's prefix because a recording is captured under the tool list
-# the stack offered, and a set stored without one is a set nothing replays -
-# which is also why a borrowed set may only be stored under its own mode's
-# prefix, and why the pair below is `both` and only `both`: the large-fix case
-# is collected in that mode alone (`noxfile._the_cases_for`), so a `grep-` or
-# `meaning-` set of it would answer a question no session asks.
-#
-# Overridable, because the rehearsal is not a property of that one case. Any
-# new scenario has the same problem and the same answer: borrow a walk through
-# a world shaped like this one, and rewrite whichever answers have to differ.
-BORROWED_FROM: Final = "both-feature-flag-toggle"
-STORED_AS: Final = "both-monthly-statement-panel"
-
-# The answer that has to differ, and the only one. Everything before it is the
-# investigation and the reading, which are the same in both worlds; everything
-# after it is the postmortem, which is written from the incident rather than
-# from the fix.
+# Code-Fix's submission, which is the answer that has to differ when the
+# borrowed walk reached the right conclusion and fixed a different file.
 THE_TOOL_THAT_SUBMITS_A_FIX: Final = "submit_fix"
 # The Investigator's own answer, which is the one that has to differ when the
 # borrowed walk reached a different conclusion rather than merely fixed a
@@ -69,34 +52,11 @@ TOOL_USE_TYPE: Final = "tool_use"
 # framework can be imported from.
 ANCHOR_SUFFIX: Final = ".anchor"
 
-# The file the fix is of - the largest module the shop has, and the whole reason
-# this scenario exists. Read from the repository double rather than from the
-# demo app's checkout, because what Code-Fix is answering about is what the
-# repository served it, and the two are a copy of each other that can drift.
-THE_LARGE_MODULE: Final = "src/io_shop/monthly_statement.py"
-
 # Where the shop's summary cache answers, as `deploy/values-production.yaml`
 # names it. The address a conclusion about a promoted stale replica has to name,
 # and the subject that conclusion is filed under - not the shop, which is
 # serving every request correctly from a copy nobody told anything.
 THE_PROMOTED_CACHE: Final = "cache.io-shop.svc.cluster.local"
-
-# The fault, and the repair. A rehearsal does not need a *good* fix - what is
-# being exercised is the size of the answer and the path it travels - but it
-# does need a plausible one, because an answer full of nonsense would make every
-# later reading of this run an argument about the nonsense.
-THE_FAULT: Final = (
-    "    return max(purchase.price_cents for purchase in "
-    "purchases_this_month(account))"
-)
-THE_REPAIR: Final = (
-    "    bought = purchases_this_month(account)\n"
-    "\n"
-    "    if not bought:\n"
-    "        raise ValueError(\"this shopper bought nothing this month\")\n"
-    "\n"
-    "    return max(purchase.price_cents for purchase in bought)"
-)
 
 
 def _the_answers_of(name: str) -> list[Path]:
@@ -136,77 +96,6 @@ def _the_two_names_share_a_mode(borrowed_from: str, stored_as: str) -> None:
             f"unlike the one its answers were given in calls tools that stack "
             f"never offered"
         )
-
-
-def _the_fixed_module() -> str:
-    """The large module with its fault repaired, as a whole file.
-
-    Whole, because that is what `ProposedFile.content` is: a fix here replaces
-    the file rather than patching it, which is the decision this whole scenario
-    exists to put under load.
-    """
-    held = DEFAULT_FILES[THE_LARGE_MODULE]
-
-    if THE_FAULT not in held:
-        raise SystemExit(
-            f"the fault this rehearsal repairs is no longer in "
-            f"[{THE_LARGE_MODULE}] as the repository double serves it - the "
-            f"fixture has moved, and a fabricated fix against a file that has "
-            f"changed would be a rehearsal of nothing"
-        )
-
-    return held.replace(THE_FAULT, THE_REPAIR, 1)
-
-
-def _a_fix_of_the_large_module(was: dict[str, Any]) -> dict[str, Any]:
-    """The borrowed `submit_fix` answer, aimed at the large module instead.
-
-    The envelope is kept exactly as it was recorded - the id, the model, the
-    stop reason, the usage - and only the tool call's input is rewritten. What
-    is being fabricated is the *content* of an answer, and an envelope invented
-    alongside it would be a second fabrication nobody asked for, in the fields a
-    later reader is most likely to trust.
-
-    The usage figures are therefore the borrowed walk's and describe a fix of
-    seven hundred tokens. That is wrong for this answer and is left wrong on
-    purpose: a figure edited to look right is one somebody will measure from.
-    """
-    submitted = False
-    content = []
-
-    for block in was["content"]:
-        if block.get("type") == TOOL_USE_TYPE and block.get("name") == THE_TOOL_THAT_SUBMITS_A_FIX:
-            block = {
-                **block,
-                "input": {
-                    "summary": "Guard the monthly statement against an empty month",
-                    "explanation": (
-                        "Cause: `the_biggest_purchase_this_month` asks `max` for "
-                        "the largest purchase of the month without checking that "
-                        "the month has any, so every account page the rollout "
-                        "reached fails for a shopper who has bought nothing this "
-                        "month. The statement promises a largest, a smallest and "
-                        "an average, and a month with nothing in it has none of "
-                        "them - so the panel raises rather than inventing a zero, "
-                        "and the account page's boundary turns that into the "
-                        "error rate this incident was paged on."
-                    ),
-                    "files": [
-                        {"path": THE_LARGE_MODULE, "content": _the_fixed_module()}
-                    ]
-                }
-            }
-            submitted = True
-
-        content.append(block)
-
-    if not submitted:
-        raise SystemExit(
-            f"[{BORROWED_FROM}] has no [{THE_TOOL_THAT_SUBMITS_A_FIX}] answer to "
-            f"rewrite, so the walk it records never reached Code-Fix"
-        )
-
-    return {**was, "content": content}
 
 
 # The dependency the register marks as this organisation's own, and the host
@@ -756,8 +645,8 @@ def _a_rollout_that_stopped_half_way(was: dict[str, Any]) -> dict[str, Any]:
 # `scenarios.py` as `THE_COMMIT_THAT_MOVED_THE_MONTH_BOUNDARY` and the commit
 # before it, and a copy here that has fallen behind fabricates a walk against a
 # deployment that is not the one staged.
-THE_REVISION_THAT_WENT_OUT: Final = "3398e10e131ea6c16f468f1bc1ac0fa6426d1b0c"
-THE_REVISION_BEFORE_IT: Final = "f0bcdb929bc6e89981742d03b02f36a40cd19ca0"
+THE_REVISION_THAT_WENT_OUT: Final = "383534e9bb182bb778e01fd22ba63f88885362e3"
+THE_REVISION_BEFORE_IT: Final = "65279ee05d2cfae49802712847428bc55e794bb3"
 THE_FLAG_THAT_WENT_ON: Final = "monthly-spend-feature"
 
 
@@ -1499,25 +1388,23 @@ def _a_postmortem_that_answers_the_lead(was: dict[str, Any]) -> dict[str, Any]:
 # differs only in its prose free to rehearse.
 #
 # The tool is named beside each rewrite rather than assumed, because the
-# rehearsals differ in which answers they touch. The large-fix set borrows a walk
-# that reached the right conclusion about the wrong file, so only the fix
-# differs; the dependency set borrows a walk that reached a different conclusion
-# entirely, so it is the investigation's own answer that has to change and the
-# fix after it is left as the borrowed walk wrote it. The drift set needs both:
-# a different conclusion, and a fix where the borrowed walk found none.
+# rehearsals differ in which answers they touch. The dependency set borrows a
+# walk that reached a different conclusion entirely, so it is the
+# investigation's own answer that has to change and the fix after it is left as
+# the borrowed walk wrote it. The drift set needs both: a different conclusion,
+# and a fix where the borrowed walk found none.
 _THE_ANSWERS_THAT_HAVE_TO_DIFFER: Final[
     dict[str, tuple[tuple[str, Callable[[dict[str, Any]], dict[str, Any]]], ...]]
 ] = {
-    STORED_AS: ((THE_TOOL_THAT_SUBMITS_A_FIX, _a_fix_of_the_large_module),),
     "grep-pricing-service-degraded": ((THE_TOOL_THAT_ANSWERS,
                                        _a_failing_internal_dependency),),
     "both-pricing-service-degraded": ((THE_TOOL_THAT_ANSWERS,
                                        _a_failing_internal_dependency),),
     "grep-cpu-saturation": ((THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),),
     "both-cpu-saturation": ((THE_TOOL_THAT_ANSWERS, _a_deployment_that_is_too_small),),
-    # `both` alone, as the large-fix set is and for its reason: the case that
-    # replays this is collected in that mode only (`noxfile._the_cases_for`), so a
-    # `grep-` set of it would answer a question no session asks.
+    # `both` alone: the case that replays this is collected in that mode only
+    # (`noxfile._the_cases_for`), so a `grep-` set of it would answer a question
+    # no session asks.
     "both-autoscaler-flapping": ((THE_TOOL_THAT_ANSWERS,
                                   _a_controller_that_will_not_settle),),
     # `both` alone, for the reason above it: the two cases that replay this are
@@ -1649,14 +1536,14 @@ def main() -> int:
     parser.add_argument(
         "--from",
         dest="borrowed_from",
-        default=BORROWED_FROM,
         help="the recorded walk to borrow answers from - one through a world "
-             "shaped like the new scenario's, under the same mode's prefix",
+             "shaped like the new scenario's, under the same mode's prefix; "
+             "required unless removing",
     )
     parser.add_argument(
         "--as",
         dest="stored_as",
-        default=STORED_AS,
+        required=True,
         help="the name to store the fabricated set under, which is the name the "
              "case replaying it asks the double for",
     )
@@ -1680,6 +1567,9 @@ def main() -> int:
             print(f"removed {anchor.name}")
 
         return 0
+
+    if arguments.borrowed_from is None:
+        parser.error("--from is required to fabricate a set")
 
     _the_two_names_share_a_mode(arguments.borrowed_from, arguments.stored_as)
     borrowed = _the_answers_of(arguments.borrowed_from)

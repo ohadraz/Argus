@@ -67,6 +67,8 @@ from tests.e2e.framework.world import a_scenario_was_seeded, the_middle_of, the_
 # because a rule written against p95, which is how most latency alerting is
 # written, would never fire on this at all.
 A_LATENCY_ALERT = "HighLatency"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "p99 latency above threshold for 5m"
 
 # What tells the incident's minutes from the shop's own. Measured from the
 # fixture rather than guessed: the tail sits near 200ms while nothing is rolled
@@ -92,7 +94,8 @@ def test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back() ->
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

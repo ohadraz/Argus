@@ -149,6 +149,12 @@ SUMMARISED_THINKING: Final = ThinkingConfigAdaptiveParam(
     type="adaptive", display="summarized"
 )
 
+# What a turn that reasoned and then said and asked for nothing goes back as.
+# Its reasoning is never resent, so without this it would be a message with no
+# content, and the API refuses one of those as it refuses a text block with no
+# text.
+_A_TURN_THAT_SAID_NOTHING: Final = "(This turn said nothing.)"
+
 # Named for the field rather than left as bare keys, like the vocabulary
 # above: these are Anthropic's spellings of how a turn ended, and a test
 # restating one would be a second opinion about a third party. `Final` for the
@@ -329,6 +335,17 @@ def _a_message_for(exchange: Exchange) -> MessageParam:
         return {
             "role": USER_ROLE,
             "content": [_a_result_block_for(result) for result in exchange.results],
+        }
+
+    if not exchange.tool_calls:
+        # A turn of words alone goes back as its words. Sent as its calls -
+        # none - it would be a message with nothing in it, which the API
+        # refuses; and one with no words either still has to carry something.
+        return {
+            "role": ASSISTANT_ROLE,
+            "content": [
+                TextBlockParam(type=TEXT_TYPE, text=exchange.text or _A_TURN_THAT_SAID_NOTHING)
+            ],
         }
 
     return {

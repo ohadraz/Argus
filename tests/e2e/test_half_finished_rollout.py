@@ -64,6 +64,7 @@ from tests.e2e.framework.argus import (
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    argus_proposed_no_fix,
     argus_took_a_rollback_of,
     argus_wrote_a_postmortem,
     cause_identified_as,
@@ -156,7 +157,8 @@ def test_a_rollout_stopped_half_way_is_ended_by_converging_the_fleet() -> None:
                     _every_replica_is_on_one_revision(),
                     _the_rolling_update_is_no_longer_paused(),
                     argo_auto_sync_is_disabled(),
-                    argus_wrote_a_postmortem()
+                    argus_wrote_a_postmortem(),
+                    argus_proposed_no_fix()
                 ),
                 timeout=WALK_TIMEOUT_SECONDS
             )

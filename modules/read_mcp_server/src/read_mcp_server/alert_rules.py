@@ -7,7 +7,7 @@ service, as it would for a responder - so this says what the rule says, as of
 an evaluation that can be dated, and how long the rule looks back.
 
 Three of Grafana's reads meet here and none leaves the tier: the rule's
-definition (its queries' ranges and `keep_firing_for`), its group (the interval
+definition (its queries' ranges, `keep_firing_for` and `for`), its group (the interval
 every rule in it is evaluated at), and its current state from the
 Prometheus-compatible rules API. What comes out names no vendor.
 
@@ -48,6 +48,8 @@ RULE_GROUP: Final = "ruleGroup"
 # Snake case in the provisioning API's rule, where the export format and the
 # rules API spell it `keepFiringFor`.
 KEEP_FIRING_FOR: Final = "keep_firing_for"
+# How long the condition has to hold before the rule fires - its pending period.
+FOR: Final = "for"
 DATA: Final = "data"
 RELATIVE_TIME_RANGE: Final = "relativeTimeRange"
 FROM: Final = "from"
@@ -204,7 +206,8 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
                 default=0
             ),
             interval_seconds=int(group[INTERVAL]),
-            keep_firing_for_seconds=_seconds_in(definition.get(KEEP_FIRING_FOR))
+            keep_firing_for_seconds=_seconds_in(definition.get(KEEP_FIRING_FOR)),
+            pending_seconds=_seconds_in(definition.get(FOR))
         )
     except AlertRuleUnreadable:
         raise

@@ -186,7 +186,7 @@ words, or in one word that measures something ("twenty minutes", "tripled", "a
 third"). Every figure the model is shown SHALL carry a name in braces after it,
 and the prose SHALL state a figure by naming it, code writing the figure in as
 the run measured it. A figure the incident never gave as one SHALL be named as
-a working of two it did (`{recovered - began}`), which code SHALL work out from
+a working of two it did (`{back_to_normal - began}`), which code SHALL work out from
 the two figures as the model was shown them, by their kinds. A working of kinds
 that do not combine, one coming out below nothing, one dividing by nothing, and
 a name the incident never gave SHALL be faults. A size said with no number in

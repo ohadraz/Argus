@@ -32,6 +32,11 @@ class FixOutcome(StrEnum):
     happened, and three readers matching on prose are three readers who will
     eventually match on different prose.
 
+    `not-opened` is a fix the model wrote and said helps nobody until code
+    outside the repository changes too. It is neither a proposal - merged
+    alone it spares no one - nor `not-warranted`, which would close the
+    question the fix answers.
+
     This is not a status. A mitigated incident is mitigated whichever of these
     it carries (§10) - what Code-Fix found decides what the incident carries,
     not what state it is in.
@@ -42,6 +47,7 @@ class FixOutcome(StrEnum):
     NOT_POSSIBLE = "not-possible"
     NOT_ANSWERED = "not-answered"
     DECLINED = "declined"
+    NOT_OPENED = "not-opened"
 
 
 class ProposedFix(BaseModel):
@@ -54,7 +60,13 @@ class ProposedFix(BaseModel):
     account of the mechanism anybody read off the source, and "the fault is
     not in the code, because..." is a finding as much as a fix is. A static
     reading - nothing ran it - and `None` where the model gave none.
+
+    `needs_code_outside` is a fix the model wrote and Argus did not open,
+    because the model said it helps nobody until code outside the repository
+    changes too. Neither a proposal nor "nothing to change": the explanation is
+    then what would have to change there, in the model's words.
     """
 
     pull_request: OpenedPullRequest | None
     explanation: str | None
+    needs_code_outside: bool = False

@@ -99,6 +99,19 @@ def test_a_start_of_no_revision_names_none() -> None:
 
 
 @pytest.mark.unit
+def test_a_start_shorter_than_a_short_form_names_none() -> None:
+    # Shorter than git abbreviates one to by default, a start of a revision is
+    # any small number, and every small number in a sentence would name one.
+    Scenario() \
+        .when(
+            lambda: the_revision_named(SOME_SHORT_FORM[:6], frozenset({SOME_REVISION}))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("said", [f"rolled back off {SOME_REVISION}",
                                   f"rolled back off [{SOME_SHORT_FORM}]"],
                          ids=["whole", "short-and-bracketed"])

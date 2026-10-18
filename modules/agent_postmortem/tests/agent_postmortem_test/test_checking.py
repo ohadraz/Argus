@@ -469,11 +469,11 @@ def test_a_working_the_figures_answer_is_accepted() -> None:
     Scenario() \
         .given(
             an_answer_working_out_a_span := _an_answer(
-                executive_summary="it was broken for {recovered - began}")
+                executive_summary="it was broken for {back_to_normal - began}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_out_a_span,
-                              given=_given_figures("recovered", "began"))
+                              given=_given_figures("back_to_normal", "began"))
         ) \
         .then(
             _found_nothing_wrong()
@@ -560,7 +560,7 @@ def test_a_working_from_a_figure_the_incident_never_gave_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_from_a_ghost := _an_answer(
-                executive_summary="it was broken for {recovered - began}")
+                executive_summary="it was broken for {back_to_normal - began}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_from_a_ghost,
@@ -568,7 +568,7 @@ def test_a_working_from_a_figure_the_incident_never_gave_is_named() -> None:
         ) \
         .then(
             all_of(
-                _named("[{recovered}]"),
+                _named("[{back_to_normal}]"),
                 _found(1)
             )
         )
@@ -581,15 +581,15 @@ def test_a_working_that_comes_out_below_nothing_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_backwards := _an_answer(
-                executive_summary="it was broken for {began - recovered}")
+                executive_summary="it was broken for {began - back_to_normal}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_backwards,
-                              given=_given_figures("recovered", "began"))
+                              given=_given_figures("back_to_normal", "began"))
         ) \
         .then(
             all_of(
-                _named("[{began - recovered}]"),
+                _named("[{began - back_to_normal}]"),
                 _named("comes out below nothing"),
                 _found(1)
             )
@@ -709,6 +709,54 @@ def test_a_figure_as_long_as_a_revision_is_still_named() -> None:
         .then(
             all_of(
                 _named("[12345678]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_the_incident_read_whose_start_is_all_digits_is_a_name() -> None:
+    # One revision in about thirty starts with seven digits. Told apart by its
+    # letters alone, its short form read as a number and was refused - the very
+    # name the rule above stopped refusing. A start that only one revision the
+    # incident read begins with is that revision, letters or none.
+    some_revision_read = "3398001c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b"
+
+    Scenario() \
+        .given(
+            an_answer_naming_it_short := _an_answer(
+                root_cause=f"the deploy of revision {some_revision_read[:7]} broke checkout")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_it_short,
+                              given=SOME_GIVEN.model_copy(
+                                  update={"revisions": frozenset({some_revision_read})}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_digits_shorter_than_a_revision_s_short_form_are_a_figure_whatever_they_start() -> None:
+    # A revision is named by seven characters at least. One digit starts one
+    # revision in sixteen, and a rule taking any start for a name would let
+    # every small number through.
+    some_revision_read = "3398001c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b"
+
+    Scenario() \
+        .given(
+            an_answer_with_a_small_figure := _an_answer(
+                executive_summary="checkout failed for 3 hours")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_small_figure,
+                              given=SOME_GIVEN.model_copy(
+                                  update={"revisions": frozenset({some_revision_read})}))
+        ) \
+        .then(
+            all_of(
+                _named("[3]"),
                 _found(1)
             )
         )

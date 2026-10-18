@@ -116,10 +116,11 @@ THE_AVERAGE_SLOWED = DeploymentPair(
 )
 
 # `control-plane-unreachable`: which purchases fall in this month, decided from
-# when each was recorded rather than from the flag the writer set.
+# when each was recorded rather than from the flag the writer set - and the
+# guard that answered an empty month with zero gone with the old rule.
 THE_MONTH_BOUNDARY_MOVED = DeploymentPair(
-    before="f0bcdb929bc6e89981742d03b02f36a40cd19ca0",
-    after="3398e10e131ea6c16f468f1bc1ac0fa6426d1b0c",
+    before="65279ee05d2cfae49802712847428bc55e794bb3",
+    after="383534e9bb182bb778e01fd22ba63f88885362e3",
     files={
         "src/io_shop/spend_summary.py": (
             '''\
@@ -130,10 +131,15 @@ from io_shop.typical_spend import typical_spend_per_item
 
     show what a shopper is spending now rather than what they averaged over
     three years.
+
+    A shopper who has bought nothing this month averages zero, rather than
+    dividing by an empty month.
     """
     bought_this_month = [
         purchase for purchase in account.purchases if purchase.in_current_month
     ]
+    if not bought_this_month:
+        return 0
     return account.total_this_month_cents // len(bought_this_month)
 ''',
             '''\

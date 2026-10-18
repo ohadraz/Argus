@@ -39,7 +39,6 @@
     "tests/e2e/test_mitigation_directions.py::test_a_flag_switched_off_is_mitigated_by_switching_it_back_on": 23.242499521000127,
     "tests/e2e/test_mitigation_directions.py::test_an_action_that_does_not_help_is_refuted_and_the_flag_is_put_back": 22.980090605999976,
     "tests/e2e/test_proposing_a_code_fix.py::test_a_mitigated_incident_leaves_a_draft_pull_request_for_a_person": 19.22361773600005,
-    "tests/e2e/test_proposing_a_large_code_fix.py::test_a_fix_that_rewrites_a_large_file_reaches_the_repository": 24.15189749199999,
     "tests/e2e/test_resolving_an_incident.py::test_an_incident_resolved_from_its_slack_thread_is_written_up_and_nothing_more": 8.025664657999982,
     "tests/e2e/test_resolving_an_incident.py::test_an_incident_resolved_in_pagerduty_keeps_its_flag_off_and_is_written_up": 12.152530103000004,
     "tests/e2e/test_resolving_an_incident.py::test_an_incident_resolved_mid_walk_keeps_its_flag_off_and_is_written_up": 12.483093179999969,

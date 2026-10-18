@@ -66,6 +66,8 @@ from tests.e2e.framework.world import (
 )
 
 A_LATENCY_ALERT = "HighLatency"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "p95 latency above threshold for 5m"
 
 # The service the shop calls while it renders the account page, and the one the
 # register says this organisation owns. Not a constant in the framework,
@@ -84,7 +86,8 @@ def test_a_failing_dependency_is_restarted_rather_than_the_service_that_alerted(
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

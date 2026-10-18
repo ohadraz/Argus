@@ -2,36 +2,104 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "Since the metrics outage is just the trigger and not the actual bug, I need to find the real code fault elsewhere\u2014likely the average spend calculations, which look inefficient and vulnerable to division by zero when purchases are empty.\n\nI'm also noting the typical spend function's O(n\u00b2) removal pattern and empty-list crash, plus unbounded dict growth in visits tracking as possible memory leak culprits.\n\nNone of this obviously connects to a port rename though, so I suspect the real fault must be something structurally similar to the deploy change but living in the codebase itself, meaning I need to keep digging for it.\n\nI'm wondering if the hidden fault is the classic divide-by-zero in the monthly summary calculation, where dividing by a purchase count that could be zero would crash silently behind a flag. Let me check the existing tests to see what's already covered before committing to that theory.\n\n",
+      "signature": "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",
+      "thinking": "I need to be precise here and avoid stating any figures myself, referring to them only by their placeholder names. The key facts: metrics collection stopped at 19:26 when the port name was renamed, since the scrape config still selects by the old 'metrics' name. Meanwhile the shop kept serving normally according to logs, so the 0% error rate figure likely reflects the absence of samples rather than actual health\u2014I should be careful not to conflate \"no data\" with \"everything is fine.\"\n\nThe rollback (M1) confirmed service was readable again, and AI-3 disabled automatic sync, but the rollback doesn't fix the underlying trap\u2014a fix PR is still open, so I shouldn't claim the issue is fully resolved, just that the mitigation is confirmed and in place. For root cause, the chain is: the rename (verified via D1) broke the scrape selector matching (an unverified static reading from F1), and the rollback restoring the metrics series (M1, T22) indirectly supports that this is the correct cause\u2014so I'll mark reaches_a_cause as true but flag that the selector-matching step rests on an unverified reading. I also need to rule out the earlier deploy (P1), since metrics continued normally for four hours after it before the actual break at 19:26.\n\nI'm ruling out shop-side failures too, since both ClientDisconnected and rendering metrics stayed at baseline. For contributing factors and action items, I'm considering adding a detection step (alerting when scrape targets hit zero, which would catch this earlier than the current 5-minute absence alert), noting the missing cross-file name verification as a contributing cause, and flagging that disabling auto-sync after rollback means the real fix won't deploy automatically until it's manually re-enabled.\n\nNow I'm drafting the symptom statement \u2014 metrics stopped reporting while the shop kept serving \u2014 and being careful to use placeholders like {began} and {A2} instead of writing out actual timestamps in the chain-of-causation steps: metrics stopped, Prometheus found no scrape targets for io-shop, and that traces back to the port rename in revision 9f4ad145 deployed in the problematic values file change.\n\nThe rename broke scraping because scrape.yaml still selected by the old name and nothing validated the two configs matched \u2014 so I'm ruling out the earlier deploy (series continued fine until the later one) and confirming the rollback restored things consistently. I'm finalizing the executive summary now, keeping it free of hard numbers and using {duration} instead.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01XP8BsMocsHBx9NiThfr96j",
+      "id": "toolu_01K7qr1hrN7qNCLXx5ueJpZx",
       "input": {
-        "path": "tests/io_shop/test_spend_summary.py"
+        "action_items": [
+          {
+            "item": "Add an alert on the io-shop scrape having no active targets, so a selector mismatch pages as soon as it happens and names the scrape target as the problem, instead of waiting for the series to go silent.",
+            "type": "detect"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T5",
+              "Gad41",
+              "G46bc"
+            ],
+            "step": "The io-shop metrics series stopped at {T5.2} and the absent-metrics alert fired after {A2} with no sample. The shop itself kept serving: logs after the onset show account pages rendering normally, and the error rate did not rise ({errors_while_broken} while broken). What users and operators lost was the monitoring signal, not the shop."
+          },
+          {
+            "cites": [
+              "F1",
+              "T22"
+            ],
+            "step": "The scraper no longer found a port to collect from, so no samples were recorded. This comes from a static reading of the scrape configuration and is unverified, but the series resuming after the rollback fits it."
+          },
+          {
+            "cites": [
+              "D1",
+              "P2",
+              "T5"
+            ],
+            "step": "Revision 9f4ad145 was deployed at {P2.1}, the moment the series stopped. It changed the metrics portName in deploy/values-production.yaml from metrics to http-metrics and left the port number alone."
+          },
+          {
+            "cites": [
+              "F1",
+              "P1",
+              "T15",
+              "G46bc",
+              "M1"
+            ],
+            "step": "The rename broke scraping because the ServiceMonitor in deploy/scrape.yaml selects the endpoint by port name and still asks for the old name (static reading, unverified). The two files are separate, and the files say nothing checks that the names agree. The record rules out other triggers. The earlier deploy was made hours before and the series kept flowing after it. The flag provider showed no recent flag changes. The shop's own errors match the pre-change baseline."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "No check was seen that the port name in the values file and the name in the scrape configuration agree, so a rename in one file could merge and silently stop collection."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "The alert only fires once the series has been silent for {A2}, and it says only that data is missing. Detection came after the onset, and the alert does not say why the scraper has no targets."
+          },
+          {
+            "addressed_by": [
+              "AI-3"
+            ],
+            "factor": "The rollback undid a deliberate rename and left automatic sync of io-shop off, so the real fix cannot reach production until sync is turned back on."
+          }
+        ],
+        "executive_summary": "The io-shop service stopped sending monitoring data from {began}, and the absent-metrics alert paged at {alert_raised}. It was broken for at least {duration}, and that is a lower bound. The shop was not failing. Its logs showed account pages rendering normally, and the error rate stayed at its usual level ({errors_while_broken} against {errors_before} before). Only the monitoring was blind, so there are no readings for those minutes. A deploy had renamed the metrics port, and the monitoring still looked for the old name. Argus rolled the deploy back, and the metrics could be read again. A draft pull request now proposes updating the monitoring to the new name and adding a test that fails when the two names differ.",
+        "lessons": {
+          "got_lucky": [
+            "The shop kept serving normally while it was unmonitored. A rename that broke monitoring at the same time as a real fault would have left no readings to show it."
+          ],
+          "went_well": [
+            "Argus read the logs and metrics and recognised that the shop was still serving, so this was a monitoring gap and not a customer outage.",
+            "The rollback was applied quickly and was confirmed, and the metrics could be read again.",
+            "Code-Fix proposed a fix that keeps the deliberate rename, together with a test that catches the mismatch."
+          ],
+          "went_wrong": [
+            "A change to one config file silently broke monitoring configured in another file, and no check was seen to catch it before merge.",
+            "The rollback reverted the intended rename, and automatic sync stays off until it is turned back on."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "A deploy renamed the metrics port in the production values file, but the separate monitoring scrape file still selects the port by its old name, so the scraper found no target and the shop's metrics stopped. Nothing checks that the two names agree. The scrape file's contents are known only from a static reading, which is unverified. The rollback restoring the metrics is consistent with that reading.",
+        "symptom": "Shop metrics stopped arriving, so monitoring went blind"
       },
-      "name": "read_repository_file",
-      "type": "tool_use"
-    },
-    {
-      "caller": {
-        "type": "direct"
-      },
-      "id": "toolu_01MGhnykSinKAfRCGxCcwaBS",
-      "input": {
-        "path": "src/io_shop/accounts.py"
-      },
-      "name": "read_repository_file",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfaKZjikzkM6Bys4uY1Bn",
-  "model": "claude-opus-5",
+  "id": "msg_011CgAG4XPpV1za56RWk1PeK",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -40,16 +108,17 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2059
+      "ephemeral_5m_input_tokens": 6451
     },
-    "cache_creation_input_tokens": 2059,
-    "cache_read_input_tokens": 7446,
+    "cache_creation_input_tokens": 6451,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1167,
+    "input_tokens": 4,
+    "output_tokens": 2951,
     "output_tokens_details": {
-      "thinking_tokens": 1042
+      "thinking_tokens": 1343
     },
-    "service_tier": "standard"
+    "service_tier": "standard",
+    "speed": "standard"
   }
 }

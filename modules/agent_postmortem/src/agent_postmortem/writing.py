@@ -91,7 +91,9 @@ class Review(Protocol):
 
     def __call__(self,
                  document: PostmortemDocument,
-                 faults: list[str]) -> list[ReviewCriterion]: ...
+                 faults: list[str],
+                 *,
+                 reaches_a_cause: bool) -> list[ReviewCriterion]: ...
 
 
 def write_postmortem(evidence: IncidentEvidence,
@@ -186,7 +188,9 @@ def write_postmortem(evidence: IncidentEvidence,
     )
 
     # Reviewed last, because what it reviews is the document as written.
-    return document.model_copy(update={"review": review(document, faults)})
+    return document.model_copy(update={
+        "review": review(document, faults, reaches_a_cause=answer.reaches_a_cause)
+    })
 
 
 def _the_chain_as_cited(answer: SubmittedPostmortem,

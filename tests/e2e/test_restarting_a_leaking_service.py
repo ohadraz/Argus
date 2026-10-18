@@ -69,6 +69,8 @@ from tests.e2e.framework.world import a_scenario_was_seeded, the_incidents_event
 # climbing heap has moved the error rate the shop has been failing for a while,
 # and the alert would be late as well as vague.
 A_MEMORY_ALERT = "HighMemoryUsage"
+# And the words that rule pages with.
+WHAT_THE_ALERT_SAYS = "Memory usage climbing against the container limit for 15m"
 
 # How much of the climb the onset may miss and still be the climb. The heap has
 # to rise clear of the opening stretch's own spread before it counts as
@@ -85,7 +87,8 @@ def test_a_leaking_service_is_restarted_and_still_gets_a_fix_proposed() -> None:
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_MEMORY_ALERT,
-                                            severity=some_severity)
+                                            severity=some_severity,
+                                            summary=WHAT_THE_ALERT_SAYS)
 
     Scenario() \
         .given(

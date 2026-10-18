@@ -29,6 +29,7 @@ from tests.e2e.framework.argus import (
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
+    argus_proposed_no_fix,
     argus_wrote_a_postmortem,
     cause_identified_as,
     the_model_answers_from,
@@ -71,6 +72,7 @@ def test_an_incident_arriving_from_outside_is_named_and_handed_to_a_person() -> 
                     cause_identified_as(FailureMode.UPSTREAM_DEPENDENCY_FAILURE),
                     argus_ended_with_status(IncidentStatus.ESCALATED),
                     argus_wrote_a_postmortem(),
+                    argus_proposed_no_fix(),
                     the_flag_provider_reports(THE_DEMO_FLAG, enabled=False),
                     _the_service_is_still_failing()
                 ),

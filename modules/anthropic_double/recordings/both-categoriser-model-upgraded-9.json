@@ -2,25 +2,104 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I've found the bug: V2's training pipeline lowercases titles before building the vocabulary, but the caller's `categorise` function passes words as-is without lowercasing, so \"Kettle\" never matches \"kettle\" in the vocab, causing the confidence drop. The fix is to make the caller apply the same tokenisation/normalisation at inference time that the pipeline uses during training.\n\nI'm checking that for both models this approach stays correct - V1 lowercases internally anyway, so pre-lowering words wouldn't break it, while V2 needs this explicit normalisation since it relies on `lowercases_its_input` being false. Now I'm searching the codebase for where `categorise` gets called, like in endpoints or monthly_statement, to make sure I understand all the places this fix needs to apply.\n\n",
+      "signature": "CAQSuQcKEAgSGAI4AUIIdGhpbmtpbmcSDMP60jqvKDp/ZHqNrhoM0pur87L/aZ7vyaXhIjCjfkOz0YZFA0tnI1B4yCrqOUWN9cFjBP8cK5NhPUQEQRmKKvtf53gUkLx3IkaKGJsq1gbeyVP6gcCwQiblkMRKL0p0/BRGNARQVMq23q+A576W/F72Y9baG/MNglQFbsrC6pFH2gFGOUIdkZ8nuexTzwDLAG1SrkOaeGEKXbFwjuiFIRx7hhP6wnvoDi3KrdRsgU+ydnHuqzduJazDvZxvy83RcJHAha6AyVlB1iRRDiqFMKEngn3ji8J4u27a+L0i9lu/YICAnd1TC6miWyaI2YehzKXMZUUFXMye7iUs6b3Iiwbwz5wf7F2ZowZp7Ya+MNAWCnZbwnoxSO1Ww7bDBFmIfEbVV/m5jM7gE4Ja92zpKXTLVd0df5Fer1HjlECryLZxSQ7CZAHdTz+76PyENG5tQjD6tZiPwKBuTz8yR1JxrEkOOgjUllof2E6prPS8NIAEAJL4xLRYsM/12f76R266JY4BaI+TLtqO+8p+IMUHb6gW0TXBiamRTA7py33RcX645VgjuHX3ujl0ck+Kx2wrwIJnUHq29XualD9PpAZoPlCgj+rync1jQ6LuF75S+oJygSFmaDNy+Jw0njqAgT6dLD27g0mH/RSiYuiskwqOgFORLi4RWhRVzt90tnFouK4KP+PgR3u07k76au7xfg+6q+8IIlXumW95Btbw/BxIya3dR9zAIrqKMhVyhV5kOK3ZxoH3aLMCtyXQkoLqPjuI46n+EzGoD2QgJYjInH/1If31Mh7A0TJVwgiK80J4ZWBLvCWKkd5PTPoVc5N6zjEU2lqLKJuul5P8Ua2LR8Mgq1e2XpytxZPWtFRoglvW2QiWNQ9izdyFj+7WekaQszy41zm2Yx9foUgBfJSuheOeoB5Iyy5kcmtqstfRtKtTvbO/Mcua88JdEfnvazjqHnV/FGnxaI17WvWqNvYtZhktoABvREJDfc0Sk/XBDwazdJyldyItBicVCWxfekYqM54OXLrsGkejH6ptTikTEFcighcHRd4D2ww2M1myCzJiJ1vIZEk2kgHYP4cY1Z7JrDOljv/76o/qbyKFWy15i0q1oTyH9oldNN0L8ErRFkWnyN9MJueCuOP72KIqzWUY83NbOjRIKgUim5lcCUwYE46onczOjDf+6SYseh2ErQ25wKSwPIP6O7UFQrz4VbToNgDVd6Ol1WIwX4xNjerZItkbYnE7ul7oVBgB",
+      "thinking": "I should drop the C1 citation from step 1 and keep only AL1, confirm AI-4 is the pre-release comparison item in the numbering, and soften \"hours before the onset\" to something like \"went out well before the onset\" for safety, noting the earlier P1 deploy at 15:47.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_016atKVtmWiCBqMav95z96XQ",
+      "id": "toolu_014tEBK2s3M5eFoqiXqo8dD6",
       "input": {
-        "query": "model"
+        "action_items": [
+          {
+            "item": "Run a pre-release comparison of confident-categorisation share between the current and candidate categoriser model on a sample of real mixed-case titles. Block a model switch in deploy/values-production.yaml if confidence drops materially.",
+            "type": "prevent"
+          },
+          {
+            "item": "Add a guard that fails loudly if the serving-path preprocessing (such as case folding) does not match what the selected model was trained on.",
+            "type": "prevent"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1"
+            ],
+            "step": "People using the shop had purchases categorised with low confidence. The share categorised confidently fell from {series_before} to {series_while_broken} on average, and to {series_at_worst} at its worst, and the alert paged. Failed requests did not rise: the error rate was {errors_while_broken} against {errors_before} before, so the service kept answering but answered worse."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "step": "Many titles were being filed under \"General\" with confident=False instead of a specific category. This is from a static reading of the code that nothing ran, so it is unverified. The reading matches the flat errors and latency with a fall in confidence."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "step": "The v2 categoriser was trained on titles that had already been lowercased and no longer lowercases its own input. The serving path passed the title through unchanged, so a title with a capitalised known word (such as \"Kettle in brushed steel\") matched nothing in its vocabulary. This is also an unverified reading of the source."
+          },
+          {
+            "cites": [
+              "D1",
+              "P2",
+              "P1",
+              "T13",
+              "M1",
+              "T18"
+            ],
+            "step": "The change that exposed this was deploy 7c3ca00, which changed categoriser.model from v1 to v2 in deploy/values-production.yaml. The earlier deploy was not the cause: it went out well before the onset. The flag provider showed no recent flag changes. Rolling back off 7c3ca00 brought the series back to normal, which confirms the model switch as the trigger."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "The existing tests for v2 only used lower-case known words, so the case-handling mismatch between training and serving was not caught before release. This is from the code reading; no test result was seen."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "No check was seen that compared the new model's categorisation confidence with the old model's on realistic, mixed-case titles before the model switch reached production. The drop showed up only through the live alert."
+          },
+          {
+            "addressed_by": [
+              "AI-3"
+            ],
+            "factor": "Automatic sync of io-shop is off after the rollback, so a merged fix will not reach production until it is turned back on."
+          }
+        ],
+        "executive_summary": "For a short stretch ({duration}) the shop sorted many purchases into a generic \"General\" category instead of a specific one. Pages kept loading and almost nothing failed, so the harm was wrong categorisation, not an outage. The trigger was a release that switched the categorisation model to a newer version. Argus rolled the release back, and the share of confidently categorised purchases returned to normal. A fix to the newer model's input handling has been proposed as a draft pull request and has not yet been reviewed.",
+        "lessons": {
+          "got_lucky": [
+            "The fault was a drop in quality, not failed requests, so users still got answers. The harm was limited to wrong categories."
+          ],
+          "went_well": [
+            "The alert fired and Argus took the incident up within seconds, placed the onset correctly, and tied it to the model change in the deploy diff.",
+            "The rollback was confirmed from the metrics, and the rule that paged stopped firing.",
+            "A draft fix with tests that fail against the current code was proposed right after mitigation."
+          ],
+          "went_wrong": [
+            "A model change that degraded output quality passed through review and sync with no quality gate seen.",
+            "The usual health signals (errors, latency, memory, CPU) stayed flat, so only the confidence metric showed the problem.",
+            "Automatic sync is still off, so merging the fix does not by itself deliver it."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The categoriser v2 model was trained on lowercased titles and does not lowercase its own input, but the serving path passed titles through unchanged. After the deploy switched the model to v2, titles with a capitalised known word matched nothing and were filed under \"General\" as not confident. This comes from a static reading of the code (F1) that nothing ran, so it is unverified. The rollback to v1 did restore confidence.",
+        "symptom": "Purchases were categorised with low confidence"
       },
-      "name": "search_repository",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfnbDfBGDSz8w3JFc6Ciz",
-  "model": "claude-opus-5",
+  "id": "msg_011CgAHrYYQsMKKRu1koYQNc",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -29,16 +108,17 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 220
+      "ephemeral_5m_input_tokens": 1878
     },
-    "cache_creation_input_tokens": 220,
-    "cache_read_input_tokens": 8541,
+    "cache_creation_input_tokens": 1878,
+    "cache_read_input_tokens": 5986,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 558,
+    "output_tokens": 1834,
     "output_tokens_details": {
-      "thinking_tokens": 509
+      "thinking_tokens": 170
     },
-    "service_tier": "standard"
+    "service_tier": "standard",
+    "speed": "standard"
   }
 }

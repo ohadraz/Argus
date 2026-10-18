@@ -2,29 +2,105 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I'm tracing the bug: V2 expects lowercased tokens since tokenisation moved into the pipeline, but `categorise` still passes raw `title.split()` on capitalized titles, so most words fail to match. I'm working out whether the fix belongs in `categorise` lowercasing its input before calling the model, since the model itself no longer handles that step.\n\nThe cleanest fix is adding a tokenise step in `categorise` that lowercases the title before calling predict, since this stays harmless for V1 (which already lowercases internally) while fixing V2. Setting V2's `lowercases_its_input=True` instead is tempting since its vocabulary is all lowercase, but modifying the caller feels like the more defensible fix.\n\nThat matches the training pipeline, which lowercases every title before building the vocabulary, so the serving path needs to mirror that when the model doesn't do it itself. I check for other places the categoriser model gets loaded or configured, searching rollout.py/endpoints.py, but find nothing beyond the tests\u2014so I'll keep the fix focused and just write the file and test.\n\n",
+      "signature": "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",
+      "thinking": "I need to avoid writing any actual figures myself, using placeholders instead for values like the before/while-broken/worst-case series, duration, and error rates. Version labels and revision hashes count as names rather than figures, so those are fine to include as given.\n\nBuilding the causal chain, I trace through: confident categorization share dropped (citing AL1) while errors stayed flat; many titles got dumped into General with confidence false (F1, unverified); the root cause is that v2 was trained on lowercased titles but the serving path never lowercases input before splitting; this was triggered by deploy 7c3ca00 switching the model from v1 to v2 (D1, P2), with earlier deploys and config flags ruled out via T13 and confirmed by the rollback (M1, T18); and the contributing factor is that tests only covered lowercase known words, so the mismatch slipped through.\n\nI mark this chain as true overall, with the caveat that the exact code-level reading of F1 is unverified \u2014 since it rests only on F rows, I note that explicitly. For contributing factors and action items, I flag the test gap (addressed by AI-2) and propose a new action item: add canary/shadow evaluation comparing confidence scores against the old model before rolling out model changes, since nothing currently checks output quality pre-rollout.\n\nFor the executive summary, I note that harm is strictly the wrong categorisation, and I leave numeric placeholders for duration and time-to-normal rather than inventing values \u2014 I just confirm the rollback and recovery timing without mentioning anything about held states.\n\n",
       "type": "thinking"
-    },
-    {
-      "text": "I have the fault. Let me confirm nothing else loads the model before I patch.",
-      "type": "text"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01EXUrWgmMDuSQ5ayijS6nry",
+      "id": "toolu_015TcpJxFcveb8ALpgMvM8kK",
       "input": {
-        "query": "lowercases_its_input"
+        "action_items": [
+          {
+            "item": "Run a pre-release comparison of confident-categorisation share between the current and candidate categoriser model on a sample of real mixed-case titles. Block a model switch in deploy/values-production.yaml if confidence drops materially.",
+            "type": "prevent"
+          },
+          {
+            "item": "Add a guard that fails loudly if the serving-path preprocessing (such as case folding) does not match what the selected model was trained on.",
+            "type": "prevent"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "C1"
+            ],
+            "step": "People using the shop had purchases categorised with low confidence. The share categorised confidently fell from {series_before} to {series_while_broken} on average, and to {series_at_worst} at its worst, and the alert paged. Failed requests did not rise: the error rate was {errors_while_broken} against {errors_before} before, so the service kept answering but answered worse."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "step": "Many titles were being filed under \"General\" with confident=False instead of a specific category. This is from a static reading of the code that nothing ran, so it is unverified. The reading matches the flat errors and latency with a fall in confidence."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "step": "The v2 categoriser was trained on titles that had already been lowercased and no longer lowercases its own input. The serving path passed the title through unchanged, so a title with a capitalised known word (such as \"Kettle in brushed steel\") matched nothing in its vocabulary. This is also an unverified reading of the source."
+          },
+          {
+            "cites": [
+              "D1",
+              "P2",
+              "P1",
+              "T13",
+              "M1",
+              "T18"
+            ],
+            "step": "The change that exposed this was deploy 7c3ca00, which changed categoriser.model from v1 to v2 in deploy/values-production.yaml. The earlier deploy was not the cause: it went out hours before the onset. The flag provider showed no recent flag changes. Rolling back off 7c3ca00 brought the series back to normal, which confirms the model switch as the trigger."
+          }
+        ],
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "The existing tests for v2 only used lower-case known words, so the case-handling mismatch between training and serving was not caught before release. This is from the code reading; no test result was seen."
+          },
+          {
+            "addressed_by": [
+              "AI-4"
+            ],
+            "factor": "No check was seen that compared the new model's categorisation confidence with the old model's on realistic, mixed-case titles before the model switch reached production. The drop showed up only through the live alert."
+          },
+          {
+            "addressed_by": [
+              "AI-3"
+            ],
+            "factor": "Automatic sync of io-shop is off after the rollback, so a merged fix will not reach production until it is turned back on."
+          }
+        ],
+        "executive_summary": "For a short stretch ({duration}) the shop sorted many purchases into a generic \"General\" category instead of a specific one. Pages kept loading and almost nothing failed, so the harm was wrong categorisation, not an outage. The trigger was a release that switched the categorisation model to a newer version. Argus rolled the release back, and the share of confidently categorised purchases returned to normal. A fix to the newer model's input handling has been proposed as a draft pull request and has not yet been reviewed.",
+        "lessons": {
+          "got_lucky": [
+            "The fault was a drop in quality, not failed requests, so users still got answers. The harm was limited to wrong categories."
+          ],
+          "went_well": [
+            "The alert fired and Argus took the incident up within seconds, placed the onset correctly, and tied it to the model change in the deploy diff.",
+            "The rollback was confirmed from the metrics, and the rule that paged stopped firing.",
+            "A draft fix with tests that fail against the current code was proposed right after mitigation."
+          ],
+          "went_wrong": [
+            "A model change that degraded output quality passed through review and sync with no quality gate seen.",
+            "The usual health signals (errors, latency, memory, CPU) stayed flat, so only the confidence metric showed the problem.",
+            "Automatic sync is still off, so merging the fix does not by itself deliver it."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The categoriser v2 model was trained on lowercased titles and does not lowercase its own input, but the serving path passed titles through unchanged. After the deploy switched the model to v2, titles with a capitalised known word matched nothing and were filed under \"General\" as not confident. This comes from a static reading of the code (F1) that nothing ran, so it is unverified. The rollback to v1 did restore confidence.",
+        "symptom": "Purchases were categorised with low confidence"
       },
-      "name": "search_repository",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CfnbCBvswhR6rJ8HKdN7d",
-  "model": "claude-opus-5",
+  "id": "msg_011CgAHq2EkMdkv9yQd1NZ5d",
+  "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -33,16 +109,17 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 894
+      "ephemeral_5m_input_tokens": 3455
     },
-    "cache_creation_input_tokens": 894,
-    "cache_read_input_tokens": 7647,
+    "cache_creation_input_tokens": 3455,
+    "cache_read_input_tokens": 2531,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1196,
+    "input_tokens": 4,
+    "output_tokens": 2606,
     "output_tokens_details": {
-      "thinking_tokens": 1115
+      "thinking_tokens": 970
     },
-    "service_tier": "standard"
+    "service_tier": "standard",
+    "speed": "standard"
   }
 }

@@ -228,13 +228,22 @@ The review checklist SHALL hold Google's five review criteria. Three SHALL be
 checked by code and shown as met or not: key incident data collected (a
 timeline, and evidence cited at every chain step), impact assessed (duration
 and loss, each measured or explained), and the root-cause analysis complete
-(a chain of more than one step, every factor answered). Two - every action item
-owned and dated, and reviewed and shared - SHALL be shown as left for a person,
-never as met or failed.
+(a chain of more than one step, every factor answered, a cause an action
+confirmed, and the answer saying its chain reaches a cause beyond the change
+that set the incident off). Two - every action item owned and dated, and
+reviewed and shared - SHALL be shown as left for a person, never as met or
+failed.
 
 #### Scenario: A complete answer
-- **WHEN** the answer passed every check and every figure was measured
+- **WHEN** the answer passed every check, says its chain reaches a cause beyond
+  the change that set the incident off, an action confirmed a cause, and every
+  figure was measured
 - **THEN** the three checks are met and the two are shown as left for a person
+
+#### Scenario: A chain that stops at the change
+- **WHEN** the answer says its chain does not reach beyond the change that set
+  the incident off
+- **THEN** the root-cause analysis is shown as not complete
 
 ### Requirement: Money is shown to two decimal places
 

@@ -4303,7 +4303,8 @@ def _a_rule_standing(is_normal: bool,
         evaluated_at=evaluated_at,
         range_seconds=range_seconds,
         interval_seconds=interval_seconds,
-        keep_firing_for_seconds=keep_firing_for_seconds
+        keep_firing_for_seconds=keep_firing_for_seconds,
+        pending_seconds=0
     )
 
 

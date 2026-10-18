@@ -58,6 +58,13 @@ SUBMIT_TOOL_NAME: Final = "submit_fix"
 # reading of the prose separates them - a verdict carries an explanation as
 # readily as a proposal does. Two names cannot be confused.
 REPORT_TOOL_NAME: Final = "report_nothing_to_change"
+# The question a submission is asked before it is opened, and the tool it is
+# answered with. Asked after the patch arrives rather than written into either
+# tool above: every wording that let the model say "this needs code I can't
+# read" before it wrote a fix also let it talk itself out of a fix that worked,
+# and asked about a patch it had already written it answered honestly both ways.
+ANSWER_TOOL_NAME: Final = "answer_question"
+ANSWER_FIELD: Final = "answer"
 
 # What is true of fixing a fault whatever the fault was, and so what Code-Fix
 # is told once rather than at the top of each incident. It travels as the
@@ -95,6 +102,12 @@ STANDING_BRIEF: Final = "\n\n".join([
     "Reverting bought time and left the fault behind a switch nobody dares "
     "touch.",
 
+    "The investigation never read this code. Where it places the cause "
+    "elsewhere, calls this service healthy or says what the fix is, that is no "
+    "verdict on the code. Ask what the code did when the cause arrived: if a "
+    "change here would have spared its users some of it, that change is the "
+    "fix.",
+
     "You have no test runner, so reading is your only evidence. Start from "
     "what the investigation named - read it before you search - and read its "
     "callers too: a fix that satisfies one file and breaks them is this job's "
@@ -122,7 +135,11 @@ FILES_FIELD: Final = "files"
 PATH_FIELD: Final = "path"
 CONTENT_FIELD: Final = "content"
 
-REQUIRED_FIELDS: Final = [SUMMARY_FIELD, FILES_FIELD]
+# The explanation among them: left optional, a recorded walk submitted its
+# patch without one, and the postmortem, which reads the fault's mechanism from
+# it, wrote that nothing showed why. Parsing still reads it as optional, so a
+# recording made before it was asked for replays.
+REQUIRED_FIELDS: Final = [SUMMARY_FIELD, EXPLANATION_FIELD, FILES_FIELD]
 
 # How a model writes a tool argument when it stops writing JSON and starts
 # writing tags. Both halves are quoted from real submissions rather than
@@ -554,3 +571,50 @@ REPORT_NOTHING_TO_CHANGE = ToolDefinition(
     },
     required=[EXPLANATION_FIELD]
 )
+
+# Offered from the first turn, though it is only ever wanted after a submission.
+# The tool list is the head of every request's cached prefix, so a tool added on
+# the turn that asks would re-bill the whole transcript - whole files - uncached,
+# on every fix. Neutral, so that nothing about code outside the repository is in
+# view while the model decides whether to write a fix at all.
+ANSWER_QUESTION = ToolDefinition(
+    name=ANSWER_TOOL_NAME,
+    description=(
+        "Answer a yes-or-no question Argus asks about your submission. Use it "
+        "only when asked."
+    ),
+    properties={
+        ANSWER_FIELD: {"type": "boolean", "description": "true for yes, false for no."},
+        EXPLANATION_FIELD: {
+            "type": "string",
+            "description": "Why, in a few sentences."
+        }
+    },
+    required=[ANSWER_FIELD, EXPLANATION_FIELD]
+)
+
+# What a submission is told instead of being opened, and what an answer sent
+# before anything was asked is told. Said in the reply to the submission, so the
+# question is in view only once the patch exists.
+THE_QUESTION_A_SUBMISSION_IS_ASKED: Final = (
+    "Your patch has arrived. One question before it is opened: does this "
+    "change help this incident's users only once code outside this repository "
+    "changes as well? If yes, it is not opened - say in the explanation what "
+    f"would have to change there. Answer with {ANSWER_TOOL_NAME}."
+)
+NOT_AN_ANSWER: Final = (
+    "Not an answer: no question is open until your patch has been asked about."
+)
+NOT_RUN_WHILE_ASKED: Final = "Not run: answer the question first."
+
+
+class AnswerToTheQuestion(BaseModel):
+    """The model's answer to the question a submission is asked.
+
+    `answer` is yes where the change helps nobody until code outside the
+    repository changes too, and `explanation` is then what would have to change
+    there. Both required by the schema, so a call missing either does not parse.
+    """
+
+    answer: bool
+    explanation: str
