@@ -32,7 +32,7 @@ complaint is not a fix.
 
 | Directive | What the link must select |
 | --- | --- |
-| ADD / INSERT | the line the pasted text lands on |
+| ADD / INSERT | nothing: `#LX` alone, which puts the cursor at the start of the line the paste lands on. Never a range - a selected line is overwritten by the paste |
 | REPLACE | exactly the text being replaced |
 | DELETE | exactly what is being deleted |
 
