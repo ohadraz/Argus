@@ -924,8 +924,8 @@ def test_the_three_lessons_lists_are_set_side_by_side_on_one_page(items: int) ->
             lambda: as_pdf(some_rendered)
         ) \
         .then(
-            _on_one_page("What went well", "What went wrong", "Where it got lucky",
-                         "Well three.", "Wrong last.", "Lucky last."))
+            _on_one_page("Lessons learned", "What went well", "What went wrong",
+                         "Where it got lucky", "Well three.", "Wrong last.", "Lucky last."))
 
 
 @pytest.mark.unit

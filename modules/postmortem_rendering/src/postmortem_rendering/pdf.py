@@ -190,7 +190,9 @@ def as_pdf(rendered: RenderedPostmortem) -> bytes:
     _the_masthead(pdf, rendered)
 
     for key, heading in rendered.headings.items():
-        _a_heading(pdf, f"{heading} {rendered.timeline.zone}" if key == "timeline" else heading)
+        kept = _KEPT_WITH_ITS_HEADING[key](pdf, rendered) if key in _KEPT_WITH_ITS_HEADING else 0.0
+        _a_heading(pdf, f"{heading} {rendered.timeline.zone}" if key == "timeline" else heading,
+                   keep_with=kept)
         _SECTIONS[key](pdf, rendered)
 
     return bytes(pdf.output())
@@ -263,10 +265,12 @@ def _a_term(pdf: _Sheet, label: str, line: Line, label_width: float = 19.0) -> N
     pdf.set_left_margin(left)
 
 
-def _a_heading(pdf: _Sheet, heading: str) -> None:
+def _a_heading(pdf: _Sheet, heading: str, keep_with: float = 0.0) -> None:
     """A section's heading, a teal square before it, kept with what follows -
-    and with no space above it where it opens a page."""
-    if pdf.will_page_break(26):
+    at least the start of it, or `keep_with` millimetres of it where the
+    section cannot break before then - and with no space above it where it
+    opens a page."""
+    if pdf.will_page_break(max(26.0, _A_HEADING + keep_with)):
         pdf.add_page()
     if pdf.get_y() > _BELOW_THE_HEADER + 0.5:
         pdf.ln(6)
@@ -278,6 +282,11 @@ def _a_heading(pdf: _Sheet, heading: str) -> None:
     pdf.set_text_color(*_INK)
     pdf.cell(0, 5.2, heading, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2.0)
+
+
+# How tall a section's heading is set: the space above it, its line, and the
+# space under it.
+_A_HEADING: Final = 6.0 + 5.2 + 2.0
 
 
 def _a_subheading(pdf: _Sheet, heading: str, space_above: float = 3.6) -> None:
@@ -1101,12 +1110,10 @@ def _the_lessons(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     measured before any is set: where the tallest does not fit the room left,
     they begin on the next page, and where it does not fit a page at all, the
     lists are set one under another, across the page, breaking as they need."""
-    gap = 3.2
-    width = (_WIDTH - 2 * gap) / 3
-    lefts = [_SIDE + place * (width + gap) for place in range(len(rendered.lessons))]
+    lefts, width = _the_lessons_columns(len(rendered.lessons))
     tall = _how_tall(pdf, rendered.lessons, lefts, width)
 
-    if tall > pdf.h - pdf.b_margin - _BELOW_THE_HEADER:
+    if not _fits_a_page_under_its_heading(pdf, tall):
         for lessons in rendered.lessons:
             _a_lessons_column(pdf, lessons, _SIDE, pdf.get_y(), _WIDTH)
             pdf.ln(1.0)
@@ -1122,6 +1129,31 @@ def _the_lessons(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     pdf.set_left_margin(_SIDE)
     pdf.set_right_margin(_SIDE)
     pdf.set_xy(_SIDE, bottom)
+
+
+def _the_lessons_columns(lists: int) -> tuple[list[float], float]:
+    """Where each of the lessons' columns begins across the page, and how wide
+    each is: three to the page's width, a gap between each two."""
+    gap = 3.2
+    width = (_WIDTH - 2 * gap) / 3
+    return [_SIDE + place * (width + gap) for place in range(lists)], width
+
+
+def _the_lessons_kept_together(pdf: _Sheet, rendered: RenderedPostmortem) -> float:
+    """How much of the lessons their heading is kept with: the columns whole,
+    which cannot break, where they fit a page under it - and nothing where
+    they do not, being set one under another then, breaking as they need."""
+    lefts, width = _the_lessons_columns(len(rendered.lessons))
+    tall = _how_tall(pdf, rendered.lessons, lefts, width)
+    return tall if _fits_a_page_under_its_heading(pdf, tall) else 0.0
+
+
+def _fits_a_page_under_its_heading(pdf: _Sheet, tall: float) -> bool:
+    """Whether a section `tall` fits a fresh page under its heading - the one
+    test both where the heading breaks and how the lessons are set rest on,
+    so the lessons are set across the page exactly where their heading could
+    not be kept with them."""
+    return tall <= pdf.h - pdf.b_margin - _BELOW_THE_HEADER - _A_HEADING
 
 
 def _how_tall(pdf: _Sheet, lists: Sequence[LessonList], lefts: Sequence[float],
@@ -1304,4 +1336,11 @@ _SECTIONS: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], None]]] = {
     "response-cost": _the_cost,
     "supporting": _the_supporting_information,
     "review": _the_review
+}
+
+# How much of a section its heading is kept with, for a section whose start
+# cannot break - by the same key. Every other heading is kept with the start
+# of its section alone.
+_KEPT_WITH_ITS_HEADING: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], float]]] = {
+    "lessons": _the_lessons_kept_together
 }
