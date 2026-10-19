@@ -9,6 +9,7 @@ free to change without any of these tests having an opinion.
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -49,6 +50,7 @@ from argus_core.models import (
     ResolutionStep,
     ReviewCriterion,
     RevisionSource,
+    RuleSeriesHarm,
     Standing,
     TimelineEntry,
     TimelineMarker,
@@ -1070,6 +1072,33 @@ def test_a_check_left_for_a_person_says_what_they_would_do_on_the_page() -> None
         ) \
         .then(
             _the_page_reads("the cause rests on F1, a reading of the source nothing ran")
+        )
+
+
+@pytest.mark.component
+def test_an_impact_card_shows_its_figure_its_label_and_its_note() -> None:
+    # The figure is the comparison that makes it harm; what supports it is a
+    # note of its own, rather than more figures in the label.
+    some_alert = Alert(service="io-shop", alert_name="CategorisationConfidenceLow")
+    some_harm = RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                               worse_when="below", line=0.8)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with(
+            impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                          peak_error_rate=None, rule_series_harm=some_harm)))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _the_page_reads("0.899 to 0.459 what the alert watches, before onset and while "
+                            "broken on average worst minute 0.391; the rule's line is 0.8")
         )
 
 
@@ -2220,9 +2249,7 @@ def _the_page_reads(text: str) -> Assertion[str]:
     ever sees the second.
     """
     def assertion(page: str) -> bool:
-        read = " ".join(re.sub(r"<[^>]+>", " ", page).split())
-
-        if text not in read:
+        if text not in _what_a_reader_sees(page):
             raise AssertionError(f"Expected the page to read [{text}], it did not.")
 
         return True
@@ -2233,9 +2260,7 @@ def _the_page_reads(text: str) -> Assertion[str]:
 def _the_page_does_not_read(text: str) -> Assertion[str]:
     """What a reader must not see, markup and line breaks aside."""
     def assertion(page: str) -> bool:
-        read = " ".join(re.sub(r"<[^>]+>", " ", page).split())
-
-        if text in read:
+        if text in _what_a_reader_sees(page):
             raise AssertionError(f"Expected the page not to read [{text}], it did.")
 
         return True
@@ -2243,12 +2268,20 @@ def _the_page_does_not_read(text: str) -> Assertion[str]:
     return assertion
 
 
+def _what_a_reader_sees(page: str) -> str:
+    """The page's words with its markup gone, its line breaks closed up, and
+    what the template escaped said as the browser says it - an apostrophe is
+    `&#39;` in the markup and `'` on the screen."""
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", page)).split())
+
+
 def _a_document_with(timeline: list[TimelineEntry] | None = None,
                      action_items: list[ActionItem] | None = None,
                      review: list[ReviewCriterion] | None = None,
                      resolution: list[ResolutionStep] | None = None,
                      symptom: str | None = None,
-                     trigger: Trigger | None = None) -> PostmortemDocument:
+                     trigger: Trigger | None = None,
+                     impact: Impact | None = None) -> PostmortemDocument:
     """A document with nothing in any section but the ones it is given."""
     return PostmortemDocument(
         root_cause=None,
@@ -2264,7 +2297,8 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
         review=review or [],
         resolution=resolution or [],
         symptom=symptom,
-        trigger=trigger
+        trigger=trigger,
+        impact=impact
     )
 
 

@@ -20,9 +20,17 @@ from postmortem_rendering.formatting import as_money, as_span
 _UNOBSERVED: Final = ("Unobserved after a point - the metrics stopped, so the duration is how "
                       "long nobody could see.")
 
+# What a card's "this to that" compares, said once so the two cards that
+# compare levels say it alike.
+_BEFORE_AND_WHILE_BROKEN: Final = "before onset and while broken on average"
+
 
 class Card(BaseModel):
     """One figure and what it is, the figure first.
+
+    `note` is what supports the figure without being it - a worst minute, a
+    rule's line - said quieter under the label, so the label stays a name for
+    the figure rather than more figures. `None` where there is nothing to add.
 
     `loss_is` says whether a loss is measured or a lower bound, for a
     destination that marks which; `None` on every other card, and on a loss
@@ -33,6 +41,7 @@ class Card(BaseModel):
 
     value: str
     label: str
+    note: str | None = None
     loss_is: str | None = None
 
 
@@ -73,7 +82,7 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     return ImpactSection(
         cards=(Card(value=duration, label="onset to recovery"),
                *_the_errors(impact),
-               *_the_rules_series(impact, alert),
+               *_the_rules_series(impact),
                _the_loss(postmortem, a_lower_bound)),
         finding=(f"What the alert found: {alert.summary}"
                  if alert.summary and alert.claim is AlarmClaim.ITS_OWN_FINDING else None),
@@ -88,12 +97,15 @@ def _the_errors(impact: Impact | None) -> tuple[Card, ...]:
     Impact reads as one: the requests that failed at the rate they always do.
     Left off instead, the rate reads as one nobody measured. A document
     written before the levels were carried shows the two cards it always did.
+    Said as the series' card says its levels: the one before, then the one
+    while broken.
     """
     levels = impact.error_rates if impact else None
 
     if levels is not None and not levels.rose:
-        return (Card(value=f"{levels.while_broken:.1%}",
-                     label=f"error rate while broken - {levels.before:.1%} before, no rise"),)
+        return (Card(value=f"{levels.before:.1%} to {levels.while_broken:.1%}",
+                     label=f"error rate, {_BEFORE_AND_WHILE_BROKEN}",
+                     note="no rise"),)
 
     peak = impact.peak_error_rate if impact else None
     failed = impact.requests_failed if impact else None
@@ -104,15 +116,20 @@ def _the_errors(impact: Impact | None) -> tuple[Card, ...]:
                  label="requests failed"))
 
 
-def _the_rules_series(impact: Impact | None, alert: Alert) -> tuple[Card, ...]:
+def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     """The series the paging rule evaluates, where it got worse - none where it
     held, since nothing is not a harm.
 
-    Named by the alert, since only the rule knows what the series measures;
-    in plain numbers, since only the rule knows its unit; and each written as
-    the prose writes a level, so the card and the sentence beside it are one
-    figure. On average while broken, as the error rate is, with the worst
-    minute beside it: one minute alone overstates the stretch.
+    The figure is the level before and the level while broken, in that order:
+    a level alone is no harm until it is set against the one before, and the
+    order says which way it went, whichever way is worse. Said as what the
+    alert watches, since only the rule knows what the series measures - the
+    alert's name is the document's title, and in a card too narrow for it the
+    PDF breaks it mid-word. In plain numbers, since only the rule knows its
+    unit; each written as the prose writes a level, so the card and the
+    sentence beside it are one figure. On average while broken, as the error
+    rate is, with the worst minute in the note: one minute alone overstates
+    the stretch.
 
     And the line the rule pages past, in the same unit, where it was read: the
     alert's words may say "80%" of a series written as 0.459, and the line lets
@@ -123,14 +140,13 @@ def _the_rules_series(impact: Impact | None, alert: Alert) -> tuple[Card, ...]:
     if harm is None:
         return ()
 
-    moved = "fell" if harm.worse_when == "below" else "rose"
     line = (f"; the rule's line is {said_as_a_level(harm.line)}"
             if harm.line is not None else "")
 
-    return (Card(value=said_as_a_level(harm.while_broken),
-                 label=f"what {alert.alert_name} watches while broken, on average - "
-                       f"{moved} from {said_as_a_level(harm.before)}, "
-                       f"worst minute {said_as_a_level(harm.at_its_worst)}{line}"),)
+    return (Card(value=f"{said_as_a_level(harm.before)} to "
+                       f"{said_as_a_level(harm.while_broken)}",
+                 label=f"what the alert watches, {_BEFORE_AND_WHILE_BROKEN}",
+                 note=f"worst minute {said_as_a_level(harm.at_its_worst)}{line}"),)
 
 
 def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:

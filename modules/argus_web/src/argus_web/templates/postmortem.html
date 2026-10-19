@@ -152,6 +152,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <div class="card">
     <span class="value"{% if card.loss_is %} data-loss-is="{{ card.loss_is }}"{% endif %}>{{ card.value }}</span>
     <span class="label">{{ card.label }}</span>
+    {% if card.note %}<span class="note">{{ card.note }}</span>{% endif %}
   </div>
 {% endfor %}
 </div>

@@ -35,6 +35,7 @@ from argus_core.models import (
     PostmortemLead,
     ResolutionStep,
     ReviewCriterion,
+    RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
     Trigger,
@@ -703,6 +704,55 @@ def test_no_text_is_set_over_other_text_or_past_the_margins() -> None:
         .then(all_of(
             _nothing_set_over_other_text(),
             _everything_set_inside_the_margins()))
+
+
+@pytest.mark.unit
+def test_a_card_prints_its_figure_its_label_and_its_note_inside_the_card() -> None:
+    # The figure is the comparison that makes it harm, and what supports it
+    # is a note of its own under the label, rather than more figures in it.
+    some_harm = RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                               worse_when="below", line=0.8)
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(impact=Impact(duration=timedelta(minutes=29),
+                                           extent=ImpactExtent.MEASURED, peak_error_rate=None,
+                                           rule_series_harm=some_harm)),
+                an_alert("CategorisationConfidenceLow"), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _it_reads_in_order("0.899 to 0.459", "what the alert watches",
+                               "worst minute 0.391; the rule's line is 0.8"),
+            _nothing_set_over_other_text(),
+            _everything_set_inside_the_margins()))
+
+
+@pytest.mark.unit
+def test_a_card_s_figure_is_printed_whole_on_one_line_however_many_cards_share_the_row() -> None:
+    # Five cards - errors rose, and the series the alert watches got worse too
+    # - leave each too narrow for "0.899 to 0.459" at the figures' own size,
+    # and a figure broken after "to" reads as two.
+    some_harm = RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                               worse_when="below")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(impact=Impact(duration=timedelta(minutes=29),
+                                           extent=ImpactExtent.MEASURED, peak_error_rate=0.339,
+                                           requests_failed=4210, rule_series_harm=some_harm),
+                             customer_loss_estimate=Decimal("1736.68"), estimate_currency="usd"),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _set_on_one_line("0.899 to 0.459"))
 
 
 @pytest.mark.unit

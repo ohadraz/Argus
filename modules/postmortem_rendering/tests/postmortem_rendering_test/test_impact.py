@@ -233,7 +233,8 @@ def test_an_error_rate_that_rose_is_shown_at_its_peak_and_in_requests_failed() -
 def test_an_error_rate_that_did_not_rise_is_one_card_saying_so() -> None:
     # Failed requests that did not rise are no harm, and a count of them under
     # Impact reads as one - 72 requests failing at the rate they always do.
-    # Left off instead, the rate reads as one nobody measured.
+    # Left off instead, the rate reads as one nobody measured. Said as the
+    # series' card says its levels, the one before and the one while broken.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -248,25 +249,27 @@ def test_an_error_rate_that_did_not_rise_is_one_card_saying_so() -> None:
         ) \
         .then(
             the_answer_was((Card(value="29m 0s", label="onset to recovery"),
-                            Card(value="0.9%",
-                                 label="error rate while broken - 1.0% before, no rise"),
+                            Card(value="1.0% to 0.9%",
+                                 label="error rate, before onset and while broken on average",
+                                 note="no rise"),
                             Card(value="not estimated", label="customer loss (estimated)"))))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("worse_when", "before", "while_broken", "value", "moved"), [
-    ("below", 0.8994, 0.45943, "0.459", "fell from 0.899"),
-    ("above", 0.45943, 0.8994, "0.899", "rose from 0.459")
+@pytest.mark.parametrize(("worse_when", "before", "while_broken", "value"), [
+    ("below", 0.8994, 0.45943, "0.899 to 0.459"),
+    ("above", 0.45943, 0.8994, "0.459 to 0.899")
 ], ids=["worse-falling", "worse-rising"])
-def test_a_series_that_got_worse_is_a_card_named_by_the_alert_that_watches_it(
-        worse_when: WorseWhen, before: float, while_broken: float, value: str,
-        moved: str) -> None:
+def test_a_series_that_got_worse_is_a_card_from_its_level_before_to_its_level_while_broken(
+        worse_when: WorseWhen, before: float, while_broken: float, value: str) -> None:
     # The series is what paged, and where every request succeeded it is the
-    # only harm there is. Named by the alert, since only the rule knows what it
-    # measures; in plain numbers, since only the rule knows the unit; and
-    # written as the prose writes a level, so the card and the sentence beside
-    # it are one figure. On average, as the error rate is, with the worst
-    # minute beside it - one minute alone overstates the stretch.
+    # only harm there is - and a level alone is no harm until it is set against
+    # the one before, so the figure is the two, in the order that says which
+    # way it went. Said as what the alert watches, since only the rule knows
+    # what it measures; in plain numbers, since only the rule knows the unit;
+    # and written as the prose writes a level, so the card and the sentence
+    # beside it are one figure. On average, as the error rate is, with the
+    # worst minute in the note - one minute alone overstates the stretch.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -282,8 +285,9 @@ def test_a_series_that_got_worse_is_a_card_named_by_the_alert_that_watches_it(
         ) \
         .then(
             the_answer_was(Card(value=value,
-                                label=f"what CategorisationConfidenceLow watches while "
-                                      f"broken, on average - {moved}, worst minute 0.391")))
+                                label="what the alert watches, before onset and while broken "
+                                      "on average",
+                                note="worst minute 0.391")))
 
 
 @pytest.mark.unit
@@ -302,11 +306,10 @@ def test_a_series_card_names_the_line_its_rule_pages_past() -> None:
         ) \
         .when(
             lambda: the_impact(some_postmortem,
-                               an_alert("CategorisationConfidenceLow")).cards[3].label
+                               an_alert("CategorisationConfidenceLow")).cards[3].note
         ) \
         .then(
-            the_answer_was("what CategorisationConfidenceLow watches while broken, on average - "
-                           "fell from 0.899, worst minute 0.391; the rule's line is 0.8"))
+            the_answer_was("worst minute 0.391; the rule's line is 0.8"))
 
 
 def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:

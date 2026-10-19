@@ -62,6 +62,8 @@ _TABLE_PT: Final = 8.25
 _SMALL_PT: Final = 7.5
 _TINY_PT: Final = 6.75
 _FIGURE_PT: Final = 10.5
+# The smallest a row of figures is set at to keep each on one line.
+_SMALLEST_FIGURE_PT: Final = 8.0
 _LABEL_PT: Final = 7.9
 _LINE: Final = 5.0
 
@@ -377,36 +379,66 @@ def _beneath(pdf: _Sheet, runs: Sequence[Run], indent: float, colour: tuple[int,
 
 
 def _tiles(pdf: _Sheet, cards: Sequence[Card]) -> None:
-    """The figures across in bordered tiles, each above what it is."""
+    """The figures across in bordered tiles, each above what it is, and under
+    that, quieter, its note - every tile as tall as the tallest, each part
+    wrapping inside it."""
     gap, pad_x, pad_y = 2.1, 2.4, 1.9
     width = (_WIDTH - gap * (len(cards) - 1)) / len(cards)
+    inside = width - 2 * pad_x
+    # Each part's face, size, leading and colour, in the order a card says them.
+    looks = ((_MONO, _figures_size(pdf, cards, inside), 5.6, _INK), (_BODY, 7.1, 3.4, _MUTED),
+             (_BODY, 6.4, 3.1, _MUTED))
+    said = [(card.value, card.label, card.note or "") for card in cards]
 
-    pdf.set_font(_BODY, "", 7.1)
-    lines = max(_lines_needed(pdf, width - 2 * pad_x, card.label) for card in cards)
-    height = 2 * pad_y + 5.6 + lines * 3.4
+    depths = []
+    for part, (face, size, leading, _) in enumerate(looks):
+        pdf.set_font(face, "", size)
+        depths.append(max(_lines_needed(pdf, inside, parts[part], leading) for parts in said)
+                      * leading)
+    height = 2 * pad_y + sum(depths)
     if pdf.will_page_break(height + 2):
         pdf.add_page()
 
     top = pdf.get_y()
     pdf.set_draw_color(*_RULE)
     pdf.set_line_width(0.26)
-    for place, card in enumerate(cards):
+    for place, parts in enumerate(said):
         x = _SIDE + place * (width + gap)
         pdf.rect(x, top, width, height)
-        pdf.set_xy(x + pad_x, top + pad_y)
-        pdf.set_font(_MONO, "", _FIGURE_PT)
-        pdf.set_text_color(*_INK)
-        pdf.cell(width - 2 * pad_x, 5.6, card.value)
-        pdf.set_xy(x + pad_x, top + pad_y + 5.6)
-        pdf.set_font(_BODY, "", 7.1)
-        pdf.set_text_color(*_MUTED)
-        pdf.multi_cell(width - 2 * pad_x, 3.4, card.label, align="L")
+        y = top + pad_y
+        for text, (face, size, leading, colour), depth in zip(parts, looks, depths, strict=True):
+            if text:
+                pdf.set_xy(x + pad_x, y)
+                pdf.set_font(face, "", size)
+                pdf.set_text_color(*colour)
+                pdf.multi_cell(inside, leading, text, align="L")
+            y += depth
+    pdf.set_text_color(*_INK)
     pdf.set_xy(_SIDE, top + height + 2)
 
 
-def _lines_needed(pdf: _Sheet, width: float, text: str) -> int:
-    """How many lines `text` wraps to at `width` in the font in force."""
-    lines = pdf.multi_cell(width, 3.4, text, dry_run=True, output="LINES")
+def _figures_size(pdf: _Sheet, cards: Sequence[Card], width: float) -> float:
+    """The largest size, down to a floor, at which every card's figure fits
+    `width` on one line - one size for the row, so the figures read as a set,
+    and each whole, since "0.899 to" over "0.459" reads as two figures. Past
+    the floor a figure wraps rather than shrinking out of reading."""
+    # The width a cell sets text in, inside the margin fpdf keeps at each side.
+    room = width - 2 * pdf.c_margin
+    size = _FIGURE_PT
+    while size > _SMALLEST_FIGURE_PT:
+        pdf.set_font(_MONO, "", size)
+        if all(pdf.get_string_width(card.value) <= room for card in cards):
+            break
+        size -= 0.25
+    return max(size, _SMALLEST_FIGURE_PT)
+
+
+def _lines_needed(pdf: _Sheet, width: float, text: str, leading: float) -> int:
+    """How many lines `text` wraps to at `width` in the font in force - none
+    for no text."""
+    if not text:
+        return 0
+    lines = pdf.multi_cell(width, leading, text, dry_run=True, output="LINES")
     assert isinstance(lines, list)
     return len(lines)
 
