@@ -79,6 +79,7 @@ from agent_postmortem.sections import (
     NO_VERDICT_RECORDED,
     PRODUCTION_CHANGE_PREFIX,
     OneCause,
+    a_hypothesis_of,
     causes_of,
     label_of,
     labels_of_the_narration,
@@ -818,25 +819,35 @@ def _a_change_as_a_line(change: ChangeEvent) -> str:
 
 
 def _a_cause_as_a_line(cause: OneCause) -> str:
-    """A cause in its best-ranked candidate's words, its failure mode, its
-    confidence, and what became of it.
+    """A cause in its candidate's words, its failure mode, its confidence, and
+    what became of it - or, where it stands for several, a line naming the
+    move they blame and each of them so on a line of its own.
 
-    Where the candidates it stands for read the move as different failures,
-    each failure is said with the labels that read it so - the only thing the
-    others said - and the confidence with the label it is the lead's, since
-    after labelled failures a bare one reads as all of theirs.
+    Said in the best-ranked one's words alone, a cause standing for several
+    shows one candidate's words and confidence as all of theirs, and the
+    verdict as reached by each. So each says what became of it as the page's
+    row does (`result_of`): two spellings of one fact read as two facts.
     """
-    lead, became = cause.lead, cause.became
-    read_as: dict[str | None, list[str]] = {}
-    for label, candidate in cause.members:
-        read_as.setdefault(candidate.failure_mode, []).append(label)
+    if not cause.also:
+        lead = cause.lead
+        return _in_its_own_words(lead.summary, lead.failure_mode, lead.confidence, cause.became)
 
-    if len(read_as) == 1:
-        return f"{lead.summary} [{lead.failure_mode}, confidence {lead.confidence}, {became}]"
+    considered = a_hypothesis_of(cause)
 
-    failures = "; ".join(f"{failure} ({', '.join(labels)})" for failure, labels in read_as.items())
+    return "\n".join([
+        f"Candidates blaming the same move of {cause.lead.subject}, each in its own words:",
+        *(f"{member.label}: " + _in_its_own_words(member.summary, member.failure_mode,
+                                                  member.confidence,
+                                                  considered.result_of(member))
+          for member in considered.members)
+    ])
 
-    return f"{lead.summary} [{failures}, confidence {lead.confidence} ({cause.label}), {became}]"
+
+def _in_its_own_words(summary: str,
+                      failure_mode: str | None,
+                      confidence: float | None,
+                      became: str) -> str:
+    return f"{summary} [{failure_mode}, confidence {confidence}, {became}]"
 
 
 def _an_action_as_a_line(action: ActionRecord) -> str:

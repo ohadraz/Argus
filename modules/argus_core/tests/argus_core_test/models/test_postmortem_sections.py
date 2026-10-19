@@ -3,7 +3,8 @@ hold.
 
 The shape is the agent's to fill, so the cases here are the states no section
 may be written in - a pair of fields that say two things nobody could have
-measured together.
+measured together - and the few things a section says of itself, which every
+place showing it has to say alike.
 """
 
 from __future__ import annotations
@@ -11,8 +12,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import Detection
-from argus_testkit import Scenario, an_error_was_raised, attempting
+from argus_core.models import CandidateConsidered, Detection, HypothesisConsidered
+from argus_testkit import Scenario, an_error_was_raised, attempting, the_answer_was
 from pydantic import ValidationError
 
 DONT_CARE_MOMENT = datetime(2026, 10, 19, 0, 12, tzinfo=UTC)
@@ -33,3 +34,47 @@ def test_detection_holding_a_rule_s_wait_and_saying_it_could_not_be_read_is_refu
         .then(
             an_error_was_raised(ValidationError)
         )
+
+
+@pytest.mark.unit
+def test_a_merged_candidate_not_the_one_tested_has_the_result_as_the_tested_one_s() -> None:
+    # The page and the brief both say it, and in one spelling: two wordings of
+    # one fact read as two facts.
+    Scenario() \
+        .given(
+            hypothesis := _a_merged_hypothesis(result="confirmed", decided_by="C1")
+        ) \
+        .when(
+            lambda: hypothesis.result_of(hypothesis.members[1])
+        ) \
+        .then(
+            the_answer_was("confirmed, as tested for C1")
+        )
+
+
+@pytest.mark.parametrize(("decided_by", "result"), [("C1", "confirmed"),
+                                                    (None, "never tried")])
+@pytest.mark.unit
+def test_a_merged_candidate_tested_itself_or_where_none_was_has_the_result_bare(
+        decided_by: str | None, result: str) -> None:
+    # Its own test is no other's to credit, and with no test there is none.
+    Scenario() \
+        .given(
+            hypothesis := _a_merged_hypothesis(result=result, decided_by=decided_by)
+        ) \
+        .when(
+            lambda: hypothesis.result_of(hypothesis.members[0])
+        ) \
+        .then(
+            the_answer_was(result)
+        )
+
+
+def _a_merged_hypothesis(result: str, decided_by: str | None) -> HypothesisConsidered:
+    return HypothesisConsidered(
+        summary="dont care", confidence=None, result=result, label="C1", also=["C2"],
+        members=[CandidateConsidered(label="C1", summary="dont care", confidence=None,
+                                     failure_mode=None),
+                 CandidateConsidered(label="C2", summary="dont care", confidence=None,
+                                     failure_mode=None)],
+        decided_by=decided_by)

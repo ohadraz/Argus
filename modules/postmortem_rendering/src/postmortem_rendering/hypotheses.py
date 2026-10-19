@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Final
 
 from argus_core import said_short
-from argus_core.models import CandidateConsidered, HypothesisConsidered, PostmortemDocument
+from argus_core.models import HypothesisConsidered, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Run
@@ -92,16 +92,8 @@ def _the_rows_of_several(hypothesis: HypothesisConsidered,
         HypothesisRow(label=member.label,
                       summary=Line(runs=said(member.summary)),
                       confidence=_to_two_places(member.confidence),
-                      result=_its_result(member, hypothesis))
+                      result=hypothesis.result_of(member))
         for member in hypothesis.members)
-
-
-def _its_result(member: CandidateConsidered, hypothesis: HypothesisConsidered) -> str:
-    """What became of a merged candidate: the result, and whose test it was
-    where that was another's."""
-    if hypothesis.decided_by and hypothesis.decided_by != member.label:
-        return f"{hypothesis.result}, as tested for {hypothesis.decided_by}"
-    return hypothesis.result
 
 
 def _to_two_places(confidence: float | None) -> str:

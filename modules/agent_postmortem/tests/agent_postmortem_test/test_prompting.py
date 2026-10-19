@@ -624,9 +624,9 @@ def test_a_line_that_formed_candidates_names_them_by_their_labels() -> None:
 @pytest.mark.unit
 def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> None:
     # One cause shown twice reads as two. Shown once, under both labels, with
-    # each one's failure mode where they read the move differently - the only
-    # thing the second said - and the confidence said as the first's, since
-    # after two labelled modes a bare one reads as both.
+    # each candidate in its own words, mode and confidence - the lead's alone
+    # read as the row's - and the verdict said as the tested one's on the line
+    # of the one that was not, as the page says it.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -642,17 +642,20 @@ def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> 
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says_on_one_line("[C1, also C2] the model was upgraded [output-quality-degradation "
-                              "(C1); config-induced-failure (C2), confidence",
-                              "(C1), confirmed]"),
-            _does_not_say("an alternative reading")
+            _says_on_one_line("[C1, also C2] Candidates blaming the same move of "
+                              "categoriser.model, each in its own words:"),
+            _says_on_one_line("C1: the model was upgraded [output-quality-degradation, "
+                              "confidence 0.8", ", confirmed]"),
+            _says_on_one_line("C2: an alternative reading [config-induced-failure, "
+                              "confidence 0.3", ", confirmed, as tested for C1]")
         ))
 
 
 @pytest.mark.unit
-def test_candidates_reading_the_same_move_alike_are_shown_with_one_failure_mode() -> None:
-    # Where both read the move as the same failure, one name says it, and the
-    # confidence beside it is the line's own.
+def test_candidates_reading_the_same_move_alike_are_still_each_shown() -> None:
+    # Agreeing on the failure is not saying the same thing: each is said in its
+    # own words and confidence, and the lead's verdict credited to the test
+    # that reached it when that test was another's.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -661,14 +664,38 @@ def test_candidates_reading_the_same_move_alike_are_shown_with_one_failure_mode(
                             failure_mode="output-quality-degradation"),
                 a_candidate("an alternative reading", subject="categoriser.model",
                             from_state="v1", to_state="v2", confidence=0.3,
-                            failure_mode="output-quality-degradation")])
+                            failure_mode="output-quality-degradation",
+                            tested=True, result=Verdict.CONFIRMED)])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says("[C1, also C2] the model was upgraded [output-quality-degradation, confidence"),
-            _does_not_say("(C1)")
+            _says_on_one_line("C1: the model was upgraded [output-quality-degradation, "
+                              "confidence 0.8", ", confirmed, as tested for C2]"),
+            _says_on_one_line("C2: an alternative reading [output-quality-degradation, "
+                              "confidence 0.3", ", confirmed]")
+        ))
+
+
+@pytest.mark.unit
+def test_candidates_of_one_cause_none_tested_are_each_said_never_tried() -> None:
+    # No test, so no test to credit: each line says what its row says.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2"),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("C1: the model was upgraded [", "never tried]"),
+            _says_on_one_line("C2: an alternative reading [", "never tried]"),
+            _does_not_say("as tested for")
         ))
 
 

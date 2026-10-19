@@ -437,21 +437,27 @@ def hypotheses_of(evidence: IncidentEvidence) -> list[HypothesisConsidered]:
     confidence, and which one's test decided it: shown as the row's own, one
     candidate's figures read as another's.
     """
-    return [
-        HypothesisConsidered(summary=cause.lead.summary,
-                             confidence=cause.lead.confidence,
-                             result=cause.became,
-                             label=cause.label,
-                             also=cause.also,
-                             members=[CandidateConsidered(label=label,
-                                                          summary=candidate.summary,
-                                                          confidence=candidate.confidence,
-                                                          failure_mode=candidate.failure_mode)
-                                      for label, candidate in cause.members]
-                             if cause.also else [],
-                             decided_by=cause.decided_by if cause.also else None)
-        for cause in causes_of(evidence.candidates)
-    ]
+    return [a_hypothesis_of(cause) for cause in causes_of(evidence.candidates)]
+
+
+def a_hypothesis_of(cause: OneCause) -> HypothesisConsidered:
+    """One cause as the document's row of it.
+
+    Public because the brief says a cause standing for several the way the row
+    does, and says what became of each through the row's own `result_of`.
+    """
+    return HypothesisConsidered(summary=cause.lead.summary,
+                                confidence=cause.lead.confidence,
+                                result=cause.became,
+                                label=cause.label,
+                                also=cause.also,
+                                members=[CandidateConsidered(label=label,
+                                                             summary=candidate.summary,
+                                                             confidence=candidate.confidence,
+                                                             failure_mode=candidate.failure_mode)
+                                         for label, candidate in cause.members]
+                                if cause.also else [],
+                                decided_by=cause.decided_by if cause.also else None)
 
 
 @dataclass(frozen=True)

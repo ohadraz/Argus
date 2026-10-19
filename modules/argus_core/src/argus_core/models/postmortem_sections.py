@@ -183,6 +183,19 @@ class HypothesisConsidered(BaseModel):
     members: list[CandidateConsidered] = []
     decided_by: str | None = None
 
+    def result_of(self, member: CandidateConsidered) -> str:
+        """What became of one of the candidates the row stands for: the row's
+        result, and whose test it was where that was another's.
+
+        Here rather than with whoever shows it, because the page and the brief
+        the model writes from both say it, and two spellings of one fact read
+        as two facts.
+        """
+        if self.decided_by and self.decided_by != member.label:
+            return f"{self.result}, as tested for {self.decided_by}"
+
+        return self.result
+
 
 class ResolutionStep(BaseModel):
     """One thing done to end the incident, by whom, and what it came to -
