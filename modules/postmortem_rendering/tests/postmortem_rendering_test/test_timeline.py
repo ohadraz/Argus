@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core.models import (
     HypothesisConsidered,
+    OpenedPullRequest,
     PodPlacement,
     RecordedPlacement,
     TimelineEntry,
@@ -151,6 +152,60 @@ def test_a_revision_a_line_names_by_a_start_of_it_is_said_short_and_leads_where_
                 Run(text="Moving on to ", role=Role.NARRATION),
                 Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
                 Run(text=" made every page slow", role=Role.NARRATION)))))
+
+
+@pytest.mark.unit
+def test_the_fix_a_line_names_by_its_address_is_said_as_the_document_names_it() -> None:
+    # Everywhere else the document names the fix "PR #7", and writes its
+    # address out once, where a reader of paper looks for addresses. A line
+    # saying the address whole names one pull request two ways.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                pull_request=some_fix,
+                timeline=[TimelineEntry(
+                    at=SOME_MOMENT, who="Code-Fix Agent",
+                    text=f"Proposed a fix as a draft pull request - {some_fix.url}",
+                    label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Proposed a fix as a draft pull request - ", role=Role.NARRATION),
+                Run(text="PR #7", role=Role.LINK, address=some_fix.url)))))
+
+
+@pytest.mark.unit
+def test_a_fix_the_document_does_not_carry_keeps_its_address() -> None:
+    # A walk that went back to investigate can reach the code twice, and the
+    # document carries the fix that stands. "PR #N" is a name only the row
+    # giving its address defines, and the one superseded has no row - so its
+    # address is the only way there.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+    some_superseded_fix = "https://github.com/acme/shop/pull/6"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                pull_request=some_fix,
+                timeline=[TimelineEntry(
+                    at=SOME_MOMENT, who="Code-Fix Agent",
+                    text=f"Proposed a fix as a draft pull request - {some_superseded_fix}",
+                    label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text=f"Proposed a fix as a draft pull request - {some_superseded_fix}",
+                    role=Role.NARRATION),))))
 
 
 @pytest.mark.unit

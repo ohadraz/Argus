@@ -61,6 +61,12 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     them - is said as it was written: its brackets, its revisions whole, and
     nothing in it a link, which is how the dashboard shows it too.
 
+    A line of the walk naming the fix the document carries by its address
+    names it "PR #N", as the rest of the document does, and leads there - the
+    address is written out once, under the supporting information. A fix the
+    walk proposed and then superseded keeps its address: the name is defined
+    only by that row, and the superseded one has none.
+
     A line recording where the replicas ran is said in a line of its own where
     the listing tells nothing apart, laid out from the placement it carries
     rather than from its sentence - which stays as the model was told it.
@@ -69,6 +75,9 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
                   for label in (hypothesis.label, *hypothesis.also) if label}
     shorts = the_short_forms(postmortem.changes_read)
     addresses = the_revision_addresses(postmortem.changes_read)
+    fix = postmortem.pull_request
+    named = {fix.url: f"PR #{fix.number}"} if fix is not None else {}
+    addresses |= {name: address for address, name in named.items()}
     rows = []
     day = None
 
@@ -83,7 +92,8 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
         elif entry.outside_the_walk:
             said = _said(entry.text, candidates, {})
         else:
-            said = _said(as_shown(said_short(entry.text, shorts)), candidates, addresses)
+            said = _said(as_shown(said_short(_by_name(entry.text, named), shorts)),
+                         candidates, addresses)
         rows.append(TimelineRow(label=entry.label,
                                 at=at,
                                 marker=entry.marker.value.upper() if entry.marker else None,
@@ -93,6 +103,14 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     return TimelineSection(zone="(UTC)",
                            rows=tuple(rows),
                            absent=None if rows else "No timeline was recorded.")
+
+
+def _by_name(text: str, named: Mapping[str, str]) -> str:
+    """`text` with each address in `named` said by its name."""
+    for address, name in named.items():
+        text = text.replace(address, name)
+
+    return text
 
 
 def _one_card_long_before(placement: RecordedPlacement) -> str | None:
