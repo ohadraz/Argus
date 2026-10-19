@@ -83,13 +83,18 @@ TURN_SYNC_BACK_ON: Final = ("Turn automatic sync of {application} back on - unti
 _COMMENT_MARKS: Final = ("#", ";", "//")
 
 
-def detection_of(evidence: IncidentEvidence) -> Detection:
+def detection_of(evidence: IncidentEvidence,
+                 rule_waits: timedelta | None = None,
+                 rule_wait_unread: bool = False) -> Detection:
     """When the alert fired, which rule fired it, and how long after the onset.
 
     No gap without an onset: the alert's own time is not when the service
     broke, and a gap measured from it would read as an alert that fired the
     moment the fault began. And what the alert said, under the label it is
     cited by, so a citation of it leads to a row.
+
+    And how long the rule's condition must hold before it fires, as measured
+    (`rule_waits`, `rule_wait_unread`): what a reader weighs the gap against.
     """
     return Detection(
         alerted_at=evidence.alerted_at,
@@ -97,7 +102,9 @@ def detection_of(evidence: IncidentEvidence) -> Detection:
         onset_at=evidence.onset_at,
         gap=(evidence.alerted_at - evidence.onset_at
              if evidence.onset_at is not None else None),
-        said=next(iter(the_alert_labelled(evidence)), None)
+        said=next(iter(the_alert_labelled(evidence)), None),
+        rule_waits=rule_waits,
+        rule_wait_unread=rule_wait_unread
     )
 
 

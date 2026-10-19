@@ -146,6 +146,35 @@ def test_detection_carries_what_the_alert_said_under_the_label_it_is_cited_by() 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("rule_waits", "rule_wait_unread"), [
+    (timedelta(minutes=5), False),
+    (None, True)
+], ids=["read", "unread"])
+def test_detection_carries_how_long_the_rule_waits_as_it_was_measured(
+        rule_waits: timedelta | None, rule_wait_unread: bool) -> None:
+    # The wait is part of what a reader weighs the gap against, and a rule
+    # nobody could read is carried as unread rather than as one that fires at
+    # once.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, started_at=STARTED_AT,
+                                           rule=SOME_RULE)
+        ) \
+        .when(
+            lambda: detection_of(evidence, rule_waits=rule_waits,
+                                 rule_wait_unread=rule_wait_unread)
+        ) \
+        .then(
+            the_answer_was(Detection(alerted_at=STARTED_AT,
+                                     rule=SOME_RULE,
+                                     onset_at=ONSET,
+                                     gap=STARTED_AT - ONSET,
+                                     rule_waits=rule_waits,
+                                     rule_wait_unread=rule_wait_unread))
+        )
+
+
+@pytest.mark.unit
 def test_the_trigger_is_the_change_the_confirmed_candidate_blamed() -> None:
     # Dated by the change the investigation read, the latest one to that
     # subject - an earlier toggle of the same flag is history, not the trigger.

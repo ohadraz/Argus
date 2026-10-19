@@ -421,6 +421,29 @@ def test_the_impact_is_the_incident_as_measured() -> None:
 
 
 @pytest.mark.unit
+def test_the_detection_carries_the_rules_wait_as_measured() -> None:
+    # Measured rather than read off the record: the wait is the rule's, read
+    # from the alerting system when the postmortem is written.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the detection", lambda document: document.detection,
+                       detection_of(evidence, rule_waits=timedelta(minutes=5)))
+        )
+
+
+@pytest.mark.unit
 def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
     # Not where the record put it. The document's duration ends at the
     # measured recovery, and a timeline ending somewhere else would contradict

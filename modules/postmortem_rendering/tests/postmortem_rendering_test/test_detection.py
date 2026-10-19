@@ -86,6 +86,69 @@ def test_an_unknown_onset_is_said_to_be_and_no_gap_is_given() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("gap", "rule_waits", "rule_wait_unread", "said"), [
+    (timedelta(minutes=5, seconds=7), timedelta(minutes=5), False,
+     ", 5m 7s later - its rule fires only once its condition has held for 5m 0s"),
+    (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False,
+     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
+     "fires, so the condition held before the measured onset"),
+    (timedelta(seconds=40), timedelta(0), False,
+     ", 40s later - its rule fires as soon as its condition holds"),
+    (timedelta(minutes=5, seconds=7), None, True,
+     ", 5m 7s later - how long its rule waits before firing could not be read")
+], ids=["longer-than-the-wait", "shorter-than-the-wait", "no-wait", "unread"])
+def test_detection_says_the_rules_wait_beside_the_gap(
+        gap: timedelta, rule_waits: timedelta | None, rule_wait_unread: bool,
+        said: str) -> None:
+    # Beside the gap and never inside it: a rule fires only once its condition
+    # has held for its wait, so a gap shorter than the wait says the condition
+    # held before the measured onset - a finding the record makes, said rather
+    # than left for a reader to notice. A wait nobody could read is not one of
+    # nothing.
+    some_alert = SOME_ONSET + gap
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=some_alert, rule="dont care", onset_at=SOME_ONSET, gap=gap,
+                rule_waits=rule_waits, rule_wait_unread=rule_wait_unread))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The incident on "),
+                                      Run(text="io-shop", role=Role.CODE),
+                                      Run(text=" began at "),
+                                      Run.a_moment(SOME_ONSET),
+                                      Run(text=". HighErrorRate fired at "),
+                                      Run.a_moment(some_alert),
+                                      Run(text=said),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_detection_with_no_onset_still_says_the_rules_wait() -> None:
+    # No gap to weigh it against, and still the one thing the page can say of
+    # how long the condition held before the alert.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=SOME_ALERT, rule="dont care", onset_at=None, gap=None,
+                rule_waits=timedelta(minutes=5)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The onset is unknown. HighErrorRate fired at "),
+                                      Run.a_moment(SOME_ALERT),
+                                      Run(text=" - its rule fires only once its condition has "
+                                               "held for 5m 0s"),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
 def test_what_the_alert_said_is_a_row_under_the_label_it_is_cited_by() -> None:
     # A chain's symptom rests on it, and a citation of it leads here.
     some_finding = "240 of 240 shopper totals do not reconcile"

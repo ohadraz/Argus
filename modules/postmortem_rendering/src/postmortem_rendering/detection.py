@@ -1,4 +1,5 @@
-"""How it was found: when it began, when the alert fired, and how long that took.
+"""How it was found: when it began, when the alert fired, how long that took,
+and how long the rule waits before it fires.
 
 No gap where no onset was recorded: an alert time alone measures nothing.
 """
@@ -7,7 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from argus_core.models import Alert, PostmortemDocument
+from argus_core.models import Alert, Detection, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
@@ -47,11 +48,16 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
     runs.append(Run.a_moment(detection.alerted_at))
 
     if detection.gap is not None and detection.gap >= timedelta(0):
-        runs.append(Run(text=f", {as_span(detection.gap)} later"))
+        gap = f", {as_span(detection.gap)} later"
     elif detection.gap is not None:
         # The sender dates the alert and Argus measures the onset, and the two
         # can cross: a rule with no wait fires on the first minute that departs.
-        runs.append(Run(text=f", {as_span(-detection.gap)} before the measured onset"))
+        gap = f", {as_span(-detection.gap)} before the measured onset"
+    else:
+        gap = ""
+
+    if said_after := gap + _the_rules_wait(detection):
+        runs.append(Run(text=said_after))
 
     runs.append(Run(text="."))
 
@@ -60,3 +66,31 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
                             said=(EvidenceRow(label=said.label,
                                               said=Line(runs=(Run(text=said.text),)))
                                   if said is not None else None))
+
+
+def _the_rules_wait(detection: Detection) -> str:
+    """How long the rule's condition must hold before it fires, said beside the
+    gap and never inside it - and nothing where no rule paged.
+
+    A rule fires only once its condition has held for its wait, so an alert
+    fewer minutes after the onset than that says the condition held before the
+    measured onset: a finding the record makes, said rather than left for a
+    reader to notice. Only where the alert came after the onset; one dated
+    before it says so already. A wait nobody could read is not one of nothing.
+    """
+    waits = detection.rule_waits
+
+    if detection.rule_wait_unread:
+        return " - how long its rule waits before firing could not be read"
+
+    if waits is None:
+        return ""
+
+    if not waits:
+        return " - its rule fires as soon as its condition holds"
+
+    if detection.gap is not None and timedelta(0) <= detection.gap < waits:
+        return (f" - shorter than the {as_span(waits)} its rule's condition must hold "
+                f"before it fires, so the condition held before the measured onset")
+
+    return f" - its rule fires only once its condition has held for {as_span(waits)}"

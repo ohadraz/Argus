@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.metrics import WorseWhen
@@ -183,6 +183,13 @@ class Detection(BaseModel):
     `said` is what the alert said of its own finding, under the label the
     prose cites it by - so a citation of it leads to a row like any other's.
     `None` where its sender said nothing of its own.
+
+    `rule_waits` is how long the paging rule's condition must hold before it
+    fires, which is said beside the gap and never inside it. `None` where no
+    rule paged, or where its wait could not be read, which `rule_wait_unread`
+    says - a rule nobody could read is not one that fires at once. Both
+    default to saying nothing, which a document written before either was
+    carried reads as.
     """
 
     alerted_at: datetime
@@ -190,6 +197,17 @@ class Detection(BaseModel):
     onset_at: datetime | None
     gap: timedelta | None
     said: CitedEvidence | None = None
+    rule_waits: timedelta | None = None
+    rule_wait_unread: bool = False
+
+    @model_validator(mode="after")
+    def _a_wait_read_is_not_unread(self) -> Detection:
+        """Refuse a wait that was read and could not be: the page would say
+        both, and a reader could believe neither."""
+        if self.rule_waits is not None and self.rule_wait_unread:
+            raise ValueError("A rule's wait cannot be both read and unread.")
+
+        return self
 
 
 class ImpactExtent(StrEnum):
