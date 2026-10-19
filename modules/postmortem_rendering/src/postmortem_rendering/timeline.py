@@ -12,7 +12,7 @@ from collections.abc import Collection, Mapping
 from typing import Final
 
 from argus_core import said_short
-from argus_core.models import PostmortemDocument
+from argus_core.models import PostmortemDocument, RecordedPlacement
 from argus_narration import as_shown
 from pydantic import BaseModel, ConfigDict
 
@@ -60,6 +60,10 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     and the channel say it. A line from outside the walk - a person's among
     them - is said as it was written: its brackets, its revisions whole, and
     nothing in it a link, which is how the dashboard shows it too.
+
+    A line recording where the replicas ran is said in a line of its own where
+    the listing tells nothing apart, laid out from the placement it carries
+    rather than from its sentence - which stays as the model was told it.
     """
     candidates = {label for hypothesis in postmortem.hypotheses
                   for label in (hypothesis.label, *hypothesis.also) if label}
@@ -73,8 +77,13 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
         at = on_the_clock(entry.at) if said_day == day else f"{said_day} {on_the_clock(entry.at)}"
         day = said_day
 
-        said = (_said(entry.text, candidates, {}) if entry.outside_the_walk
-                else _said(as_shown(said_short(entry.text, shorts)), candidates, addresses))
+        collapsed = _one_card_long_before(entry.placement) if entry.placement else None
+        if collapsed is not None:
+            said = _said(collapsed, candidates, {})
+        elif entry.outside_the_walk:
+            said = _said(entry.text, candidates, {})
+        else:
+            said = _said(as_shown(said_short(entry.text, shorts)), candidates, addresses)
         rows.append(TimelineRow(label=entry.label,
                                 at=at,
                                 marker=entry.marker.value.upper() if entry.marker else None,
@@ -84,6 +93,23 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     return TimelineSection(zone="(UTC)",
                            rows=tuple(rows),
                            absent=None if rows else "No timeline was recorded.")
+
+
+def _one_card_long_before(placement: RecordedPlacement) -> str | None:
+    """Where the replicas ran said in a line, where the full listing tells
+    nothing apart: several pods, every one on the same card, and none come up
+    at the onset or since. `None` wherever the listing is the finding - the
+    cards differ, a pod came up at the onset, or a node reported no card."""
+    cards = {pod.accelerator for pod in placement.pods}
+
+    if len(placement.pods) < 2 or len(cards) != 1 or placement.started_at_the_onset():
+        return None
+
+    card = next(iter(cards))
+    if card is None:
+        return None
+
+    return f"Recorded where the {len(placement.pods)} replicas run - all on {card}"
 
 
 def _said(text: str, candidates: Collection[str],

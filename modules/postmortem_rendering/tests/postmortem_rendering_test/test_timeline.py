@@ -9,7 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import HypothesisConsidered, TimelineEntry, TimelineMarker
+from argus_core.models import (
+    HypothesisConsidered,
+    PodPlacement,
+    RecordedPlacement,
+    TimelineEntry,
+    TimelineMarker,
+)
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.timeline import TimelineRow, the_timeline
@@ -201,6 +207,38 @@ def test_the_date_is_said_where_the_day_changes_and_only_there() -> None:
         ) \
         .then(
             the_answer_was(("Oct 11 14:03:00", "14:04:00", "Oct 12 14:03:00")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("cards", "started", "said"), [
+    (("Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-16GB"), SOME_MOMENT - timedelta(hours=6),
+     "Recorded where the 2 replicas run - all on Tesla-V100-SXM2-16GB"),
+    (("Tesla-V100-SXM2-16GB", "Tesla-T4"), SOME_MOMENT - timedelta(hours=6),
+     "the line as it was narrated"),
+    (("Tesla-V100-SXM2-16GB", "Tesla-V100-SXM2-16GB"), SOME_MOMENT,
+     "the line as it was narrated")
+], ids=["one-card-long-before", "two-cards", "placed-at-the-onset"])
+def test_a_placement_that_tells_nothing_apart_is_said_in_a_line(
+        cards: tuple[str, ...], started: datetime, said: str) -> None:
+    # Every pod with its card, all on the same card and serving long before the
+    # onset, is a paragraph telling nothing apart. Where the cards differ or a
+    # pod came up at the onset, the listing is the finding, and is said in full.
+    some_placement = RecordedPlacement(onset=SOME_MOMENT, pods=tuple(
+        PodPlacement(pod=f"io-shop-{place}", node="dont care", accelerator=card,
+                     started_at=started)
+        for place, card in enumerate(cards)))
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT, who="Investigator Agent",
+                              text="the line as it was narrated", placement=some_placement)])
+        ) \
+        .when(
+            lambda: [run.text for run in the_timeline(some_postmortem).rows[0].text.runs]
+        ) \
+        .then(
+            the_answer_was([said]))
 
 
 @pytest.mark.unit

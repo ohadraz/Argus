@@ -44,6 +44,7 @@ from argus_core.events import (
     LogsRetrieved,
     OnsetDetected,
     PersonWrote,
+    PlacementRecorded,
     RecoveryChecked,
     RememberingFailed,
     StatusChanged,
@@ -67,7 +68,9 @@ from argus_core.models import (
     Meaning,
     ModelPolicy,
     OpenedPullRequest,
+    PodPlacement,
     PostmortemDocument,
+    RecordedPlacement,
     Reference,
     Report,
     ReportChannel,
@@ -651,6 +654,33 @@ def test_a_read_of_what_a_deployment_changed_is_a_line_of_the_timeline(
             ) \
             .then(
                 _timeline_ends_with("Read what the deployment of some-revision changed")
+            )
+
+
+@pytest.mark.component
+def test_a_placement_s_line_carries_the_placement_it_tells(a_clean_database: None) -> None:
+    # The line says where the replicas ran in a sentence, and the sentence is
+    # what the model reads. The page lays the placement out from its values,
+    # so it can say one that tells nothing apart in fewer words without
+    # parsing the sentence or changing what the model read.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_record := PlacementRecorded(
+                    incident_id=incident_id,
+                    placement=RecordedPlacement(
+                        onset=parse_iso("2026-09-02T12:00:00Z"),
+                        pods=(PodPlacement(pod="io-shop-a", node="node-1",
+                                           accelerator="Tesla-V100-SXM2-16GB",
+                                           started_at=parse_iso("2026-09-02T06:00:00Z")),)))
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, some_record)
+            ) \
+            .then(
+                _the_last_line_carries(some_record.placement)
             )
 
 
@@ -2124,6 +2154,19 @@ def _timeline_begins_with(expected: str) -> Assertion[IncidentEvidence]:
         if not said or expected not in said[0]:
             raise AssertionError(
                 f"Expected the timeline to open on [{expected}], got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_last_line_carries(expected: RecordedPlacement) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        carried = evidence.timeline[-1].placement
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the last line to carry the placement {expected}, got {carried}.")
 
         return True
 
