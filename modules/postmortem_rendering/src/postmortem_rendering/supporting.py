@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from argus_core import parse_iso, said_short
+from argus_core import A_REVISION, parse_iso, said_short
 from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
     ChangeEvent,
@@ -112,11 +112,8 @@ def the_supporting_information(postmortem: PostmortemDocument,
     log_messages = _rows(postmortem.log_messages_read)
     revision_addresses = the_revision_addresses(postmortem.changes_read)
     shorts = the_short_forms(postmortem.changes_read)
-    deployment_changes = tuple(
-        EvidenceRow(label=cited.label,
-                    said=Line(runs=_shortened(Run(text=cited.text).with_links(revision_addresses),
-                                              shorts)))
-        for cited in postmortem.deployment_changes_read)
+    deployment_changes = tuple(_a_diff_row(cited, revision_addresses, shorts)
+                               for cited in postmortem.deployment_changes_read)
     assumptions = tuple(Line(runs=(Run(text=assumption, role=Role.PROSE),))
                         for assumption in postmortem.assumptions)
 
@@ -248,6 +245,42 @@ def _shortened(runs: tuple[Run, ...], shorts: dict[str, str]) -> tuple[Run, ...]
         line = run.text.rsplit("\n", 1)[-1] if "\n" in run.text else line + run.text
 
     return tuple(said)
+
+
+def _a_diff_row(cited: CitedEvidence, addresses: dict[str, str],
+                shorts: dict[str, str]) -> EvidenceRow:
+    """What a deployment changed, as its row says it: each revision said short
+    and leading to its commit - the one it was compared against too."""
+    beside, beside_short = _the_revisions_beside(cited.text, addresses, shorts)
+
+    return EvidenceRow(label=cited.label,
+                       said=Line(runs=_shortened(
+                           Run(text=cited.text).with_links({**addresses, **beside}),
+                           {**shorts, **beside_short})))
+
+
+def _the_revisions_beside(said: str, addresses: dict[str, str],
+                          shorts: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
+    """The revisions a diff's first line names that no change read is - the
+    one a deploy was compared against - each where it opens and its short
+    form: in the deploy's own repository, opened where the deploy's revision
+    is but for the revision, and as short as the deploy's is said.
+
+    Only where the deploy's revision is in its own address once: elsewhere
+    there is no place to put the other in, and a link to the deploy's commit
+    under the other's name would lead somewhere else without saying so. A
+    revision with nowhere to open stays as it is, whole."""
+    header = said.split("\n", 1)[0]
+    named = [found.group() for found in A_REVISION.finditer(header)]
+    own = next((revision for revision in named
+                if revision in shorts and addresses[revision].count(revision) == 1), None)
+    if own is None:
+        return {}, {}
+
+    others = [revision for revision in named
+              if revision not in addresses and len(revision) == len(own)]
+    return ({other: addresses[own].replace(own, other) for other in others},
+            {other: other[:len(shorts[own])] for other in others})
 
 
 def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:

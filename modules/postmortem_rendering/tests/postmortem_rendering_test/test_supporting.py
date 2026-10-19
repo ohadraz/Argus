@@ -245,6 +245,72 @@ def test_what_each_deployment_changed_is_a_row_of_its_lines_its_revisions_leadin
 
 
 @pytest.mark.unit
+def test_the_revision_a_deploy_was_compared_against_is_said_short_and_leads_to_its_commit() -> None:
+    # No change read is the deploy before, so no row gives its forms - but it
+    # is a commit of the deploy's own repository, which opens it where it opens
+    # the deploy's, but for the revision.
+    some_earlier_revision = "f061a97b221b57258899d4b3d82998815008d7bf"
+    some_diff = CitedEvidence(
+        label="D1",
+        text=(f"Deployment of revision {SOME_DEPLOYED_REVISION} to io-shop, compared against "
+              f"{some_earlier_revision} - the revision deployed before it.\n"
+              f"modified deploy/values-production.yaml"))
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P1")],
+                                            deployment_changes_read=[some_diff])
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).deployment_changes[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Deployment of revision "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
+                Run(text=" to io-shop, compared against "),
+                Run(text=some_earlier_revision[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{some_earlier_revision}"),
+                Run(text=" - the revision deployed before it.\n"
+                         "modified deploy/values-production.yaml")))))
+
+
+@pytest.mark.unit
+def test_a_compared_against_revision_whose_address_cannot_be_told_stays_whole() -> None:
+    # Where the deploy's own address does not hold its revision, there is no
+    # address to put the other in - and a link to the deploy's commit under
+    # the other's name would lead somewhere else without saying so.
+    some_earlier_revision = "f061a97b221b57258899d4b3d82998815008d7bf"
+    some_deploy = a_deploy_read("P1")
+    assert some_deploy.change.revision_source is not None
+    some_deploy_opened_by_number = some_deploy.model_copy(update={
+        "change": some_deploy.change.model_copy(update={
+            "revision_source": some_deploy.change.revision_source.model_copy(update={
+                "revision_address": "https://git.example/changes/42"})})})
+    some_diff = CitedEvidence(label="D1",
+                              text=f"Deployment of revision {SOME_DEPLOYED_REVISION}, "
+                                   f"compared against {some_earlier_revision}.")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[some_deploy_opened_by_number],
+                                            deployment_changes_read=[some_diff])
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).deployment_changes[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Deployment of revision "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address="https://git.example/changes/42"),
+                Run(text=f", compared against {some_earlier_revision}."),))))
+
+
+@pytest.mark.unit
 def test_a_revision_a_diff_line_quotes_is_kept_as_the_file_says_it() -> None:
     # A patch line is the file's own content - an image tag pinned to the
     # commit is common - and said short it would misquote the file. Only
