@@ -426,7 +426,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             who = _INVESTIGATOR
             text = f"Read what the deployment of {event.revision} changed"
         case FlagChangesRetrieved():
-            who = _MITIGATION
+            # The walk's own read, made every round before any agent is called
+            # in to act on it.
+            who = _ARGUS
             recent = len(event.changes)
             text = (
                 f"Read the flag provider's history - "

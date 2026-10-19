@@ -291,7 +291,7 @@ class HypothesisFormed(_Event):
 
 
 class FlagChangesRetrieved(_Event):
-    """What the flag provider says has changed lately, as Mitigation read it.
+    """What the flag provider says has changed lately, as the walk read it.
 
     Its own event rather than a `ChangesRetrieved` with a different kind: this
     is read to *act* on, not to reason with. It carries which flag moved and

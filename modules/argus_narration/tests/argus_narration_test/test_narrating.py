@@ -300,6 +300,20 @@ def test_a_flag_history_is_carried_as_the_changes_it_reported() -> None:
 
 
 @pytest.mark.unit
+def test_a_flag_history_read_is_credited_to_argus() -> None:
+    # The walk reads the flag history itself, every round, before any agent is
+    # called in to act on it. Credited to the Mitigation Agent, the line put a
+    # read by an agent ahead of the line calling that agent in - and on an
+    # incident that never called it in at all.
+    some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_lines_are_credited_to(["Argus"]))
+
+
+@pytest.mark.unit
 def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
     # The read that tells a configuration change from a code change, and what a
     # reader of the page is given of it is which deployment was looked into.
