@@ -13,6 +13,9 @@ from pydantic import BaseModel, ConfigDict
 _TICK: Final = "✓"
 _CROSS: Final = "✗"
 
+# What a check left to people means, as its row says it.
+_FOR_A_PERSON: Final = "for a person"
+
 
 class ReviewRow(BaseModel):
     """One check: what it asks, whether it is met (`yes`, `no`, or `left` for a
@@ -36,11 +39,14 @@ class ReviewSection(BaseModel):
 
 
 def the_review(postmortem: PostmortemDocument) -> ReviewSection:
-    """Every check in the agent's order."""
+    """Every check in the agent's order - a check left for a person saying what
+    they would do, where that is more than the check itself."""
     rows = tuple(ReviewRow(criterion=check.criterion,
                            met="left" if check.met is None else ("yes" if check.met else "no"),
                            mark=_TICK if check.met else _CROSS,
-                           meaning=("for a person" if check.met is None
+                           meaning=(_FOR_A_PERSON + (f" - {check.because}" if check.because
+                                                     else "")
+                                    if check.met is None
                                     else ("met" if check.met else "not met")))
                  for check in postmortem.review)
 

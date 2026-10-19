@@ -37,6 +37,28 @@ def test_each_check_is_ticked_crossed_or_left_for_a_person() -> None:
 
 
 @pytest.mark.unit
+def test_a_check_left_for_a_person_says_what_they_would_do() -> None:
+    # A check the analysis could not meet alone is left for a person, and the
+    # row says what that person would do - "for a person" alone reads as the
+    # two checks only people ever meet.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(review=[
+                ReviewCriterion(criterion="root-cause analysis complete", met=None,
+                                because="the cause rests on F1, a reading of the source "
+                                        "nothing ran")])
+        ) \
+        .when(
+            lambda: the_review(some_postmortem).rows
+        ) \
+        .then(
+            the_answer_was((
+                ReviewRow(criterion="root-cause analysis complete", met="left", mark="✗",
+                          meaning="for a person - the cause rests on F1, a reading of the "
+                                  "source nothing ran"),)))
+
+
+@pytest.mark.unit
 def test_a_document_never_reviewed_says_so() -> None:
     Scenario() \
         .given(

@@ -22,9 +22,13 @@ from agent_postmortem.reviewing import (
     review_of,
 )
 from argus_core.models import (
+    ActionItem,
+    ActionItemStatus,
+    ActionItemType,
     ChainStep,
     CitedEvidence,
     HypothesisConsidered,
+    OpenedPullRequest,
     PostmortemDocument,
     ReviewCriterion,
     TimelineEntry,
@@ -194,6 +198,83 @@ def test_an_analysis_that_stops_at_the_change_that_set_it_off_is_not_complete() 
         )
 
 
+@pytest.mark.unit
+def test_an_analysis_resting_on_a_reading_nothing_ran_is_left_for_a_person() -> None:
+    # Code-Fix read the source and nothing ran it, so a step resting on that
+    # reading alone is a mechanism proposed rather than confirmed: the document
+    # says so in its words, and a ticked box beside it says the opposite. Not
+    # failed either - the analysis went as far as the evidence allowed, and
+    # what is left is a task for a person: running the reading.
+    Scenario() \
+        .given(
+            a_document_resting_on_a_reading := _a_document(causal_chain=[
+                _a_step("account pages failed"),
+                ChainStep(text="the divisor was zero",
+                          cites=[CitedEvidence(label="F1", text="dont care")])
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_resting_on_a_reading, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the cause rests on F1, a reading of the source nothing ran")
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_a_proposed_fix_can_confirm_names_the_item_that_would() -> None:
+    # Where Code-Fix proposed a fix, its tests run against the code as it is
+    # are what would confirm the reading, and the item tracking the fix is
+    # where a person does it.
+    some_fix = OpenedPullRequest(number=7, url="https://github.invalid/acme/shop/pull/7",
+                                 branch="argus/fix")
+
+    Scenario() \
+        .given(
+            a_document_with_a_fix := _a_document(
+                causal_chain=[_a_step("account pages failed"),
+                              ChainStep(text="the divisor was zero",
+                                        cites=[CitedEvidence(label="F1", text="dont care")])],
+                pull_request=some_fix,
+                action_items=[ActionItem(number="AI-2", text="dont care",
+                                         type=ActionItemType.PREVENT, owner=None,
+                                         tracking=some_fix.url,
+                                         status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_with_a_fix, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the cause rests on F1, a reading of the source nothing ran; "
+                                  "running the proposed fix's tests against the current code "
+                                  "would confirm it (AI-2)")
+        )
+
+
+@pytest.mark.unit
+def test_a_step_a_reading_and_an_observation_both_support_is_supported() -> None:
+    # A reading beside something observed is evidence the observation bears
+    # out, and the step rests on more than the reading.
+    Scenario() \
+        .given(
+            a_document_with_a_supported_reading := _a_document(causal_chain=[
+                _a_step("account pages failed"),
+                ChainStep(text="the divisor was zero",
+                          cites=[CitedEvidence(label="F1", text="dont care"),
+                                 CitedEvidence(label="E1", text="dont care")])
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_with_a_supported_reading, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=True, because=None)
+        )
+
+
 def _says(criterion: str, met: bool | None) -> Assertion[list[ReviewCriterion]]:
     def assertion(review: list[ReviewCriterion]) -> bool:
         said = [entry.met for entry in review if entry.criterion == criterion]
@@ -201,6 +282,21 @@ def _says(criterion: str, met: bool | None) -> Assertion[list[ReviewCriterion]]:
         if said != [met]:
             raise AssertionError(
                 f"Expected the review to say [{criterion}] once, as {met}, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _says_because(criterion: str, met: bool | None,
+                  because: str | None) -> Assertion[list[ReviewCriterion]]:
+    def assertion(review: list[ReviewCriterion]) -> bool:
+        said = [(entry.met, entry.because) for entry in review if entry.criterion == criterion]
+
+        if said != [(met, because)]:
+            raise AssertionError(
+                f"Expected the review to say [{criterion}] once, as {met} because "
+                f"[{because}], got {said}.")
 
         return True
 

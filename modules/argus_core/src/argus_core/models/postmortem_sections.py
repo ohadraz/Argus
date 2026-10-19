@@ -336,7 +336,13 @@ class ReviewCriterion(BaseModel):
     `met` is `None` for a criterion only people can meet - an item owned, a
     document read - rather than `False`: a box that is always unticked teaches
     its reader to stop looking at the boxes.
+
+    `because` is what a person has to do to meet a criterion left to them,
+    where that is not the criterion itself: an analysis resting on a reading
+    of the source nothing ran is met once somebody runs it. `None` everywhere
+    else, and on a document written before it was carried.
     """
 
     criterion: str
     met: bool | None
+    because: str | None = None
