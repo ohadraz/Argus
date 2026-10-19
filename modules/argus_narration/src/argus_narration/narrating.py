@@ -379,7 +379,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
     match event:
         case AlertAcknowledged():
             who = _ARGUS
-            text = f"{event.alert.alert_name} fired on {event.alert.service}"
+            text = f"Received {event.alert.alert_name} on {event.alert.service}"
         case AgentInvoked():
             who = _ARGUS
             text = f"Called in the {_an_agent(event.agent)}"

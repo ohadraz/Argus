@@ -570,7 +570,7 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(all_of(
-                _timeline_begins_with("HighErrorRate fired on"),
+                _timeline_begins_with("Received HighErrorRate"),
                 _timeline_ends_with(str(IncidentStatus.RESOLVED).upper())
             ))
 

@@ -161,7 +161,7 @@ def test_the_alert_line_names_the_alert_first() -> None:
     Scenario() \
         .given(some_event) \
         .when(lambda: build_narration([some_event])) \
-        .then(_the_only_line_mentions("HighErrorRate fired on io-shop"))
+        .then(_the_only_line_mentions("Received HighErrorRate on io-shop"))
 
 
 @pytest.mark.unit
