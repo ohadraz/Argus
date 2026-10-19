@@ -8,7 +8,7 @@ from typing import NamedTuple
 import pytest
 from argus_core import ReadMcpEndpoint, get_settings, parse_iso
 from argus_core.mcp_transport import McpClient
-from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, RuleReading
+from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, RuleLine, RuleReading
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
@@ -196,7 +196,8 @@ def test_the_paging_rules_series_reaches_the_caller_through_the_client(
             ))
         ) \
         .then(
-            _every_bucket_carried(RuleReading(value=0.41, worse_when="below"))
+            _every_bucket_carried(RuleReading(value=0.41, worse_when="below",
+                                              line=RuleLine(at=0.8, fires_on_it=False)))
         )
 
 
