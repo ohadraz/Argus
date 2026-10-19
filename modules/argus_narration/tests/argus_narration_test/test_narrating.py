@@ -59,6 +59,7 @@ from argus_core.events import (
     RetrievalRequested,
     RetrievalUnanswered,
     RolloutRead,
+    ServiceRegisterRead,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -87,6 +88,7 @@ from argus_core.models import (
     Meaning,
     MetricBucket,
     OpenedPullRequest,
+    Ownership,
     PodPlacement,
     RecordedPlacement,
     Reference,
@@ -96,6 +98,7 @@ from argus_core.models import (
     RetrievalChannel,
     RolloutAccount,
     RolloutProgress,
+    ServiceDependency,
     Standing,
     Undone,
     Verdict,
@@ -410,6 +413,34 @@ def test_a_split_rollout_with_nothing_before_it_says_the_older_revision_is_not_n
         .given(some_read) \
         .when(lambda: build_narration([some_read])) \
         .then(_the_only_line_mentions("4 still run an earlier revision the history does not name"))
+
+
+@pytest.mark.unit
+def test_a_register_read_names_each_dependency_and_whose_it_is() -> None:
+    # A cause resting on a dependency rests on this read: whose it is decided
+    # whether anything could be done, and the account is owed the fact under
+    # the conclusion.
+    some_read = ServiceRegisterRead(incident_id=new_id(), dependencies=[
+        ServiceDependency(name="io-pricing", purpose="dont care", host="dont care",
+                          owner="checkout-platform", ownership=Ownership.INTERNAL)])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("io-pricing (internal, owned by checkout-platform)"),
+                     _the_lines_are_credited_to(["Investigator Agent"])))
+
+
+@pytest.mark.unit
+def test_an_empty_register_read_says_the_service_calls_nothing_it_knows_of() -> None:
+    # Read and empty is a finding, and a line saying nothing of it would read
+    # as a register nobody asked.
+    some_read = ServiceRegisterRead(incident_id=new_id(), dependencies=[])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("records nothing the service calls"))
 
 
 @pytest.mark.unit

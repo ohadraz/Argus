@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from argus_core.events import Narrator, ServiceRegisterRead
 from argus_core.models import ServiceDependency, ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import DependencyFetcher
@@ -54,14 +55,17 @@ def dependencies_tool() -> ToolDefinition:
 
 def read_dependencies(call: ToolCall,
                       service: str,
-                      fetch_dependencies: DependencyFetcher) -> Served:
+                      fetch_dependencies: DependencyFetcher,
+                      narrator: Narrator) -> Served:
     """What the register says about this service, or why it could not be read.
 
-    No narrator event and no reading. A reading is what tells a later round which
-    minutes are already in front of the model, and there are no minutes here -
-    one recorded for this would put a windowed retrieval in the record for a
-    question that has no window, and `channels_unread` would begin reporting a
-    channel that cannot be unread in the sense the other three are.
+    No reading. A reading is what tells a later round which minutes are already
+    in front of the model, and there are no minutes here - one recorded for
+    this would put a windowed retrieval in the record for a question that has
+    no window, and `channels_unread` would begin reporting a channel that
+    cannot be unread in the sense the other three are. What the register
+    answered is narrated all the same, an empty answer among them: a cause
+    resting on a dependency rests on this read, and the account is owed it.
 
     Anything at all going wrong is reported as the same fact, which is why this
     catches broadly. Across the tier boundary the register's own exception has
@@ -79,6 +83,8 @@ def read_dependencies(call: ToolCall,
             what_was_asked="the service register",
             because=str(error)
         )
+
+    narrator.say(ServiceRegisterRead, dependencies=list(dependencies))
 
     if not dependencies:
         return answered(call, _NOTHING_REGISTERED)

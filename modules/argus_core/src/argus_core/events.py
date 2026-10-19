@@ -45,6 +45,7 @@ from argus_core.models.reference import Reference
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import Report
 from argus_core.models.rollout import RolloutAccount
+from argus_core.models.service_dependency import ServiceDependency
 from argus_core.models.thread_message import Standing
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
@@ -202,6 +203,24 @@ class RolloutRead(_Event):
 
     kind: Literal["rollout-read"] = "rollout-read"
     account: RolloutAccount
+
+
+class ServiceRegisterRead(_Event):
+    """What the service register says the service calls, as the Investigator
+    read it.
+
+    The entries whole, because a cause resting on a dependency rests on this
+    read: whose the dependency is decided whether anything could be done about
+    it, and an account that left the read out would leave a reader with the
+    conclusion and not the fact under it.
+
+    Published wherever the register answered, an empty answer among them -
+    that the service calls nothing, as far as the register knows, is a finding.
+    Not where it could not be read, which is said as unanswered instead.
+    """
+
+    kind: Literal["service-register-read"] = "service-register-read"
+    dependencies: list[ServiceDependency]
 
 
 # How `DeploymentChangesRead.said` sets out a diff: every line under the one
@@ -924,6 +943,7 @@ type IncidentEvent = Annotated[
         | ChangesRetrieved
         | DeploymentChangesRead
         | RolloutRead
+        | ServiceRegisterRead
         | ChannelsUnread
         | FlagChangesRetrieved
         | PlacementRecorded

@@ -234,7 +234,8 @@ class Dispatcher:
             )
 
         if call.name == DEPENDENCIES_TOOL:
-            return read_dependencies(call, self._service, self._fetch_dependencies)
+            return read_dependencies(call, self._service, self._fetch_dependencies,
+                                     self._narrator)
 
         if call.name == DEPLOYMENT_DIFF_TOOL:
             return read_what_a_deployment_changed(

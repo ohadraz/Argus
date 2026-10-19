@@ -63,6 +63,7 @@ from argus_core.events import (
     RetrievalRequested,
     RetrievalUnanswered,
     RolloutRead,
+    ServiceRegisterRead,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -435,6 +436,16 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             who = _INVESTIGATOR
             text = (f"Read how far the deployment had rolled out - "
                     f"{_how_far_it_rolled_out(event.account, beside=to_iso(event.at))}")
+        case ServiceRegisterRead():
+            who = _INVESTIGATOR
+            # Whose each dependency is, beside its name: a cause resting on one
+            # rests on whose it is, which decided whether anything could be done.
+            text = ("Read the service register - " + (
+                "the service calls " + ", ".join(
+                    f"{dependency.name} ({dependency.ownership}, owned by {dependency.owner})"
+                    for dependency in event.dependencies)
+                if event.dependencies else
+                "it records nothing the service calls"))
         case FlagChangesRetrieved():
             # The walk's own read, made every round before any agent is called
             # in to act on it.
