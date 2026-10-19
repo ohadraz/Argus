@@ -547,6 +547,20 @@ def _lines_needed(pdf: _Sheet, width: float, text: str, leading: float) -> int:
 # so the table leaves the cell empty, and the line is written into it after.
 type _Cell = tuple[str, FontFace | None, str | None] | Line
 
+
+class _Table(NamedTuple):
+    """A table as `_a_table` sets it, worked out from the document both for
+    the section that sets it and for the heading kept with its start - which
+    it opens the section under, unless `opening_a_section` says otherwise."""
+
+    headings: Sequence[str] | None
+    rows: Sequence[Sequence[_Cell]]
+    widths: Sequence[float]
+    align: Sequence[str] | None = None
+    landings: Sequence[tuple[str, ...]] = ()
+    opening_a_section: bool = True
+
+
 _CELL_LINE: Final = 4.2
 _CELL_PADDING: Final = Padding(top=1.2, right=2.1, bottom=1.2, left=0)
 
@@ -602,12 +616,14 @@ class _RuledAcross(TableBordersLayout):
 
 def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequence[_Cell]],
              widths: Sequence[float], align: Sequence[str] | None = None,
-             landings: Sequence[tuple[str, ...]] = ()) -> None:
+             landings: Sequence[tuple[str, ...]] = (), opening_a_section: bool = False) -> None:
     """A table ruled across between its rows, its headings small and
     capitalised over an ink rule and repeated on every page it runs onto - or
     a table with no headings where `headings` is `None`. `widths` are in
     millimetres; `align` sets each column, left where it is not given;
-    `landings` are the labels each row goes by, none for a row without one.
+    `landings` are the labels each row goes by, none for a row without one;
+    `opening_a_section` whether it is set straight under a section's heading,
+    which its first row has to fit under to be set whole.
 
     A cell given as a line is left empty, as tall as the line needs, and the
     line written into it as its row is drawn.
@@ -625,7 +641,7 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
     pdf.set_fill_color(pdf.DEFAULT_FILL_COLOR)
     pdf.set_line_width(0.26)
     aligned = list(align) if align else ["L"] * len(widths)
-    pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None)
+    pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None, opening_a_section)
     starts = list(accumulate((len(each) for each in pieces[:-1]), initial=0))
     rows = [piece for each in pieces for piece in each]
     layout = _RuledAcross(pdf, {(place, column): (cell, widths[column])
@@ -665,7 +681,8 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
 
 def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
                             widths: Sequence[float],
-                            under_headings: bool) -> list[list[list[_Cell]]]:
+                            under_headings: bool,
+                            opening_a_section: bool = False) -> list[list[list[_Cell]]]:
     """Each row as the rows the pages hold it in: itself, where it fits on the
     page it begins on or on a fresh one, and otherwise cut - its first piece
     as many lines as the room left where it begins, so whatever is set above
@@ -676,7 +693,12 @@ def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
     Where each row begins is followed down the pages as the table will set
     them, a row going to a fresh page where it does not fit the room left. A
     first piece with room for too few lines is not begun there: the row
-    starts on the next page instead."""
+    starts on the next page instead.
+
+    The first row of a table opening a section goes to a fresh page only
+    where it would fit one under the section's heading - the test the heading
+    was kept with it by (`_the_start_of`). Sent to a fresh page it could not
+    follow its heading on, it would leave the heading over nothing."""
     headings = _A_ROW + _CELL_LINE if under_headings else 0.0
     bottom = pdf.h - pdf.b_margin
     fresh = _BELOW_THE_HEADER + headings
@@ -684,15 +706,14 @@ def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
     at = pdf.y + headings
     placed = []
 
-    for cells in rows:
-        tall = _A_ROW + _CELL_LINE * max((_how_many_lines(pdf, cell, width)
-                                          for cell, width in zip(cells, widths, strict=True)),
-                                         default=1)
+    for place, cells in enumerate(rows):
+        tall = _how_tall_a_row_is(pdf, cells, widths)
         if at + tall <= bottom:
             at += tall
             placed.append([list(cells)])
             continue
-        if tall <= bottom - fresh:
+        if (_fits_a_page_under_its_heading(pdf, headings + tall)
+                if opening_a_section and place == 0 else tall <= bottom - fresh):
             at = fresh + tall
             placed.append([list(cells)])
             continue
@@ -709,6 +730,14 @@ def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
         placed.append(pieces)
 
     return placed
+
+
+def _how_tall_a_row_is(pdf: _Sheet, cells: Sequence[_Cell], widths: Sequence[float]) -> float:
+    """How tall a row is set whole: its tallest cell's lines, in the font in
+    force, and the row's own padding."""
+    return _A_ROW + _CELL_LINE * max((_how_many_lines(pdf, cell, width)
+                                      for cell, width in zip(cells, widths, strict=True)),
+                                     default=1)
 
 
 # A row's own height besides its lines: the cell's padding above and below.
@@ -1032,11 +1061,16 @@ def _the_hypotheses(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         _quiet(pdf, hypotheses.absent)
         return
 
-    _a_table(pdf, hypotheses.headings,
-             [[(", ".join(row.labels), _NUMBER, None), row.summary,
-               (row.confidence, _TIME, None), (row.result, None, None)]
-              for row in hypotheses.rows],
-             widths=(18, 86, 26, 44), landings=[row.labels for row in hypotheses.rows])
+    _a_table(pdf, *_the_hypotheses_table(rendered))
+
+
+def _the_hypotheses_table(rendered: RenderedPostmortem) -> _Table:
+    hypotheses = rendered.hypotheses
+    return _Table(hypotheses.headings,
+                  [[(", ".join(row.labels), _NUMBER, None), row.summary,
+                    (row.confidence, _TIME, None), (row.result, None, None)]
+                   for row in hypotheses.rows],
+                  widths=(18, 86, 26, 44), landings=[row.labels for row in hypotheses.rows])
 
 
 def _the_trigger(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1052,21 +1086,26 @@ def _the_resolution(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     if taken.person is not None:
         _a_paragraph(pdf, taken.person)
 
-    steps = [*taken.steps, *([taken.fix] if taken.fix else [])]
-    if steps:
-        rows: list[list[_Cell]] = []
-        for step in steps:
-            # The action as its line says it, so only what the line links is a
-            # link - the fix's name, not the words saying what was done.
-            rows.append([(step.label or "", _NUMBER, None),
-                         (step.at, _TIME, None),
-                         step.action,
-                         (step.by, None, None), (step.kind, None, None),
-                         (step.outcome_in_the_table, None, None)])
-        _a_table(pdf, taken.headings, rows, widths=(12, 18, 48, 24, 34, 38),
-                 landings=[(step.label,) if step.label else () for step in steps])
+    table = _the_resolution_table(rendered)
+    if table.rows:
+        _a_table(pdf, *table)
     elif taken.absent:
         _quiet(pdf, taken.absent)
+
+
+def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
+    taken = rendered.actions_taken
+    steps = [*taken.steps, *([taken.fix] if taken.fix else [])]
+    # The action as its line says it, so only what the line links is a link -
+    # the fix's name, not the words saying what was done.
+    return _Table(taken.headings,
+                  [[(step.label or "", _NUMBER, None), (step.at, _TIME, None), step.action,
+                    (step.by, None, None), (step.kind, None, None),
+                    (step.outcome_in_the_table, None, None)]
+                   for step in steps],
+                  widths=(12, 18, 48, 24, 34, 38),
+                  landings=[(step.label,) if step.label else () for step in steps],
+                  opening_a_section=taken.person is None)
 
 
 def _the_detection(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1089,19 +1128,24 @@ def _the_action_items(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     if items.absent:
         _quiet(pdf, items.absent)
     else:
-        rows: list[list[_Cell]] = []
-        for row in items.rows:
-            address = row.tracking.runs[0].address
-            rows.append([(row.number, _NUMBER, None), row.text,
-                         (row.type, None, None),
-                         (row.owner, _UNOWNED if row.unassigned else None, None),
-                         (row.tracking.said, _LINKED if address else None, address),
-                         (row.status, _DONE if row.status == "done" else None, None)])
-        _a_table(pdf, items.headings, rows, widths=(13, 48, 17, 21, 62, 13),
-                 landings=[(row.number,) for row in items.rows])
+        _a_table(pdf, *_the_action_items_table(rendered))
 
     if items.recommended is not None:
         _a_paragraph(pdf, items.recommended)
+
+
+def _the_action_items_table(rendered: RenderedPostmortem) -> _Table:
+    items = rendered.action_items
+    rows: list[list[_Cell]] = []
+    for row in items.rows:
+        address = row.tracking.runs[0].address
+        rows.append([(row.number, _NUMBER, None), row.text,
+                     (row.type, None, None),
+                     (row.owner, _UNOWNED if row.unassigned else None, None),
+                     (row.tracking.said, _LINKED if address else None, address),
+                     (row.status, _DONE if row.status == "done" else None, None)])
+    return _Table(items.headings, rows, widths=(13, 48, 17, 21, 62, 13),
+                  landings=[(row.number,) for row in items.rows])
 
 
 def _the_lessons(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1149,6 +1193,32 @@ def _the_lessons_kept_together(pdf: _Sheet, rendered: RenderedPostmortem) -> flo
     lefts, width = _the_lessons_columns(len(rendered.lessons))
     tall = _how_tall(pdf, rendered.lessons, lefts, width)
     return tall if _fits_a_page_under_its_heading(pdf, tall) else 0.0
+
+
+def _the_start_of(table_of: Callable[[RenderedPostmortem], _Table]
+                  ) -> Callable[[_Sheet, RenderedPostmortem], float]:
+    """How much of a section opening with a table its heading is kept with:
+    the table's headings and its first row whole, where they fit a page under
+    the heading - and otherwise the headings and the fewest lines a row cut
+    across pages begins with, with the line `_lines_in` keeps to spare. A
+    section whose table comes after something else - a resolution opening with
+    the person who reported it - is kept with that start alone.
+
+    Measured in the face the table is set in, which `_a_table` puts in force
+    before it measures and the section before this one may have left
+    otherwise."""
+    def kept(pdf: _Sheet, rendered: RenderedPostmortem) -> float:
+        table = table_of(rendered)
+        if not table.rows or not table.opening_a_section:
+            return 0.0
+        pdf.set_font(_BODY, "", _TABLE_PT)
+        headings = _A_ROW + _CELL_LINE if table.headings is not None else 0.0
+        whole = headings + _how_tall_a_row_is(pdf, table.rows[0], table.widths)
+        if _fits_a_page_under_its_heading(pdf, whole):
+            return whole
+        return headings + _A_ROW + _CELL_LINE * (_FEWEST_LINES_BEGUN + 1)
+
+    return kept
 
 
 def _fits_a_page_under_its_heading(pdf: _Sheet, tall: float) -> bool:
@@ -1199,13 +1269,19 @@ def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         _quiet(pdf, timeline.absent)
         return
 
-    _a_table(pdf, None,
-             [[(row.label or "", _NUMBER, None), (row.at, _TIME, None),
-               (row.marker or "", _MARKER, None),
-               Line(runs=(*((Run(text=f"{row.who} "),) if row.who else ()), *row.text.runs))]
-              for row in timeline.rows],
-             widths=(14, 31, 29, 100), align=("L", "R", "L", "L"),
-             landings=[(row.label,) if row.label else () for row in timeline.rows])
+    _a_table(pdf, *_the_timeline_table(rendered))
+
+
+def _the_timeline_table(rendered: RenderedPostmortem) -> _Table:
+    timeline = rendered.timeline
+    return _Table(None,
+                  [[(row.label or "", _NUMBER, None), (row.at, _TIME, None),
+                    (row.marker or "", _MARKER, None),
+                    Line(runs=(*((Run(text=f"{row.who} "),) if row.who else ()),
+                               *row.text.runs))]
+                   for row in timeline.rows],
+                  widths=(14, 31, 29, 100), align=("L", "R", "L", "L"),
+                  landings=[(row.label,) if row.label else () for row in timeline.rows])
 
 
 def _the_leads(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1346,8 +1422,12 @@ _SECTIONS: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], None]]] = {
 }
 
 # How much of a section its heading is kept with, for a section whose start
-# cannot break - by the same key. Every other heading is kept with the start
-# of its section alone.
+# cannot break - its columns, or a table's first row - by the same key. Every
+# other heading is kept with the start of its section alone.
 _KEPT_WITH_ITS_HEADING: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], float]]] = {
-    "lessons": _the_lessons_kept_together
+    "hypotheses": _the_start_of(_the_hypotheses_table),
+    "resolution": _the_start_of(_the_resolution_table),
+    "action-items": _the_start_of(_the_action_items_table),
+    "lessons": _the_lessons_kept_together,
+    "timeline": _the_start_of(_the_timeline_table)
 }

@@ -929,6 +929,72 @@ def test_the_three_lessons_lists_are_set_side_by_side_on_one_page(items: int) ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("root_cause_words", range(0, 600, 12))
+def test_a_section_opening_with_a_table_has_its_heading_on_the_page_its_first_row_is(
+        root_cause_words: int) -> None:
+    # A heading at the foot of a page with its table beginning on the next is
+    # a heading over nothing. A root cause of every length puts each heading
+    # at every height down a page.
+    Scenario() \
+        .given(
+            some_rendered := render(_a_table_under_every_heading(root_cause_words),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _on_one_page("Hypotheses considered", "Zhypothesis"),
+            _on_one_page("Resolution", "Zresolution"),
+            _on_one_page("Action items", "Zaction"),
+            _on_one_page("Timeline", "Ztimeline")))
+
+
+@pytest.mark.unit
+def test_a_first_row_too_tall_to_follow_its_heading_on_any_page_begins_under_it() -> None:
+    # Fifty-six lines: too many to sit under a section heading even at the top
+    # of a page, and too few for the table to cut the row - so it went whole
+    # to a page after its heading's, wherever the heading was set.
+    some_hypothesis = HypothesisConsidered(summary="Zband", confidence=0.8, label="C1",
+                                           result="\n".join(f"step{line}"
+                                                            for line in range(56)))
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(hypotheses=[some_hypothesis]), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _on_one_page("Hypotheses considered", "Zband"))
+
+
+@pytest.mark.unit
+def test_a_resolution_a_person_reported_keeps_its_heading_with_their_line_alone() -> None:
+    # The section opens with who resolved it, not with the table of steps, and
+    # a heading kept with a first row of forty lines went to the next page
+    # with half of this one still empty.
+    some_step = ResolutionStep(at=SOME_ONSET, action="Zstep", by="Argus", reversible=True,
+                               outcome="\n".join(f"step{line}" for line in range(40)),
+                               label="M1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(executive_summary="Zsummary",
+                                                 resolution=[some_step]),
+                                    an_alert(), [a_person_resolved_it("Kuki Buki")],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _on_one_page("Zsummary", "Resolution", "Resolved by Kuki Buki"))
+
+
+@pytest.mark.unit
 def test_a_label_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
     # Each piece of a line is written apart, and one with no space in it - a
     # label, a time - was cut wherever the line ran out: "(A" on one line and
@@ -1134,6 +1200,26 @@ def _every_section_filled() -> Postmortem:
                                 because="the cause rests on F1, a reading of the source "
                                         "nothing ran; running the proposed fix's tests "
                                         "against the current code would confirm it (AI-2)")])
+
+
+def _a_table_under_every_heading(root_cause_words: int) -> Postmortem:
+    """A postmortem whose four sections that open with a table each open on a
+    row taller than the room a heading is kept with, its first word found in
+    the file and nowhere else - after a root cause `root_cause_words` long,
+    which moves every one of them down the pages."""
+    some_words = " ".join(["word"] * 40)
+    return a_postmortem(
+        root_cause=" ".join(["word"] * root_cause_words) or None,
+        hypotheses=[HypothesisConsidered(summary=f"Zhypothesis {some_words}", confidence=0.8,
+                                         result="dont care", label="C1")],
+        resolution=[ResolutionStep(at=SOME_ONSET, action=f"Zresolution {some_words}",
+                                   by="Argus", reversible=True, outcome="dont care",
+                                   label="M1")],
+        action_items=[ActionItem(number="AI-1", text=f"Zaction {some_words} {some_words}",
+                                 type=ActionItemType.PROCESS, owner=None, tracking=None,
+                                 status=ActionItemStatus.OPEN)],
+        timeline=[TimelineEntry(at=SOME_ONSET, who="Argus",
+                                text=f"Ztimeline {' '.join([some_words] * 4)}", label="T1")])
 
 
 def _pages(pdf: bytes) -> list[str]:
