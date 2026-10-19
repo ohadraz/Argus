@@ -472,6 +472,28 @@ def test_the_detection_carries_the_rules_wait_as_measured() -> None:
 
 
 @pytest.mark.unit
+def test_the_detection_carries_whether_the_rule_held_before_the_onset_as_measured() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident().model_copy(
+                update={"rule_held_before_the_onset": False})
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the detection", lambda document: document.detection,
+                       detection_of(evidence, held_before_the_onset=False))
+        )
+
+
+@pytest.mark.unit
 def test_the_timeline_ends_where_the_measured_recovery_does() -> None:
     # Not where the record put it. The document's duration ends at the
     # measured recovery, and a timeline ending somewhere else would contradict

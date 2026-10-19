@@ -28,7 +28,7 @@ import pytest
 from agent_postmortem.estimate import RuleSeriesLevels, Unmeasured, calm_to_read_for
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.sources import EngagedResponder, EngagementAnswer, Metrics, PayBand, Revenue
-from argus_core.models import MetricBucket, Verdict
+from argus_core.models import MetricBucket, RuleLine, RuleReading, Verdict
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -987,6 +987,34 @@ def test_an_incident_no_rule_paged_for_asks_no_rule_how_long_it_waits() -> None:
                 _the_rule_waits(None),
                 _asked_how_long_these_rules_wait([], rules_asked_about)
             )
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_rule_held_before_the_onset_is_read_off_the_minutes_its_wait_reaches() -> None:
+    # The alert 4m 34s after the onset, from a rule that waits five, and the
+    # minute before the onset short of the rule's line: the record a page said
+    # the condition held before the onset of.
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET - timedelta(minutes=1), error_rate=dont_care_error_rate,
+                         rule_reading=RuleReading(value=0.89, worse_when="below",
+                                                  line=RuleLine(at=0.8, fires_on_it=False)))]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=4, seconds=34),
+                                           rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between,
+                                                   rule_wait=a_rule_waiting(300))
+                            ).rule_held_before_the_onset
+        ) \
+        .then(
+            the_answer_was(False)
         )
 
 

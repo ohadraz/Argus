@@ -176,6 +176,25 @@ def test_detection_carries_how_long_the_rule_waits_as_it_was_measured(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("held", [True, False, None], ids=["held", "did-not-hold", "unknown"])
+def test_detection_carries_whether_the_rule_held_before_the_onset_as_measured(
+        held: bool | None) -> None:
+    # The writer has the series and the page does not, so what the minutes
+    # before the onset said travels on the detection.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, started_at=STARTED_AT,
+                                           rule=SOME_RULE)
+        ) \
+        .when(
+            lambda: detection_of(evidence, held_before_the_onset=held).held_before_the_onset
+        ) \
+        .then(
+            the_answer_was(held)
+        )
+
+
+@pytest.mark.unit
 def test_the_trigger_is_the_change_the_confirmed_candidate_blamed() -> None:
     # Dated by the change the investigation read, the latest one to that
     # subject - an earlier toggle of the same flag is history, not the trigger.

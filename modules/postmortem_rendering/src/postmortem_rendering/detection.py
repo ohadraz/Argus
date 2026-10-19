@@ -73,10 +73,15 @@ def _the_rules_wait(detection: Detection) -> str:
     gap and never inside it - and nothing where no rule paged.
 
     A rule fires only once its condition has held for its wait, so an alert
-    fewer minutes after the onset than that says the condition held before the
-    measured onset: a finding the record makes, said rather than left for a
-    reader to notice. Only where the alert came after the onset; one dated
-    before it says so already. A wait nobody could read is not one of nothing.
+    fewer minutes after the onset than that claims the condition held before
+    the measured onset - said only where the series bears it out. Where a
+    minute before the onset was short of the rule's line, the alert and the
+    series disagree, and the page says what was read rather than which of the
+    two is wrong; where nothing was read - every document written before the
+    series was weighed among them - it says the alert came sooner than the
+    wait and draws nothing from it. Only where the alert came after the onset;
+    one dated before it says so already. A wait nobody could read is not one
+    of nothing.
     """
     waits = detection.rule_waits
 
@@ -89,8 +94,14 @@ def _the_rules_wait(detection: Detection) -> str:
     if not waits:
         return " - its rule fires as soon as its condition holds"
 
+    shorter = (f" - shorter than the {as_span(waits)} its rule's condition must hold "
+               f"before it fires")
     if detection.gap is not None and timedelta(0) <= detection.gap < waits:
-        return (f" - shorter than the {as_span(waits)} its rule's condition must hold "
-                f"before it fires, so the condition held before the measured onset")
+        if detection.held_before_the_onset is True:
+            return f"{shorter}, so the condition held before the measured onset"
+        if detection.held_before_the_onset is False:
+            return (f"{shorter}, though not every minute of that wait before the measured "
+                    f"onset met it")
+        return shorter
 
     return f" - its rule fires only once its condition has held for {as_span(waits)}"

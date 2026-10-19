@@ -57,6 +57,7 @@ from agent_postmortem.estimate import (
     duration_in_hours,
     error_rates_over,
     in_the_reporting_currency,
+    rule_held_before_the_onset,
     rule_series_over,
     weeks_back_for,
     why_no_error_rates,
@@ -158,6 +159,11 @@ class Measurements(BaseModel):
     # a rule nobody could read is not one that fires at once.
     rule_waits: timedelta | None = None
     rule_wait_unread: bool = False
+    # Whether the rule's series was past its line in every minute its wait
+    # reaches back to before the onset (`rule_held_before_the_onset`), and
+    # `None` where that could not be read - or there was no onset or wait to
+    # read it for.
+    rule_held_before_the_onset: bool | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -260,7 +266,11 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_series=rule_series_over(metrics, began, back_to_normal_at),
         error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at),
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
-        rule_wait_unread=evidence.rule is not None and waits is None
+        rule_wait_unread=evidence.rule is not None and waits is None,
+        rule_held_before_the_onset=(
+            rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
+                                       timedelta(seconds=waits))
+            if evidence.onset_at is not None and waits is not None else None)
     )
 
 

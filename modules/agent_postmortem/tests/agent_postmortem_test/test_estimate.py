@@ -23,6 +23,7 @@ from agent_postmortem.estimate import (
     beyond_the_variation,
     calm_to_read_for,
     error_rates_over,
+    rule_held_before_the_onset,
     rule_series_over,
     why_no_error_rates,
 )
@@ -824,6 +825,122 @@ def test_a_shortfall_beyond_the_shop_s_own_variation_is_lost_in_full() -> None:
         .then(
             _estimates(some_shortfall_beyond_it)
         )
+
+
+@pytest.mark.unit
+def test_a_rule_held_before_the_onset_where_each_minute_of_its_wait_was_past_its_line() -> None:
+    # An alert three minutes after the onset of a rule that waits five says its
+    # condition held for the two minutes before - which the series either
+    # bears out or does not. A minute further back is no part of the wait.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3),
+                          rule_reading=_a_reading(0.95)),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=_a_reading(0.74)),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1),
+                          rule_reading=_a_reading(0.71))
+            ]
+        ) \
+        .when(
+            lambda: rule_held_before_the_onset(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=3),
+                                               timedelta(minutes=5))
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_did_not_hold_where_a_minute_of_its_wait_fell_short_of_its_line() -> None:
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=_a_reading(0.89)),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1),
+                          rule_reading=_a_reading(0.71))
+            ]
+        ) \
+        .when(
+            lambda: rule_held_before_the_onset(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=3),
+                                               timedelta(minutes=5))
+        ) \
+        .then(
+            the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+def test_the_minute_the_rules_wait_begins_inside_is_one_it_reaches_back_to() -> None:
+    # 4m 34s after the onset, a wait of five began 26 seconds before it - inside
+    # the minute before, which is read whole: a minute is the finest the series
+    # comes in, and one left out for starting early leaves nothing to weigh.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1),
+                          rule_reading=_a_reading(0.89))
+            ]
+        ) \
+        .when(
+            lambda: rule_held_before_the_onset(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=4,
+                                                                          seconds=34),
+                                               timedelta(minutes=5))
+        ) \
+        .then(
+            the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+def test_a_wait_reaching_back_to_no_reading_says_nothing_of_whether_the_rule_held() -> None:
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=4),
+                          rule_reading=_a_reading(0.71)),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1))
+            ]
+        ) \
+        .when(
+            lambda: rule_held_before_the_onset(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=3),
+                                               timedelta(minutes=5))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_whose_line_could_not_be_read_says_nothing_of_whether_it_held() -> None:
+    # No line, nothing to be past: not a minute that failed to meet it.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1),
+                          rule_reading=RuleReading(value=0.71, worse_when="below"))
+            ]
+        ) \
+        .when(
+            lambda: rule_held_before_the_onset(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=3),
+                                               timedelta(minutes=5))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+def _a_reading(value: float) -> RuleReading:
+    """A minute of a share that pages under 0.8."""
+    return RuleReading(value=value, worse_when="below",
+                       line=RuleLine(at=0.8, fires_on_it=False))
 
 
 def _estimates(expected: Decimal) -> Assertion[Decimal]:

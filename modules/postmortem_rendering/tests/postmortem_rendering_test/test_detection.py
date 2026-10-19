@@ -86,32 +86,41 @@ def test_an_unknown_onset_is_said_to_be_and_no_gap_is_given() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("gap", "rule_waits", "rule_wait_unread", "said"), [
-    (timedelta(minutes=5, seconds=7), timedelta(minutes=5), False,
+@pytest.mark.parametrize(("gap", "rule_waits", "rule_wait_unread", "held", "said"), [
+    (timedelta(minutes=5, seconds=7), timedelta(minutes=5), False, None,
      ", 5m 7s later - its rule fires only once its condition has held for 5m 0s"),
-    (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False,
+    (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, True,
      ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
      "fires, so the condition held before the measured onset"),
-    (timedelta(seconds=40), timedelta(0), False,
+    (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, False,
+     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
+     "fires, though not every minute of that wait before the measured onset met it"),
+    (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, None,
+     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it fires"),
+    (timedelta(seconds=40), timedelta(0), False, None,
      ", 40s later - its rule fires as soon as its condition holds"),
-    (timedelta(minutes=5, seconds=7), None, True,
+    (timedelta(minutes=5, seconds=7), None, True, None,
      ", 5m 7s later - how long its rule waits before firing could not be read")
-], ids=["longer-than-the-wait", "shorter-than-the-wait", "no-wait", "unread"])
+], ids=["longer-than-the-wait", "shorter-than-the-wait-and-held",
+        "shorter-than-the-wait-and-did-not-hold", "shorter-than-the-wait-and-unknown",
+        "no-wait", "unread"])
 def test_detection_says_the_rules_wait_beside_the_gap(
         gap: timedelta, rule_waits: timedelta | None, rule_wait_unread: bool,
-        said: str) -> None:
-    # Beside the gap and never inside it: a rule fires only once its condition
-    # has held for its wait, so a gap shorter than the wait says the condition
-    # held before the measured onset - a finding the record makes, said rather
-    # than left for a reader to notice. A wait nobody could read is not one of
-    # nothing.
+        held: bool | None, said: str) -> None:
+    # Beside the gap and never inside it. A gap shorter than the wait says the
+    # condition held before the measured onset only where the minutes before it
+    # bear that out: where one of them was short of the rule's line the alert
+    # and the series disagree, and the page says what was read rather than
+    # which of the two is wrong - and where nothing was read, only the wait. A
+    # wait nobody could read is not one of nothing.
     some_alert = SOME_ONSET + gap
 
     Scenario() \
         .given(
             some_postmortem := a_postmortem(detection=Detection(
                 alerted_at=some_alert, rule="dont care", onset_at=SOME_ONSET, gap=gap,
-                rule_waits=rule_waits, rule_wait_unread=rule_wait_unread))
+                rule_waits=rule_waits, rule_wait_unread=rule_wait_unread,
+                held_before_the_onset=held))
         ) \
         .when(
             lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line

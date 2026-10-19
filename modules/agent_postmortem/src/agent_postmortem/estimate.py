@@ -358,6 +358,31 @@ def rule_series_over(buckets: list[MetricBucket],
     )
 
 
+def rule_held_before_the_onset(buckets: list[MetricBucket],
+                               onset_at: datetime,
+                               alerted_at: datetime,
+                               waits: timedelta) -> bool | None:
+    """Whether the rule's series was past its line in every minute its wait
+    reaches back to before the onset - what an alert sooner after the onset
+    than the wait claims.
+
+    From the minute the wait began inside, read whole: a minute is the finest
+    the series comes in, and leaving out the one the wait began part-way
+    through would leave nothing to weigh for an alert seconds short of the
+    wait. `None` where no minute there carries a reading, or one carries no
+    line to be past - nothing read is not a minute that failed to meet it.
+    """
+    began = (alerted_at - waits).replace(second=0, microsecond=0)
+    readings = [bucket.rule_reading for bucket in buckets
+                if bucket.rule_reading is not None
+                and began <= parse_iso(bucket.bucket_id) < onset_at]
+
+    if not readings or any(reading.line is None for reading in readings):
+        return None
+
+    return all(reading.is_past_its_line() for reading in readings)
+
+
 def in_the_reporting_currency(taken: Mapping[str, Decimal],
                               rates: RateTable) -> tuple[Decimal, list[str]]:
     """One figure out of several, and whatever could not be converted.

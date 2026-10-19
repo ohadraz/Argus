@@ -86,7 +86,8 @@ _COMMENT_MARKS: Final = ("#", ";", "//")
 
 def detection_of(evidence: IncidentEvidence,
                  rule_waits: timedelta | None = None,
-                 rule_wait_unread: bool = False) -> Detection:
+                 rule_wait_unread: bool = False,
+                 held_before_the_onset: bool | None = None) -> Detection:
     """When the alert fired, which rule fired it, and how long after the onset.
 
     No gap without an onset: the alert's own time is not when the service
@@ -96,6 +97,9 @@ def detection_of(evidence: IncidentEvidence,
 
     And how long the rule's condition must hold before it fires, as measured
     (`rule_waits`, `rule_wait_unread`): what a reader weighs the gap against.
+    And whether the series bore out what an alert sooner than that claims
+    (`held_before_the_onset`), which only the writer, holding the series, can
+    say.
     """
     return Detection(
         alerted_at=evidence.alerted_at,
@@ -105,7 +109,8 @@ def detection_of(evidence: IncidentEvidence,
              if evidence.onset_at is not None else None),
         said=next(iter(the_alert_labelled(evidence)), None),
         rule_waits=rule_waits,
-        rule_wait_unread=rule_wait_unread
+        rule_wait_unread=rule_wait_unread,
+        held_before_the_onset=held_before_the_onset
     )
 
 

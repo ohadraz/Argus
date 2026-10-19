@@ -219,6 +219,12 @@ class Detection(BaseModel):
     says - a rule nobody could read is not one that fires at once. Both
     default to saying nothing, which a document written before either was
     carried reads as.
+
+    `held_before_the_onset` is whether the series the rule evaluates was past
+    its line in every minute its wait reaches back to before the onset - what
+    an alert sooner after the onset than the wait claims, and what only the
+    writer, holding the series, can check. `None` where no minute there was
+    read, or the line, the wait or the onset was not.
     """
 
     alerted_at: datetime
@@ -228,6 +234,7 @@ class Detection(BaseModel):
     said: CitedEvidence | None = None
     rule_waits: timedelta | None = None
     rule_wait_unread: bool = False
+    held_before_the_onset: bool | None = None
 
     @model_validator(mode="after")
     def _a_wait_read_is_not_unread(self) -> Detection:
