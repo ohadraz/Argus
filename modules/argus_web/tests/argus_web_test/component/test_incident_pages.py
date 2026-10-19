@@ -1781,6 +1781,29 @@ def test_a_row_standing_for_several_candidates_answers_to_each_label() -> None:
 
 
 @pytest.mark.component
+def test_a_time_said_again_on_the_reader_s_clock_leaves_no_space_where_it_is_not() -> None:
+    # A reader whose clock is UTC is shown no local time, and a space left
+    # before the empty box sat alone before whatever followed the time:
+    # "13:13 UTC , in the deploy".
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _no_space_before_a_local_time()
+        )
+
+
+@pytest.mark.component
 def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
     # The line that formed the candidates names them by label, and a reader
     # follows each to what it was.
@@ -2262,6 +2285,23 @@ def _the_page_does_not_read(text: str) -> Assertion[str]:
     def assertion(page: str) -> bool:
         if text in _what_a_reader_sees(page):
             raise AssertionError(f"Expected the page not to read [{text}], it did.")
+
+        return True
+
+    return assertion
+
+
+def _no_space_before_a_local_time() -> Assertion[str]:
+    """Each box for a time on the reader's own clock follows its time with
+    nothing between - the space before it is the script's to add, with the
+    time it fills the box with."""
+    def assertion(page: str) -> bool:
+        boxes = page.count('<span class="local"')
+        spaced = re.findall(r'\S{0,12}\s+<span class="local"', page)
+
+        if not boxes or spaced:
+            raise AssertionError(f"Expected each of the page's {boxes} local-time boxes to "
+                                 f"follow its time with no space, found one after {spaced}.")
 
         return True
 

@@ -87,7 +87,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
                         None)
         fix = StepRow(label=None,
                       at=on_the_clock(proposed) if proposed else "-",
-                      action=Line(runs=(Run(text="proposed a fix: "),
+                      action=Line(runs=(Run(text="Proposed a fix: "),
                                         Run.a_pull_request(postmortem.pull_request.number)
                                         .linked_to(postmortem.pull_request.url))),
                       by=_THE_FIXER,

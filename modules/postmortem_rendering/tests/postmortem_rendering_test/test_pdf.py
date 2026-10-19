@@ -901,6 +901,88 @@ def test_the_first_page_carries_argus_s_mark_and_no_other_does() -> None:
             _only_the_first_page_has_an_image())
 
 
+@pytest.mark.unit
+def test_a_label_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
+    # Each piece of a line is written apart, and one with no space in it - a
+    # label, a time - was cut wherever the line ran out: "(A" on one line and
+    # "I-1)" on the next. A factor of every length puts the label at every
+    # place along a line.
+    some_factors = [ContributingFactor(text=" ".join(["word"] * length), addressed_by=["AI-1"])
+                    for length in range(1, 40)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(contributing_factors=some_factors,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
+
+
+@pytest.mark.unit
+def test_a_word_running_into_a_label_through_a_non_breaking_space_goes_on_with_it() -> None:
+    # A non-breaking space is there to keep its two sides on one line, so the
+    # word a line is measured to end on runs through it and into the label.
+    some_factors = [ContributingFactor(text=" ".join(["word"] * length) + " see\u00a0AI-1 now",
+                                       addressed_by=[])
+                    for length in range(1, 40)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(contributing_factors=some_factors,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("see\u00a0AI-1"))
+
+
+@pytest.mark.unit
+def test_each_item_a_step_rests_on_is_set_on_a_line_of_its_own() -> None:
+    # As the page sets them. Run together after semicolons, where one item
+    # ends and the next begins is the reader's to find.
+    some_step = ChainStep(text="dont care",
+                          cites=[CitedEvidence(label="X1", text="first seen"),
+                                 CitedEvidence(label="X2", text="then seen")])
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(causal_chain=[some_step]), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _set_lower_than("then seen", "first seen"))
+
+
+@pytest.mark.unit
+def test_the_proposed_fix_s_row_links_its_name_alone() -> None:
+    # As the page links it: the words around the name say what was done, and
+    # only the name opens the fix.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(pull_request=some_fix), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_out_to(some_fix.url, covering="PR #7"))
+
+
 def _a_hypothesis(summary: str) -> HypothesisConsidered:
     return HypothesisConsidered(summary=summary, confidence=0.8, result="dont care", label="C1")
 
@@ -1382,6 +1464,58 @@ def _set_lower_than(later: str, earlier: str) -> Assertion[bytes]:
         return True
 
     return assertion
+
+
+def _never_cut_across_lines(word: str) -> Assertion[bytes]:
+    """No line of the PDF's text ends partway through `word` with the next
+    going on with the rest of it - a non-breaking space in it read as either
+    space it can come back as."""
+    def assertion(pdf: bytes) -> bool:
+        text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+        cuts = [f"{word[:at]} / {word[at:]}" for at in range(1, len(word))
+                if re.search(_spelled(word[:at]) + "[ \u00a0]*\n[ \u00a0]*" + _spelled(word[at:]),
+                             text)]
+
+        if cuts:
+            raise AssertionError(f"Expected [{word}] never cut across two lines, and the PDF "
+                                 f"cuts it as {cuts}.")
+
+        return True
+
+    return assertion
+
+
+def _spelled(text: str) -> str:
+    """`text` as a pattern, a non-breaking space in it matching either space."""
+    return re.escape(text).replace("\u00a0", "[ \u00a0]")
+
+
+def _a_link_out_to(address: str, covering: str) -> Assertion[bytes]:
+    """Some link out to `address` covers `covering` and nothing beside it: the
+    pieces of text set inside its rectangle say it, and only it."""
+    def assertion(pdf: bytes) -> bool:
+        covered = [" ".join(piece.text for piece in _pieces_on(page)
+                            if _inside(piece, link["/Rect"]))
+                   for page in PdfReader(io.BytesIO(pdf)).pages
+                   for link in (annotation.get_object() for annotation in page.get("/Annots", []))
+                   if "/A" in link and link["/A"].get("/URI") == address]
+
+        if covering not in covered:
+            raise AssertionError(f"Expected a link out to {address} covering [{covering}] "
+                                 f"alone, and the links out to it cover {covered}.")
+
+        return True
+
+    return assertion
+
+
+def _inside(piece: _Piece, rectangle: Any) -> bool:
+    """Whether a piece of text sits inside a link's rectangle - its middle,
+    across and up, since a link is drawn over its words' line rather than
+    around their letters."""
+    left, bottom, right, top = (float(each) for each in rectangle)
+    return (left <= (piece.left + piece.right) / 2 <= right
+            and bottom <= (piece.bottom + piece.top) / 2 <= top)
 
 
 def _baseline(cm: list[float], tm: list[float]) -> float:

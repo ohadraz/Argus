@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from itertools import accumulate, pairwise
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 from fpdf import FPDF
 from fpdf.enums import TableBordersLayout, TableBorderStyle, TableCellStyle
@@ -309,27 +309,113 @@ def _link(pdf: _Sheet, run: Run) -> str | int:
 def _runs(pdf: _Sheet, runs: Sequence[Run], size: float, height: float) -> None:
     """Runs written inline, wrapping at the margins in force, each set in what
     its role looks like."""
-    for run in _cited(pdf, runs):
-        family, style, colour, text, pt = _BODY, "", _INK, run.text, size
-
-        match run.role:
-            case Role.CODE:
-                family, pt = _MONO, size * 0.9
-            case Role.STRONG | Role.TO_STATE | Role.STATUS:
-                style = "B"
-            case Role.FROM_STATE:
-                style, colour = "S", _MUTED
-            case Role.QUOTE:
-                text = f"“{run.text}”"
-            case Role.LINK | Role.CITATION:
-                colour = _LINK
-            case Role.PLAIN | Role.PROSE | Role.NARRATION | Role.MOMENT:
-                pass
-
-        pdf.set_font(family, style, pt)
-        pdf.set_text_color(*colour)
-        pdf.write(height, text, link=_link(pdf, run))
+    _written(pdf, height, [(run, _the_look_of(run, size)) for run in _cited(pdf, runs)])
     pdf.set_text_color(*_INK)
+
+
+class _Look(NamedTuple):
+    """How a run is set inline: its face, style, size and colour, and its
+    words as they are written."""
+
+    family: str
+    style: str
+    size: float
+    colour: tuple[int, int, int]
+    text: str
+
+
+def _the_look_of(run: Run, size: float) -> _Look:
+    """A run of body text as its role looks at `size` points."""
+    match run.role:
+        case Role.CODE:
+            return _Look(_MONO, "", size * 0.9, _INK, run.text)
+        case Role.STRONG | Role.TO_STATE | Role.STATUS:
+            return _Look(_BODY, "B", size, _INK, run.text)
+        case Role.FROM_STATE:
+            return _Look(_BODY, "S", size, _MUTED, run.text)
+        case Role.QUOTE:
+            return _Look(_BODY, "", size, _INK, f"“{run.text}”")
+        case Role.LINK | Role.CITATION:
+            return _Look(_BODY, "", size, _LINK, run.text)
+        case Role.PLAIN | Role.PROSE | Role.NARRATION | Role.MOMENT:
+            return _Look(_BODY, "", size, _INK, run.text)
+
+
+def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> None:
+    """Runs written inline, wrapping at the margins in force, each in its own
+    look - and a word that does not fit what is left of a line starting the
+    next one, whole.
+
+    fpdf2 wraps a run at the spaces in it, and a word it cannot break before -
+    the first of a run, or one going on into the next run - it cuts wherever
+    the line runs out: "(A" on one line and "I-2)" on the next. So each such
+    word is measured where it begins, across every run it goes on into and
+    each in its own face, as `_where_the_lines_lie` measures a word: a soft
+    hyphen takes no room and a non-breaking space joins rather than parts. A
+    word wider than a whole line is left to fpdf2 to cut."""
+    said = "".join(look.text for _, look in runs)
+    begins = list(accumulate((len(look.text) for _, look in runs), initial=0))
+
+    for place, (run, look) in enumerate(runs):
+        start, end = begins[place], begins[place + 1]
+        # Where a word fpdf2 cannot break before begins in this run: at its
+        # start, and after its last break where the word goes on past it.
+        last = max(said.rfind(each, start, end) for each in _BREAKS) + 1
+        checks = [at for at in {start, last}
+                  if start <= at < end and _a_word_begins_at(said, at)
+                  and (at == start or _the_end_of_the_word(said, at) > end)]
+
+        written = start
+        for at in [*sorted(checks), end]:
+            if at > written:
+                _set_as(pdf, look)
+                pdf.write(height, said[written:at], link=_link(pdf, run))
+            if at < end:
+                _room_for(pdf, height,
+                          _how_wide(pdf, runs, begins, at, _the_end_of_the_word(said, at)))
+            written = at
+
+
+def _a_word_begins_at(said: str, at: int) -> bool:
+    return said[at] not in _BREAKS and (at == 0 or said[at - 1] in _BREAKS)
+
+
+def _the_end_of_the_word(said: str, at: int) -> int:
+    """Where the word beginning at `at` ends: at the next break, or the end."""
+    ends = [found for each in _BREAKS if (found := said.find(each, at)) != -1]
+    return min(ends, default=len(said))
+
+
+def _how_wide(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]], begins: Sequence[int],
+              start: int, end: int) -> float:
+    """How wide the words from `start` to `end` are set, each piece in the
+    look of the run it is in, a soft hyphen taking no room."""
+    wide = 0.0
+    for place, (_, look) in enumerate(runs):
+        piece = look.text[max(start, begins[place]) - begins[place]:
+                          min(end, begins[place + 1]) - begins[place]]
+        if piece:
+            _set_as(pdf, look)
+            wide += pdf.get_string_width(piece.replace(_SOFT_HYPHEN, ""))
+    return wide
+
+
+def _room_for(pdf: _Sheet, height: float, wide: float) -> None:
+    """A new line where a word `wide` does not fit what is left of this one
+    and would fit a whole one."""
+    left, right = pdf.l_margin, pdf.w - pdf.r_margin
+    if pdf.get_x() > left + _LEEWAY and wide > right - pdf.get_x() and wide <= right - left:
+        pdf.ln(height)
+
+
+# How far into a line the writing has to be before a word is moved off it:
+# less, and it is at the line's start already, where moving it gains nothing.
+_LEEWAY: Final = 0.01
+
+
+def _set_as(pdf: _Sheet, look: _Look) -> None:
+    pdf.set_font(look.family, look.style, look.size)
+    pdf.set_text_color(*look.colour)
 
 
 def _a_paragraph(pdf: _Sheet, line: Line, size: float = _TEXT_PT, height: float = _LINE) -> None:
@@ -874,8 +960,9 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence_label: str,
                          evidence: Sequence[Line]) -> None:
     """One step: its place in a quiet column of its own, the claim beside it,
-    and what it rests on on its own line under the claim - each item's label
-    leading to its row, and whatever its row links, linked."""
+    and what it rests on under the claim, each item on a line of its own as
+    the page sets them - each item's label leading to its row, and whatever
+    its row links, linked."""
     left, label_width = pdf.l_margin, 16.0
     pdf.set_x(left)
     pdf.set_font(_BODY, "", _TABLE_PT)
@@ -889,15 +976,13 @@ def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence
         pdf.set_x(left + label_width)
         pdf.set_text_color(*_MUTED)
         pdf.set_font(_BODY, "B", _SMALL_PT)
-        pdf.write(3.8, f"{evidence_label} ")
-        pdf.set_font(_BODY, "", _SMALL_PT)
-        for after_the_first, cited in enumerate(evidence):
-            if after_the_first:
-                pdf.set_text_color(*_MUTED)
-                pdf.write(3.8, "; ")
-            for run in _cited(pdf, cited.runs):
-                pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else _MUTED))
-                pdf.write(3.8, run.text, link=_link(pdf, run))
+        pdf.write(3.8, evidence_label)
+        for cited in evidence:
+            pdf.ln(3.8)
+            _written(pdf, 3.8, [(run, _Look(_BODY, "", _SMALL_PT,
+                                            _LINK if run.role in (Role.CITATION, Role.LINK)
+                                            else _MUTED, run.text))
+                                for run in _cited(pdf, cited.runs)])
         pdf.ln(3.8)
     pdf.ln(2.2)
     pdf.set_left_margin(left)
@@ -917,10 +1002,10 @@ def _a_factor(pdf: _Sheet, text: Sequence[Run], addressed_by: Line | None) -> No
     _runs(pdf, text, _TEXT_PT, _LINE)
     if addressed_by is not None:
         pdf.set_x(pdf.get_x() + 1.5)
-        pdf.set_font(_MONO, "", _SMALL_PT)
-        for run in _cited(pdf, addressed_by.runs):
-            pdf.set_text_color(*(_LINK if run.role is Role.CITATION else _MUTED))
-            pdf.write(_LINE, run.text, link=_link(pdf, run))
+        _written(pdf, _LINE, [(run, _Look(_MONO, "", _SMALL_PT,
+                                          _LINK if run.role is Role.CITATION else _MUTED,
+                                          run.text))
+                              for run in _cited(pdf, addressed_by.runs)])
     pdf.ln(_LINE + 1.0)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
@@ -959,9 +1044,10 @@ def _the_resolution(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     if steps:
         rows: list[list[_Cell]] = []
         for step in steps:
-            address = next((run.address for run in step.action.runs if run.address), None)
+            # The action as its line says it, so only what the line links is a
+            # link - the fix's name, not the words saying what was done.
             rows.append([(step.at, _TIME, None),
-                         (step.action.said, _LINKED if address else None, address),
+                         step.action,
                          (step.by, None, None), (step.kind, None, None),
                          (step.outcome_in_the_table, None, None)])
         _a_table(pdf, taken.headings, rows, widths=(18, 54, 24, 37, 41),

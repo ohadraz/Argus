@@ -73,7 +73,7 @@ def test_the_chain_starts_at_the_symptom_and_asks_why_of_each_step_with_its_evid
                 ChainLink(place="symptom",
                           claim=Line(runs=(Run(text="account pages failed", role=Role.PROSE),)),
                           evidence=(_cited("T1", "500s on /account"),)),
-                ChainLink(place="why 2",
+                ChainLink(place="why 1",
                           claim=Line(runs=(Run(text="the monthly average divided by zero",
                                                role=Role.PROSE),)),
                           evidence=(_cited("G3fa2", "ZeroDivisionError"),

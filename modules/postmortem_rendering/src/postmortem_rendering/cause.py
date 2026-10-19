@@ -59,11 +59,11 @@ class CauseSection(BaseModel):
 def the_cause(postmortem: PostmortemDocument, rows: Mapping[str, Line]) -> CauseSection:
     """The section as the model wrote it, in its order - each item a step
     cites said as `rows` says its row does, by label."""
-    chain = tuple(ChainLink(place="symptom" if place == 1 else f"why {place}",
+    chain = tuple(ChainLink(place="symptom" if whys == 0 else f"why {whys}",
                             claim=_prose(step.text),
                             evidence=tuple(_as_its_row_says_it(cited, rows)
                                            for cited in step.cites))
-                  for place, step in enumerate(postmortem.causal_chain, start=1))
+                  for whys, step in enumerate(postmortem.causal_chain))
 
     factors = tuple(Factor(text=_prose(factor.text),
                            addressed_by=(_prose(f"({', '.join(factor.addressed_by)})")

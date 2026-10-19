@@ -106,7 +106,7 @@ def test_the_proposed_fix_is_a_row_of_its_own_dated_by_the_line_that_proposed_it
         ) \
         .then(
             the_answer_was(StepRow(label=None, at="14:08:30",
-                                   action=Line(runs=(Run(text="proposed a fix: "),
+                                   action=Line(runs=(Run(text="Proposed a fix: "),
                                                      Run(text="PR #7", role=Role.LINK,
                                                          address=SOME_FIX.url))),
                                    by="Code-Fix Agent", kind="needs a person to merge",
