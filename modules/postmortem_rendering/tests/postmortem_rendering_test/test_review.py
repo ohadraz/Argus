@@ -29,18 +29,21 @@ def test_each_check_is_ticked_crossed_or_left_for_a_person() -> None:
         ) \
         .then(
             the_answer_was((
-                ReviewRow(criterion="impact assessed", met="yes", mark="✓", meaning="met"),
+                ReviewRow(criterion="impact assessed", met="yes", mark="✓", meaning="met",
+                          because=None),
                 ReviewRow(criterion="root-cause analysis complete", met="no", mark="✗",
-                          meaning="not met"),
+                          meaning="not met", because=None),
                 ReviewRow(criterion="reviewed and shared", met="left", mark="✗",
-                          meaning="for a person"))))
+                          meaning="for a person", because=None))))
 
 
 @pytest.mark.unit
 def test_a_check_left_for_a_person_says_what_they_would_do() -> None:
     # A check the analysis could not meet alone is left for a person, and the
     # row says what that person would do - "for a person" alone reads as the
-    # two checks only people ever meet.
+    # two checks only people ever meet. Said apart from the mark's meaning: the
+    # meaning is a word that fits beside the check, and the reason a sentence
+    # that has to wrap.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(review=[
@@ -54,8 +57,9 @@ def test_a_check_left_for_a_person_says_what_they_would_do() -> None:
         .then(
             the_answer_was((
                 ReviewRow(criterion="root-cause analysis complete", met="left", mark="✗",
-                          meaning="for a person - the cause rests on F1, a reading of the "
-                                  "source nothing ran"),)))
+                          meaning="for a person",
+                          because="the cause rests on F1, a reading of the source nothing "
+                                  "ran"),)))
 
 
 @pytest.mark.unit

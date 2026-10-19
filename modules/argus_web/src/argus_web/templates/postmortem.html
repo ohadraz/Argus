@@ -415,7 +415,9 @@ document.addEventListener('DOMContentLoaded', function () {
 </section>
 
 {# A tick for what is met, a cross for what is not yet - including the two only
-   people can meet, which stay crossed until a person does. #}
+   people can meet, which stay crossed until a person does. What a person would
+   do to meet a check is said under it, where it is read, not in the tooltip of
+   its cross. #}
 {% set review = postmortem.review %}
 <section data-section="review">
 <h2>{{ headings["review"] }}</h2>
@@ -423,7 +425,8 @@ document.addEventListener('DOMContentLoaded', function () {
 <ul class="checks">
 {% for check in review.rows %}
   <li data-met="{{ check.met }}"><span class="tick" title="{{ check.meaning }}">{{ check.mark }}</span>
-    {{ check.criterion }}</li>
+    <span>{{ check.criterion }}{% if check.because %}
+      <span class="because">{{ check.because }}</span>{% endif %}</span></li>
 {% endfor %}
 </ul>
 {% else %}

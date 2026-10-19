@@ -21,6 +21,7 @@ line while fpdf2 logs it, so the file is still made.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from itertools import accumulate, pairwise
 from pathlib import Path
 from typing import Final
@@ -109,31 +110,48 @@ class _Sheet(FPDF):
         if self.page_no() == 1:
             return
 
-        self.set_y(_TOP)
-        self.set_text_color(*_INK)
-        self.set_font(_BODY, "B", _SMALL_PT)
-        self.set_char_spacing(1.6)
-        self.cell(16, 4, "ARGUS")
-        self.set_char_spacing(0)
-        self.set_font(_MONO, "", _SMALL_PT)
-        id_width = self.get_string_width(self._incident_id)
-        self.set_font(_BODY, "", _SMALL_PT)
-        self.set_text_color(*_MUTED)
-        title_width = _WIDTH - 16 - id_width - 3
-        self.cell(title_width, 4, self._shortened(self._title, title_width - 3))
-        self.set_font(_MONO, "", _SMALL_PT)
-        self.cell(id_width, 4, self._incident_id, align="R")
-        self._rule(_TOP + 5.5, _CLOAK, 0.3)
+        with self._from_the_side():
+            self.set_y(_TOP)
+            self.set_text_color(*_INK)
+            self.set_font(_BODY, "B", _SMALL_PT)
+            self.set_char_spacing(1.6)
+            self.cell(16, 4, "ARGUS")
+            self.set_char_spacing(0)
+            self.set_font(_MONO, "", _SMALL_PT)
+            id_width = self.get_string_width(self._incident_id)
+            self.set_font(_BODY, "", _SMALL_PT)
+            self.set_text_color(*_MUTED)
+            title_width = _WIDTH - 16 - id_width - 3
+            self.cell(title_width, 4, self._shortened(self._title, title_width - 3))
+            self.set_font(_MONO, "", _SMALL_PT)
+            self.cell(id_width, 4, self._incident_id, align="R")
+            self._rule(_TOP + 5.5, _CLOAK, 0.3)
+        # Under the header at the body's own margin, so a block the page broke
+        # inside goes on at its indent.
         self.set_y(_BELOW_THE_HEADER)
 
     def footer(self) -> None:
-        self.set_y(-15)
-        self._rule(self.get_y(), _RULE, 0.26)
-        self.set_y(-13.5)
-        self.set_font(_BODY, "", 7.1)
-        self.set_text_color(*_MUTED)
-        self.cell(_WIDTH / 2, 4, self._written)
-        self.cell(_WIDTH / 2, 4, f"Page {self.page_no()} of {{nb}}", align="R")
+        with self._from_the_side():
+            self.set_y(-15)
+            self._rule(self.get_y(), _RULE, 0.26)
+            self.set_y(-13.5)
+            self.set_font(_BODY, "", 7.1)
+            self.set_text_color(*_MUTED)
+            self.cell(_WIDTH / 2, 4, self._written)
+            self.cell(_WIDTH / 2, 4, f"Page {self.page_no()} of {{nb}}", align="R")
+
+    @contextmanager
+    def _from_the_side(self) -> Iterator[None]:
+        """Sets what is written inside it from the page's side margin. A page
+        breaks wherever the body is, and the footer closing it and the header
+        opening the next are written then - with the body's margin in force,
+        which inside an indented block is the indent."""
+        left = self.l_margin
+        self.set_left_margin(_SIDE)
+        try:
+            yield
+        finally:
+            self.set_left_margin(left)
 
     def _rule(self, y: float, colour: tuple[int, int, int], width: float) -> None:
         self.set_draw_color(*colour)
@@ -1085,10 +1103,13 @@ def _a_reference(pdf: _Sheet, label: str, values: Sequence[Sequence[Run]]) -> No
 def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     """Each check: its mark in a column of its own, the criterion at the body's
     size, and what the mark means set quiet at the right margin, read as a
-    status rather than as part of the criterion."""
+    status rather than as part of the criterion. What a person would do to
+    meet it is a sentence, set quiet under the criterion in the criterion's
+    own column, where it wraps rather than running into the status."""
     review = rendered.review
     if review.absent:
         _quiet(pdf, review.absent)
+    width = _WIDTH - 5 - 42
     for row in review.rows:
         y = pdf.get_y()
         pdf.set_font(_BODY, "", _LABEL_PT)
@@ -1101,8 +1122,12 @@ def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         pdf.cell(5, _LINE, row.mark)
         pdf.set_font(_BODY, "", _TEXT_PT)
         pdf.set_text_color(*_INK)
-        pdf.multi_cell(_WIDTH - 5 - 42, _LINE, row.criterion, align="L",
-                       new_x="LMARGIN", new_y="NEXT")
+        pdf.multi_cell(width, _LINE, row.criterion, align="L", new_x="LEFT", new_y="NEXT")
+        if row.because:
+            pdf.set_font(_BODY, "", _LABEL_PT)
+            pdf.set_text_color(*_MUTED)
+            pdf.multi_cell(width, 4.0, row.because, align="L", new_x="LEFT", new_y="NEXT")
+            pdf.set_text_color(*_INK)
         pdf.ln(1.2)
 
 

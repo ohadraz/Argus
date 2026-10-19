@@ -19,7 +19,12 @@ _FOR_A_PERSON: Final = "for a person"
 
 class ReviewRow(BaseModel):
     """One check: what it asks, whether it is met (`yes`, `no`, or `left` for a
-    person), its mark, and what the mark means."""
+    person), its mark, what the mark means, and - for a check left for a
+    person that is more than the check itself - what that person would do.
+
+    The meaning and the reason are apart because they are set apart: the
+    meaning is a word that fits beside the check, the reason a sentence that
+    has to wrap under it."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -27,6 +32,7 @@ class ReviewRow(BaseModel):
     met: str
     mark: str
     meaning: str
+    because: str | None
 
 
 class ReviewSection(BaseModel):
@@ -44,10 +50,9 @@ def the_review(postmortem: PostmortemDocument) -> ReviewSection:
     rows = tuple(ReviewRow(criterion=check.criterion,
                            met="left" if check.met is None else ("yes" if check.met else "no"),
                            mark=_TICK if check.met else _CROSS,
-                           meaning=(_FOR_A_PERSON + (f" - {check.because}" if check.because
-                                                     else "")
-                                    if check.met is None
-                                    else ("met" if check.met else "not met")))
+                           meaning=(_FOR_A_PERSON if check.met is None
+                                    else ("met" if check.met else "not met")),
+                           because=check.because)
                  for check in postmortem.review)
 
     return ReviewSection(rows=rows, absent=None if rows else "Not reviewed.")

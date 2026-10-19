@@ -1049,6 +1049,31 @@ def test_the_postmortem_header_says_whether_a_person_has_reviewed_it(met: bool |
 
 
 @pytest.mark.component
+def test_a_check_left_for_a_person_says_what_they_would_do_on_the_page() -> None:
+    # Said only in the tooltip of its cross, it is said to nobody: a reader
+    # does not hover over a mark to learn what to do about it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with(review=[
+            ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                            because="the cause rests on F1, a reading of the source nothing ran")
+        ]))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _the_page_reads("the cause rests on F1, a reading of the source nothing ran")
+        )
+
+
+@pytest.mark.component
 def test_the_postmortem_header_says_argus_ended_an_incident_nobody_reported_over() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 

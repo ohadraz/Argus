@@ -8,10 +8,13 @@ rather than how it looks; where a link is the claim, where it lands.
 
 from __future__ import annotations
 
+import functools
 import io
 import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from importlib.resources import files
+from typing import Any, NamedTuple
 
 import pytest
 from argus_core.models import (
@@ -37,6 +40,7 @@ from argus_core.models import (
     Trigger,
 )
 from argus_testkit import Assertion, Scenario, all_of
+from fpdf import FPDF
 from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import render
 from pypdf import PageObject, PdfReader
@@ -55,6 +59,11 @@ from postmortem_rendering_test.framework.builders import (
 
 SOME_ADDRESS = "http://argus.example/incidents/0b1c"
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
+
+# The page's side margins, 18 mm each, in the points a PDF measures in.
+_MARGIN = 18 * 72 / 25.4
+# How far, in points, text may stray before it counts - less than any glyph.
+_LEEWAY = 0.5
 
 
 @pytest.mark.unit
@@ -102,7 +111,11 @@ def test_every_section_says_what_the_document_holds() -> None:
                                "Log messages read (UTC)", "The divisor was zero.",
                                "The flag was the only change.",
                                "✓", "Key incident data collected",
-                               "✗", "Document reviewed and shared"))
+                               "✗", "Document reviewed and shared",
+                               "✗", "Root-cause analysis complete",
+                               "the cause rests on F1, a reading of the source nothing ran; "
+                               "running the proposed fix's tests against the current code "
+                               "would confirm it (AI-2)"))
 
 
 @pytest.mark.unit
@@ -676,6 +689,42 @@ def test_no_cell_is_painted_over_the_words_written_into_it() -> None:
 
 
 @pytest.mark.unit
+def test_no_text_is_set_over_other_text_or_past_the_margins() -> None:
+    # A line given a cell too narrow for it runs out of the cell - over its
+    # neighbour, or off the page - and the text read back still says every
+    # word of it, so only where it is set can show it.
+    Scenario() \
+        .given(
+            some_rendered := render(_every_section_filled(), an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _nothing_set_over_other_text(),
+            _everything_set_inside_the_margins()))
+
+
+@pytest.mark.unit
+def test_a_page_breaking_inside_an_indented_block_keeps_its_header_and_footer_in_place() -> None:
+    # One step of the chain longer than a page: the page breaks while the
+    # step's indent is the margin, and the footer closing one page and the
+    # header opening the next are set from wherever the margin is then.
+    some_step = ChainStep(text="Requests failed on the account page. " * 150, cites=[])
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(causal_chain=[some_step]), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _everything_set_inside_the_margins())
+
+
+@pytest.mark.unit
 def test_money_is_printed_to_the_cent_with_its_currency() -> None:
     Scenario() \
         .given(
@@ -848,7 +897,11 @@ def _every_section_filled() -> Postmortem:
         tokens_spent=12345,
         assumptions=["The flag was the only change."],
         review=[ReviewCriterion(criterion="Key incident data collected", met=True),
-                ReviewCriterion(criterion="Document reviewed and shared", met=None)])
+                ReviewCriterion(criterion="Document reviewed and shared", met=None),
+                ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                                because="the cause rests on F1, a reading of the source "
+                                        "nothing ran; running the proposed fix's tests "
+                                        "against the current code would confirm it (AI-2)")])
 
 
 def _pages(pdf: bytes) -> list[str]:
@@ -1100,6 +1153,109 @@ def _nothing_set_is_painted_over() -> Assertion[bytes]:
         return True
 
     return assertion
+
+
+def _nothing_set_over_other_text() -> Assertion[bytes]:
+    """No two pieces of text on a page are set where they cross."""
+    def assertion(pdf: bytes) -> bool:
+        crossing = [(number, one.text, other.text)
+                    for number, page in enumerate(_set_pieces(pdf), start=1)
+                    for place, one in enumerate(page)
+                    for other in page[place + 1:]
+                    if _cross(one, other)]
+
+        if crossing:
+            raise AssertionError(f"Expected no text set over other text, and on (page, one, "
+                                 f"other) {crossing} it is.")
+
+        return True
+
+    return assertion
+
+
+def _everything_set_inside_the_margins() -> Assertion[bytes]:
+    """Every piece of text starts and ends between the page's side margins."""
+    def assertion(pdf: bytes) -> bool:
+        width = float(PdfReader(io.BytesIO(pdf)).pages[0].mediabox.width)
+        outside = [(number, round(piece.left, 1), round(piece.right, 1), piece.text)
+                   for number, page in enumerate(_set_pieces(pdf), start=1)
+                   for piece in page
+                   if piece.left < _MARGIN - _LEEWAY or piece.right > width - _MARGIN + _LEEWAY]
+
+        if outside:
+            raise AssertionError(f"Expected all text set between {_MARGIN:.1f} and "
+                                 f"{width - _MARGIN:.1f} points across, and on (page, left, "
+                                 f"right, text) {outside} it is not.")
+
+        return True
+
+    return assertion
+
+
+class _Piece(NamedTuple):
+    """A piece of text and where it is set, in points: across, and up from a
+    little under its baseline to the top of its capitals."""
+
+    text: str
+    left: float
+    right: float
+    bottom: float
+    top: float
+
+
+def _cross(one: _Piece, other: _Piece) -> bool:
+    across = min(one.right, other.right) - max(one.left, other.left)
+    up = min(one.top, other.top) - max(one.bottom, other.bottom)
+    return across > _LEEWAY and up > _LEEWAY
+
+
+def _set_pieces(pdf: bytes) -> list[list[_Piece]]:
+    """Each page's pieces of text, in the order they are set."""
+    return [_pieces_on(page) for page in PdfReader(io.BytesIO(pdf)).pages]
+
+
+def _pieces_on(page: PageObject) -> list[_Piece]:
+    """pypdf says where a piece starts and in which font at which size; how far
+    it runs is measured in the fonts the file was made with, since a PDF says
+    nothing of the width of what it sets."""
+    pieces: list[_Piece] = []
+
+    def visit(text: str, cm: list[float], tm: list[float], font: dict[str, Any] | None,
+              size: float) -> None:
+        # pypdf puts a space before a piece it reads as following on, which
+        # the file never drew.
+        said = text.strip()
+        if not said or font is None:
+            return
+        left = tm[4] * cm[0] + tm[5] * cm[2] + cm[4]
+        baseline = _baseline(cm, tm)
+        pieces.append(_Piece(text=said, left=left,
+                             right=left + _width(said, str(font["/BaseFont"]), size),
+                             bottom=baseline - 0.2 * size, top=baseline + 0.7 * size))
+
+    page.extract_text(visitor_text=visit)
+    return pieces
+
+
+def _width(text: str, font: str, size: float) -> float:
+    """How far `text` runs at `size` points in `font`, named as the file names
+    it: a subset's tag, then the font - `MPDFAA+PublicSans`."""
+    measure, families = _measure()
+    measure.set_font(families[font.split("+")[-1]], size=size)
+    return measure.get_string_width(text)
+
+
+@functools.cache
+def _measure() -> tuple[FPDF, dict[str, str]]:
+    """Every font the package ships, loaded to measure in points, and the
+    family each is loaded as by the name a PDF gives it."""
+    measure = FPDF(unit="pt")
+    families: dict[str, str] = {}
+    for font in (files("postmortem_rendering") / "fonts").iterdir():
+        if font.name.endswith(".ttf"):
+            measure.add_font(font.name, fname=str(font))
+            families[measure.fonts[font.name.lower()].name] = font.name
+    return measure, families
 
 
 def _landings(reader: PdfReader) -> list[tuple[int, float]]:
