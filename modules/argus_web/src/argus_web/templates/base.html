@@ -507,11 +507,12 @@
                                    opacity: .6; font-weight: 400; }
   .postmortem-timeline table.timeline td { padding: 9px 14px; border-bottom: 1px solid var(--muted);
                                                 vertical-align: top; }
-  .postmortem-timeline table.timeline td:first-child { font-family: ui-monospace, monospace;
-                                                            white-space: nowrap; opacity: .75;
-                                                            padding-right: 36px; }
+  /* The time, after the label a citation of the row names. */
+  .postmortem-timeline table.timeline td:nth-child(2) { font-family: ui-monospace, monospace;
+                                                             white-space: nowrap; opacity: .75;
+                                                             padding-right: 36px; }
   .postmortem-timeline tr.marker td { font-weight: 600; }
-  .postmortem-timeline tr.marker td:first-child { opacity: 1; }
+  .postmortem-timeline tr.marker td:nth-child(2) { opacity: 1; }
   /* Coloured by what each marker means for the service: broken, seen, put
      right, over. */
   .postmortem-timeline span.marker { font-family: ui-monospace, monospace;
@@ -543,8 +544,9 @@
   ol.chain .claim { margin: 0 0 4px; }
   ol.chain .evidence { display: block; margin: 0; font-size: .82em; opacity: .65; }
   ol.chain .cited { display: block; font-size: .95em; }
-  table.evidence-read td.label, .lead-label { font-family: ui-monospace, monospace;
-                                               font-size: .85em; color: var(--eye); }
+  table.evidence-read td.label, table.timeline td.label, table.resolution-steps td.label,
+  .lead-label { font-family: ui-monospace, monospace; font-size: .85em; color: var(--eye);
+                white-space: nowrap; }
   /* A diff keeps its lines and the spaces that set them in. */
   table.diffs-read td.diff { font-family: ui-monospace, monospace; font-size: .85em;
                              white-space: pre-wrap; }

@@ -10,6 +10,8 @@ from typing import Final
 from argus_core.models import PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
+from postmortem_rendering.lines import Line, Role, Run
+
 _TICK: Final = "✓"
 _CROSS: Final = "✗"
 _OPEN: Final = "○"
@@ -25,7 +27,8 @@ class ReviewRow(BaseModel):
 
     The meaning and the reason are apart because they are set apart: the
     meaning is a word that fits beside the check, the reason a sentence that
-    has to wrap under it."""
+    has to wrap under it. The reason names labels as the prose does, so a
+    label in it leads to its row as one in the prose does."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -33,7 +36,7 @@ class ReviewRow(BaseModel):
     met: str
     mark: str
     meaning: str
-    because: str | None
+    because: Line | None
 
 
 class ReviewSection(BaseModel):
@@ -53,7 +56,8 @@ def the_review(postmortem: PostmortemDocument) -> ReviewSection:
                            mark=_OPEN if check.met is None else (_TICK if check.met else _CROSS),
                            meaning=(_FOR_A_PERSON if check.met is None
                                     else ("met" if check.met else "not met")),
-                           because=check.because)
+                           because=(Line(runs=(Run(text=check.because, role=Role.PROSE),))
+                                    if check.because else None))
                  for check in postmortem.review)
 
     return ReviewSection(rows=rows, absent=None if rows else "Not reviewed.")

@@ -89,7 +89,7 @@ def test_the_table_names_its_columns_and_their_zone() -> None:
             lambda: the_actions_taken(dont_care_postmortem, resolution=None).headings
         ) \
         .then(
-            the_answer_was(("Time (UTC)", "Action", "By", "Kind", "Outcome")))
+            the_answer_was(("", "Time (UTC)", "Action", "By", "Kind", "Outcome")))
 
 
 @pytest.mark.unit

@@ -1833,6 +1833,60 @@ def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
 
 
 @pytest.mark.component
+def test_a_step_and_a_line_of_the_timeline_show_the_label_they_are_cited_by() -> None:
+    # Every other row a citation lands on says its label, and a reader running
+    # an eye down the timeline for T1 finds it there too.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with(
+            resolution=[ResolutionStep(at=datetime(2026, 10, 11, 14, 5, tzinfo=UTC),
+                                       action="Turned the flag off", by="Argus",
+                                       reversible=True, outcome="dont care", label="M1")],
+            timeline=[TimelineEntry(at=datetime(2026, 10, 11, 14, 3, tzinfo=UTC),
+                                    who="Argus", text="The flag went on.", label="T1")]))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says('<td class="label">M1</td>'),
+            the_page_says('<td class="label">T1</td>')
+        ))
+
+
+@pytest.mark.component
+def test_a_label_a_check_left_for_a_person_cites_links_to_its_row() -> None:
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with(
+            action_items=[ActionItem(number="AI-2", text="dont care",
+                                     type=ActionItemType.PREVENT, owner=None, tracking=None,
+                                     status=ActionItemStatus.OPEN)],
+            review=[ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                                    because="running the proposed fix's tests would "
+                                            "confirm it (AI-2)")]))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says('confirm it (<a href="#AI-2">AI-2</a>)')
+        )
+
+
+@pytest.mark.component
 def test_a_change_the_root_cause_names_links_to_its_row() -> None:
     # "The deploy P2" means nothing to a reader until it leads somewhere: to
     # the change, said as the model was shown it.

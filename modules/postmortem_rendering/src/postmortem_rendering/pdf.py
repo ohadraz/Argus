@@ -1056,11 +1056,12 @@ def _the_resolution(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         for step in steps:
             # The action as its line says it, so only what the line links is a
             # link - the fix's name, not the words saying what was done.
-            rows.append([(step.at, _TIME, None),
+            rows.append([(step.label or "", _NUMBER, None),
+                         (step.at, _TIME, None),
                          step.action,
                          (step.by, None, None), (step.kind, None, None),
                          (step.outcome_in_the_table, None, None)])
-        _a_table(pdf, taken.headings, rows, widths=(18, 54, 24, 37, 41),
+        _a_table(pdf, taken.headings, rows, widths=(12, 18, 48, 24, 34, 38),
                  landings=[(step.label,) if step.label else () for step in steps])
     elif taken.absent:
         _quiet(pdf, taken.absent)
@@ -1188,18 +1189,20 @@ def _a_lessons_column(pdf: _Sheet, lessons: LessonList, left: float, top: float,
 
 
 def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
-    """Each line in a row: when, its marker, and who said what - written run by
-    run, so a candidate the line names leads to its row."""
+    """Each line in a row: the label a citation of it names, when, its marker,
+    and who said what - written run by run, so a candidate the line names
+    leads to its row."""
     timeline = rendered.timeline
     if timeline.absent:
         _quiet(pdf, timeline.absent)
         return
 
     _a_table(pdf, None,
-             [[(row.at, _TIME, None), (row.marker or "", _MARKER, None),
+             [[(row.label or "", _NUMBER, None), (row.at, _TIME, None),
+               (row.marker or "", _MARKER, None),
                Line(runs=(*((Run(text=f"{row.who} "),) if row.who else ()), *row.text.runs))]
               for row in timeline.rows],
-             widths=(31, 29, 114), align=("R", "L", "L"),
+             widths=(14, 31, 29, 100), align=("L", "R", "L", "L"),
              landings=[(row.label,) if row.label else () for row in timeline.rows])
 
 
@@ -1294,11 +1297,13 @@ def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     size, and what the mark means set quiet at the right margin, read as a
     status rather than as part of the criterion. What a person would do to
     meet it is a sentence, set quiet under the criterion in the criterion's
-    own column, where it wraps rather than running into the status."""
+    own column, where it wraps rather than running into the status - written
+    run by run, so a label it cites leads to its row."""
     review = rendered.review
     if review.absent:
         _quiet(pdf, review.absent)
     width = _WIDTH - 5 - 42
+    right = pdf.r_margin
     for row in review.rows:
         y = pdf.get_y()
         pdf.set_font(_BODY, "", _LABEL_PT)
@@ -1313,10 +1318,10 @@ def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         pdf.set_text_color(*_INK)
         pdf.multi_cell(width, _LINE, row.criterion, align="L", new_x="LEFT", new_y="NEXT")
         if row.because:
-            pdf.set_font(_BODY, "", _LABEL_PT)
-            pdf.set_text_color(*_MUTED)
-            pdf.multi_cell(width, 4.0, row.because, align="L", new_x="LEFT", new_y="NEXT")
-            pdf.set_text_color(*_INK)
+            pdf.set_right_margin(right + 42)
+            _beneath(pdf, row.because.runs, indent=5, colour=_MUTED, height=4.0,
+                     size=_LABEL_PT, after=0)
+            pdf.set_right_margin(right)
         pdf.ln(1.2)
 
 

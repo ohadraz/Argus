@@ -235,11 +235,11 @@ document.addEventListener('DOMContentLoaded', function () {
   <thead><tr>{% for heading in taken.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
   {% for step in taken.steps %}
-    <tr id="{{ step.label }}"><td>{{ step.at }}</td><td>{{ said(step.action) }}</td><td>{{ step.by }}</td>
+    <tr id="{{ step.label }}"><td class="label">{{ step.label or "" }}</td><td>{{ step.at }}</td><td>{{ said(step.action) }}</td><td>{{ step.by }}</td>
       <td>{{ step.kind }}</td><td>{{ step.outcome_in_the_table }}</td></tr>
   {% endfor %}
   {% if taken.fix %}
-    <tr><td>{{ taken.fix.at }}</td><td>{{ said(taken.fix.action, link="resolution-fix") }}</td>
+    <tr><td class="label"></td><td>{{ taken.fix.at }}</td><td>{{ said(taken.fix.action, link="resolution-fix") }}</td>
       <td>{{ taken.fix.by }}</td><td>{{ taken.fix.kind }}</td><td class="draft">{{ taken.fix.outcome }}</td></tr>
   {% endif %}
   </tbody>
@@ -314,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <table class="timeline">
   <tbody>
   {% for row in timeline.rows %}
-    <tr{% if row.label %} id="{{ row.label }}"{% endif %}{% if row.marker %} class="marker"{% endif %}><td>{{ row.at }}</td>
+    <tr{% if row.label %} id="{{ row.label }}"{% endif %}{% if row.marker %} class="marker"{% endif %}><td class="label">{{ row.label or "" }}</td><td>{{ row.at }}</td>
       <td>{% if row.marker %}<span class="marker {{ row.marker | lower | replace(' ', '-') }}">{{ row.marker }}</span> {% endif %}
         {%- if row.who %}<span class="who">{{ row.who }}</span> {% endif %}{{ said(row.text, fix_url=fix_url) }}</td></tr>
   {% endfor %}
@@ -430,7 +430,7 @@ document.addEventListener('DOMContentLoaded', function () {
 {% for check in review.rows %}
   <li data-met="{{ check.met }}"><span class="tick" title="{{ check.meaning }}">{{ check.mark }}</span>
     <span>{{ check.criterion }}{% if check.because %}
-      <span class="because">{{ check.because }}</span>{% endif %}</span></li>
+      <span class="because">{{ said(check.because, labels, addresses) }}</span>{% endif %}</span></li>
 {% endfor %}
 </ul>
 {% else %}

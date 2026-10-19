@@ -17,7 +17,9 @@ from postmortem_rendering.formatting import on_the_clock
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import ReportedResolution
 
-_HEADINGS: Final = ("Time (UTC)", "Action", "By", "Kind", "Outcome")
+# The first column is the label a citation of a step names, headed by nothing,
+# as the hypotheses' is.
+_HEADINGS: Final = ("", "Time (UTC)", "Action", "By", "Kind", "Outcome")
 
 # Who the narration says proposed a fix, which dates the fix's row.
 _THE_FIXER: Final = "Code-Fix Agent"

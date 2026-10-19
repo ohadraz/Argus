@@ -1010,6 +1010,54 @@ def test_the_proposed_fix_s_row_links_its_name_alone() -> None:
             _a_link_out_to(some_fix.url, covering="PR #7"))
 
 
+@pytest.mark.unit
+def test_a_cited_step_and_a_cited_line_of_the_timeline_show_their_labels() -> None:
+    # Paper is read by eye: a reader following "M1" runs down a column of
+    # labels, and a row that answers to M1 without saying so is found only by
+    # clicking.
+    some_step = ResolutionStep(at=SOME_ONSET, action="Turned the flag off", by="Argus",
+                               reversible=True, outcome="dont care", label="M1")
+    some_line = TimelineEntry(at=SOME_ONSET, who=None, text="The flag went on.", label="T1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(executive_summary="M1 and T1 tell it.",
+                             resolution=[some_step], timeline=[some_line]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _a_link_lands_on("M1"),
+            _a_link_lands_on("T1")))
+
+
+@pytest.mark.unit
+def test_a_label_a_check_left_for_a_person_cites_leads_to_the_row_it_names() -> None:
+    # What a person would do to meet a check names labels as the prose does,
+    # and a label in it is a citation like any other.
+    some_item = ActionItem(number="AI-2", text="Merge the fix.",
+                           type=ActionItemType.PREVENT, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN)
+    some_check = ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                                 because="running the proposed fix's tests would confirm "
+                                         "it (AI-2)")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(action_items=[some_item], review=[some_check]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("AI-2 Merge the fix."))
+
+
 def _a_hypothesis(summary: str) -> HypothesisConsidered:
     return HypothesisConsidered(summary=summary, confidence=0.8, result="dont care", label="C1")
 
