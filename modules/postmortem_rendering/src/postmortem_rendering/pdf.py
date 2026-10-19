@@ -289,15 +289,36 @@ def _a_heading(pdf: _Sheet, heading: str, keep_with: float = 0.0) -> None:
 _A_HEADING: Final = 6.0 + 5.2 + 2.0
 
 
-def _a_subheading(pdf: _Sheet, heading: str, space_above: float = 3.6) -> None:
+def _a_subheading(pdf: _Sheet, heading: str, space_above: float = 3.6,
+                  keep_with: float = 0.0) -> None:
     """A heading inside a section, set at the body's size so it is never
-    smaller than what it introduces, and kept close to it."""
-    pdf.ln(space_above)
+    smaller than what it introduces, and kept close to it - on a fresh page
+    where `keep_with` millimetres of what it heads would not follow it on this
+    one, and would on a whole one, and with no space above it where it opens
+    a page. Nothing kept where `keep_with` is nothing: a lessons column is set
+    beside others, and its heading cannot leave them."""
+    tall = _a_subheading_s_height(space_above) + keep_with
+    if keep_with and pdf.will_page_break(tall) and _fits_a_page_under_its_heading(pdf, tall, 0.0):
+        pdf.add_page()
+    if pdf.get_y() > _BELOW_THE_HEADER + 0.5:
+        pdf.ln(space_above)
     pdf.set_x(pdf.l_margin)
     pdf.set_font(_BODY, "B", _TEXT_PT)
     pdf.set_text_color(*_INK)
     pdf.cell(0, _LINE, heading, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1.0)
+
+
+def _a_subheading_s_height(space_above: float = 3.6) -> float:
+    """How tall a subheading is set: the space above it, its line, and the
+    space under it - worked out from the space its call gives it, so what is
+    kept with it and the table under it measure the one heading."""
+    return space_above + _LINE + 1.0
+
+
+# How much of the text under a subheading it is kept with: the first line of
+# a claim, a factor or a lesson under it, and the line after.
+_TEXT_KEPT_WITH_A_SUBHEADING: Final = 2 * _LINE
 
 
 def _cited(pdf: _Sheet, runs: Sequence[Run]) -> Iterator[Run]:
@@ -550,15 +571,16 @@ type _Cell = tuple[str, FontFace | None, str | None] | Line
 
 class _Table(NamedTuple):
     """A table as `_a_table` sets it, worked out from the document both for
-    the section that sets it and for the heading kept with its start - which
-    it opens the section under, unless `opening_a_section` says otherwise."""
+    what sets it and for the heading kept with its start. `under_a_heading` is
+    how tall the heading it is set straight under is - a section's, unless it
+    says otherwise, and nothing where something else comes between."""
 
     headings: Sequence[str] | None
     rows: Sequence[Sequence[_Cell]]
     widths: Sequence[float]
     align: Sequence[str] | None = None
     landings: Sequence[tuple[str, ...]] = ()
-    opening_a_section: bool = True
+    under_a_heading: float = _A_HEADING
 
 
 _CELL_LINE: Final = 4.2
@@ -616,14 +638,14 @@ class _RuledAcross(TableBordersLayout):
 
 def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequence[_Cell]],
              widths: Sequence[float], align: Sequence[str] | None = None,
-             landings: Sequence[tuple[str, ...]] = (), opening_a_section: bool = False) -> None:
+             landings: Sequence[tuple[str, ...]] = (), under_a_heading: float = 0.0) -> None:
     """A table ruled across between its rows, its headings small and
     capitalised over an ink rule and repeated on every page it runs onto - or
     a table with no headings where `headings` is `None`. `widths` are in
     millimetres; `align` sets each column, left where it is not given;
     `landings` are the labels each row goes by, none for a row without one;
-    `opening_a_section` whether it is set straight under a section's heading,
-    which its first row has to fit under to be set whole.
+    `under_a_heading` how tall the heading it is set straight under is, which
+    its first row has to fit under to be set whole - nothing for none.
 
     A cell given as a line is left empty, as tall as the line needs, and the
     line written into it as its row is drawn.
@@ -641,7 +663,7 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
     pdf.set_fill_color(pdf.DEFAULT_FILL_COLOR)
     pdf.set_line_width(0.26)
     aligned = list(align) if align else ["L"] * len(widths)
-    pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None, opening_a_section)
+    pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None, under_a_heading)
     starts = list(accumulate((len(each) for each in pieces[:-1]), initial=0))
     rows = [piece for each in pieces for piece in each]
     layout = _RuledAcross(pdf, {(place, column): (cell, widths[column])
@@ -682,7 +704,7 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
 def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
                             widths: Sequence[float],
                             under_headings: bool,
-                            opening_a_section: bool = False) -> list[list[list[_Cell]]]:
+                            under_a_heading: float = 0.0) -> list[list[list[_Cell]]]:
     """Each row as the rows the pages hold it in: itself, where it fits on the
     page it begins on or on a fresh one, and otherwise cut - its first piece
     as many lines as the room left where it begins, so whatever is set above
@@ -695,10 +717,11 @@ def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
     first piece with room for too few lines is not begun there: the row
     starts on the next page instead.
 
-    The first row of a table opening a section goes to a fresh page only
-    where it would fit one under the section's heading - the test the heading
-    was kept with it by (`_the_start_of`). Sent to a fresh page it could not
-    follow its heading on, it would leave the heading over nothing."""
+    The first row of a table set straight under a heading `under_a_heading`
+    tall goes to a fresh page only where it would fit one under that heading -
+    the test the heading was kept with it by (`_how_much_of_a_table_starts`).
+    Sent to a fresh page it could not follow its heading on, it would leave
+    the heading over nothing."""
     headings = _A_ROW + _CELL_LINE if under_headings else 0.0
     bottom = pdf.h - pdf.b_margin
     fresh = _BELOW_THE_HEADER + headings
@@ -712,8 +735,8 @@ def _as_the_pages_hold_them(pdf: _Sheet, rows: Sequence[Sequence[_Cell]],
             at += tall
             placed.append([list(cells)])
             continue
-        if (_fits_a_page_under_its_heading(pdf, headings + tall)
-                if opening_a_section and place == 0 else tall <= bottom - fresh):
+        if (_fits_a_page_under_its_heading(pdf, headings + tall, under_a_heading)
+                if under_a_heading and place == 0 else tall <= bottom - fresh):
             at = fresh + tall
             placed.append([list(cells)])
             continue
@@ -984,14 +1007,14 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     if cause.root_cause is not None:
         _a_paragraph(pdf, cause.root_cause)
 
-    _a_subheading(pdf, cause.chain_heading)
+    _a_subheading(pdf, cause.chain_heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
     if cause.chain_absent:
         _quiet(pdf, cause.chain_absent)
     for link in cause.chain:
         _a_link_in_the_chain(pdf, link.place, link.claim.runs,
                              cause.evidence_label, link.evidence)
 
-    _a_subheading(pdf, cause.factors_heading)
+    _a_subheading(pdf, cause.factors_heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
     if cause.factors_absent:
         _quiet(pdf, cause.factors_absent)
     for factor in cause.factors:
@@ -1105,7 +1128,7 @@ def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
                    for step in steps],
                   widths=(12, 18, 48, 24, 34, 38),
                   landings=[(step.label,) if step.label else () for step in steps],
-                  opening_a_section=taken.person is None)
+                  under_a_heading=_A_HEADING if taken.person is None else 0.0)
 
 
 def _the_detection(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1118,9 +1141,17 @@ def _the_detection(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     # What the alert said, a row as the supporting rows are, for a citation of
     # it to land on.
     if detection.said is not None:
-        _a_subheading(pdf, detection.said_heading)
-        _a_table(pdf, None, [[(detection.said.label, _NUMBER, None), detection.said.said]],
-                 widths=(16, 158), landings=[(detection.said.label,)])
+        _a_table_under_a_subheading(pdf, detection.said_heading, _Table(
+            None, [[(detection.said.label, _NUMBER, None), detection.said.said]],
+            widths=(16, 158), landings=[(detection.said.label,)],
+            under_a_heading=_a_subheading_s_height()))
+
+
+def _a_table_under_a_subheading(pdf: _Sheet, heading: str, table: _Table) -> None:
+    """A subheading and the table it heads, the heading kept with the table's
+    start as a section's heading is (`_how_much_of_a_table_starts`)."""
+    _a_subheading(pdf, heading, keep_with=_how_much_of_a_table_starts(pdf, table))
+    _a_table(pdf, *table)
 
 
 def _the_action_items(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
@@ -1162,7 +1193,8 @@ def _the_lessons(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
     if not _fits_a_page_under_its_heading(pdf, tall):
         for lessons in rendered.lessons:
-            _a_lessons_column(pdf, lessons, _SIDE, pdf.get_y(), _WIDTH)
+            _a_lessons_column(pdf, lessons, _SIDE, pdf.get_y(), _WIDTH,
+                              keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
             pdf.ln(1.0)
         bottom = pdf.get_y()
     else:
@@ -1188,11 +1220,15 @@ def _the_lessons_columns(lists: int) -> tuple[list[float], float]:
 
 def _the_lessons_kept_together(pdf: _Sheet, rendered: RenderedPostmortem) -> float:
     """How much of the lessons their heading is kept with: the columns whole,
-    which cannot break, where they fit a page under it - and nothing where
-    they do not, being set one under another then, breaking as they need."""
+    which cannot break, where they fit a page under it - and where they do
+    not, being set one under another then, breaking as they need, the first
+    list's heading and what that is kept with, so it cannot go on to a fresh
+    page without this one."""
     lefts, width = _the_lessons_columns(len(rendered.lessons))
     tall = _how_tall(pdf, rendered.lessons, lefts, width)
-    return tall if _fits_a_page_under_its_heading(pdf, tall) else 0.0
+    if _fits_a_page_under_its_heading(pdf, tall):
+        return tall
+    return _a_subheading_s_height(space_above=0) + _TEXT_KEPT_WITH_A_SUBHEADING
 
 
 def _the_start_of(table_of: Callable[[RenderedPostmortem], _Table]
@@ -1208,25 +1244,33 @@ def _the_start_of(table_of: Callable[[RenderedPostmortem], _Table]
     before it measures and the section before this one may have left
     otherwise."""
     def kept(pdf: _Sheet, rendered: RenderedPostmortem) -> float:
-        table = table_of(rendered)
-        if not table.rows or not table.opening_a_section:
-            return 0.0
-        pdf.set_font(_BODY, "", _TABLE_PT)
-        headings = _A_ROW + _CELL_LINE if table.headings is not None else 0.0
-        whole = headings + _how_tall_a_row_is(pdf, table.rows[0], table.widths)
-        if _fits_a_page_under_its_heading(pdf, whole):
-            return whole
-        return headings + _A_ROW + _CELL_LINE * (_FEWEST_LINES_BEGUN + 1)
+        return _how_much_of_a_table_starts(pdf, table_of(rendered))
 
     return kept
 
 
-def _fits_a_page_under_its_heading(pdf: _Sheet, tall: float) -> bool:
-    """Whether a section `tall` fits a fresh page under its heading - the one
-    test both where the heading breaks and how the lessons are set rest on,
-    so the lessons are set across the page exactly where their heading could
-    not be kept with them."""
-    return tall <= pdf.h - pdf.b_margin - _BELOW_THE_HEADER - _A_HEADING
+def _how_much_of_a_table_starts(pdf: _Sheet, table: _Table) -> float:
+    """How much of a table the heading it is set straight under is kept with:
+    its headings and its first row whole, where they fit a page under that
+    heading, and otherwise its headings and the fewest lines a row cut across
+    pages begins with - and nothing for a table under no heading of its own."""
+    if not table.rows or not table.under_a_heading:
+        return 0.0
+    pdf.set_font(_BODY, "", _TABLE_PT)
+    headings = _A_ROW + _CELL_LINE if table.headings is not None else 0.0
+    whole = headings + _how_tall_a_row_is(pdf, table.rows[0], table.widths)
+    if _fits_a_page_under_its_heading(pdf, whole, table.under_a_heading):
+        return whole
+    return headings + _A_ROW + _CELL_LINE * (_FEWEST_LINES_BEGUN + 1)
+
+
+def _fits_a_page_under_its_heading(pdf: _Sheet, tall: float,
+                                   heading: float = _A_HEADING) -> bool:
+    """Whether a section `tall` fits a fresh page under a heading `heading`
+    tall - the one test both where the heading breaks and how the lessons are
+    set rest on, so the lessons are set across the page exactly where their
+    heading could not be kept with them."""
+    return tall <= pdf.h - pdf.b_margin - _BELOW_THE_HEADER - heading
 
 
 def _how_tall(pdf: _Sheet, lists: Sequence[LessonList], lefts: Sequence[float],
@@ -1246,13 +1290,15 @@ def _how_tall(pdf: _Sheet, lists: Sequence[LessonList], lefts: Sequence[float],
 
 
 def _a_lessons_column(pdf: _Sheet, lessons: LessonList, left: float, top: float,
-                      width: float) -> float:
+                      width: float, keep_with: float = 0.0) -> float:
     """One list under its heading, `width` wide from `left` and `top`, with the
-    margins set to it - and where it ends."""
+    margins set to it - and where it ends. Its heading is kept with `keep_with`
+    of the list where the lists are set one under another, and with nothing
+    where they are set beside each other, which a heading cannot leave."""
     pdf.set_left_margin(left)
     pdf.set_right_margin(_PAGE_WIDTH - left - width)
     pdf.set_xy(left, top)
-    _a_subheading(pdf, lessons.heading, space_above=0)
+    _a_subheading(pdf, lessons.heading, space_above=0, keep_with=keep_with)
     if lessons.absent:
         _quiet(pdf, lessons.absent)
     for lesson in lessons.items:
@@ -1331,13 +1377,14 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     ):
         if not rows and absent is None:
             continue
-        _a_subheading(pdf, heading)
         if absent:
+            _a_subheading(pdf, heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
             _quiet(pdf, absent)
         else:
-            _a_table(pdf, None,
-                     [[(row.label, _NUMBER, None), row.said] for row in rows],
-                     widths=(16, 158), landings=[(row.label,) for row in rows])
+            _a_table_under_a_subheading(pdf, heading, _Table(
+                None, [[(row.label, _NUMBER, None), row.said] for row in rows],
+                widths=(16, 158), landings=[(row.label,) for row in rows],
+                under_a_heading=_a_subheading_s_height()))
     pdf.ln(2.0)
 
     assumptions = [[*assumption.runs] for assumption in supporting.assumptions]

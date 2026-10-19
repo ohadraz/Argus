@@ -1018,6 +1018,49 @@ def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("root_cause_words", "item_words", "subheading"), [
+    pytest.param(468, 80, "Causal chain", id="causal-chain"),
+    pytest.param(288, 80, "Contributing factors", id="contributing-factors"),
+    pytest.param(600, 80, "What the alert said", id="what-the-alert-said"),
+    pytest.param(906, 80, "Changes to production read", id="changes-read"),
+    pytest.param(870, 80, "Log messages read (UTC)", id="log-messages-read"),
+    pytest.param(432, 40, "What each deployment looked into changed", id="deployments"),
+    pytest.param(492, 80, "What Code-Fix read in the source - a static reading, nothing ran it",
+                 id="code-fix-read"),
+    pytest.param(348, 80, "What went wrong", id="what-went-wrong"),
+    pytest.param(318, 80, "Where it got lucky", id="where-it-got-lucky"),
+    pytest.param(372, 80, "Lessons learned", id="lessons-set-one-under-another")
+])
+def test_a_subheading_is_set_on_the_page_what_it_heads_begins_on(
+        root_cause_words: int, item_words: int, subheading: str) -> None:
+    # A subheading at the foot of a page with what it heads beginning on the
+    # next is a heading over nothing. Each length is one that set its
+    # subheading there, so the subheading is pinned to open the next page
+    # instead - and every other subheading is held to its first item too.
+    Scenario() \
+        .given(
+            some_rendered := render(_every_subsection_filled(root_cause_words, item_words),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _opens_its_page(subheading),
+            _on_one_page("Causal chain", "Zchain"),
+            _on_one_page("Contributing factors", "Zfactor"),
+            _on_one_page("What the alert said", "Zalert"),
+            _on_one_page("Changes to production read", "Zchange"),
+            _on_one_page("Log messages read (UTC)", "Zlog"),
+            _on_one_page("What each deployment looked into changed", "Zdeploy"),
+            _on_one_page("What Code-Fix read in the source", "Zcode"),
+            _on_one_page("What went well", "Zwell0"),
+            _on_one_page("What went wrong", "Zwrong0"),
+            _on_one_page("Where it got lucky", "Zlucky0"),
+            _on_one_page("Lessons learned", "Zwell0")))
+
+
+@pytest.mark.unit
 def test_a_label_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
     # Each piece of a line is written apart, and one with no space in it - a
     # label, a time - was cut wherever the line ran out: "(A" on one line and
@@ -1243,6 +1286,30 @@ def _a_table_under_every_heading(root_cause_words: int) -> Postmortem:
                                  status=ActionItemStatus.OPEN)],
         timeline=[TimelineEntry(at=SOME_ONSET, who="Argus",
                                 text=f"Ztimeline {' '.join([some_words] * 4)}", label="T1")])
+
+
+def _every_subsection_filled(root_cause_words: int, item_words: int) -> Postmortem:
+    """A postmortem with every subsection filled - the lessons too many to set
+    side by side - each opening on an item `item_words` long whose first word
+    is found in the file and nowhere else, after a root cause
+    `root_cause_words` long, which moves every one of them down the pages."""
+    some_words = " ".join(["word"] * item_words)
+    return a_postmortem(
+        root_cause=" ".join(["word"] * root_cause_words) or None,
+        causal_chain=[ChainStep(text=f"Zchain {some_words}",
+                                cites=[CitedEvidence(label="T1", text="errors rose")])],
+        contributing_factors=[ContributingFactor(text=f"Zfactor {some_words}", addressed_by=[])],
+        detection=Detection(alerted_at=SOME_ONSET + timedelta(minutes=5), rule="dont care",
+                            onset_at=SOME_ONSET, gap=timedelta(minutes=5),
+                            said=CitedEvidence(label="AL1",
+                                               text=f"Zalert {' '.join([some_words] * 4)}")),
+        changes_read=[a_change_read("P1", summary=f"Zchange {some_words}")],
+        log_messages_read=[CitedEvidence(label="G1", text=f"Zlog {some_words}")],
+        deployment_changes_read=[CitedEvidence(label="D1", text=f"Zdeploy {some_words}")],
+        code_read=[CitedEvidence(label="F1", text=f"Zcode {some_words}")],
+        lessons=Lessons(went_well=[f"Zwell{item} {some_words}" for item in range(12)],
+                        went_wrong=[f"Zwrong{item} {some_words}" for item in range(12)],
+                        got_lucky=[f"Zlucky{item} {some_words}" for item in range(12)]))
 
 
 def _pages(pdf: bytes) -> list[str]:
@@ -1663,6 +1730,39 @@ def _on_one_page(*expected: str) -> Assertion[bytes]:
                                  f"pages {found}.")
 
         return True
+
+    return assertion
+
+
+def _opens_its_page(expected: str) -> Assertion[bytes]:
+    """`expected` is the first thing set on its page under the running header:
+    nothing above it there but what another page sets at the same height.
+
+    What a case pinning a length to the foot of a page holds that length to.
+    Once a change of layout moves the foot, the heading it was pinned for no
+    longer opens a page, and the case fails saying so rather than passing on a
+    layout it no longer tests."""
+    def assertion(pdf: bytes) -> bool:
+        pages = [[(text.strip(), round(baseline, 1)) for text, baseline in _baselines_on(page)
+                  if text.strip()]
+                 for page in PdfReader(io.BytesIO(pdf)).pages]
+        for number, pieces in enumerate(pages):
+            at = next((baseline for text, baseline in pieces if expected in text), None)
+            if at is None:
+                continue
+            elsewhere = {piece for other, others in enumerate(pages) if other != number
+                         for piece in others}
+            above = [text for text, baseline in pieces
+                     if baseline > at and (text, baseline) not in elsewhere]
+            if above:
+                raise AssertionError(f"Expected [{expected}] to open its page under the running "
+                                     f"header, and page {number + 1} sets {above} above it - "
+                                     f"the length pinned for it no longer reaches the foot of "
+                                     f"the page before, and wants pinning again.")
+
+            return True
+
+        raise AssertionError(f"Expected [{expected}] set on some page, and none sets it.")
 
     return assertion
 
