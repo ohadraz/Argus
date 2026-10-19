@@ -15,6 +15,7 @@ from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedChange,
     CitedEvidence,
     PostmortemDocument,
@@ -24,8 +25,26 @@ from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
 
-# Said in place of a list of evidence the walk read none of.
-_NONE_READ = "None read."
+# Said in place of a list of evidence on a document written before what came
+# of reading it was carried.
+_NONE_READ: Final = "None read."
+
+# Said in place of the log messages, by what came of reading them.
+_NO_LOG_MESSAGES: Final[dict[ChannelReading, str]] = {
+    ChannelReading.READ: "Read; none came back.",
+    ChannelReading.ONLY_SINCE_ARGUS_ACTED: "Read; none came back.",
+    ChannelReading.NOT_ASKED: "Not read.",
+    ChannelReading.UNANSWERED: "Asked for; no answer came back."
+}
+
+# What came of reading one kind of change, as a clause after its name.
+_HOW_A_KIND_WAS_READ: Final[dict[ChannelReading, str]] = {
+    ChannelReading.READ: "read, none came back",
+    ChannelReading.ONLY_SINCE_ARGUS_ACTED:
+        "read, only changes made since Argus first acted came back",
+    ChannelReading.NOT_ASKED: "not read",
+    ChannelReading.UNANSWERED: "asked for, no answer came back"
+}
 
 # Who a change no one is named for was made by, as the model is told it too.
 _NOBODY_NAMED: Final = "someone unnamed"
@@ -119,10 +138,11 @@ def the_supporting_information(postmortem: PostmortemDocument,
 
     return SupportingSection(links=tuple(links),
                              changes=changes,
-                             changes_absent=None if changes else _NONE_READ,
+                             changes_absent=None if changes else _no_changes(postmortem),
                              revision_addresses=revision_addresses,
                              log_messages=log_messages,
-                             log_messages_absent=None if log_messages else _NONE_READ,
+                             log_messages_absent=(None if log_messages
+                                                  else _no_log_messages(postmortem.logs_reading)),
                              deployment_changes=deployment_changes,
                              code_read=tuple(EvidenceRow(label=cited.label,
                                                          said=_with_code_set_apart(
@@ -131,6 +151,24 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                              for cited in postmortem.code_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
+
+
+def _no_changes(postmortem: PostmortemDocument) -> str:
+    """What came of reading the deploys and the flags, each said apart: the
+    walk reads the flags every time and the deploys only when the
+    investigation asks, so one word for both would say the deploys were read
+    whenever the flags were."""
+    deploys, flags = postmortem.deploys_reading, postmortem.flags_reading
+    if deploys is None or flags is None:
+        return _NONE_READ
+
+    return (f"Deploys {_HOW_A_KIND_WAS_READ[deploys]}; "
+            f"flags {_HOW_A_KIND_WAS_READ[flags]}.")
+
+
+def _no_log_messages(reading: ChannelReading | None) -> str:
+    """What came of reading the logs, where none are listed."""
+    return _NONE_READ if reading is None else _NO_LOG_MESSAGES[reading]
 
 
 def _a_change(cited: CitedChange) -> Line:

@@ -41,6 +41,7 @@ from argus_core.models.postmortem_sections import (
     Trigger,
 )
 from argus_core.models.pull_request import OpenedPullRequest
+from argus_core.models.reading import ChannelReading
 from argus_core.models.thread_message import Weighing
 
 
@@ -169,6 +170,15 @@ class PostmortemDocument(BaseModel):
     log_messages_read: list[CitedEvidence] = []
     deployment_changes_read: list[CitedEvidence] = []
     code_read: list[CitedEvidence] = []
+    # What came of reading the deploys, the flags and the logs, for a list of
+    # them that is empty: read and found nothing, never asked, and asked with
+    # nothing back are three things to know, and an empty list is all three.
+    # Deploys and flags apart, because the walk reads the flags every time and
+    # the deploys only when the investigation asks. `None` on a document
+    # written before they were carried.
+    deploys_reading: ChannelReading | None = None
+    flags_reading: ChannelReading | None = None
+    logs_reading: ChannelReading | None = None
     review: list[ReviewCriterion] = []
 
 

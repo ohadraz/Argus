@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from operator import attrgetter
 
 import pytest
-from argus_core.models import CitedEvidence, OpenedPullRequest
+from argus_core.models import ChannelReading, CitedEvidence, OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow, the_supporting_information
@@ -182,17 +182,60 @@ def test_the_log_messages_are_headed_with_the_zone_their_times_are_in_and_the_ch
 
 
 @pytest.mark.unit
-def test_none_read_of_either_says_so() -> None:
+@pytest.mark.parametrize(("reading", "said"), [
+    (ChannelReading.READ, "Read; none came back."),
+    (ChannelReading.NOT_ASKED, "Not read."),
+    (ChannelReading.UNANSWERED, "Asked for; no answer came back."),
+    (None, "None read.")
+], ids=["read", "not-asked", "unanswered", "written-before-it-was-carried"])
+def test_no_log_messages_says_whether_they_were_read(reading: ChannelReading | None,
+                                                     said: str) -> None:
+    # Read and found empty, never read, and asked for with nothing back are
+    # three different things to know, and one phrase for all three says the
+    # first where it means the second. Nothing back is not blamed on the
+    # source: a walk stopped mid-read leaves the same record. A document
+    # written before the reading was carried says what it always did.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(changes_read=[], log_messages_read=[])
+            some_postmortem := a_postmortem(log_messages_read=[], logs_reading=reading)
         ) \
         .when(
-            lambda: attrgetter("changes_absent", "log_messages_absent")(
-                the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS))
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).log_messages_absent
         ) \
         .then(
-            the_answer_was(("None read.", "None read.")))
+            the_answer_was(said))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("deploys", "flags", "said"), [
+    (ChannelReading.READ, ChannelReading.READ,
+     "Deploys read, none came back; flags read, none came back."),
+    (ChannelReading.NOT_ASKED, ChannelReading.ONLY_SINCE_ARGUS_ACTED,
+     "Deploys not read; flags read, only changes made since Argus first acted came back."),
+    (ChannelReading.UNANSWERED, ChannelReading.NOT_ASKED,
+     "Deploys asked for, no answer came back; flags not read."),
+    (None, None, "None read.")
+], ids=["both-read", "deploys-not-asked", "deploys-unanswered", "written-before-it-was-carried"])
+def test_no_changes_says_of_the_deploys_and_the_flags_each_whether_they_were_read(
+        deploys: ChannelReading | None, flags: ChannelReading | None, said: str) -> None:
+    # Each said apart, since the walk reads the flags every time and the
+    # deploys only when the investigation asks - one word for both would say
+    # the deploys were read whenever the flags were. A flag read that returned
+    # only Argus's own toggles from an earlier attempt shows no rows, and is
+    # not one that returned nothing.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[],
+                                            deploys_reading=deploys,
+                                            flags_reading=flags)
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).changes_absent
+        ) \
+        .then(
+            the_answer_was(said))
 
 
 @pytest.mark.unit

@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from functools import partial
+from typing import Final
 
 from argus_core.events import (
     AgentInvoked,
@@ -65,6 +66,12 @@ from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
 _logger = logging.getLogger(__name__)
+
+# What the walk says it asked for when the flag provider would not answer. Public
+# because no request is published before the flags are read, so this is how
+# whoever reads the account tells a history asked for and never answered from
+# one nobody asked for.
+ASKING_THE_FLAG_PROVIDER: Final = "what the flag provider recorded changing"
 
 
 def _nobody_stops_it(incident_id: str, /) -> bool:
@@ -350,7 +357,7 @@ def _what_the_provider_recorded(state: IncidentState,
         publish(
             RetrievalUnanswered(
                 incident_id=state.incident_id,
-                what_was_asked="what the flag provider recorded changing",
+                what_was_asked=ASKING_THE_FLAG_PROVIDER,
                 because=str(unanswered)
             ),
             publisher

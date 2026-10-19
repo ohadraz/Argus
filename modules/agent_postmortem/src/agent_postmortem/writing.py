@@ -190,7 +190,10 @@ def write_postmortem(evidence: IncidentEvidence,
         changes_read=the_changes_labelled(evidence),
         log_messages_read=grouped(evidence.log_lines),
         deployment_changes_read=the_deployment_changes_labelled(evidence),
-        code_read=the_code_reading_labelled(evidence)
+        code_read=the_code_reading_labelled(evidence),
+        deploys_reading=evidence.deploys_reading,
+        flags_reading=evidence.flags_reading,
+        logs_reading=evidence.logs_reading
     )
 
     # Reviewed last, because what it reviews is the document as written.

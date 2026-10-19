@@ -43,6 +43,8 @@ from argus_core.events import (
     PlacementRecorded,
     RecoveryChecked,
     RememberingFailed,
+    RetrievalRequested,
+    RetrievalUnanswered,
     StatusChanged,
 )
 from argus_core.llm import ClientFor
@@ -52,12 +54,14 @@ from argus_core.models import (
     Alert,
     AutoscalerUndo,
     ChangeEvent,
+    ChannelReading,
     DeploymentRollbackUndo,
     Hypothesis,
     IncidentStatus,
     OpenedPullRequest,
     PostmortemDocument,
     ReplicaUndo,
+    RetrievalChannel,
     TakenAction,
     TimelineEntry,
     Verdict,
@@ -81,6 +85,8 @@ from argus_narration import (
     what_the_action_does,
     what_was_done,
 )
+
+from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 
 # The kind a line telling an announcement carries: the event's own, read off
 # its type rather than spelled a second time. And the kind a line telling a
@@ -179,7 +185,12 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
         # together - the latest standing, which is the one the walk acted on.
-        leads=conversation.get_leads_by_incident(conn, incident_id)
+        leads=conversation.get_leads_by_incident(conn, incident_id),
+        deploys_reading=_how_the_investigation_read(account, RetrievalChannel.CHANGES,
+                                                    ChangesRetrieved),
+        flags_reading=_how_the_flags_were_read(account),
+        logs_reading=_how_the_investigation_read(account, RetrievalChannel.LOGS,
+                                                 LogsRetrieved)
     )
 
 
@@ -595,9 +606,7 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEven
             for change in event.changes:
                 if not any(_the_same_change(change, seen) for seen in read):
                     read.append(change)
-    first_acted = next(
-        (event.at for event in recorded if isinstance(event, ActionTaken)), None
-    )
+    first_acted = _when_it_first_acted(recorded)
 
     for event in recorded:
         if isinstance(event, FlagChangesRetrieved):
@@ -610,6 +619,61 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEven
                     read.append(change)
 
     return sorted(read, key=lambda change: parse_iso(change.occurred_at))
+
+
+def _when_it_first_acted(account: list[IncidentEvent]) -> datetime | None:
+    """When the walk first acted - after which a flag history read back holds
+    the walk's own doing rather than a cause - or `None` where it never did."""
+    return next((event.at for event in account if isinstance(event, ActionTaken)), None)
+
+
+def _how_the_investigation_read(account: list[IncidentEvent],
+                                channel: RetrievalChannel,
+                                answered: type[ChangesRetrieved] | type[LogsRetrieved]
+                                ) -> ChannelReading:
+    """What came of the investigation's reads of `channel`, whose answers are
+    `answered`.
+
+    Read where any one was answered, however often it was asked. Asked with no
+    answer where it published a request and no reading followed - a source that
+    failed and a walk stopped mid-read leave the same account, so neither is
+    said. Otherwise never asked.
+    """
+    if any(isinstance(event, answered) for event in account):
+        return ChannelReading.READ
+
+    if any(isinstance(event, RetrievalRequested) and event.channel is channel
+           for event in account):
+        return ChannelReading.UNANSWERED
+
+    return ChannelReading.NOT_ASKED
+
+
+def _how_the_flags_were_read(account: list[IncidentEvent]) -> ChannelReading:
+    """What came of the walk's reads of the flag history.
+
+    Only changes made since Argus first acted where every toggle any read
+    returned is from once the walk had acted: a later round reads the history
+    again and finds what the walk did, which is not carried - so the read shows
+    no rows, though it was not empty. Said by when rather than by whom, as the
+    cut it explains is made. The walk publishes no request before it reads, so a read with
+    no answer is the one it says went unanswered.
+    """
+    reads = [event for event in account if isinstance(event, FlagChangesRetrieved)]
+    if not reads:
+        unanswered = any(isinstance(event, RetrievalUnanswered)
+                         and event.what_was_asked == ASKING_THE_FLAG_PROVIDER
+                         for event in account)
+
+        return ChannelReading.UNANSWERED if unanswered else ChannelReading.NOT_ASKED
+
+    came_back = [toggle for read in reads for toggle in read.changes]
+    first_acted = _when_it_first_acted(account)
+    if (came_back and first_acted is not None
+            and all(parse_iso(toggle.occurred_at) >= first_acted for toggle in came_back)):
+        return ChannelReading.ONLY_SINCE_ARGUS_ACTED
+
+    return ChannelReading.READ
 
 
 def _what_each_deployment_changed(conn: psycopg.Connection,

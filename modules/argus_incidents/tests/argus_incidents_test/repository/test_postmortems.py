@@ -15,6 +15,7 @@ from argus_core.models import (
     ChainStep,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedChange,
     CitedEvidence,
     ContributingFactor,
@@ -127,6 +128,9 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "assumptions": ["the published rate for the day the incident opened"],
         "recommended_action": "putting monthly-spend-feature back",
         "leads": [_a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted")],
+        "deploys_reading": ChannelReading.READ,
+        "flags_reading": ChannelReading.READ,
+        "logs_reading": ChannelReading.READ,
         **_every_section_of_the_template()
     })
 
@@ -190,6 +194,48 @@ def test_the_templates_sections_come_back_whole() -> None:
             .then(
                 _the_stored_postmortem_carries_the_sections(conn, incident_id, some_sections)
             )
+
+
+@pytest.mark.integration
+def test_what_came_of_each_read_comes_back_as_it_was_written() -> None:
+    # Text in the column and an enum on the way back. One that came back a
+    # string would still compare equal, and be a document saying less than it
+    # was written with.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_created_in(conn)
+        a_document_with_readings = _a_document(pull_request=None).model_copy(update={
+            "deploys_reading": ChannelReading.UNANSWERED,
+            "flags_reading": ChannelReading.ONLY_SINCE_ARGUS_ACTED,
+            "logs_reading": ChannelReading.NOT_ASKED})
+
+        Scenario() \
+            .when(
+                lambda: postmortems.record(conn, incident_id, a_document_with_readings)
+            ) \
+            .then(
+                _the_stored_postmortem_read(conn, incident_id, (ChannelReading.UNANSWERED,
+                                                                ChannelReading.ONLY_SINCE_ARGUS_ACTED,
+                                                                ChannelReading.NOT_ASKED))
+            )
+
+
+def _the_stored_postmortem_read(conn: psycopg.Connection,
+                                incident_id: str,
+                                expected: tuple[ChannelReading, ...]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = postmortems.get_by_incident(conn, incident_id)
+        read = ((stored.deploys_reading, stored.flags_reading, stored.logs_reading)
+                if stored is not None else None)
+
+        if (read is None or read != expected
+                or not all(isinstance(reading, ChannelReading) for reading in read)):
+            raise AssertionError(
+                f"Expected the deploys, the flags and the logs read as {expected!r}, "
+                f"got {read!r}.")
+
+        return True
+
+    return assertion
 
 
 def _the_stored_postmortem_proposes(conn: psycopg.Connection,

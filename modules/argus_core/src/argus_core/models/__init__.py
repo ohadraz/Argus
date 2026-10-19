@@ -116,7 +116,7 @@ from argus_core.models.postmortem_sections import (
 )
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
-from argus_core.models.reading import Reading, RetrievalChannel
+from argus_core.models.reading import ChannelReading, Reading, RetrievalChannel
 from argus_core.models.reference import (
     ALERT_FIRING,
     CHAT_MESSAGE,
@@ -214,6 +214,7 @@ __all__ = [
     "FailureMode",
     "ChangeEvent",
     "ChangeKind",
+    "ChannelReading",
     "RevisionSource",
     "as_a_change",
     "Circumstances",

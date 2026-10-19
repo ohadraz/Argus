@@ -47,6 +47,8 @@ from argus_core.events import (
     PlacementRecorded,
     RecoveryChecked,
     RememberingFailed,
+    RetrievalRequested,
+    RetrievalUnanswered,
     StatusChanged,
 )
 from argus_core.llm import ClientFor, LLMClient
@@ -58,6 +60,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     DeploymentRollbackUndo,
     FailureMode,
     FixOutcome,
@@ -74,6 +77,7 @@ from argus_core.models import (
     Reference,
     Report,
     ReportChannel,
+    RetrievalChannel,
     Standing,
     ThreadMessage,
     ToolCall,
@@ -100,6 +104,7 @@ from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
 from orchestrator.gathering import gather_evidence, write_postmortem_for
+from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 
 # How many hours a year the bands are divided by. Any number does: nothing here
 # publishes a cost, and the arithmetic that would use it is the agent's own
@@ -521,6 +526,103 @@ def test_a_flag_change_from_once_the_walk_had_acted_is_not_carried(
             ) \
             .then(
                 _carries_the_changes([as_a_change(the_flip)])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("channel", "reading_of"), [
+    (RetrievalChannel.CHANGES, "deploys_reading"),
+    (RetrievalChannel.LOGS, "logs_reading")
+], ids=["deploys", "logs"])
+@pytest.mark.parametrize(("asked", "answered", "asked_of_the_other", "reading"), [
+    (0, 0, 0, ChannelReading.NOT_ASKED),
+    (0, 0, 1, ChannelReading.NOT_ASKED),
+    (1, 0, 0, ChannelReading.UNANSWERED),
+    (1, 1, 0, ChannelReading.READ),
+    (2, 1, 0, ChannelReading.READ)
+], ids=["never-asked", "only-the-other-asked", "asked-and-nothing-back", "answered-empty",
+        "answered-once-of-twice"])
+def test_what_came_of_a_read_the_investigation_makes_is_what_was_asked_and_answered(
+        a_clean_database: None, channel: RetrievalChannel, reading_of: str, asked: int,
+        answered: int, asked_of_the_other: int, reading: ChannelReading) -> None:
+    # An empty list is three things - read and found nothing, never asked, and
+    # asked with nothing back - and the account tells them apart: a request is
+    # published before each read, and a reading once it is answered. A request
+    # with no reading is a source that failed or a walk stopped mid-read, and
+    # either way nothing came back. One answer is a read, however often it was
+    # asked.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: _recorded_in_order(conn, _the_reads_of(
+                    channel, incident_id, asked=asked, answered=answered,
+                    asked_of_the_other=asked_of_the_other)))
+            ) \
+            .when(
+                lambda: getattr(gather_evidence(conn, incident_id), reading_of)
+            ) \
+            .then(
+                the_answer_was(reading)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("toggled_at", "reading"), [
+    ([], ChannelReading.READ),
+    (["2026-09-02T11:52:00Z"], ChannelReading.ONLY_SINCE_ARGUS_ACTED),
+    (["2026-09-02T11:49:52Z", "2026-09-02T11:52:00Z"], ChannelReading.READ)
+], ids=["nothing-came-back", "only-the-walks-own-came-back", "a-change-before-it-acted-came-back"])
+def test_a_flag_history_read_says_whether_anything_but_the_walks_own_came_back(
+        a_clean_database: None, toggled_at: list[str], reading: ChannelReading) -> None:
+    # A later round reads the history again with its far end open and finds
+    # the toggle the walk made itself, which is not carried - so the read shows
+    # no rows though something came back, and is not a read that found nothing.
+    first_acted_at = parse_iso("2026-09-02T11:52:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: _an_action_claimed_then_taken(conn, incident_id, first_acted_at)),
+                calling(lambda: events.record(conn, FlagChangesRetrieved(
+                    incident_id=incident_id,
+                    changes=[FlagChange(flag=SOME_FLAG, enabled=True, occurred_at=at)
+                             for at in toggled_at])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).flags_reading
+            ) \
+            .then(
+                the_answer_was(reading)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("unanswered", "reading"), [
+    ([], ChannelReading.NOT_ASKED),
+    ([ASKING_THE_FLAG_PROVIDER], ChannelReading.UNANSWERED),
+    (["what the platform recorded deploying"], ChannelReading.NOT_ASKED)
+], ids=["never-asked", "asked-and-nothing-back", "something-else-unanswered"])
+def test_a_flag_history_never_read_says_whether_it_was_asked_for(
+        a_clean_database: None, unanswered: list[str], reading: ChannelReading) -> None:
+    # The walk publishes no request before it reads the flags, only what came
+    # back or that nothing did - and another history unanswered says nothing
+    # of this one.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: _recorded_in_order(conn, [
+                    RetrievalUnanswered(incident_id=incident_id, what_was_asked=asked,
+                                        because="dont care")
+                    for asked in unanswered]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).flags_reading
+            ) \
+            .then(
+                the_answer_was(reading)
             )
 
 
@@ -2145,6 +2247,28 @@ def _the_looks_carried_are(looked: list[RecoveryChecked],
 def _recorded_in_order(conn: psycopg.Connection, account: list[IncidentEvent]) -> None:
     for event in account:
         events.record(conn, event)
+
+
+def _the_reads_of(channel: RetrievalChannel, incident_id: str, *, asked: int, answered: int,
+                  asked_of_the_other: int) -> list[IncidentEvent]:
+    """An investigation's reads of `channel` as the account records them: the
+    request it publishes before each, and the reading it publishes once one is
+    answered - each answer bringing nothing back, so only the reading says one
+    came. Then the requests it made of the other channel it reads."""
+    other = (RetrievalChannel.LOGS if channel is RetrievalChannel.CHANGES
+             else RetrievalChannel.CHANGES)
+    start, end = "2026-09-02T11:30:00Z", "2026-09-02T12:30:00Z"
+    answer: IncidentEvent = (
+        ChangesRetrieved(incident_id=incident_id, window_start=start, window_end=end, changes=[])
+        if channel is RetrievalChannel.CHANGES
+        else LogsRetrieved(incident_id=incident_id, window_start=start, window_end=end, lines=[]))
+
+    return [*(RetrievalRequested(incident_id=incident_id, channel=channel,
+                                 window_start=start, window_end=end) for _ in range(asked)),
+            *(answer for _ in range(answered)),
+            *(RetrievalRequested(incident_id=incident_id, channel=other,
+                                 window_start=start, window_end=end)
+              for _ in range(asked_of_the_other))]
 
 
 def _timeline_begins_with(expected: str) -> Assertion[IncidentEvidence]:

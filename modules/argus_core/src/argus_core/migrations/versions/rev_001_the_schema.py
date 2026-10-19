@@ -301,6 +301,14 @@ CREATE TABLE IF NOT EXISTS postmortem (
     log_messages_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     deployment_changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     code_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- What came of reading the deploys, the flags and the logs - read, only
+    -- changes made since Argus first acted (the flags alone), not asked, or
+    -- asked with no answer.
+    -- What an empty list of each cannot say. Null on a document written
+    -- before they were carried.
+    deploys_reading TEXT,
+    flags_reading TEXT,
+    logs_reading TEXT,
     executive_summary TEXT,
     -- Google's five review criteria, each met, unmet, or left for a person.
     -- Never null: a document is always reviewed against all five.

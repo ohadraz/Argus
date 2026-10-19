@@ -17,6 +17,7 @@ from datetime import datetime
 
 from argus_core.models import (
     ChangeEvent,
+    ChannelReading,
     OpenedPullRequest,
     ThreadMessage,
     TimelineEntry,
@@ -182,6 +183,13 @@ class IncidentEvidence(BaseModel):
     # timeline's one line per weighing: the document reports the words, the
     # standing and what each changed, and the timeline carries only the second.
     leads: list[ThreadMessage] = []
+    # What came of reading the deploys, the flags and the logs - what an empty
+    # list of each cannot say, which is whether anybody asked and whether
+    # anything came back. Never asked by default, which is what a channel with
+    # nothing in the record about it is.
+    deploys_reading: ChannelReading = ChannelReading.NOT_ASKED
+    flags_reading: ChannelReading = ChannelReading.NOT_ASKED
+    logs_reading: ChannelReading = ChannelReading.NOT_ASKED
 
     @property
     def credited_action(self) -> ActionRecord | None:

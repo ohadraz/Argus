@@ -36,6 +36,25 @@ class RetrievalChannel(StrEnum):
     CHANGES = "changes"
 
 
+class ChannelReading(StrEnum):
+    """What came of reading one channel over a whole incident - said where it
+    left nothing to show, since an empty list cannot say which of these it is.
+
+    Asked for with no answer, rather than refused: a request with no reading
+    after it is a source that failed or a walk stopped mid-read, and the record
+    does not say which. Only changes made since Argus first acted is the flag
+    history's alone - a second attempt reads back the toggle the first one made,
+    and nothing from once the walk acted is listed, so the read found something
+    and shows nothing. Said by when, not by whom: the cut is by time, and a
+    person's toggle in those minutes is cut with Argus's.
+    """
+
+    READ = "read"
+    ONLY_SINCE_ARGUS_ACTED = "only_since_argus_acted"
+    NOT_ASKED = "not_asked"
+    UNANSWERED = "unanswered"
+
+
 @dataclass(frozen=True)
 class Reading:
     """One retrieval that was served: which channel, over which window.

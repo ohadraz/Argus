@@ -65,6 +65,7 @@ from argus_core.models import (
     ChainStep,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedEvidence,
     ContributingFactor,
     Lessons,
@@ -839,6 +840,34 @@ def test_the_fix_that_was_proposed_is_carried_onto_the_document() -> None:
 
 
 @pytest.mark.unit
+def test_what_came_of_reading_each_channel_is_carried_onto_the_document() -> None:
+    # The record tells a channel read and found empty from one never asked and
+    # one asked with nothing back; the document's empty lists cannot, so what
+    # came of each read travels beside them.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={
+                "deploys_reading": ChannelReading.UNANSWERED,
+                "flags_reading": ChannelReading.ONLY_SINCE_ARGUS_ACTED,
+                "logs_reading": ChannelReading.NOT_ASKED})
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _reports_the_readings(deploys=ChannelReading.UNANSWERED,
+                                  flags=ChannelReading.ONLY_SINCE_ARGUS_ACTED,
+                                  logs=ChannelReading.NOT_ASKED)
+        )
+
+
+@pytest.mark.unit
 def test_each_lead_is_reported_with_what_the_model_said_it_changed() -> None:
     # The record's facts carried across, and the model's one sentence beside
     # them: who wrote, what they wrote, and what the investigation made of it
@@ -1121,6 +1150,21 @@ def _reports_symptom(expected: str) -> Assertion[PostmortemDocument]:
         if document.symptom != expected:
             raise AssertionError(
                 f"Expected the symptom [{expected}], got [{document.symptom}].")
+
+        return True
+
+    return assertion
+
+
+def _reports_the_readings(deploys: ChannelReading, flags: ChannelReading,
+                          logs: ChannelReading) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        reported = (document.deploys_reading, document.flags_reading, document.logs_reading)
+
+        if reported != (deploys, flags, logs):
+            raise AssertionError(
+                f"Expected the deploys, the flags and the logs read as "
+                f"[{deploys}, {flags}, {logs}], got [{', '.join(map(str, reported))}].")
 
         return True
 
