@@ -4,6 +4,9 @@ Three are about what the document holds and are checked here. Two - every
 action item owned and dated, and the document reviewed and shared - are
 things people do, and are left to them rather than marked failed: a box
 that is always unticked teaches its reader to stop looking at the boxes.
+
+A criterion not met says why under it, as one left for a person does: a cross
+with nothing beside it says only that something somewhere fell short.
 """
 
 from __future__ import annotations
@@ -71,7 +74,7 @@ def test_key_data_is_not_collected_without_a_timeline() -> None:
             lambda: review_of(a_document_with_no_timeline, faults=[], reaches_a_cause=True)
         ) \
         .then(
-            _says(KEY_DATA_COLLECTED, met=False)
+            _says_because(KEY_DATA_COLLECTED, met=False, because="there is no timeline")
         )
 
 
@@ -88,7 +91,8 @@ def test_key_data_is_not_collected_while_a_step_cites_nothing() -> None:
                               reaches_a_cause=True)
         ) \
         .then(
-            _says(KEY_DATA_COLLECTED, met=False)
+            _says_because(KEY_DATA_COLLECTED, met=False,
+                          because="a step of the causal chain cites nothing")
         )
 
 
@@ -104,7 +108,7 @@ def test_impact_is_not_assessed_without_a_loss_figure() -> None:
             lambda: review_of(a_document_with_no_loss, faults=[], reaches_a_cause=True)
         ) \
         .then(
-            _says(IMPACT_ASSESSED, met=False)
+            _says_because(IMPACT_ASSESSED, met=False, because="no loss was estimated")
         )
 
 
@@ -122,7 +126,26 @@ def test_impact_is_not_assessed_while_the_end_of_it_is_unknown() -> None:
                               reaches_a_cause=True)
         ) \
         .then(
-            _says(IMPACT_ASSESSED, met=False)
+            _says_because(IMPACT_ASSESSED, met=False,
+                          because="the service was never seen back to normal")
+        )
+
+
+@pytest.mark.unit
+def test_impact_short_twice_over_says_both() -> None:
+    Scenario() \
+        .given(
+            a_document_short_twice_over := _a_document(
+                customer_loss_estimate=None,
+                timeline=[_a_marker(TimelineMarker.IMPACT_BEGINS)])
+        ) \
+        .when(
+            lambda: review_of(a_document_short_twice_over, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(IMPACT_ASSESSED, met=False,
+                          because="no loss was estimated; the service was never seen back "
+                                  "to normal")
         )
 
 
@@ -137,7 +160,8 @@ def test_an_analysis_of_one_step_is_not_complete() -> None:
             lambda: review_of(a_document_with_one_step, faults=[], reaches_a_cause=True)
         ) \
         .then(
-            _says(ANALYSIS_COMPLETE, met=False)
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="the causal chain stops at the symptom")
         )
 
 
@@ -152,29 +176,75 @@ def test_an_analysis_the_answer_still_had_faults_in_is_not_complete() -> None:
         ) \
         .then(
             all_of(
-                _says(ANALYSIS_COMPLETE, met=False),
+                _says_because(ANALYSIS_COMPLETE, met=False,
+                              because="the answer still had faults the checks found"),
                 _says(KEY_DATA_COLLECTED, met=True)
             )
         )
 
 
 @pytest.mark.unit
-def test_an_analysis_that_confirmed_no_cause_is_not_complete() -> None:
+def test_an_analysis_that_tried_no_candidate_is_not_complete() -> None:
     # A chain of steps can end on a cause nothing confirmed. The document then
     # says, rightly, that it is not a confirmed cause - and a ticked box beside
     # it says the opposite.
     Scenario() \
         .given(
-            a_document_confirming_nothing := _a_document(hypotheses=[
+            a_document_trying_nothing := _a_document(hypotheses=[
                 HypothesisConsidered(summary="dont care", confidence=None,
                                      result="never tried", label="C1")
             ])
         ) \
         .when(
-            lambda: review_of(a_document_confirming_nothing, faults=[], reaches_a_cause=True)
+            lambda: review_of(a_document_trying_nothing, faults=[], reaches_a_cause=True)
         ) \
         .then(
-            _says(ANALYSIS_COMPLETE, met=False)
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="no candidate was confirmed - none was tried")
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_whose_candidates_were_refuted_is_not_complete() -> None:
+    Scenario() \
+        .given(
+            a_document_refuting_its_candidates := _a_document(hypotheses=[
+                HypothesisConsidered(summary="dont care", confidence=None,
+                                     result=Verdict.REFUTED, label="C1"),
+                HypothesisConsidered(summary="dont care", confidence=None,
+                                     result="never tried", label="C2")
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_refuting_its_candidates, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="no candidate was confirmed - those tried were refuted")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("results", [[Verdict.WITHDRAWN], [Verdict.REFUTED, Verdict.WITHDRAWN]],
+                         ids=["withdrawn", "refuted-and-withdrawn"])
+def test_an_analysis_whose_tries_came_to_no_verdict_says_only_that_none_was_confirmed(
+        results: list[str]) -> None:
+    # A candidate withdrawn was tried all the same, so "none was tried" is
+    # false of it - and "those tried were refuted" is false of a set where one
+    # came to no verdict.
+    Scenario() \
+        .given(
+            a_document_trying_to_no_end := _a_document(hypotheses=[
+                HypothesisConsidered(summary="dont care", confidence=None, result=result,
+                                     label=f"C{place}")
+                for place, result in enumerate(results, start=1)])
+        ) \
+        .when(
+            lambda: review_of(a_document_trying_to_no_end, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False, because="no candidate was confirmed")
         )
 
 
@@ -192,9 +262,33 @@ def test_an_analysis_that_stops_at_the_change_that_set_it_off_is_not_complete() 
         ) \
         .then(
             all_of(
-                _says(ANALYSIS_COMPLETE, met=False),
+                _says_because(ANALYSIS_COMPLETE, met=False,
+                              because="the chain does not reach a cause beyond the change "
+                                      "that set it off"),
                 _says(KEY_DATA_COLLECTED, met=True)
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_short_in_several_ways_says_each_in_the_order_checked() -> None:
+    Scenario() \
+        .given(
+            a_document_short_every_way := _a_document(
+                causal_chain=[_a_step("account pages failed")],
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")])
+        ) \
+        .when(
+            lambda: review_of(a_document_short_every_way, faults=[SOME_FAULT],
+                              reaches_a_cause=False)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="the answer still had faults the checks found; the causal "
+                                  "chain stops at the symptom; no candidate was confirmed - "
+                                  "none was tried; the chain does not reach a cause beyond the "
+                                  "change that set it off")
         )
 
 

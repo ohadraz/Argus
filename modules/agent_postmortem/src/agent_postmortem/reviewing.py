@@ -16,7 +16,7 @@ from typing import Final
 
 from argus_core.models import PostmortemDocument, ReviewCriterion, TimelineMarker, Verdict
 
-from agent_postmortem.sections import CODE_READING_PREFIX
+from agent_postmortem.sections import CODE_READING_PREFIX, NEVER_TRIED
 
 KEY_DATA_COLLECTED: Final = "Key incident data collected"
 IMPACT_ASSESSED: Final = "Impact assessed"
@@ -45,18 +45,26 @@ def review_of(document: PostmortemDocument,
     box beside it would say the opposite. Not failed either - the analysis went
     as far as the evidence allowed, and what is left is somebody running it.
     """
-    complete = _analysis_complete(document, faults) and reaches_a_cause
-    unrun = _readings_resting_alone(document) if complete else []
+    short = _what_the_analysis_lacks(document, faults, reaches_a_cause=reaches_a_cause)
+    unrun = _readings_resting_alone(document) if not short else []
 
     return [
-        ReviewCriterion(criterion=KEY_DATA_COLLECTED, met=_key_data_collected(document)),
-        ReviewCriterion(criterion=IMPACT_ASSESSED, met=_impact_assessed(document)),
-        ReviewCriterion(criterion=ANALYSIS_COMPLETE,
-                        met=None if unrun else complete,
-                        because=_what_would_confirm(document, unrun) if unrun else None),
+        _a_criterion(KEY_DATA_COLLECTED, _what_the_key_data_lacks(document)),
+        _a_criterion(IMPACT_ASSESSED, _what_the_impact_lacks(document)),
+        (ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
+                         because=_what_would_confirm(document, unrun)) if unrun
+         else _a_criterion(ANALYSIS_COMPLETE, short)),
         ReviewCriterion(criterion=ITEMS_OWNED_AND_DATED, met=None),
         ReviewCriterion(criterion=REVIEWED_AND_SHARED, met=None)
     ]
+
+
+def _a_criterion(criterion: str, lacks: list[str]) -> ReviewCriterion:
+    """A criterion the document checks itself on: met where it lacks nothing,
+    and otherwise not met, saying what it lacks - a cross with nothing under it
+    says only that something somewhere fell short."""
+    return ReviewCriterion(criterion=criterion, met=not lacks,
+                           because="; ".join(lacks) if lacks else None)
 
 
 def _readings_resting_alone(document: PostmortemDocument) -> list[str]:
@@ -94,25 +102,47 @@ def _what_would_confirm(document: PostmortemDocument, readings: list[str]) -> st
             f"confirm it ({item})")
 
 
-def _key_data_collected(document: PostmortemDocument) -> bool:
+def _what_the_key_data_lacks(document: PostmortemDocument) -> list[str]:
     """A timeline to read, and nothing in the cause resting on nothing."""
-    return bool(document.timeline) and all(step.cites for step in document.causal_chain)
+    return [*(["there is no timeline"] if not document.timeline else []),
+            *(["a step of the causal chain cites nothing"]
+              if not all(step.cites for step in document.causal_chain) else [])]
 
 
-def _impact_assessed(document: PostmortemDocument) -> bool:
+def _what_the_impact_lacks(document: PostmortemDocument) -> list[str]:
     """What it cost, and when it stopped costing. A duration with no end is a
     lower bound, and a lower bound is impact not yet measured."""
     ended = any(entry.marker is TimelineMarker.IMPACT_ENDS for entry in document.timeline)
 
-    return document.customer_loss_estimate is not None and ended
+    return [*(["no loss was estimated"] if document.customer_loss_estimate is None else []),
+            *(["the service was never seen back to normal"] if not ended else [])]
 
 
-def _analysis_complete(document: PostmortemDocument, faults: list[str]) -> bool:
-    """More than one step, nothing left wrong with the answer, and a cause
-    confirmed. One step is the symptom restated; the analysis is the steps
-    below it. A chain ending on a cause nothing confirmed is a document saying,
+def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str], *,
+                             reaches_a_cause: bool) -> list[str]:
+    """Nothing left wrong with the answer, more than one step, a cause
+    confirmed, and a chain reaching past the change that set it off - in that
+    order. One step is the symptom restated; the analysis is the steps below
+    it. A chain ending on a cause nothing confirmed is a document saying,
     rightly, that the cause is not confirmed, and a ticked box beside it would
     say the opposite."""
-    confirmed = any(hypothesis.result == Verdict.CONFIRMED for hypothesis in document.hypotheses)
+    results = [hypothesis.result for hypothesis in document.hypotheses]
 
-    return not faults and len(document.causal_chain) > 1 and confirmed
+    return [*(["the answer still had faults the checks found"] if faults else []),
+            *(["the causal chain stops at the symptom"] if len(document.causal_chain) <= 1
+              else []),
+            *([_why_nothing_was_confirmed(results)] if Verdict.CONFIRMED not in results else []),
+            *(["the chain does not reach a cause beyond the change that set it off"]
+              if not reaches_a_cause else [])]
+
+
+def _why_nothing_was_confirmed(results: list[str]) -> str:
+    """That no candidate was confirmed, and - where it can say - why: none was
+    tried, or every one tried was refuted. A candidate withdrawn, escalated or
+    left with no verdict was tried all the same, and came to neither."""
+    tried = [result for result in results if result != NEVER_TRIED]
+    if not tried:
+        return "no candidate was confirmed - none was tried"
+    if all(result == Verdict.REFUTED for result in tried):
+        return "no candidate was confirmed - those tried were refuted"
+    return "no candidate was confirmed"

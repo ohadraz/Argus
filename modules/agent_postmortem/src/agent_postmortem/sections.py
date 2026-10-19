@@ -174,9 +174,11 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
 
     One exception, said as such: where nothing was confirmed because the
     leading candidate was never tested - the action that would have tested it
-    only recommended - and the change it blames was read, that change is the
-    trigger, suspected. Never where the leader was refuted, and never on the
-    candidate's word alone with no change read to point at.
+    only recommended, or none Argus can take answering it - and a change read
+    made what it blames, that change is the trigger, suspected: one naming
+    it, or the deploy whose diff carried it. Never where the leader was
+    refuted, and never on the candidate's word alone with no change read to
+    point at.
     """
     confirmed = _the_confirmed(evidence.candidates)
     suspect = _the_untested_leader(evidence.candidates) if confirmed is None else None
@@ -188,10 +190,11 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
                       if change.reference == blamed.subject
                       or _a_word_of(blamed.to_state, change.reference)]
     latest = max(to_the_subject, key=lambda change: parse_iso(change.occurred_at), default=None)
-    if suspect is not None and latest is None:
-        return None
 
     carrier = _the_deploy_that_carried(blamed, evidence) if latest is None else None
+    if suspect is not None and latest is None and carrier is None:
+        return None
+
     dated = latest or (carrier[1] if carrier is not None else None)
 
     return Trigger(subject=blamed.subject,
@@ -237,10 +240,77 @@ def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> 
     Within one hunk: a removed line naming the setting - its last part or the
     whole of it - and the state it left, and an added line naming it and the
     state it went to - each the setting's own line, by `_it_is_the_setting`.
+
+    A setting the investigation named in its own words - "metrics port name"
+    - is named by no line, and there the value is what the diff spells: one
+    key, under one parent, losing the state the setting left and gaining the
+    one it went to, each the whole value - the key and the key it sits under
+    sharing two words with the setting's name, or every word of a name of
+    one. The two states alone would credit any key moving that way - one to
+    two, v1 to v2 - and one word, a "version" or a "name", any key of that
+    kind.
     """
-    return any(_it_sets(hunk, "-", subject, from_state)
-               and _it_sets(hunk, "+", subject, to_state)
+    return any((_it_sets(hunk, "-", subject, from_state)
+                and _it_sets(hunk, "+", subject, to_state))
+               or (not _it_names_the_setting(hunk, subject)
+                   and _a_key_like_it_moves(hunk, subject, from_state, to_state))
                for hunk in _the_hunks(said))
+
+
+def _it_names_the_setting(hunk: list[str], subject: str) -> bool:
+    """Whether any line of `hunk` names the setting - its last part or the
+    whole of it."""
+    last = subject.split(".")[-1]
+    return any(_names(_own_text(line), last) or _names(_own_text(line), subject)
+               for line in hunk)
+
+
+def _a_key_like_it_moves(hunk: list[str], subject: str, from_state: str, to_state: str) -> bool:
+    """Whether one key in `hunk` goes from `from_state` to `to_state` - removed
+    at the one and added at the other under the same parent, each the key's
+    whole value - where the key and the nearest key it sits under share with
+    `subject` two of its words, or all of a one-word name."""
+    words = _the_words_of(subject)
+    needed = min(2, len(words))
+    left = {(key, parent) for marker, key, value, parent in _the_keyed_lines(hunk)
+            if marker == "-" and value == from_state
+            and len(words & _the_words_of(key, parent)) >= needed}
+
+    return any(marker == "+" and value == to_state and (key, parent) in left
+               for marker, key, value, parent in _the_keyed_lines(hunk))
+
+
+def _the_keyed_lines(hunk: list[str]) -> list[tuple[str, str, str, str]]:
+    """Each line of `hunk` setting a key to a value: its marker, the key, the
+    value without quotes, and the key it sits under - the nearest line above
+    set in less far that names something, or nothing."""
+    keyed = []
+    for at, line in enumerate(hunk):
+        found = _A_KEYED_LINE.match(_own_text(line))
+        if found is None:
+            continue
+        indent = _indent_of(line)
+        above = next((hunk[place] for place in range(at - 1, -1, -1)
+                      if _it_names_something(hunk[place]) and _indent_of(hunk[place]) < indent),
+                     None)
+        parent = _A_KEYED_LINE.match(_own_text(above)) if above is not None else None
+        keyed.append((line[:1], found["key"], found["value"].strip("'\""),
+                      parent["key"] if parent is not None else ""))
+    return keyed
+
+
+# A line setting a key, flat or nested: `key: value` or `key = value`, the
+# value possibly empty where the key opens a block.
+_A_KEYED_LINE: Final = re.compile(r"^\s*(?P<key>[\w.-]+)\s*[:=]\s*(?P<value>.*?)\s*$")
+
+
+def _the_words_of(*names: str) -> set[str]:
+    """The words names are made of, lower-cased: split at dots, dashes,
+    underscores, spaces and each capital starting a word, as `portName` is
+    port and name."""
+    return {word.lower() for name in names
+            for part in re.split(r"[\s._-]+", name)
+            for word in re.findall(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])", part)}
 
 
 def _it_sets(hunk: list[str], marker: str, subject: str, state: str) -> bool:

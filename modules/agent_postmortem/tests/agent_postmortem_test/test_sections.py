@@ -417,6 +417,78 @@ def test_a_suspect_whose_change_was_never_read_is_no_trigger() -> None:
 
 
 @pytest.mark.unit
+def test_a_suspect_named_in_words_is_carried_by_the_deploy_that_moved_its_value() -> None:
+    # The investigation names a setting in its own words - "metrics port name"
+    # - which no line of a diff spells, and nothing recommended would have
+    # tested it. What the diff does spell is the value: a key that shares a
+    # word with the setting's name losing the one state and gaining the other
+    # in one hunk, in the one deploy made by the onset.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="metrics port name",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,10 +1,10 @@ ports:",
+                    "   web:",
+                    "-    portName: web",
+                    "+    portName: http",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="metrics port name",
+                                   from_state="metrics",
+                                   to_state="http-metrics",
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("subject", "from_state", "to_state", "moved"), [
+    ("metrics port name", "metrics", "http-metrics",
+     [" monitoring:", "-  scrapeTarget: metrics", "+  scrapeTarget: http-metrics"]),
+    ("the categoriser model version", "1", "2",
+     [" fraudScorer:", "-  replicas: 1", "+  replicas: 2"]),
+    ("the categoriser model version", "1", "2",
+     [" fraudScorer:", "-  version: 1", "+  version: 2"]),
+    ("metrics port name", "metrics", "http-metrics",
+     [" metrics:", "-  portName: metrics", " web:", "+  portName: http-metrics"])],
+    ids=["a-key-sharing-no-word-with-it", "generic-states-on-another-key",
+         "one-generic-word-shared", "lost-under-one-parent-gained-under-another"])
+def test_a_value_moving_on_a_key_the_setting_s_name_does_not_share_carries_nothing(
+        subject: str, from_state: str, to_state: str, moved: list[str]) -> None:
+    # Two states alone say little - one to two, v1 to v2 - and any key moving
+    # that way would be credited. The key, or the key it sits under, has to
+    # share a word with the name the investigation gave the setting.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=subject,
+                                        from_state=from_state, to_state=to_state)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION,
+                                                        ["@@ -1,3 +1,3 @@", *moved])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 def test_a_setting_a_deploy_carried_is_dated_and_credited_as_that_deploy() -> None:
     # A setting is no change's reference: what carried it is a deploy, and only
     # that deploy's diff shows the setting moving - every part of its name in
