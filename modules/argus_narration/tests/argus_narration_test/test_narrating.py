@@ -58,6 +58,7 @@ from argus_core.events import (
     ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    RolloutRead,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -93,6 +94,8 @@ from argus_core.models import (
     Report,
     ReportChannel,
     RetrievalChannel,
+    RolloutAccount,
+    RolloutProgress,
     Standing,
     Undone,
     Verdict,
@@ -347,6 +350,66 @@ def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
         .given(some_read) \
         .when(lambda: build_narration([some_read])) \
         .then(_the_only_line_says("what the deployment of 7c3ca00 changed"))
+
+
+@pytest.mark.unit
+def test_a_converged_rollout_names_the_revision_every_replica_runs_and_when_it_landed() -> None:
+    # The ordinary answer, and a finding: it rules out two revisions serving at
+    # once. Said from the read tier's value - by the clock, like every other
+    # line - rather than in the sentences the model was shown. To the second,
+    # since the line reaches a model, and what a model is given is exact.
+    some_instant = "2026-08-30T10:14:37Z"
+    some_deploy = ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=some_instant,
+                              reference="9c1f0ab2d4e6", summary="dont care")
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=6),
+        going_out=some_deploy, before_it=None))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("all 6 replicas run revision 9c1f0ab2d4e6"),
+                     _the_only_line_mentions("10:14:37"),
+                     _the_only_line_does_not_say(some_instant),
+                     _the_lines_are_credited_to(["Investigator Agent"])))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_names_both_revisions_how_many_run_each_and_a_pause() -> None:
+    # The answer the mode turns on: neither revision is the subject while both
+    # are serving. The pause is a different fact from the split - a person
+    # stopped it, rather than the platform being slow.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=2,
+                                 is_paused=True),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-30T10:14:37Z",
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("2 of 6 replicas run revision 9c1f0ab2d4e6"),
+                     _the_only_line_mentions("10:14:37"),
+                     _the_only_line_mentions("4 still run revision 544cef36a8ea"),
+                     _the_only_line_mentions("paused")))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_with_nothing_before_it_says_the_older_revision_is_not_named() -> None:
+    # The replicas not yet updated run *something*, and the history cannot say
+    # what - said, rather than left out, or the split reads as one revision.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=2),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=None))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("4 still run an earlier revision the history does not name"))
 
 
 @pytest.mark.unit

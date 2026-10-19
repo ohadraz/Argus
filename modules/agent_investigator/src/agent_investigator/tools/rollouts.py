@@ -8,15 +8,13 @@ for a model to name: the service is the incident's.
 The one channel whose ordinary answer is itself a finding. Every scenario the
 fixture stages but one answers that the deployment converged, and that is not a
 blank - it rules out two revisions serving at once and leaves the revision itself
-as the subject of whatever a reader concludes next. Said as "all but one" rather
-than as a count, because a count here is a number nothing checks and the fixture
-gains scenarios.
+as the subject of whatever a reader concludes next.
 
-Which is exactly why an empty answer is said in words rather than passed through.
-Everywhere else in the tier, nothing coming back is a gap; here the reading a
-model most expects is "it converged", so emptiness left to speak for itself is
-not a missing finding but the wrong one - and the wrong one sends a walk to blame
-a revision that is not at fault.
+The read tier answers with a value, and the words the model reads are written
+here. They describe and do not judge: every deployment is part way through for a
+minute or two, so they say what the platform reports and when the state began,
+and whether that is too long is the model's to weigh against an onset this
+channel has never seen.
 
 Its silence is not evidence, so it reports rather than raises, as the register
 does. A rollout nobody could read supports no conclusion either way, and the
@@ -28,18 +26,13 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import ToolCall, ToolDefinition
+from argus_core.events import Narrator, RolloutRead
+from argus_core.models import ChangeEvent, RolloutAccount, ToolCall, ToolDefinition
 
 from agent_investigator.retrieval import RolloutFetcher
 from agent_investigator.tools.results import Served, answered, could_not_be_read
 
 ROLLOUT_TOOL: Final = "get_rollout_state"
-
-_NOTHING_CAME_BACK = (
-    "The read tier answered about this deployment's rollout with nothing at all, "
-    "which is not an answer it gives - treat the rollout as unread rather than "
-    "as finished. Nothing here says how many replicas are on which revision."
-)
 
 
 def rollout_tool() -> ToolDefinition:
@@ -67,12 +60,14 @@ def rollout_tool() -> ToolDefinition:
 
 def read_the_rollout(call: ToolCall,
                      service: str,
-                     fetch_rollout: RolloutFetcher) -> Served:
+                     fetch_rollout: RolloutFetcher,
+                     narrator: Narrator) -> Served:
     """How far the deployment got, or why that could not be read.
 
-    No narrator event and no reading, for the reason the register channel records
-    neither: a reading is what tells a later round which minutes are already in
-    front of the model, and there are no minutes here.
+    No reading, for the reason the register channel records none: a reading is
+    what tells a later round which minutes are already in front of the model,
+    and there are no minutes here. What came back is narrated all the same, as
+    the value it is, so the account of the incident can say it in its own words.
 
     Anything at all going wrong is reported as the same fact, which is why this
     catches broadly. Across the tier boundary the platform's own failure has
@@ -81,7 +76,7 @@ def read_the_rollout(call: ToolCall,
     get to find out whether the deployment converged.
     """
     try:
-        said = fetch_rollout(service)
+        account = fetch_rollout(service)
     except Exception as error:
         return could_not_be_read(
             call,
@@ -91,7 +86,93 @@ def read_the_rollout(call: ToolCall,
             because=str(error)
         )
 
-    if not said:
-        return answered(call, _NOTHING_CAME_BACK)
+    narrator.say(RolloutRead, account=account)
 
-    return answered(call, "\n".join(said))
+    return answered(call, "\n".join(_as_the_model_reads_it(service, account)))
+
+
+def _as_the_model_reads_it(service: str, account: RolloutAccount) -> list[str]:
+    """The rollout said for a model, a line to each fact."""
+    progress = account.progress
+
+    if progress.has_converged:
+        return _converged(service, progress.replicas_serving, account.going_out)
+
+    return _still_converging(service, account)
+
+
+def _converged(service: str, serving: int, going_out: ChangeEvent | None) -> list[str]:
+    """A deployment that finished arriving, said plainly.
+
+    Said at all, rather than answered with silence, because this is evidence: a
+    reader weighing a deploy at the onset has been told it is not half-applied,
+    which rules one mode out and leaves the revision itself as the subject.
+    """
+    if going_out is None:
+        return [
+            f"Deployment of {service} has converged: all {serving} replicas are "
+            f"running the same revision. The deployment history holds no "
+            f"deployment at all, so nothing here names which."
+        ]
+
+    return [
+        f"Deployment of {service} has converged: all {serving} replicas are "
+        f"running revision [{going_out.reference}], deployed at "
+        f"{going_out.occurred_at}."
+    ]
+
+
+def _still_converging(service: str, account: RolloutAccount) -> list[str]:
+    """A deployment part way through, and the two revisions that are serving.
+
+    Both named, because a count with one subject is a count a reader cannot use:
+    what is being asked is whether two versions are running at once, and one
+    revision and a number does not say what the other version is.
+    """
+    progress = account.progress
+    serving = progress.replicas_serving
+    updated = progress.replicas_updated
+    said = [
+        f"Deployment of {service} has not converged: {updated} of {serving} "
+        f"replicas are running {_the_revision_going_out(account.going_out)}, and "
+        f"{serving - updated} are still running "
+        f"{_the_revision_before_it(account.before_it)}."
+    ]
+
+    if progress.is_paused:
+        said.append(
+            "Its rolling update is paused, so the platform is not converging it "
+            "on its own."
+        )
+
+    if account.going_out is not None:
+        said.append(
+            f"The revision it is converging on was deployed at "
+            f"{account.going_out.occurred_at}, which is when the replicas first "
+            f"differed."
+        )
+
+    return said
+
+
+def _the_revision_going_out(going_out: ChangeEvent | None) -> str:
+    if going_out is None:
+        return "a revision the deployment history does not hold"
+
+    return f"revision [{going_out.reference}]"
+
+
+def _the_revision_before_it(before_it: ChangeEvent | None) -> str:
+    """What the replicas that have not updated are running.
+
+    Said as unknown rather than left out where the history has nothing earlier. A
+    reader told only about the new revision reads the split as a count with one
+    subject, which is the reading this channel exists to prevent.
+    """
+    if before_it is None:
+        return (
+            "whatever preceded it - there is no earlier deployment in the "
+            "history to name it by"
+        )
+
+    return f"revision [{before_it.reference}]"

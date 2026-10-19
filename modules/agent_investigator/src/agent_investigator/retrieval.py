@@ -9,6 +9,7 @@ from argus_core.models import (
     FlagChange,
     MetricBucket,
     PodPlacement,
+    RolloutAccount,
     ServiceDependency,
     as_a_change,
 )
@@ -90,13 +91,13 @@ class RolloutFetcher(Protocol):
     running now, so there is nothing to date - and there is nothing for a model
     to name either, because the service is the incident's.
 
-    Answers in lines, as the deployment diff does and for the same reason. What
-    comes back is a replica count, two revisions and whether the update is
-    paused, said for a model to read; a shape carrying them as fields would be a
-    shape three modules had to agree on to carry a sentence.
+    Answers with a value - the counts, the revision going out and the one before
+    it - rather than in lines, unlike the deployment diff. A diff is said to
+    every reader as it was read; a rollout is said by each reader in its own
+    words, the model's among them, and they write those from the fields.
     """
 
-    def __call__(self, service: str, /) -> list[str]: ...
+    def __call__(self, service: str, /) -> RolloutAccount: ...
 
 
 class PlacementFetcher(Protocol):
@@ -207,9 +208,9 @@ def fetch_what_a_deployment_changed(service: str,
     return get_what_a_deployment_changed(service, revision, client=client)
 
 
-def fetch_the_rollout(service: str, *, client: McpClient) -> list[str]:
-    """Whether this service's deployment has finished arriving, as lines a model
-    reads.
+def fetch_the_rollout(service: str, *, client: McpClient) -> RolloutAccount:
+    """Whether this service's deployment has finished arriving, and the
+    revisions it is between.
 
     A named function rather than the client's own passed directly, for the reason
     `fetch_metrics` is one: what the loop needs is the one calling shape it uses,

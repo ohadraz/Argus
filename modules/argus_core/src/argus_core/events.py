@@ -44,6 +44,7 @@ from argus_core.models.reading import RetrievalChannel
 from argus_core.models.reference import Reference
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import Report
+from argus_core.models.rollout import RolloutAccount
 from argus_core.models.thread_message import Standing
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
@@ -184,6 +185,23 @@ class DeploymentChangesRead(_Event):
     kind: Literal["deployment-changes-read"] = "deployment-changes-read"
     revision: str
     said: list[str]
+
+
+class RolloutRead(_Event):
+    """How far the deployment had rolled out, as the Investigator read it.
+
+    The read tier's value whole - the counts, the revision going out and the
+    one before it - rather than the sentences the model was shown. Those are
+    the model's, and every other reader says the rollout in its own words:
+    which it can do from the value, and could only do from the sentences by
+    searching them for a revision and a moment.
+
+    Published only where the tier answered. A rollout nobody could read says
+    nothing about the deployment, and is said as unanswered instead.
+    """
+
+    kind: Literal["rollout-read"] = "rollout-read"
+    account: RolloutAccount
 
 
 # How `DeploymentChangesRead.said` sets out a diff: every line under the one
@@ -905,6 +923,7 @@ type IncidentEvent = Annotated[
         | LogsRetrieved
         | ChangesRetrieved
         | DeploymentChangesRead
+        | RolloutRead
         | ChannelsUnread
         | FlagChangesRetrieved
         | PlacementRecorded

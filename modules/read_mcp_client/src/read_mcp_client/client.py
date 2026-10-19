@@ -9,6 +9,7 @@ from argus_core.models import (
     ChangeEvent,
     MetricBucket,
     PodPlacement,
+    RolloutAccount,
     RolloutProgress,
     ServiceDependency,
 )
@@ -25,7 +26,7 @@ _FLAG_NAMES: Final = TypeAdapter(list[str])
 _SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
 _WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
-_ROLLOUT_STATE: Final = TypeAdapter(list[str])
+_ROLLOUT_STATE: Final = TypeAdapter(RolloutAccount)
 _ROLLOUT_PROGRESS: Final = TypeAdapter(RolloutProgress)
 _ALERT_RULE: Final = TypeAdapter(AlertRuleStanding)
 _PLACEMENTS: Final = TypeAdapter(list[PodPlacement])
@@ -154,7 +155,7 @@ def get_what_a_deployment_changed(service: str,
     )
 
 
-def get_rollout_state(service: str, *, client: McpClient) -> list[str]:
+def get_rollout_state(service: str, *, client: McpClient) -> RolloutAccount:
     """Reads whether the deployment a service is running has finished arriving.
 
     The evidence that separates a revision which is wrong from two revisions
@@ -171,7 +172,8 @@ def get_rollout_state(service: str, *, client: McpClient) -> list[str]:
     What comes back describes and does not judge. Every deployment is part way
     through for a minute or two, so the answer says what the platform reports and
     when the state began, and whether that is too long is the caller's to decide
-    against an onset this channel has never seen.
+    against an onset this channel has never seen. It is a value - the counts, and
+    the revision going out and the one before it - and saying it is the caller's.
 
     Raises rather than answering that the deployment converged when the platform
     could not be reached. That answer rules a mode out, so an outage read as
@@ -189,10 +191,8 @@ def get_rollout_progress(service: str, *, client: McpClient) -> RolloutProgress:
     rolled out, as counts.
 
     The same channel as `get_rollout_state` and the other half of its audience.
-    That one answers a model in sentences; this answers a caller in numbers, and
-    the two are kept apart so that neither has to be parsed to serve the other -
-    a caller hunting a replica count inside prose would make a vendor's phrasing
-    into a dependency, which is the mistake the typed clients exist to avoid.
+    That one names the revisions a reader weighs; this answers a caller in
+    numbers alone, and reads no history to do it.
 
     Who waits on it: an agent that has just changed something and may not measure
     anything until the change has arrived. A rollback is accepted long before it

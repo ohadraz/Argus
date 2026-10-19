@@ -23,6 +23,8 @@ from argus_core.models import (
     PodPlacement,
     ReportChannel,
     RetrievalChannel,
+    RolloutAccount,
+    RolloutProgress,
     RuleReading,
     ServiceDependency,
     ThreadMessage,
@@ -500,22 +502,23 @@ DEPLOYED_LONG_BEFORE_THE_ONSET = -40
 THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY = "696c33a"
 THE_REVISION_STILL_SERVING = "5470c1a"
 
-# What the rollout channel answers. Prose rather than a shape, because that is
-# what the channel returns: a replica count, two revisions, whether the update
-# is paused, and when the state began.
-A_ROLLOUT_STOPPED_HALF_WAY = [
-    f"Deployment of io-shop has not converged: 3 of 6 replicas are running "
-    f"revision [{THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY}], and 3 are still "
-    f"running revision [{THE_REVISION_STILL_SERVING}].",
-    "Its rolling update is paused, so the platform is not converging it on its "
-    "own.",
-    "The revision it is converging on was deployed at 2026-08-20T11:05:00Z, "
-    "which is when the replicas first differed."
-]
-A_CONVERGED_DEPLOYMENT = [
-    "Deployment of io-shop has converged: all 3 replicas are running revision "
-    "[a3f9c21], deployed at 2026-08-20T11:05:00Z."
-]
+# What the rollout channel answers: the counts, the revision going out and the
+# one before it, each with when it was deployed. The model reads it in the
+# Investigator's words, written from these - the same words this eval staged
+# when the channel answered in prose.
+A_ROLLOUT_STOPPED_HALF_WAY = RolloutAccount(
+    progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=3,
+                             is_paused=True),
+    going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-20T11:05:00Z",
+                          reference=THE_REVISION_THAT_RESHAPED_A_CACHE_ENTRY,
+                          summary="dont care"),
+    before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-20T10:05:00Z",
+                          reference=THE_REVISION_STILL_SERVING, summary="dont care"))
+A_CONVERGED_DEPLOYMENT = RolloutAccount(
+    progress=RolloutProgress(replicas_wanted=3, replicas_serving=3, replicas_updated=3),
+    going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at="2026-08-20T11:05:00Z",
+                          reference="a3f9c21", summary="dont care"),
+    before_it=None)
 
 # What the deployment carried. A stored shape that changed, with no read path
 # kept for the old one - which is the missing expand step of an expand-contract
@@ -1312,8 +1315,8 @@ class Incident:
     # same kind of fact as the two above, for the third pair that arrives
     # identically: a revision that is wrong and a revision that reached half the
     # fleet are one deploy at the onset either way, and only this separates them.
-    # Empty for every case where no rollout decides anything.
-    rollout: list[str] = field(default_factory=list)
+    # None for every case where no rollout decides anything.
+    rollout: RolloutAccount | None = None
     # Where the service's pods ran, as the platform would answer. Calm rather
     # than empty for every case that stages nothing, because production always
     # reads one - and an empty placement says the service runs on no pod.
@@ -2300,7 +2303,7 @@ def _an_incident(alert: Alert,
                  changes: list[ChangeEvent],
                  dependencies: list[ServiceDependency] | None = None,
                  what_each_deployment_changed: dict[str, list[str]] | None = None,
-                 rollout: list[str] | None = None,
+                 rollout: RolloutAccount | None = None,
                  placement: list[PodPlacement] | None = None
                  ) -> Incident:
     return Incident(alert=alert, buckets=buckets, log_lines=log_lines,
@@ -2308,7 +2311,7 @@ def _an_incident(alert: Alert,
                     what_each_deployment_changed=(
                         what_each_deployment_changed or {}
                     ),
-                    rollout=rollout or [],
+                    rollout=rollout,
                     placement=placement or a_calm_placement())
 
 
@@ -2367,7 +2370,7 @@ def _the_placement_of(incident: Incident) -> Callable[[str], list[PodPlacement]]
     return fetch
 
 
-def _the_rollout_of(incident: Incident) -> Callable[[str], list[str]]:
+def _the_rollout_of(incident: Incident) -> Callable[[str], RolloutAccount]:
     """How far the fixture records this incident's deployment as having got.
 
     Per incident like the register and the diff, and evidence for the same
@@ -2375,15 +2378,17 @@ def _the_rollout_of(incident: Incident) -> Callable[[str], list[str]]:
     at once is whether the deployment converged, so which is correct for a set
     of metrics is decided here and nowhere else.
 
-    An incident that records nothing is answered as unread rather than as
+    An incident that records nothing is refused rather than answered as
     converged. "It converged" rules a failure mode out, so a default that said
-    it would hand every case a finding no fixture made.
+    it would hand every case a finding no fixture made - and the channel
+    answers with a value, which has no way to say "unread".
     """
-    def fetch(dont_care_service: str) -> list[str]:
-        return incident.rollout or [
-            "This evaluation records nothing about how far this deployment got, "
-            "so take the rollout as unread rather than as finished."
-        ]
+    def fetch(dont_care_service: str) -> RolloutAccount:
+        if incident.rollout is None:
+            raise LookupError(
+                "this evaluation records nothing about how far this deployment got")
+
+        return incident.rollout
 
     return fetch
 

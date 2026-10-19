@@ -242,7 +242,7 @@ class Dispatcher:
             )
 
         if call.name == ROLLOUT_TOOL:
-            return read_the_rollout(call, self._service, self._fetch_rollout)
+            return read_the_rollout(call, self._service, self._fetch_rollout, self._narrator)
 
         logger.warning("unknown tool called", extra={"tool": call.name})
 

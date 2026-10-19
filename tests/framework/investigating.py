@@ -22,7 +22,13 @@ from datetime import UTC, datetime
 
 from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
-from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, ServiceDependency
+from argus_core.models import (
+    ChangeEvent,
+    MetricBucket,
+    PodPlacement,
+    RolloutAccount,
+    ServiceDependency,
+)
 
 # The minute the departure lands in, and so the onset every one of these suites
 # measures from. Named because two of them assert against it.
@@ -105,14 +111,16 @@ def no_deployment_was_read(dont_care_service: str,
     return []
 
 
-def no_rollout_was_read(dont_care_service: str) -> list[str]:
-    """A rollout channel that answers about nothing.
+def no_rollout_was_read(dont_care_service: str) -> RolloutAccount:
+    """A rollout channel nobody could read.
 
     Unread rather than converged, which is the one answer this must never give
     by default: "the deployment converged" rules a failure mode out, and a
     stand-in volunteering it would hand the model a finding no case here staged.
+    The channel answers with a value now, and no value says "unread" - so this
+    refuses, as an unreachable platform does.
     """
-    return []
+    raise LookupError("no rollout was staged for this case")
 
 
 def pods_that_never_moved(dont_care_service: str) -> list[PodPlacement]:

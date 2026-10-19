@@ -62,6 +62,7 @@ from argus_core.events import (
     ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    RolloutRead,
     SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
@@ -81,6 +82,7 @@ from argus_core.models import (
     Refusal,
     ReportChannel,
     RetrievalChannel,
+    RolloutAccount,
     Undone,
 )
 from pydantic import BaseModel, Field
@@ -429,6 +431,10 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case DeploymentChangesRead():
             who = _INVESTIGATOR
             text = f"Read what the deployment of {event.revision} changed"
+        case RolloutRead():
+            who = _INVESTIGATOR
+            text = (f"Read how far the deployment had rolled out - "
+                    f"{_how_far_it_rolled_out(event.account, beside=to_iso(event.at))}")
         case FlagChangesRetrieved():
             # The walk's own read, made every round before any agent is called
             # in to act on it.
@@ -946,6 +952,38 @@ def _what_the_look_settled(event: RecoveryChecked) -> str:
         return "no longer at the incident's level"
 
     return f"no longer at the incident's level since {a_minute(event.recovered_minute)}"
+
+
+def _how_far_it_rolled_out(account: RolloutAccount, beside: str) -> str:
+    """A rollout said from the read tier's value: how many replicas run which
+    revision, and whether the update is paused - described, never judged,
+    since a rollout part way through is the ordinary state of every deployment
+    for a minute or two.
+
+    A revision the history does not hold is said not to be named, rather than
+    left out: a split said with one subject reads as no split at all."""
+    progress = account.progress
+    serving = progress.replicas_serving
+
+    if progress.has_converged:
+        if account.going_out is None:
+            return (f"all {serving} replicas run one revision, which the history "
+                    f"does not name")
+
+        return (f"all {serving} replicas run revision {account.going_out.reference}, "
+                f"deployed at {a_moment(account.going_out.occurred_at, beside=beside)}")
+
+    updated = progress.replicas_updated
+    going_out = (f"revision {account.going_out.reference}, deployed at "
+                 f"{a_moment(account.going_out.occurred_at, beside=beside)},"
+                 if account.going_out is not None
+                 else "a revision the history does not name")
+    before_it = (f"revision {account.before_it.reference}" if account.before_it is not None
+                 else "an earlier revision the history does not name")
+    paused = "; its rolling update is paused" if progress.is_paused else ""
+
+    return (f"{updated} of {serving} replicas run {going_out} and {serving - updated} "
+            f"still run {before_it}{paused}")
 
 
 def _the_address_it_names(event: IncidentEvent) -> str:

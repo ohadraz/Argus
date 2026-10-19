@@ -15,10 +15,10 @@ one the lagging replicas are still running. How either is read off the platform 
 the manifest, its conditions, a status nobody filled in - is the adapter's, and
 pinned in its own suite.
 
-Nothing here judges. A deployment part way through a rollout is the ordinary
-condition of every deployment for a minute or two, and a channel that called one
-stuck would be deciding, on a timing it cannot know, something that belongs to
-whoever weighs causes.
+Answered as a value, never as prose. Two readers say it - the Investigator's
+model and the account of the incident - and each says it in its own words;
+words written here would leave the second to search the first's for a revision
+and a time. What the model reads is the Investigator's, and pinned in its suite.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.models import RolloutProgress
+from argus_core.models import RolloutAccount, RolloutProgress
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from deployment_platform import (
     DeploymentPlatformError,
@@ -55,67 +55,62 @@ WHEN_THE_ONE_BEFORE_IT_LANDED = "2026-08-20T10:05:00Z"
 SOME_FLEET_SIZE = 6
 HALF_OF_IT = 3
 
-# Words a channel that had drawn a conclusion would use. Asserted against
-# rather than for, because the failure this guards is an answer that reads as a
-# verdict - and a verdict here would be one reached from a replica count and a
-# timestamp.
-VERDICTS_IT_MAY_NOT_REACH = ("fault", "stuck", "wrong", "unhealthy", "dangerous")
+
+@pytest.mark.unit
+def test_the_account_carries_the_platform_s_counts_unchanged() -> None:
+    # The counts are the platform's, and the split, the pause and the failure
+    # are all in them. Nothing here reads them for a verdict: a rollout part
+    # way through is the ordinary condition of every deployment for a minute
+    # or two.
+    the_fleet = a_fleet_half_updated(paused=True)
+
+    Scenario() \
+        .given(platform := _a_platform(the_fleet, deployed_twice())) \
+        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
+        .then(_it_counts(the_fleet))
 
 
 @pytest.mark.unit
-def test_a_rollout_that_has_not_finished_names_both_revisions_and_the_split() -> None:
-    # The answer the mode turns on. A reader holding it can say that neither
-    # revision is the subject - both are serving - which no other channel can
-    # tell them.
+def test_the_account_names_the_revision_going_out_and_the_one_before_it() -> None:
+    # The two revisions a split fleet is serving, each with when it was
+    # deployed - said rather than counted from, since this tier has no clock and
+    # a reader holding an onset can do the arithmetic.
     Scenario() \
         .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
         .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(all_of(
-            _the_answer_mentions("not converged"),
-            _the_answer_mentions(THE_REVISION_BEING_ROLLED_OUT),
-            _the_answer_mentions(THE_REVISION_STILL_SERVING),
-            _the_answer_mentions(str(HALF_OF_IT)),
-            _the_answer_mentions(str(SOME_FLEET_SIZE))
+            _the_one_going_out_is(THE_REVISION_BEING_ROLLED_OUT, deployed_at=WHEN_IT_LANDED),
+            _the_one_before_it_is(THE_REVISION_STILL_SERVING,
+                                  deployed_at=WHEN_THE_ONE_BEFORE_IT_LANDED)
         ))
 
 
 @pytest.mark.unit
-def test_a_converged_deployment_says_so_and_names_the_revision_every_replica_runs() -> None:
-    # Twelve of the thirteen scenarios answer this way, and the answer is
-    # evidence rather than a blank: a reader weighing a deploy at the onset has
-    # been told the deploy is not half-applied, which rules the new mode out.
+def test_a_history_with_one_deployment_names_nothing_before_it() -> None:
+    # The replicas that have not updated are running *something*, and the
+    # history cannot say what. None rather than a guess, so whoever says it
+    # can say it is unknown.
     Scenario() \
-        .given(platform := _a_platform(a_converged_fleet(), deployed_twice())) \
+        .given(platform := _a_platform(a_fleet_half_updated(), deployed_once())) \
         .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
         .then(all_of(
-            _the_answer_mentions("converged"),
-            _the_answer_mentions(THE_REVISION_BEING_ROLLED_OUT)
+            _the_one_going_out_is(THE_REVISION_BEING_ROLLED_OUT, deployed_at=WHEN_IT_LANDED),
+            _nothing_is_named_before_it()
         ))
 
 
 @pytest.mark.unit
-def test_a_paused_rolling_update_is_reported_as_paused() -> None:
-    # Why it is not progressing, which is a different fact from that it has not
-    # progressed - and the one that says a person stopped it rather than that
-    # the platform is slow.
+def test_a_history_with_nothing_in_it_names_no_revision() -> None:
+    # A fleet can be counted with no deploy on record - one the history has
+    # lost, or never held - and the counts are still the platform's answer.
     Scenario() \
-        .given(platform := _a_platform(
-            a_fleet_half_updated(paused=True), deployed_twice()
-        )) \
+        .given(platform := _a_platform(a_converged_fleet(), [])) \
         .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
-        .then(_the_answer_mentions("paused"))
-
-
-@pytest.mark.unit
-def test_the_answer_says_when_the_deployment_landed() -> None:
-    # Said rather than counted from: this tier has no clock, and a reader
-    # holding an onset can do the arithmetic. Without it a split fleet is a
-    # state with no duration, which reads the same two minutes and two hours
-    # into a rollout.
-    Scenario() \
-        .given(platform := _a_platform(a_fleet_half_updated(), deployed_twice())) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
-        .then(_the_answer_mentions(WHEN_IT_LANDED))
+        .then(all_of(
+            _it_counts(a_converged_fleet()),
+            _nothing_is_named_going_out(),
+            _nothing_is_named_before_it()
+        ))
 
 
 @pytest.mark.unit
@@ -150,45 +145,12 @@ def test_a_platform_that_did_not_answer_is_not_reported_as_converged(
 
 
 @pytest.mark.unit
-def test_a_split_fleet_with_nothing_deployed_before_it_says_the_older_revision_is_unknown() -> None:
-    # An application whose history holds one entry has no earlier revision to
-    # name, and the replicas that have not updated are running *something*. Said
-    # rather than left out: a reader told only about the new revision would read
-    # the split as a count with no second subject.
-    Scenario() \
-        .given(platform := _a_platform(a_fleet_half_updated(), deployed_once())) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
-        .then(all_of(
-            _the_answer_mentions("not converged"),
-            _the_answer_mentions("no earlier deployment")
-        ))
-
-
-@pytest.mark.unit
-def test_a_rollout_in_progress_is_described_and_not_judged() -> None:
-    # Every deployment is part way through for a minute or two. Whether this one
-    # has been too long is the reader's judgement, made against an onset this
-    # channel has never seen.
-    Scenario() \
-        .given(platform := _a_platform(
-            a_fleet_half_updated(paused=True), deployed_twice()
-        )) \
-        .when(lambda: how_the_rollout_is_going(SOME_SERVICE, platform=platform)) \
-        .then(_the_answer_reaches_no_verdict())
-
-
-@pytest.mark.unit
 def test_how_far_the_rollout_has_got_is_the_platforms_answer_for_a_caller() -> None:
-    # The same read as the lines above, answered as a value. The lines exist for
-    # a model and must keep existing: §16's channel describes rather than judges,
-    # and the Investigator hands those sentences to one. What a *caller* needs is
-    # the count, and Mitigation finding it by searching prose for a number would
-    # be the wire-vocabulary mistake this repo refuses, one layer in.
-    #
-    # Why Mitigation needs it at all: until every replica is on the revision it
-    # rolled back to, a minute of metrics is a minute the old code was still
-    # serving, and a recovery judged off those minutes is a recovery judged of the
-    # wrong deployment. So the count is what says when the judging may begin.
+    # The counts alone, for a caller that waits on them. Why Mitigation needs
+    # it at all: until every replica is on the revision it rolled back to, a
+    # minute of metrics is a minute the old code was still serving, and a
+    # recovery judged off those minutes is a recovery judged of the wrong
+    # deployment. So the count is what says when the judging may begin.
     the_fleet = a_fleet_half_updated()
 
     Scenario() \
@@ -217,11 +179,11 @@ def test_how_far_the_rollout_has_got_reads_no_history() -> None:
 def test_a_platform_that_did_not_answer_is_not_counted_as_converged(
     failure: DeploymentPlatformError
 ) -> None:
-    # The same refusal the lines make, and it matters more here. A caller told
-    # "converged" starts judging a recovery immediately, so a platform outage read
-    # as arrival would have Mitigation measure the minutes before its own change
-    # landed and confirm or refute an action on them. Raising leaves the caller
-    # with something to handle rather than a figure to act on.
+    # The same refusal the account makes, and it matters more here. A caller
+    # told "converged" starts judging a recovery immediately, so a platform
+    # outage read as arrival would have Mitigation measure the minutes before
+    # its own change landed and confirm or refute an action on them. Raising
+    # leaves the caller with something to handle rather than a figure to act on.
     Scenario() \
         .given(platform := _a_platform_failing_with(failure)) \
         .when(attempting(
@@ -304,13 +266,71 @@ def _it_is(expected: RolloutProgress) -> Assertion[RolloutProgress]:
     return assertion
 
 
-def _the_answer_mentions(wanted: str) -> Assertion[list[str]]:
-    """Something a model has to be able to read in the answer."""
-    def assertion(answered: list[str]) -> bool:
-        if not any(wanted in line for line in answered):
+def _it_counts(expected: RolloutProgress) -> Assertion[RolloutAccount]:
+    """The platform's counts, carried in the account unchanged."""
+    def assertion(account: RolloutAccount) -> bool:
+        if account.progress != expected:
             raise AssertionError(
-                f"Expected the answer to mention [{wanted}], and it says "
-                f"{answered}."
+                f"Expected the account to carry the platform's counts "
+                f"[{expected!r}], and it carries [{account.progress!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_one_going_out_is(revision: str, *, deployed_at: str) -> Assertion[RolloutAccount]:
+    def assertion(account: RolloutAccount) -> bool:
+        named = ((account.going_out.reference, account.going_out.occurred_at)
+                 if account.going_out is not None else None)
+
+        if named != (revision, deployed_at):
+            raise AssertionError(
+                f"Expected the revision going out to be [{revision}], deployed at "
+                f"[{deployed_at}], and the account names {named}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_one_before_it_is(revision: str, *, deployed_at: str) -> Assertion[RolloutAccount]:
+    def assertion(account: RolloutAccount) -> bool:
+        named = ((account.before_it.reference, account.before_it.occurred_at)
+                 if account.before_it is not None else None)
+
+        if named != (revision, deployed_at):
+            raise AssertionError(
+                f"Expected the revision before it to be [{revision}], deployed at "
+                f"[{deployed_at}], and the account names {named}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_is_named_going_out() -> Assertion[RolloutAccount]:
+    def assertion(account: RolloutAccount) -> bool:
+        if account.going_out is not None:
+            raise AssertionError(
+                f"Expected no revision going out from a history with nothing in "
+                f"it, and the account names [{account.going_out}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_is_named_before_it() -> Assertion[RolloutAccount]:
+    def assertion(account: RolloutAccount) -> bool:
+        if account.before_it is not None:
+            raise AssertionError(
+                f"Expected nothing named before the revision going out, and the "
+                f"account names [{account.before_it}]."
             )
 
         return True
@@ -339,24 +359,3 @@ def _the_history_was_not_read(platform: Any) -> bool:
         )
 
     return True
-
-
-def _the_answer_reaches_no_verdict() -> Assertion[list[str]]:
-    """Nothing in the answer calls the rollout anything."""
-    def assertion(answered: list[str]) -> bool:
-        judged = [
-            verdict for verdict in VERDICTS_IT_MAY_NOT_REACH
-            if any(verdict in line.lower() for line in answered)
-        ]
-
-        if judged:
-            raise AssertionError(
-                f"The answer calls the rollout {sorted(judged)}, which is a "
-                f"conclusion drawn from a replica count and a timestamp - and "
-                f"it belongs to whoever weighs causes, who has the onset this "
-                f"channel has never seen. It says {answered}."
-            )
-
-        return True
-
-    return assertion

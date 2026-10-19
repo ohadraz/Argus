@@ -32,6 +32,7 @@ from argus_core.models import (
     ChangeEvent,
     MetricBucket,
     PodPlacement,
+    RolloutAccount,
     RolloutProgress,
     ServiceDependency,
 )
@@ -349,11 +350,11 @@ def build_server(endpoint: ReadMcpEndpoint,
     @mcp.tool()
     def get_rollout_progress(service: str) -> RolloutProgress:
         """Returns how many of a service's replicas have reached the revision
-        being rolled out, and how many have not, as counts rather than prose.
+        being rolled out, and how many have not, as counts.
 
         The same read as `get_rollout_state` and a different reader. That one
-        answers in sentences, for a model weighing whether a deployment is the
-        fault; this answers in numbers, for a caller that has just changed
+        names the revisions too, for whoever weighs whether a deployment is the
+        fault; this answers in numbers alone, for a caller that has just changed
         something and needs to know the change has arrived before it measures
         anything. Mitigation is that caller: until every replica is on the
         revision a rollback returned to, a minute of metrics is a minute the old
@@ -389,7 +390,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         return alert_rules.how_the_rule_stands(rule, fetch=from_grafana)
 
     @mcp.tool()
-    def get_rollout_state(service: str) -> list[str]:
+    def get_rollout_state(service: str) -> RolloutAccount:
         """Returns whether the deployment a service is running has finished
         arriving - how many replicas are on the revision being rolled out, how
         many are still on the one before it, and whether the rolling update is
@@ -413,6 +414,9 @@ def build_server(endpoint: ReadMcpEndpoint,
         an onset this channel has never seen. What makes it a fault rather than a
         rollout in progress is failures that only requests crossing the two
         versions could produce.
+
+        Answered as a value - the counts, the revision going out and the one
+        before it, each with when it was deployed - and said by whoever reads it.
 
         A platform that could not be reached raises rather than answering that
         the deployment converged. The behavior lives in

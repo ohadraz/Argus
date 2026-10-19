@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from argus_core.models.change_event import ChangeEvent
+
 
 class RolloutProgress(BaseModel):
     """How many of a deployment's replicas have reached the revision being
@@ -122,3 +124,26 @@ class RolloutProgress(BaseModel):
         a reader about a wait that is still going.
         """
         return max(0, self.replicas_serving - self.replicas_updated)
+
+
+class RolloutAccount(BaseModel):
+    """How far a deployment's rollout has got, and the revisions it is between:
+    the read tier's whole answer about a rollout, for a reader to say.
+
+    A value rather than sentences, because two readers say it - the
+    Investigator's model, and the account of the incident on the page, in Slack
+    and in the postmortem - and each says it in its own words. Sentences written
+    in the tier would leave the second searching the first's for a revision and
+    a moment, which is the mistake the counts were made a value to avoid.
+
+    `going_out` is the latest deploy in the history - the revision every
+    replica runs once the rollout has converged, and the one being rolled out
+    while it has not. `before_it` is the deploy before that, which the replicas
+    not yet updated are still running. Either is `None` where the history holds
+    no such deploy: a reader says that revision is unknown, rather than one
+    being guessed here.
+    """
+
+    progress: RolloutProgress
+    going_out: ChangeEvent | None
+    before_it: ChangeEvent | None
