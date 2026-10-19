@@ -44,6 +44,8 @@ def test_each_candidate_is_a_row_with_its_confidence_to_two_places() -> None:
 
 @pytest.mark.unit
 def test_a_row_standing_for_several_candidates_goes_by_each_of_their_labels() -> None:
+    # A document written before the several were carried has the one row and
+    # nothing to split it by.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(hypotheses=[
@@ -60,13 +62,12 @@ def test_a_row_standing_for_several_candidates_goes_by_each_of_their_labels() ->
 
 
 @pytest.mark.unit
-def test_a_row_standing_for_several_candidates_says_whose_each_figure_is() -> None:
-    # One candidate's figures shown as the row's own read as another's: a
-    # candidate never tried reads as confirmed, at a confidence it never had,
-    # and its own claim is hidden. So each says its own words, mode and
-    # confidence, and the result says whose test reached it - each claim on a
-    # line of its own, since run together they read as one, and each mode in
-    # plain words rather than the value the model was taught.
+def test_candidates_merged_in_the_record_are_each_a_row_of_their_own() -> None:
+    # Two candidates on one row read as one claim, and one candidate's figures
+    # shown as the row's own read as another's: a candidate never tried reads
+    # as confirmed, at a confidence it never had. So each is a row like any
+    # other - its own words and confidence - and the result of the one not
+    # tried says whose test reached it.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(hypotheses=[
@@ -87,38 +88,10 @@ def test_a_row_standing_for_several_candidates_says_whose_each_figure_is() -> No
         ) \
         .then(
             the_answer_was((
-                HypothesisRow(label="C1", also=("C2",),
-                              summary=Line(runs=(
-                                  Run(text="C1 (a model answering worse): "),
-                                  Run(text="The model was upgraded."),
-                                  Run(text="\n"),
-                                  Run(text="C2 (a bad configuration change): "),
-                                  Run(text="The values file was changed."))),
-                              confidence="0.70 (C1); 0.20 (C2)",
-                              result="confirmed, as tested for C1"),)))
-
-
-@pytest.mark.unit
-def test_a_mode_no_longer_in_the_taxonomy_is_said_in_its_own_words() -> None:
-    # A document outlives the taxonomy it was written against, and a mode since
-    # retired still has to be printed as something a person reads.
-    Scenario() \
-        .given(
-            some_postmortem := a_postmortem(hypotheses=[
-                HypothesisConsidered(
-                    summary="dont care", confidence=0.7, result="dont care", label="C1",
-                    also=["C2"],
-                    members=[CandidateConsidered(label="C1", summary="dont care", confidence=0.7,
-                                                 failure_mode="some-retired-mode"),
-                             CandidateConsidered(label="C2", summary="dont care either",
-                                                 confidence=0.2, failure_mode=None)],
-                    decided_by="C1")])
-        ) \
-        .when(
-            lambda: the_hypotheses(some_postmortem).rows[0].summary.runs[0]
-        ) \
-        .then(
-            the_answer_was(Run(text="C1 (some retired mode): ")))
+                HypothesisRow(label="C1", summary=_said("The model was upgraded."),
+                              confidence="0.70", result="confirmed"),
+                HypothesisRow(label="C2", summary=_said("The values file was changed."),
+                              confidence="0.20", result="confirmed, as tested for C1"))))
 
 
 @pytest.mark.unit

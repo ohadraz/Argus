@@ -21,7 +21,6 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
-    CandidateConsidered,
     ChainStep,
     ChangeKind,
     CitedEvidence,
@@ -424,29 +423,6 @@ def test_a_row_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> Non
         ) \
         .then(
             _a_link_lands_on("F1 The categoriser does not lowercase."))
-
-
-@pytest.mark.unit
-def test_a_row_standing_for_several_candidates_prints_each_claim_on_a_line_of_its_own() -> None:
-    # Run together, two candidates' claims read as one.
-    some_hypothesis = HypothesisConsidered(
-        summary="dont care", confidence=0.7, result="confirmed", label="C1", also=["C2"],
-        members=[CandidateConsidered(label="C1", summary="Up.", confidence=0.7,
-                                     failure_mode="output-quality-degradation"),
-                 CandidateConsidered(label="C2", summary="Down.", confidence=0.2,
-                                     failure_mode="config-induced-failure")],
-        decided_by="C1")
-
-    Scenario() \
-        .given(
-            some_rendered := render(a_postmortem(hypotheses=[some_hypothesis]), an_alert(), [],
-                                    SOME_ADDRESS)
-        ) \
-        .when(
-            lambda: as_pdf(some_rendered)
-        ) \
-        .then(
-            _set_lower_than("C2 (a bad configuration change)", "C1 (a model answering worse)"))
 
 
 @pytest.mark.unit
