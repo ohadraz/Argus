@@ -97,9 +97,13 @@ def the_supporting_information(postmortem: PostmortemDocument,
     fix = postmortem.pull_request
     if fix is not None:
         links.append(Line(runs=(Run(text="The fix it proposed: "),
-                                Run(text=f"#{fix.number} {fix.url}", role=Role.LINK,
-                                    address=fix.url),
-                                Run(text=" "),
+                                # The name captions the address beside it, so
+                                # only the address is a link: two to one place
+                                # side by side are one too many.
+                                Run.a_pull_request(fix.number),
+                                Run(text=" ("),
+                                Run.an_address(fix.url),
+                                Run(text=") "),
                                 Run(text="draft - nobody has merged it", role=Role.STATUS))))
 
     changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))

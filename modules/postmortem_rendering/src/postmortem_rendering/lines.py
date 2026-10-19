@@ -80,6 +80,17 @@ class Run(BaseModel):
         relative to nothing leads nowhere."""
         return cls(text=address, role=Role.LINK, address=address)
 
+    @classmethod
+    def a_pull_request(cls, number: int) -> Run:
+        """A pull request by the name GitHub gives it - one name wherever the
+        document mentions it, its address written out once, where a reader of
+        paper looks for addresses."""
+        return cls(text=f"PR #{number}")
+
+    def linked_to(self, address: str) -> Run:
+        """The same words, opening `address`."""
+        return self.model_copy(update={"role": Role.LINK, "address": address})
+
     def with_citations(self, labels: Collection[str]) -> tuple[Run, ...]:
         """The run cut at every label it cites, each label a citation of the
         row it names and the words between them left as they were.

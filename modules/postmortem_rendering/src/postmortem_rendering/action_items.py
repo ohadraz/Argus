@@ -50,8 +50,7 @@ def the_action_items(postmortem: PostmortemDocument) -> ActionItemsSection:
                          text=Line(runs=(Run(text=item.text, role=Role.PROSE),)),
                          type=item.type.value,
                          owner=item.owner or "unassigned",
-                         tracking=Line(runs=(Run.an_address(item.tracking) if item.tracking
-                                             else Run(text="-"),)),
+                         tracking=Line(runs=(_where_it_is_tracked(item.tracking, postmortem),)),
                          status=item.status.value,
                          unassigned=item.owner is None)
                  for item in postmortem.action_items)
@@ -65,3 +64,18 @@ def the_action_items(postmortem: PostmortemDocument) -> ActionItemsSection:
                               rows=rows,
                               absent=None if rows else "No action items.",
                               recommended=recommended)
+
+
+def _where_it_is_tracked(tracking: str | None, postmortem: PostmortemDocument) -> Run:
+    """The item's tracking, said as the rest of the document says it.
+
+    Not a guess at what an address is: the item tracking the fix is given the
+    fix's own address when the document is written, so an equal address is
+    that pull request, and is named as the resolution and the supporting
+    information name it."""
+    fix = postmortem.pull_request
+    if tracking is None:
+        return Run(text="-")
+    if fix is not None and tracking == fix.url:
+        return Run.a_pull_request(fix.number).linked_to(fix.url)
+    return Run.an_address(tracking)

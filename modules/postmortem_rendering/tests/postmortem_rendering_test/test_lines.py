@@ -67,6 +67,36 @@ def test_an_address_is_said_in_full_and_links_to_itself() -> None:
 
 
 @pytest.mark.unit
+def test_a_pull_request_is_named_by_its_number() -> None:
+    # One name for it wherever the document mentions it; the address is
+    # written out once, where a reader of paper looks for addresses.
+    Scenario() \
+        .given(
+            some_number := 42
+        ) \
+        .when(
+            lambda: Run.a_pull_request(some_number)
+        ) \
+        .then(
+            the_answer_was(Run(text="PR #42"))
+        )
+
+
+@pytest.mark.unit
+def test_a_run_linked_to_an_address_keeps_its_words_and_opens_there() -> None:
+    Scenario() \
+        .given(
+            some_address := "https://github.com/acme/shop/pull/42"
+        ) \
+        .when(
+            lambda: Run(text="PR #42").linked_to(some_address)
+        ) \
+        .then(
+            the_answer_was(Run(text="PR #42", role=Role.LINK, address=some_address))
+        )
+
+
+@pytest.mark.unit
 def test_each_label_prose_cites_is_a_citation_of_the_row_it_names() -> None:
     # AI-1 is the start of AI-12, and C1 of C10: a document with only the
     # shorter rows must not cite them by the longer labels' first characters.

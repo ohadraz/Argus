@@ -88,9 +88,8 @@ def the_actions_taken(postmortem: PostmortemDocument,
         fix = StepRow(label=None,
                       at=on_the_clock(proposed) if proposed else "-",
                       action=Line(runs=(Run(text="proposed a fix: "),
-                                        Run(text=f"PR #{postmortem.pull_request.number}",
-                                            role=Role.LINK,
-                                            address=postmortem.pull_request.url))),
+                                        Run.a_pull_request(postmortem.pull_request.number)
+                                        .linked_to(postmortem.pull_request.url))),
                       by=_THE_FIXER,
                       kind="needs a person to merge",
                       outcome="draft - not merged")

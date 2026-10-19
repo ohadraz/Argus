@@ -33,7 +33,9 @@ THE_CHANGES_MOMENT = datetime(2026, 10, 11, 14, 0, tzinfo=UTC)
 @pytest.mark.unit
 def test_the_walk_and_the_fix_are_listed_with_every_address_in_full() -> None:
     # Read away from the screen it came from, an address relative to nothing
-    # leads nowhere.
+    # leads nowhere. The fix is named as everywhere else in the document, and
+    # this is the one place its address is written out - the address the link,
+    # and the name its caption.
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
                                  branch="dont care")
 
@@ -49,8 +51,10 @@ def test_the_walk_and_the_fix_are_listed_with_every_address_in_full() -> None:
                 Line(runs=(Run(text="The incident's walk: "),
                            Run.an_address(SOME_INCIDENT_ADDRESS))),
                 Line(runs=(Run(text="The fix it proposed: "),
-                           Run(text=f"#7 {some_fix.url}", role=Role.LINK, address=some_fix.url),
-                           Run(text=" "),
+                           Run(text="PR #7"),
+                           Run(text=" ("),
+                           Run.an_address(some_fix.url),
+                           Run(text=") "),
                            Run(text="draft - nobody has merged it", role=Role.STATUS))))))
 
 
