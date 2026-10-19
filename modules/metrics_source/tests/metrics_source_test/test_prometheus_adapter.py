@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx2
 import pytest
-from argus_core.models import MetricBucket, RuleReading
+from argus_core.models import MetricBucket, RuleLine, RuleReading
 from argus_testkit import (
     Assertion,
     Kept,
@@ -307,6 +307,34 @@ def test_the_paging_rules_query_rides_on_the_buckets_with_its_direction() -> Non
         ) \
         .then(
             _every_bucket_carried(RuleReading(value=0.41, worse_when="below"))
+        )
+
+
+@pytest.mark.unit
+def test_the_paging_rules_line_rides_on_the_buckets_with_its_reading() -> None:
+    # Carried down from whoever read the rule, as the direction is, so the
+    # reading can be judged against the line the rule pages past.
+    some_minute = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+    some_rule_query = "avg(categoriser_confident_ratio)"
+    some_line = RuleLine(at=0.8, fires_on_it=False)
+
+    Scenario() \
+        .given(
+            prometheus := _a_prometheus_answering({
+                **_every_fixed_query_answering_for(some_minute),
+                some_rule_query: [(_the_end_of(some_minute), "0.41")]
+            })
+        ) \
+        .when(
+            lambda: buckets_between(
+                some_minute, some_minute,
+                settings=MetricsSettings(prometheus_base_url=SOME_BASE_URL),
+                get=prometheus,
+                rule_series=RuleSeries(query=some_rule_query, worse_when="below",
+                                       line=some_line))
+        ) \
+        .then(
+            _every_bucket_carried(RuleReading(value=0.41, worse_when="below", line=some_line))
         )
 
 

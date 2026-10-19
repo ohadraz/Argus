@@ -171,7 +171,8 @@ def _the_rules_readings(get: Get,
         return {}
 
     return {
-        minute: RuleReading(value=value, worse_when=rule_series.worse_when)
+        minute: RuleReading(value=value, worse_when=rule_series.worse_when,
+                            line=rule_series.line)
         for minute, value in _samples_in(answer)
     }
 

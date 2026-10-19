@@ -11,9 +11,24 @@ from pydantic import BaseModel, ConfigDict
 type WorseWhen = Literal["above", "below"]
 
 
+class RuleLine(BaseModel):
+    """The threshold a paging rule compares its series with, and whether a
+    reading exactly on it fires.
+
+    The second half is not a detail. `lt` and `lte` draw the same line and
+    disagree about the one reading on it, so a line carried as a bare number
+    would judge that minute one of the two ways whichever the rule said.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    at: float
+    fires_on_it: bool
+
+
 class RuleReading(BaseModel):
-    """One minute of the series the paging rule evaluates, and which way it is
-    worse.
+    """One minute of the series the paging rule evaluates, which way it is
+    worse, and the line it pages past.
 
     `worse_when` is the rule's own direction, read from the evaluator its
     threshold applies: `above` for a rule that fires over its line, `below` for
@@ -21,12 +36,28 @@ class RuleReading(BaseModel):
     window, so that whatever judges a minute - an onset, a recovery, a
     postmortem's figure - judges it the way the rule does without being told
     separately.
+
+    `line` rides with it for the same reason, and is `None` where the rule's
+    threshold could not be read: a minute the rule's own condition holds in is
+    one the rule would go on firing in, whatever range the service usually keeps.
     """
 
     model_config = ConfigDict(frozen=True)
 
     value: float
     worse_when: WorseWhen
+    line: RuleLine | None = None
+
+    def is_past_its_line(self) -> bool:
+        """Whether the rule's condition holds on this minute's reading - `False`
+        where there is no line to be past."""
+        if self.line is None:
+            return False
+
+        if self.value == self.line.at:
+            return self.line.fires_on_it
+
+        return (self.value > self.line.at) == (self.worse_when == "above")
 
 
 class MetricBucket(BaseModel):

@@ -80,6 +80,7 @@ from argus_core.models.meaning import Meaning
 from argus_core.models.metrics import (
     RULE_READING_FIELD,
     MetricBucket,
+    RuleLine,
     RuleReading,
     WorseWhen,
 )
@@ -289,6 +290,7 @@ __all__ = [
     "Report",
     "ReportChannel",
     "RetrievalChannel",
+    "RuleLine",
     "RuleReading",
     "RULE_READING_FIELD",
     "PinAutoscaler",

@@ -556,6 +556,12 @@ def find_back_to_normal(buckets: Sequence[MetricBucket],
     Held for the clear minutes `_clear_minutes_a_recovery_has_to_show` measures,
     because a service flapping across its range is not back at the first minute
     it happens to be inside it.
+
+    And never while the paging rule's own condition holds. The rule defines
+    acceptable, and a minute on the firing side of its line is one it would go
+    on paging in - however far inside its usual range the bar allows the series
+    to be. Both, rather than the line alone: a rule drawn well clear of where a
+    service runs would otherwise read a minute still far off as back.
     """
     # As instants, as `find_recovery` reads its own `since`: a minute's id and an
     # instant at that minute are spelled differently and do not order as text.
@@ -575,7 +581,11 @@ def find_back_to_normal(buckets: Sequence[MetricBucket],
                and _run_length_from(departed, index) >= thresholds.persistence_minutes
                for index in range(start))
     ]
-    inside = [not any(series[index] for series in moved) for index in range(len(buckets))]
+    inside = [
+        not any(series[index] for series in moved)
+        and not (bucket.rule_reading is not None and bucket.rule_reading.is_past_its_line())
+        for index, bucket in enumerate(buckets)
+    ]
     hold = _clear_minutes_a_recovery_has_to_show(
         _departures_from_the_incident(buckets, thresholds), thresholds)
 

@@ -11,13 +11,14 @@ from datetime import datetime
 from typing import Protocol
 
 from argus_core import SettingsSlice
-from argus_core.models import MetricBucket, WorseWhen
+from argus_core.models import MetricBucket, RuleLine, WorseWhen
 
 
 @dataclass(frozen=True)
 class RuleSeries:
     """The series a paging rule evaluates, as the source is asked for it: the
-    rule's own query, and which side of its threshold is worse.
+    rule's own query, which side of its threshold is worse, and the threshold
+    itself where it could be read.
 
     Carried down from whoever read the rule, so that the source reads one more
     series without learning what a rule is.
@@ -25,6 +26,7 @@ class RuleSeries:
 
     query: str
     worse_when: WorseWhen
+    line: RuleLine | None = None
 
 
 class MetricsSource(Protocol):

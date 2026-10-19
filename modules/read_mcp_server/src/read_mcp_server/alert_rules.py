@@ -31,7 +31,7 @@ from typing import Any, Final, Protocol
 
 import httpx2
 from argus_core import SettingsSlice
-from argus_core.models import AlertRuleStanding, WorseWhen
+from argus_core.models import AlertRuleStanding, RuleLine, WorseWhen
 from metrics_source import RuleSeries
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,8 @@ _WORSE_WHEN: Final[dict[str, WorseWhen]] = {
     LT: "below",
     LTE: "below"
 }
+# The evaluators a reading exactly on the threshold fires under.
+_FIRES_ON_THE_LINE: Final = frozenset({GTE, LTE})
 
 # The state Grafana's rules API gives a rule that is not firing or pending.
 INACTIVE: Final = "inactive"
@@ -260,6 +262,7 @@ def _the_series_in(definition: dict[str, Any]) -> RuleSeries | None:
         return None
 
     worse_when: WorseWhen | None = None
+    line: RuleLine | None = None
     reference = definition.get(CONDITION)
 
     # At most one step each, so a definition whose steps name each other in a
@@ -287,6 +290,8 @@ def _the_series_in(definition: dict[str, Any]) -> RuleSeries | None:
             if worse_when is None:
                 return None
 
+            line = _the_line_of(condition[EVALUATOR])
+
             reference = (
                 model[EXPRESSION]
                 if kind == THRESHOLD
@@ -302,7 +307,20 @@ def _the_series_in(definition: dict[str, Any]) -> RuleSeries | None:
 
     expr = query.get(MODEL, {}).get(EXPR)
 
-    return RuleSeries(query=expr, worse_when=worse_when) if expr else None
+    return RuleSeries(query=expr, worse_when=worse_when, line=line) if expr else None
+
+
+def _the_line_of(evaluator: dict[str, Any]) -> RuleLine | None:
+    """The threshold an evaluator compares with, or `None` where it names no
+    number - a series is still followed without one, and judged by its
+    direction alone."""
+    params = evaluator.get(PARAMS) or []
+    at = params[0] if params else None
+
+    if isinstance(at, bool) or not isinstance(at, int | float):
+        return None
+
+    return RuleLine(at=float(at), fires_on_it=evaluator[TYPE] in _FIRES_ON_THE_LINE)
 
 
 def _the_state_of(rule: str, answer: dict[str, Any]) -> dict[str, Any]:

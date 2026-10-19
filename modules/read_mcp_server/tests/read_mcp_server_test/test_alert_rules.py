@@ -18,7 +18,7 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_core.models import AlertRuleStanding, WorseWhen
+from argus_core.models import AlertRuleStanding, RuleLine, WorseWhen
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
@@ -324,14 +324,14 @@ def test_no_credential_is_sent_where_none_is_configured() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("evaluator", "worse_when"), [
-    (GT, "above"),
-    (GTE, "above"),
-    (LT, "below"),
-    (LTE, "below")
+@pytest.mark.parametrize(("evaluator", "worse_when", "fires_on_it"), [
+    (GT, "above", False),
+    (GTE, "above", True),
+    (LT, "below", False),
+    (LTE, "below", True)
 ])
 def test_a_threshold_over_a_reduced_query_is_followed_to_its_query_and_direction(
-        evaluator: str, worse_when: WorseWhen) -> None:
+        evaluator: str, worse_when: WorseWhen, fires_on_it: bool) -> None:
     # Grafana's own default shape for a rule: a query, a reduce over it, and a
     # threshold over the reduce - the condition naming the threshold. Followed
     # from the condition back to the one query it reads.
@@ -346,7 +346,7 @@ def test_a_threshold_over_a_reduced_query_is_followed_to_its_query_and_direction
                 )
             )
         ) \
-        .then(_the_series_is(SOME_QUERY, worse_when))
+        .then(_the_series_is(SOME_QUERY, worse_when, RuleLine(at=0.8, fires_on_it=fires_on_it)))
 
 
 @pytest.mark.unit
@@ -363,7 +363,7 @@ def test_a_classic_condition_is_followed_to_its_query_and_direction() -> None:
                 )
             )
         ) \
-        .then(_the_series_is(SOME_QUERY, "below"))
+        .then(_the_series_is(SOME_QUERY, "below", RuleLine(at=0.8, fires_on_it=False)))
 
 
 @pytest.mark.unit
@@ -677,12 +677,13 @@ def an_expression(ref_id: str, model: dict[str, Any]) -> dict[str, Any]:
 
 
 def _the_series_is(query: str,
-                   worse_when: WorseWhen) -> Assertion[RuleSeries | None]:
+                   worse_when: WorseWhen,
+                   line: RuleLine) -> Assertion[RuleSeries | None]:
     def assertion(followed: RuleSeries | None) -> bool:
-        if followed != RuleSeries(query=query, worse_when=worse_when):
+        if followed != RuleSeries(query=query, worse_when=worse_when, line=line):
             raise AssertionError(
                 f"Expected the rule to be followed to [{query}], worse "
-                f"[{worse_when}], and it was followed to [{followed}]."
+                f"[{worse_when}] of [{line}], and it was followed to [{followed}]."
             )
 
         return True

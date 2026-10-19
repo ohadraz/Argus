@@ -16,7 +16,7 @@ which of the two a given series is belongs to the rule, not to the number.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import RULE_READING_FIELD, MetricBucket, RuleReading
+from argus_core.models import RULE_READING_FIELD, MetricBucket, RuleLine, RuleReading
 from argus_testkit import Assertion, Scenario, all_of
 from pydantic import ValidationError
 
@@ -149,6 +149,22 @@ def test_a_rule_reading_worse_neither_above_nor_below_is_refused() -> None:
     # a guess presented as a departure.
     with pytest.raises(ValidationError):
         RuleReading.model_validate({"value": 0.41, "worse_when": "sideways"})
+
+
+@pytest.mark.unit
+def test_a_bucket_carries_the_paging_rules_line_and_whether_a_reading_on_it_fires() -> None:
+    # The line rides with the reading for the reason the direction does: whatever
+    # judges the minute judges it as the rule does. Whether a reading exactly on
+    # it fires is part of the line - `lt` and `lte` draw the same one and
+    # disagree about that minute alone.
+    Scenario() \
+        .given(a_minute_read_for_a_rule := a_bucket(
+            rule_reading={"value": 0.41, "worse_when": "below",
+                          "line": {"at": 0.8, "fires_on_it": True}}
+        )) \
+        .when(lambda: a_minute_read_for_a_rule) \
+        .then(_the_rule_reading_is(RuleReading(value=0.41, worse_when="below",
+                                                line=RuleLine(at=0.8, fires_on_it=True))))
 
 
 def _the_rule_reading_is(expected: RuleReading | None) -> Assertion[MetricBucket]:

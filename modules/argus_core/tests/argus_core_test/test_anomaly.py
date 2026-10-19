@@ -17,7 +17,7 @@ from argus_core.anomaly import (
     minutes_a_recovery_must_hold,
     signals_judged_in,
 )
-from argus_core.models.metrics import MetricBucket, RuleReading, WorseWhen
+from argus_core.models.metrics import MetricBucket, RuleLine, RuleReading, WorseWhen
 from argus_core.timestamps import parse_iso, to_iso_minute
 from argus_testkit import Assertion, Scenario
 
@@ -1217,6 +1217,54 @@ def test_a_window_ending_short_of_normal_has_no_minute_back_to_normal() -> None:
 
 
 @pytest.mark.unit
+def test_a_minute_on_the_side_of_its_rules_line_that_fires_is_not_back_to_normal() -> None:
+    # The rule defines acceptable. A share back inside the range the bar
+    # allows, and still under the line the rule pages below, is a minute the
+    # rule would go on firing in - the impact is not over while the alert's own
+    # condition holds.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 9),
+        rule_readings=[0.9] * CALM_MINUTES + [0.4] * 3 + [0.7] * 2 + [0.9] * 4,
+        worse_when="below",
+        line=RuleLine(at=0.8, fires_on_it=False)
+    )
+
+    the_minute_half_fixed = some_window[CALM_MINUTES + 3]
+    the_first_minute_over_the_line = some_window[CALM_MINUTES + 5]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_back_to_normal(some_window, SOME_THRESHOLDS,
+                                          since=the_minute_half_fixed.bucket_id)) \
+        .then(_back_to_normal_at(the_first_minute_over_the_line.bucket_id))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("fires_on_it", "first_minute_back"), [
+    (True, CALM_MINUTES + 5),
+    (False, CALM_MINUTES + 3)
+])
+def test_a_minute_exactly_on_its_rules_line_is_back_only_where_the_rule_does_not_fire_on_it(
+        fires_on_it: bool, first_minute_back: int) -> None:
+    # `lt` and `lte` draw the same line and disagree about the minute on it:
+    # under `lte` a reading of exactly the line fires, so that minute is not back.
+    some_window = a_window_of(
+        [CALM_ERROR_RATE] * (CALM_MINUTES + 9),
+        rule_readings=[0.9] * CALM_MINUTES + [0.4] * 3 + [0.8] * 2 + [0.9] * 4,
+        worse_when="below",
+        line=RuleLine(at=0.8, fires_on_it=fires_on_it)
+    )
+
+    the_minute_half_fixed = some_window[CALM_MINUTES + 3]
+
+    Scenario() \
+        .given(some_window) \
+        .when(lambda: find_back_to_normal(some_window, SOME_THRESHOLDS,
+                                          since=the_minute_half_fixed.bucket_id)) \
+        .then(_back_to_normal_at(some_window[first_minute_back].bucket_id))
+
+
+@pytest.mark.unit
 def test_a_signal_departing_every_other_minute_has_no_recovery_to_report() -> None:
     # Where the incident began is asked of the departure bar, and the bar alone
     # does not say whether anything persisted. The vector of minutes at the
@@ -2163,7 +2211,8 @@ def a_window_of(error_rates: list[float],
                 p50_ms_values: list[int] | None = None,
                 p99_ms_values: list[int] | None = None,
                 rule_readings: Sequence[float | None] | None = None,
-                worse_when: WorseWhen = "above") -> list[MetricBucket]:
+                worse_when: WorseWhen = "above",
+                line: RuleLine | None = None) -> list[MetricBucket]:
     latencies = p95_ms_values or [CALM_P95_MS] * len(error_rates)
     medians = p50_ms_values or [CALM_P50_MS] * len(error_rates)
     tails = p99_ms_values or [CALM_P99_MS] * len(error_rates)
@@ -2188,7 +2237,7 @@ def a_window_of(error_rates: list[float],
             cpu_limit_cores=3.0,
             rule_reading=(
                 None if reading is None
-                else RuleReading(value=reading, worse_when=worse_when)
+                else RuleReading(value=reading, worse_when=worse_when, line=line)
             )
         )
         for offset, (error_rate, p50_ms, p95_ms, p99_ms, memory_used, reading) in enumerate(
