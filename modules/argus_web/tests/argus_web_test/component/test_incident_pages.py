@@ -23,6 +23,7 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    AlarmClaim,
     Alert,
     ChainStep,
     ChangeEvent,
@@ -2126,7 +2127,7 @@ def test_the_impact_says_what_the_alert_found() -> None:
     # reads as an incident that did nothing.
     finding = "240 of 240 stored totals are wrong; the widest is 1,297.31 short"
     an_alert_with_a_finding = Alert(service="io-shop", alert_name="SpendTotalsDoNotReconcile",
-                                    summary=finding)
+                                    summary=finding, claim=AlarmClaim.ITS_OWN_FINDING)
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, an_alert_with_a_finding)

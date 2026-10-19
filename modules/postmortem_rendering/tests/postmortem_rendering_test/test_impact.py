@@ -11,6 +11,7 @@ from decimal import Decimal
 
 import pytest
 from argus_core.models import (
+    AlarmClaim,
     Alert,
     ErrorRateLevels,
     Impact,
@@ -138,7 +139,8 @@ def test_what_the_alert_found_is_said_beside_the_cards() -> None:
     Scenario() \
         .given(
             some_alert := Alert(alert_name="dont care", service="dont care",
-                                summary="212 order totals disagree with their items")
+                                summary="212 order totals disagree with their items",
+                                claim=AlarmClaim.ITS_OWN_FINDING)
         ) \
         .when(
             lambda: the_impact(a_postmortem(), some_alert).finding
@@ -152,6 +154,24 @@ def test_an_alert_that_found_nothing_in_words_adds_no_finding() -> None:
     Scenario() \
         .given(
             some_alert := Alert(alert_name="dont care", service="dont care", summary=None)
+        ) \
+        .when(
+            lambda: the_impact(a_postmortem(), some_alert).finding
+        ) \
+        .then(
+            the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_a_rules_condition_is_no_finding_and_is_left_to_what_the_alert_said() -> None:
+    # A rule watching a series says what it pages on, not what it found: under
+    # "found" it reads as a measurement of this incident. What it found is the
+    # series' own card, and its words are the row of what the alert said.
+    Scenario() \
+        .given(
+            some_alert := Alert(alert_name="dont care", service="dont care",
+                                summary="confidently below 80% for 5m",
+                                claim=AlarmClaim.A_SERIES_CONDITION)
         ) \
         .when(
             lambda: the_impact(a_postmortem(), some_alert).finding

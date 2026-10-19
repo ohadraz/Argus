@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Final
 
 from argus_core import said_as_a_level
-from argus_core.models import Alert, Impact, ImpactExtent, PostmortemDocument
+from argus_core.models import AlarmClaim, Alert, Impact, ImpactExtent, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_money, as_span
@@ -52,6 +52,11 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     found, which is the one measurement there is where the damage is not a
     rate.
 
+    Only from an alert reporting a finding of its own. A rule watching a series
+    says what it pages on, not what it found, and under "found" its condition
+    reads as a measurement of this incident: what it found is the series' own
+    card, and its words are Detection's row of what the alert said.
+
     "At least" where the incident never ended: the figures were counted up to
     where the metrics stopped, with the incident still going there.
     """
@@ -70,7 +75,8 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
                *_the_errors(impact),
                *_the_rules_series(impact, alert),
                _the_loss(postmortem, a_lower_bound)),
-        finding=f"What the alert found: {alert.summary}" if alert.summary else None,
+        finding=(f"What the alert found: {alert.summary}"
+                 if alert.summary and alert.claim is AlarmClaim.ITS_OWN_FINDING else None),
         unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None)
 
 
