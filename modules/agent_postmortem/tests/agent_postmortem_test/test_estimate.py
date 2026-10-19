@@ -26,7 +26,7 @@ from agent_postmortem.estimate import (
     rule_series_over,
     why_no_error_rates,
 )
-from argus_core.models import MetricBucket, RuleReading
+from argus_core.models import MetricBucket, RuleReading, WorseWhen
 from argus_testkit import Assertion, Scenario, the_answer_was
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
@@ -335,6 +335,33 @@ def test_a_rise_is_beyond_the_rate_s_own_variation_only_above_how_high_it_goes_a
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "usual_ceiling", "measured"), [
+    pytest.param(0.30, 0.012, True, id="beyond-its-variation"),
+    pytest.param(0.011, 0.012, False, id="within-its-variation"),
+    pytest.param(0.009, 0.005, False, id="below-the-baseline"),
+    pytest.param(0.30, None, False, id="variation-unknown")
+])
+def test_a_rise_in_failed_requests_is_measured_only_above_the_baseline_and_beyond_its_variation(
+        while_broken: float, usual_ceiling: float | None, measured: bool) -> None:
+    # A rise nobody can tell from the rate's own noise is no rise measured, and
+    # nor is one whose noise nobody could measure, nor a stretch better than the
+    # calm before it. Both the brief and the impact cards say "no rise" from
+    # this one answer, so the two cannot disagree about it.
+    Scenario() \
+        .given(
+            some_rates := ErrorRates(baseline=0.01, while_broken=while_broken,
+                                     at_its_worst=while_broken,
+                                     usual_ceiling=usual_ceiling, usual_worst=None)
+        ) \
+        .when(
+            lambda: some_rates.a_rise_was_measured
+        ) \
+        .then(
+            the_answer_was(measured)
+        )
+
+
+@pytest.mark.unit
 def test_a_window_with_no_calm_minutes_measures_nothing_at_all() -> None:
     # A delta against nothing is not a small delta - there is no baseline to
     # say what "normal" was, and answering zero would report an incident that
@@ -559,6 +586,33 @@ def test_the_worst_of_a_series_its_rule_calls_worse_rising_is_its_highest() -> N
                 at_its_worst=the_worst_minute,
                 worse_when="above"
             ))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("worse_when", "while_broken", "got_worse"), [
+    pytest.param("below", 0.46, True, id="fell-where-falling-is-worse"),
+    pytest.param("below", 0.95, False, id="rose-where-falling-is-worse"),
+    pytest.param("above", 0.95, True, id="rose-where-rising-is-worse"),
+    pytest.param("above", 0.46, False, id="fell-where-rising-is-worse"),
+    pytest.param("below", 0.90, False, id="held")
+])
+def test_a_series_got_worse_only_where_it_sat_on_its_rule_s_worse_side_of_before(
+        worse_when: WorseWhen, while_broken: float, got_worse: bool) -> None:
+    # On average while broken, and by the rule's own direction: a share of
+    # confident answers is worse lower, a latency worse higher. No band of
+    # usual variation, as the error rate has - the rule fired on this series,
+    # so it crossed a line its owner drew.
+    Scenario() \
+        .given(
+            some_levels := RuleSeriesLevels(baseline=0.90, while_broken=while_broken,
+                                            at_its_worst=while_broken, worse_when=worse_when)
+        ) \
+        .when(
+            lambda: some_levels.got_worse
+        ) \
+        .then(
+            the_answer_was(got_worse)
         )
 
 

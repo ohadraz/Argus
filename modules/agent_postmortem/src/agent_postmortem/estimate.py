@@ -133,6 +133,16 @@ class ErrorRates(BaseModel):
         return None if self.usual_worst is None else self.at_its_worst > self.usual_worst
 
     @property
+    def a_rise_was_measured(self) -> bool:
+        """Whether failed requests rose above the calm before, and beyond what
+        the rate reaches on its own - not where nobody can say how far that is.
+
+        One answer for every reader of it: the brief and the impact cards each
+        say "no rise" from this, and two tests of it are two chances to
+        disagree."""
+        return self.rise > 0 and self.rose_beyond_its_variation is True
+
+    @property
     def rise(self) -> float:
         """How much of the traffic failed that would not have failed anyway.
 
@@ -290,6 +300,19 @@ class RuleSeriesLevels(BaseModel):
     while_broken: float
     at_its_worst: float
     worse_when: WorseWhen
+
+    @property
+    def got_worse(self) -> bool:
+        """Whether the series sat on its rule's worse side of where it was before,
+        on average while the service was broken.
+
+        No band of usual variation, as the error rate has: the rule fired on this
+        series, so it crossed a line its owner drew, and the levels carry no
+        spread to draw one from."""
+        if self.worse_when == "below":
+            return self.while_broken < self.baseline
+
+        return self.while_broken > self.baseline
 
 
 def rule_series_over(buckets: list[MetricBucket],

@@ -13,7 +13,7 @@ from datetime import timedelta
 
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord
-from agent_postmortem.estimate import ErrorRates
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.sections import (
     detection_of,
     hypotheses_of,
@@ -33,11 +33,13 @@ from argus_core.models import (
     ChangeKind,
     CitedEvidence,
     Detection,
+    ErrorRateLevels,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
     OpenedPullRequest,
     ResolutionStep,
+    RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
     Trigger,
@@ -1171,7 +1173,9 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
         .then(
             the_answer_was(Impact(duration=timedelta(minutes=30),
                                   extent=ImpactExtent.MEASURED,
-                                  peak_error_rate=0.42))
+                                  peak_error_rate=0.42,
+                                  error_rates=ErrorRateLevels(before=0.01, while_broken=0.3,
+                                                              rose=True)))
         )
 
 
@@ -1231,6 +1235,86 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
         ) \
         .when(
             lambda: impact_of(measured).peak_error_rate
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("error_rates", "rose"), [
+    (ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
+                usual_ceiling=0.02, usual_worst=0.04), True),
+    (ErrorRates(baseline=0.01, while_broken=0.009, at_its_worst=0.02,
+                usual_ceiling=0.02, usual_worst=0.04), False)
+], ids=["rose", "did-not-rise"])
+def test_impact_carries_the_error_rate_before_and_while_broken_and_whether_it_rose(
+        error_rates: ErrorRates, rose: bool) -> None:
+    # A rate that did not rise is still shown, as one that did not: left off,
+    # a reader cannot tell it from one nobody measured, and a summary saying
+    # pages kept loading rests on it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(error_rates=error_rates)
+        ) \
+        .when(
+            lambda: impact_of(measured).error_rates
+        ) \
+        .then(
+            the_answer_was(ErrorRateLevels(before=error_rates.baseline,
+                                           while_broken=error_rates.while_broken,
+                                           rose=rose))
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_no_error_rate_levels_where_the_metrics_could_not_be_read() -> None:
+    # Not a rate that did not rise: "no rise" is a claim, and nothing measured
+    # it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(error_rates=None)
+        ) \
+        .when(
+            lambda: impact_of(measured).error_rates
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_the_rules_series_where_it_got_worse() -> None:
+    # The series is what paged, so where it got worse it is harm whatever the
+    # failed requests did - and the only harm there is where every request
+    # succeeded.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=0.899, while_broken=0.459,
+                                             at_its_worst=0.391, worse_when="below"))
+        ) \
+        .when(
+            lambda: impact_of(measured).rule_series_harm
+        ) \
+        .then(
+            the_answer_was(RuleSeriesHarm(before=0.899, while_broken=0.459,
+                                          at_its_worst=0.391, worse_when="below"))
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_no_rules_series_that_held() -> None:
+    # Nothing is not a harm, and a series no worse than before carried as one
+    # would put a card for it on the page.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=0.899, while_broken=0.95,
+                                             at_its_worst=0.91, worse_when="below"))
+        ) \
+        .when(
+            lambda: impact_of(measured).rule_series_harm
         ) \
         .then(
             the_answer_was(None)

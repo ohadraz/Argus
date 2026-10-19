@@ -1115,12 +1115,6 @@ def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
                     f"failed that otherwise would not have.")
 
 
-def _the_errors_rose(rates: ErrorRates | None) -> bool:
-    """Whether a rise in failed requests was measured beyond what the rate
-    reaches on its own."""
-    return rates is not None and rates.rise > 0 and rates.rose_beyond_its_variation is True
-
-
 def _how_long_the_rule_waits(measured: Measurements,
                              figures: Mapping[str, Figure]) -> list[str]:
     """How long the paging rule waits with its condition holding before it
@@ -1195,26 +1189,13 @@ def _what_it_meant(levels: RuleSeriesLevels, rates: ErrorRates | None) -> list[s
     """What the model is asked of the series beyond its levels: nothing where it
     held, and what it meant for the people using the service where it got worse
     - as the harm itself where the failed requests did not rise."""
-    if not _it_got_worse(levels):
+    if not levels.got_worse:
         return []
 
-    if _the_errors_rose(rates):
+    if rates is not None and rates.a_rise_was_measured:
         return ["Failed requests rose as well, as a share of traffic - say also what "
                 "this series getting worse meant for the people using the service."]
 
     return ["No rise in failed requests was measured, so the harm to report is "
             "what this series did: say what it meant for the people using the "
             "service, not that little or nothing failed."]
-
-
-def _it_got_worse(levels: RuleSeriesLevels) -> bool:
-    """Whether the series sat on its rule's worse side of where it was before,
-    on average while the service was broken.
-
-    No band of usual variation, as the error rate has: the rule fired on this
-    series, so it crossed a line its owner drew, and the levels carry no
-    spread to draw one from."""
-    if levels.worse_when == "below":
-        return levels.while_broken < levels.baseline
-
-    return levels.while_broken > levels.baseline

@@ -25,10 +25,12 @@ from argus_core.models import (
     ChangeKind,
     CitedEvidence,
     Detection,
+    ErrorRateLevels,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
     ResolutionStep,
+    RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
     Trigger,
@@ -116,7 +118,8 @@ def the_alert_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
 
 def impact_of(measured: Measurements) -> Impact:
     """How long the service was broken, what kind of figure that is, and how
-    bad it got.
+    bad it got - in failed requests, and in the series its rule pages on
+    where that got worse.
 
     Unobserved before a lower bound: metrics that stopped also never show a
     recovery, and a stretch nobody could see is not one the service is known
@@ -130,11 +133,21 @@ def impact_of(measured: Measurements) -> Impact:
         extent = ImpactExtent.MEASURED
 
     rates = measured.error_rates
+    series = measured.rule_series
 
     return Impact(duration=timedelta(hours=measured.duration_in_hours),
                   extent=extent,
                   peak_error_rate=rates.at_its_worst if rates is not None else None,
-                  requests_failed=rates.failed_requests if rates is not None else None)
+                  requests_failed=rates.failed_requests if rates is not None else None,
+                  error_rates=ErrorRateLevels(before=rates.baseline,
+                                              while_broken=rates.while_broken,
+                                              rose=rates.a_rise_was_measured)
+                  if rates is not None else None,
+                  rule_series_harm=RuleSeriesHarm(before=series.baseline,
+                                                  while_broken=series.while_broken,
+                                                  at_its_worst=series.at_its_worst,
+                                                  worse_when=series.worse_when)
+                  if series is not None and series.got_worse else None)
 
 
 def trigger_of(evidence: IncidentEvidence) -> Trigger | None:

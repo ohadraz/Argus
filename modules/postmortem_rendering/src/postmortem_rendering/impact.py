@@ -1,5 +1,6 @@
 """How bad it was: one card per figure, the figure first, and what the alert
-found where the damage is not a rate.
+found where the damage is not a rate - the series its rule pages on among the
+figures, where that got worse.
 
 A figure that could not be measured is said not to have been, never shown as a
 zero: a reader must not have to guess whether nothing was lost or nothing was
@@ -10,7 +11,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import Alert, ImpactExtent, PostmortemDocument
+from argus_core import said_as_a_level
+from argus_core.models import Alert, Impact, ImpactExtent, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_money, as_span
@@ -63,18 +65,60 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     else:
         duration = as_span(impact.duration)
 
-    peak = impact.peak_error_rate if impact else None
-    failed = impact.requests_failed if impact else None
-
     return ImpactSection(
         cards=(Card(value=duration, label="onset to recovery"),
-               Card(value=f"{peak * 100:.1f}%" if peak is not None else "not measured",
-                    label="peak error rate"),
-               Card(value=f"{failed:,}" if failed is not None else "not counted",
-                    label="requests failed"),
+               *_the_errors(impact),
+               *_the_rules_series(impact, alert),
                _the_loss(postmortem, a_lower_bound)),
         finding=f"What the alert found: {alert.summary}" if alert.summary else None,
         unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None)
+
+
+def _the_errors(impact: Impact | None) -> tuple[Card, ...]:
+    """The failed requests at their worst and in all - or, where they did not
+    rise, one card saying so.
+
+    Failed requests that did not rise are no harm, and a count of them under
+    Impact reads as one: the requests that failed at the rate they always do.
+    Left off instead, the rate reads as one nobody measured. A document
+    written before the levels were carried shows the two cards it always did.
+    """
+    levels = impact.error_rates if impact else None
+
+    if levels is not None and not levels.rose:
+        return (Card(value=f"{levels.while_broken:.1%}",
+                     label=f"error rate while broken - {levels.before:.1%} before, no rise"),)
+
+    peak = impact.peak_error_rate if impact else None
+    failed = impact.requests_failed if impact else None
+
+    return (Card(value=f"{peak * 100:.1f}%" if peak is not None else "not measured",
+                 label="peak error rate"),
+            Card(value=f"{failed:,}" if failed is not None else "not counted",
+                 label="requests failed"))
+
+
+def _the_rules_series(impact: Impact | None, alert: Alert) -> tuple[Card, ...]:
+    """The series the paging rule evaluates, where it got worse - none where it
+    held, since nothing is not a harm.
+
+    Named by the alert, since only the rule knows what the series measures;
+    in plain numbers, since only the rule knows its unit; and each written as
+    the prose writes a level, so the card and the sentence beside it are one
+    figure. On average while broken, as the error rate is, with the worst
+    minute beside it: one minute alone overstates the stretch.
+    """
+    harm = impact.rule_series_harm if impact else None
+
+    if harm is None:
+        return ()
+
+    moved = "fell" if harm.worse_when == "below" else "rose"
+
+    return (Card(value=said_as_a_level(harm.while_broken),
+                 label=f"what {alert.alert_name} watches while broken, on average - "
+                       f"{moved} from {said_as_a_level(harm.before)}, "
+                       f"worst minute {said_as_a_level(harm.at_its_worst)}"),)
 
 
 def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:

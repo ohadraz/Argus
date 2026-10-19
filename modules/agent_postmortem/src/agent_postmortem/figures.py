@@ -31,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from argus_core import parse_iso, to_iso
+from argus_core import parse_iso, said_as_a_level, to_iso
 from argus_core.models import CitedEvidence
 from pydantic import BaseModel
 
@@ -144,9 +144,6 @@ _KINDS: Final = {
 
 # What a ratio is written to: as far as a reader compares two levels by.
 _A_TENTH: Final = Decimal("0.1")
-
-# How many figures a level is written to, as a reader compares two.
-_LEVEL_FIGURES: Final = 3
 
 # Each operation a working may ask for, as a sentence says it.
 _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
@@ -565,18 +562,4 @@ def _a_share(rate: float) -> Figure:
 def _a_level(level: float) -> Figure:
     """A level plain, in whatever unit the paging rule watches - only the rule
     knows it - given as measured, and written as a person says it."""
-    return Figure(given=f"{Decimal(str(level)).normalize():f}", written=_as_said(level))
-
-
-def _as_said(level: float) -> str:
-    """A level to three figures, the way a reader compares two levels - and
-    never fewer than its whole part has, since "1230" reads as an exact count.
-    Never in exponent form."""
-    exact = Decimal(str(level))
-    if exact == 0:
-        return "0"
-
-    places = max(_LEVEL_FIGURES - exact.adjusted() - 1, 0)
-    rounded = exact.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
-
-    return f"{rounded.normalize():f}"
+    return Figure(given=f"{Decimal(str(level)).normalize():f}", written=said_as_a_level(level))

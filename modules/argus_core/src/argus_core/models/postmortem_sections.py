@@ -20,6 +20,7 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 from argus_core.models.change_event import ChangeEvent, ChangeKind
+from argus_core.models.metrics import WorseWhen
 
 
 class CitedEvidence(BaseModel):
@@ -204,19 +205,56 @@ class ImpactExtent(StrEnum):
     UNOBSERVED = "unobserved"
 
 
+class ErrorRateLevels(BaseModel):
+    """The error rate before the incident began and on average while it ran,
+    and whether that was a rise measured beyond what the rate reaches alone.
+
+    Carried where it did not rise as much as where it did: a rate left off the
+    page reads as one nobody measured, and a write-up saying the pages kept
+    loading rests on this one.
+    """
+
+    before: float
+    while_broken: float
+    rose: bool
+
+
+class RuleSeriesHarm(BaseModel):
+    """What the series the paging rule evaluates did, where it got worse: before
+    the incident began, on average while it ran, and at its worst minute - in
+    whatever unit the rule watches, which only the rule knows.
+
+    The direction travels with the levels, because a worst that is the lowest
+    of a share and one that is the highest of a latency read alike as numbers.
+    """
+
+    before: float
+    while_broken: float
+    at_its_worst: float
+    worse_when: WorseWhen
+
+
 class Impact(BaseModel):
     """How long the service was broken, what that duration is, and how bad it
     got at its worst.
 
     The duration is carried rather than left to each reader's subtraction of
     the timeline's markers, for `Detection.gap`'s reason. `peak_error_rate` and
-    `requests_failed` are `None` where the metrics could not be read.
+    `requests_failed` are `None` where the metrics could not be read, and so
+    is `error_rates`.
+
+    `rule_series_harm` is `None` wherever the series held, or none was read:
+    the series is what paged, so where it got worse it is harm whatever the
+    failed requests did, and where it did not it is none. Both default to
+    `None`, which a document written before either was carried reads as.
     """
 
     duration: timedelta
     extent: ImpactExtent
     peak_error_rate: float | None
     requests_failed: int | None = None
+    error_rates: ErrorRateLevels | None = None
+    rule_series_harm: RuleSeriesHarm | None = None
 
 
 class Trigger(BaseModel):
