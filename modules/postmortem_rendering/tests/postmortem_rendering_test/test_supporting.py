@@ -319,6 +319,30 @@ def test_what_code_fix_read_in_the_source_is_a_row_under_its_label() -> None:
 
 
 @pytest.mark.unit
+def test_what_code_fix_read_sets_the_code_it_quotes_apart_without_its_backticks() -> None:
+    # Code-Fix writes Markdown, and a backtick printed is a mark nobody reading
+    # the page or the paper was meant to see.
+    some_reading = CitedEvidence(label="F1",
+                                 text="v2 sets `lowercases_its_input=False`, so `categorise` "
+                                      "misses")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="v2 sets "),
+                                      Run(text="lowercases_its_input=False", role=Role.CODE),
+                                      Run(text=", so "),
+                                      Run(text="categorise", role=Role.CODE),
+                                      Run(text=" misses")))))
+
+
+@pytest.mark.unit
 def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran() -> None:
     # The mechanism as it was read off the source: a reader weighs a cause
     # resting on it by knowing that nothing ran it.

@@ -7,6 +7,7 @@ where an address relative to nothing leads nowhere.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 from argus_core import parse_iso
@@ -126,7 +127,9 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              log_messages=log_messages,
                              log_messages_absent=None if log_messages else _NONE_READ,
                              deployment_changes=deployment_changes,
-                             code_read=_rows(postmortem.code_read),
+                             code_read=tuple(EvidenceRow(label=cited.label,
+                                                         said=_with_code_set_apart(cited.text))
+                                             for cited in postmortem.code_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
 
@@ -253,6 +256,21 @@ def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
     return {reference: cited.change.revision_source.revision_address
             for cited in changes if cited.change.revision_source is not None
             for reference in (cited.short_reference, cited.change.reference)}
+
+
+def _with_code_set_apart(text: str) -> Line:
+    """What Code-Fix read, the code it quotes between backticks set apart as
+    code and the backticks left out: it writes Markdown, and a mark printed is
+    one nobody reading the page or the paper was meant to see. Only at display -
+    the model is briefed in its words as written."""
+    pieces = _A_CODE_SPAN.split(text)
+    # `split` puts what the group matched at every odd place.
+    return Line(runs=tuple(Run(text=piece, role=Role.CODE if place % 2 else Role.PLAIN)
+                           for place, piece in enumerate(pieces) if piece))
+
+
+# Code quoted inline in Markdown: between single backticks, on one line.
+_A_CODE_SPAN: Final = re.compile(r"`([^`\n]+)`")
 
 
 def _rows(evidence: list[CitedEvidence]) -> tuple[EvidenceRow, ...]:

@@ -827,7 +827,10 @@ def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
             piece = text[max(at, begins):min(at + len(run.text), ends)].replace(_SOFT_HYPHEN, "")
             if not piece:
                 continue
-            pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else _INK))
+            # Code in the body face, as the line was measured in, and set apart
+            # by its colour alone.
+            pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK)
+                                 else _MUTED if run.role is Role.CODE else _INK))
             pdf.cell(pdf.get_string_width(piece), _CELL_LINE, piece, link=_link(pdf, run))
     pdf.c_margin = margin
     pdf.set_text_color(*_INK)

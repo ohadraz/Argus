@@ -39,7 +39,7 @@ def test_a_measured_incident_shows_its_four_figures_each_beside_what_it_is() -> 
             lambda: the_impact(some_postmortem, an_alert()).cards
         ) \
         .then(
-            the_answer_was((Card(value="29m 0s", label="onset to recovery"),
+            the_answer_was((Card(value="29m 0s", label="onset until back to normal"),
                             Card(value="33.9%", label="peak error rate"),
                             Card(value="4,210", label="requests failed"),
                             Card(value="1,736.68 USD", label="customer loss (estimated)",
@@ -248,7 +248,7 @@ def test_an_error_rate_that_did_not_rise_is_one_card_saying_so() -> None:
             lambda: the_impact(some_postmortem, an_alert()).cards
         ) \
         .then(
-            the_answer_was((Card(value="29m 0s", label="onset to recovery"),
+            the_answer_was((Card(value="29m 0s", label="onset until back to normal"),
                             Card(value="1.0% to 0.9%",
                                  label="error rate, before onset and while broken on average",
                                  note="no rise"),

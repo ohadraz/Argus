@@ -80,7 +80,7 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
         duration = as_span(impact.duration)
 
     return ImpactSection(
-        cards=(Card(value=duration, label="onset to recovery"),
+        cards=(Card(value=duration, label="onset until back to normal"),
                *_the_errors(impact),
                *_the_rules_series(impact),
                _the_loss(postmortem, a_lower_bound)),
