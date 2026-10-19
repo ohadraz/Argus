@@ -473,8 +473,14 @@ def timeline_of(evidence: IncidentEvidence,
     A marker whose moment is unknown is left out rather than placed near where
     it probably was - and so is the mitigation's where no line says it, since
     its only other moment is the row's claim, written before anything was done.
-    At the same moment, a marker's own row sorts before the lines, because the
-    line is the reaction: the alert fired, and Argus received it.
+    At the same moment, the onset's and the alert's rows sort before the lines,
+    because the line is the reaction: the alert fired, and Argus received it.
+    The end sorts after them, because it is the effect: the action was taken,
+    and the service was back. The two share an instant exactly: the end is set
+    to the credited action's moment, and that moment is the `at` of the line
+    that took it, not the action row's own time. Read off the row instead, the
+    end would fall a fraction of a second before the line and sort ahead of it
+    again.
     """
     markers = [
         *([_a_marker(evidence.onset_at, TimelineMarker.IMPACT_BEGINS,
@@ -537,12 +543,16 @@ def labels_of_the_narration(timeline: list[TimelineEntry]) -> list[str]:
 
 def _in_order(entry: TimelineEntry) -> tuple[datetime, int]:
     """When it happened, and then which comes first at that moment: a marker's
-    own row, which the lines react to, and then the lines, as they were said.
+    own row the lines react to, then the lines, as they were said, then the end
+    of the impact, which is what a line at its moment brought about.
 
     A marker's own row by its having no label, not by its carrying a marker: a
     line the mitigation marks is still a line, and sorted as a marker it would
     jump ahead of the line said before it at the same instant."""
-    return entry.at, 0 if entry.label is None else 1
+    if entry.label is not None:
+        return entry.at, 1
+
+    return entry.at, 2 if entry.marker is TimelineMarker.IMPACT_ENDS else 0
 
 
 def _a_marker(at: datetime, marker: TimelineMarker, text: str) -> TimelineEntry:

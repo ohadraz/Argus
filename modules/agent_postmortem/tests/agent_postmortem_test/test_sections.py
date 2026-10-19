@@ -873,6 +873,39 @@ def test_the_timeline_carries_its_four_markers_where_they_happened() -> None:
 
 
 @pytest.mark.unit
+def test_the_impact_ends_after_the_action_that_ended_it_at_the_same_moment() -> None:
+    # A service back within the minute the action was taken in is back at the
+    # action, so the end and the action share an instant. The end is what the
+    # action brought about, not something it reacts to, so it follows the line
+    # rather than leading it as the onset and the alert do.
+    the_mitigation = STARTED_AT + timedelta(minutes=2)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                started_at=STARTED_AT,
+                timeline=[a_timeline_entry("dont care", at=STARTED_AT),
+                          a_timeline_entry("dont care either", at=the_mitigation)],
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
+                                   taken_at=the_mitigation, line=1)])
+        ) \
+        .when(
+            lambda: [entry.marker for entry in
+                     timeline_of(evidence, back_to_normal_at=the_mitigation)]
+        ) \
+        .then(
+            the_answer_was([
+                TimelineMarker.IMPACT_BEGINS,
+                TimelineMarker.DETECTED,
+                None,
+                TimelineMarker.MITIGATION_APPLIED,
+                TimelineMarker.IMPACT_ENDS
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_each_line_of_the_narration_is_labelled_as_the_prompt_named_it() -> None:
     # The model cites a line of the narration as T1, T2. The markers with rows
     # of their own are placed among those lines by code, were never shown to
