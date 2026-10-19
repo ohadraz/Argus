@@ -253,12 +253,14 @@ def test_the_trigger_names_who_made_the_change() -> None:
 
 @pytest.mark.unit
 def test_a_trigger_no_change_dates_is_undated() -> None:
-    # The candidate was confirmed and the change itself was never read - a
-    # trigger with its moment unknown, rather than one dated by a guess.
+    # The candidate was confirmed and says what moved, and the change itself
+    # was never read - a trigger with its moment unknown, rather than one dated
+    # by a guess.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
                 candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        from_state="off", to_state="on",
                                         tested=True, result=Verdict.CONFIRMED)],
                 changes=[])
         ) \
@@ -267,9 +269,30 @@ def test_a_trigger_no_change_dates_is_undated() -> None:
         ) \
         .then(
             the_answer_was(Trigger(subject=SOME_FLAG,
-                                   from_state=None,
-                                   to_state=None,
+                                   from_state="off",
+                                   to_state="on",
                                    changed_at=None))
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_candidate_that_names_no_change_is_no_trigger() -> None:
+    # Confirmed, but with no state it moved between and no change read to its
+    # subject - a dependency that slowed has no change behind it. The subject
+    # alone is the candidate again, already in the hypotheses, and under
+    # "Trigger" it would read as a change somebody made.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="some-dependency",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
         )
 
 

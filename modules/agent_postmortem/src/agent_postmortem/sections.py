@@ -175,7 +175,11 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
     can name the revision moved *from* as well. `None` where no candidate
     was confirmed, or the one confirmed named no subject: a refuted candidate
     is not a weaker trigger, and the document says none was established rather
-    than offering the best of the rest.
+    than offering the best of the rest. `None` too where the one confirmed
+    names no change - no state it moved between, and no change read to it or
+    carrying it - as a dependency that slowed does not: its subject alone is
+    the candidate again, already among the hypotheses, and under "Trigger" it
+    reads as a change somebody made.
 
     One exception, said as such: where nothing was confirmed because the
     leading candidate was never tested - the action that would have tested it
@@ -197,7 +201,8 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
     latest = max(to_the_subject, key=lambda change: parse_iso(change.occurred_at), default=None)
 
     carrier = _the_deploy_that_carried(blamed, evidence) if latest is None else None
-    if suspect is not None and latest is None and carrier is None:
+    moved = bool(blamed.from_state or blamed.to_state)
+    if latest is None and carrier is None and (suspect is not None or not moved):
         return None
 
     dated = latest or (carrier[1] if carrier is not None else None)
