@@ -343,6 +343,32 @@ def test_what_code_fix_read_sets_the_code_it_quotes_apart_without_its_backticks(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("named", [SOME_DEPLOYED_REVISION, SOME_DEPLOYED_REVISION[:7]],
+                         ids=["whole", "short"])
+def test_a_revision_what_code_fix_read_names_is_said_short_and_leads_where_it_opens(
+        named: str) -> None:
+    # Everywhere else the document says a revision short and opens its
+    # commit, and one left plain here reads as another revision.
+    some_reading = CitedEvidence(label="F1", text=f"deploy {named} switched the model")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P2")],
+                                            code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="deploy "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
+                Run(text=" switched the model")))))
+
+
+@pytest.mark.unit
 def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran() -> None:
     # The mechanism as it was read off the source: a reader weighs a cause
     # resting on it by knowing that nothing ran it.

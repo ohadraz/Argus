@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from argus_core import parse_iso
+from argus_core import parse_iso, said_short
 from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
     ChangeEvent,
@@ -128,7 +128,9 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              log_messages_absent=None if log_messages else _NONE_READ,
                              deployment_changes=deployment_changes,
                              code_read=tuple(EvidenceRow(label=cited.label,
-                                                         said=_with_code_set_apart(cited.text))
+                                                         said=_with_code_set_apart(
+                                                             cited.text, shorts,
+                                                             revision_addresses))
                                              for cited in postmortem.code_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
@@ -258,15 +260,23 @@ def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
             for reference in (cited.short_reference, cited.change.reference)}
 
 
-def _with_code_set_apart(text: str) -> Line:
+def _with_code_set_apart(text: str, shorts: dict[str, str],
+                         addresses: dict[str, str]) -> Line:
     """What Code-Fix read, the code it quotes between backticks set apart as
     code and the backticks left out: it writes Markdown, and a mark printed is
     one nobody reading the page or the paper was meant to see. Only at display -
-    the model is briefed in its words as written."""
+    the model is briefed in its words as written.
+
+    Its own words name a revision as the rest of the document does - short,
+    and leading to its commit - for one revision said two ways reads as two.
+    Code it quotes is quoted as it is."""
     pieces = _A_CODE_SPAN.split(text)
     # `split` puts what the group matched at every odd place.
-    return Line(runs=tuple(Run(text=piece, role=Role.CODE if place % 2 else Role.PLAIN)
-                           for place, piece in enumerate(pieces) if piece))
+    return Line(runs=tuple(run
+                           for place, piece in enumerate(pieces) if piece
+                           for run in ((Run(text=piece, role=Role.CODE),) if place % 2
+                                       else Run(text=said_short(piece, shorts))
+                                       .with_links(addresses))))
 
 
 # Code quoted inline in Markdown: between single backticks, on one line.

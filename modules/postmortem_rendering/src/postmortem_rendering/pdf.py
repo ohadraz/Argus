@@ -32,6 +32,7 @@ from fpdf.fonts import FontFace
 from fpdf.util import Padding
 
 from postmortem_rendering.impact import Card
+from postmortem_rendering.lessons import LessonList
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.rendering import RenderedPostmortem
 
@@ -1093,30 +1094,65 @@ def _the_action_items(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
 def _the_lessons(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     """The three lists side by side, so what went well is weighed against what
-    went wrong at a glance."""
-    if pdf.will_page_break(30):
-        pdf.add_page()
+    went wrong at a glance - on one page, side by side only while they can be.
 
+    A column that runs onto the next page leaves the one beside it to begin
+    there at the height it began at on the page before, so the columns are
+    measured before any is set: where the tallest does not fit the room left,
+    they begin on the next page, and where it does not fit a page at all, the
+    lists are set one under another, across the page, breaking as they need."""
     gap = 3.2
     width = (_WIDTH - 2 * gap) / 3
-    top = pdf.get_y()
-    bottom = top
+    lefts = [_SIDE + place * (width + gap) for place in range(len(rendered.lessons))]
+    tall = _how_tall(pdf, rendered.lessons, lefts, width)
 
-    for place, lessons in enumerate(rendered.lessons):
-        left = _SIDE + place * (width + gap)
-        pdf.set_left_margin(left)
-        pdf.set_right_margin(_PAGE_WIDTH - left - width)
-        pdf.set_xy(left, top)
-        _a_subheading(pdf, lessons.heading, space_above=0)
-        if lessons.absent:
-            _quiet(pdf, lessons.absent)
-        for lesson in lessons.items:
-            _an_item(pdf, lesson.runs, size=_TABLE_PT, indent=3.4)
-        bottom = max(bottom, pdf.get_y())
+    if tall > pdf.h - pdf.b_margin - _BELOW_THE_HEADER:
+        for lessons in rendered.lessons:
+            _a_lessons_column(pdf, lessons, _SIDE, pdf.get_y(), _WIDTH)
+            pdf.ln(1.0)
+        bottom = pdf.get_y()
+    else:
+        if pdf.will_page_break(tall):
+            pdf.add_page()
+        top = pdf.get_y()
+        bottom = max((_a_lessons_column(pdf, lessons, left, top, width)
+                      for lessons, left in zip(rendered.lessons, lefts, strict=True)),
+                     default=top)
 
     pdf.set_left_margin(_SIDE)
     pdf.set_right_margin(_SIDE)
     pdf.set_xy(_SIDE, bottom)
+
+
+def _how_tall(pdf: _Sheet, lists: Sequence[LessonList], lefts: Sequence[float],
+              width: float) -> float:
+    """How tall the tallest of the lists is set in columns `width` wide, from
+    where the page is now: each set and the document then put back as it was
+    (`offset_rendering`), all in one go, since putting it back is a copy of
+    the whole document. Set with no page breaks, so a list taller than the
+    room left measures as tall as it is."""
+    top = pdf.get_y()
+    with pdf.offset_rendering():
+        pdf.set_auto_page_break(False, margin=pdf.b_margin)
+        bottom = max((_a_lessons_column(pdf, lessons, left, top, width)
+                      for lessons, left in zip(lists, lefts, strict=True)),
+                     default=top)
+    return bottom - top
+
+
+def _a_lessons_column(pdf: _Sheet, lessons: LessonList, left: float, top: float,
+                      width: float) -> float:
+    """One list under its heading, `width` wide from `left` and `top`, with the
+    margins set to it - and where it ends."""
+    pdf.set_left_margin(left)
+    pdf.set_right_margin(_PAGE_WIDTH - left - width)
+    pdf.set_xy(left, top)
+    _a_subheading(pdf, lessons.heading, space_above=0)
+    if lessons.absent:
+        _quiet(pdf, lessons.absent)
+    for lesson in lessons.items:
+        _an_item(pdf, lesson.runs, size=_TABLE_PT, indent=3.4)
+    return pdf.get_y()
 
 
 def _the_timeline(pdf: _Sheet, rendered: RenderedPostmortem) -> None:

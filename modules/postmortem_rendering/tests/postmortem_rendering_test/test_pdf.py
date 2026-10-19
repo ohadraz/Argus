@@ -902,6 +902,33 @@ def test_the_first_page_carries_argus_s_mark_and_no_other_does() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("items", [31, 32])
+def test_the_three_lessons_lists_are_set_side_by_side_on_one_page(items: int) -> None:
+    # Started near a page's foot, a column ran onto the next page and the
+    # next column began there at the height the first had begun at. The
+    # action items above set where the lessons start, and these counts start
+    # them where the tallest column no longer fits the room left.
+    some_lessons = Lessons(went_well=["Well one.", "Well two.", "Well too.", "Well four.",
+                                      "Well five.", "Well three."],
+                           went_wrong=["Wrong one, which says rather more than the others "
+                                       "do, so it wraps.", "Wrong two.", "Wrong last."],
+                           got_lucky=["Lucky one.", "Lucky last."])
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(action_items=_eighty_items()[:items],
+                                                 lessons=some_lessons),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _on_one_page("What went well", "What went wrong", "Where it got lucky",
+                         "Well three.", "Wrong last.", "Lucky last."))
+
+
+@pytest.mark.unit
 def test_a_label_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
     # Each piece of a line is written apart, and one with no space in it - a
     # label, a time - was cut wherever the line ran out: "(A" on one line and
@@ -1435,6 +1462,23 @@ def _set_on_one_line(expected: str) -> Assertion[bytes]:
         if not any(expected in piece for piece in pieces):
             raise AssertionError(f"Expected [{expected}] set on one line, and no piece of "
                                  f"the PDF's text holds it whole: {pieces}.")
+
+        return True
+
+    return assertion
+
+
+def _on_one_page(*expected: str) -> Assertion[bytes]:
+    """Every one of `expected` is said on the same page as the others."""
+    def assertion(pdf: bytes) -> bool:
+        pages = _pages(pdf)
+        found = {said: [number for number, page in enumerate(pages, start=1) if said in page]
+                 for said in expected}
+
+        if len({tuple(numbers) for numbers in found.values()}) != 1 or \
+                any(len(numbers) != 1 for numbers in found.values()):
+            raise AssertionError(f"Expected {list(expected)} all on one page, and they are on "
+                                 f"pages {found}.")
 
         return True
 
