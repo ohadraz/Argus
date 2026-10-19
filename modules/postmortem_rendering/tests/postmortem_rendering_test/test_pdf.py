@@ -995,6 +995,29 @@ def test_a_resolution_a_person_reported_keeps_its_heading_with_their_line_alone(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("root_cause_words", range(456, 660, 12))
+def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words: int) -> None:
+    # Split across a page, the last of them sat alone at the top of the next
+    # with nothing saying what it was. A root cause of every length here puts
+    # the list at every height near the foot of a page.
+    some_assumptions = ["Zfirst assumption, said at some length so it wraps onto a second "
+                        "line of the reference column", "Zsecond assumption",
+                        "Zthird assumption", "Zlast assumption"]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(root_cause=" ".join(["word"] * root_cause_words),
+                                                 assumptions=some_assumptions),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _on_one_page("Assumptions", "Zfirst", "Zlast"))
+
+
+@pytest.mark.unit
 def test_a_label_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
     # Each piece of a line is written apart, and one with no space in it - a
     # label, a time - was cut wherever the line ran out: "(A" on one line and

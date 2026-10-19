@@ -1347,6 +1347,30 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
 
 
 def _a_reference(pdf: _Sheet, label: str, values: Sequence[Sequence[Run]]) -> None:
+    """A labelled entry of the reference list, its values one under another -
+    begun on a fresh page where they do not fit what is left of this one and
+    would fit a whole one, since a value carried over alone is set under no
+    label at all. Measured only where there are several, the measure being a
+    copy of the whole document (`offset_rendering`)."""
+    if len(values) > 1:
+        tall = _how_tall_a_reference_is(pdf, label, values)
+        if pdf.will_page_break(tall) and tall <= pdf.h - pdf.b_margin - _BELOW_THE_HEADER:
+            pdf.add_page()
+    _the_reference(pdf, label, values)
+
+
+def _how_tall_a_reference_is(pdf: _Sheet, label: str, values: Sequence[Sequence[Run]]) -> float:
+    """How tall a reference is set from where the page is now, set with no page
+    breaks and the document then put back as it was."""
+    top = pdf.get_y()
+    with pdf.offset_rendering():
+        pdf.set_auto_page_break(False, margin=pdf.b_margin)
+        _the_reference(pdf, label, values)
+        bottom = pdf.get_y()
+    return bottom - top
+
+
+def _the_reference(pdf: _Sheet, label: str, values: Sequence[Sequence[Run]]) -> None:
     left, label_width, height = pdf.l_margin, 32.0, 4.4
     pdf.set_x(left)
     pdf.set_font(_BODY, "", _TABLE_PT)
