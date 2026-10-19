@@ -33,12 +33,21 @@ def as_money(amount: Decimal) -> str:
 
 def as_span(span: timedelta) -> str:
     """A stretch of time to the second, from its largest unit down: `2m 40s`,
-    `1h 0m 5s`, `7d 0h 3m 5s`, `45s`.
+    `1h 0m 5s`, `7d 0h 3m 5s`, `45s` - or `less than a second`.
 
     Every unit below the first is said, zero or not, so each sits where a
     reader expects to find it.
+
+    Cut to the whole seconds that have passed rather than rounded, as the
+    figure the prose is written from is: one span shown on a tile and named in
+    a sentence has to be the same second in both, and a second not yet over is
+    not one to claim.
     """
-    seconds = round(span.total_seconds())
+    seconds = span // timedelta(seconds=1)
+
+    if seconds < 1:
+        return "less than a second"
+
     days, seconds = divmod(seconds, 86400)
     hours, seconds = divmod(seconds, 3600)
     minutes, seconds = divmod(seconds, 60)

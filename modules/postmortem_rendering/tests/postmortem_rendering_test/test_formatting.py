@@ -121,9 +121,10 @@ def test_a_span_under_a_minute_is_seconds() -> None:
 
 
 @pytest.mark.unit
-def test_a_span_is_rounded_to_the_second() -> None:
-    # A duration measured in hours arrives with a fraction of a second no
-    # reader needs, and printed it would read as a precision nobody measured.
+def test_a_span_is_cut_to_the_whole_seconds_that_have_passed() -> None:
+    # Cut, not rounded, as the prose's own figure is: the same span written
+    # once on a tile and once in a sentence must name the same second, and a
+    # second that has not fully passed is not one to claim.
     Scenario() \
         .given(
             some_duration := timedelta(seconds=9.6)
@@ -132,7 +133,22 @@ def test_a_span_is_rounded_to_the_second() -> None:
             lambda: as_span(some_duration)
         ) \
         .then(
-            the_answer_was("10s")
+            the_answer_was("9s")
+        )
+
+
+@pytest.mark.unit
+def test_a_span_under_a_second_is_said_as_less_than_one() -> None:
+    # "0s" would say nothing passed; the prose says what did.
+    Scenario() \
+        .given(
+            some_gap := timedelta(seconds=0.4)
+        ) \
+        .when(
+            lambda: as_span(some_gap)
+        ) \
+        .then(
+            the_answer_was("less than a second")
         )
 
 
