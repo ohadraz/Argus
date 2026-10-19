@@ -646,7 +646,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"not how long the fault lasted - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                   figures),
-        *_what_the_rules_series_did(measured.rule_series, evidence,
+        *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query, evidence,
                                     measured.error_rates, figures),
         *(line
           for heading, cited in _the_evidence_by_kind(evidence)
@@ -1151,6 +1151,7 @@ def _how_long_the_rule_waits(measured: Measurements,
 
 
 def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
+                               query: str | None,
                                evidence: IncidentEvidence,
                                rates: ErrorRates | None,
                                figures: Mapping[str, Figure]) -> list[str]:
@@ -1161,12 +1162,16 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
     entirely. Its direction is said with it, because its worst is its lowest or
     its highest according to the rule, and the number alone does not say which.
 
-    Named by the words the alert was sent with, where it was sent any, and by
-    its title otherwise: "the series the paging rule evaluates" says that
-    something moved and not what, and a title is the rule's name - three latency
-    rules share one - where the words say which percentile, which share. Its
-    figures carry the names the alert's line shows them by, being the same
-    figures.
+    Named by the rule's query, where its series could be followed to one: the
+    alert's words are the rule's condition - its threshold and its wait - and a
+    series named by them is named by when it pages. The query goes as written,
+    because its numbers are none of the incident's and tagged as figures they
+    would be offered as some; and the model is asked to say it in words, since
+    a reader does not read PromQL. Beside it, what the alert said - the words it
+    was sent with, or its title where it was sent none - said as the alert's:
+    a title is the rule's name, and three latency rules share one, where the
+    words say which percentile, which share. Their figures carry the names the
+    alert's line shows them by, being the same figures.
 
     Plain numbers rather than percentages: the series is in whatever unit its
     rule watches, and only the rule knows what that is.
@@ -1184,14 +1189,18 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
         return []
 
     worse = "worse falling" if levels.worse_when == "below" else "worse rising"
-    named = (the_finding_named(evidence.alert_finding) if evidence.alert_finding
-             else evidence.alert_title)
+    alert_said = (f'its alert said "{the_finding_named(evidence.alert_finding)}"'
+                  if evidence.alert_finding
+                  else f'its alert is titled "{evidence.alert_title}"')
+    named = (f", `{query}` - {alert_said} -" if query is not None
+             else f" - {alert_said} -")
+    in_words = " Say what it measures in words, not by its query." if query is not None else ""
 
     return [
-        f"The series behind the alert ({named}), which its paging rule evaluates "
+        f"The series behind the alert{named} which its paging rule evaluates "
         f"and calls {worse}: {_shown(SERIES_BEFORE_FIGURE, figures)} before it began, "
         f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
-        f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst.",
+        f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst.{in_words}",
         *_what_it_meant(levels, rates)
     ]
 

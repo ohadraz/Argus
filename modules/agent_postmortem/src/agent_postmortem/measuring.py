@@ -164,6 +164,11 @@ class Measurements(BaseModel):
     # `None` where that could not be read - or there was no onset or wait to
     # read it for.
     rule_held_before_the_onset: bool | None = None
+    # The query of the series the paging rule watches, which is what names the
+    # series: the alert's words are its condition. `None` where no rule paged,
+    # where the rule could not be read, or where no one series could be
+    # followed in it.
+    rule_series_query: str | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -232,7 +237,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
             if evidence.onset_at is not None else None)
     engaged = sources.engagement(evidence.incident_id)
     bands = sources.bands()
-    waits = sources.rule_wait(evidence.rule) if evidence.rule is not None else None
+    paging_rule = sources.paging_rule(evidence.rule) if evidence.rule is not None else None
+    waits = paging_rule.pending_seconds if paging_rule is not None else None
 
     return Measurements(
         duration_in_hours=duration,
@@ -267,6 +273,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at),
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
         rule_wait_unread=evidence.rule is not None and waits is None,
+        rule_series_query=paging_rule.series_query if paging_rule is not None else None,
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))

@@ -53,17 +53,18 @@ from agent_postmortem.sources import (
     Engagement,
     EngagementAnswer,
     Metrics,
+    PagingRule,
     PayBand,
     PayBands,
     Rates,
     RateTable,
     Revenue,
-    RuleWait,
     Sources,
 )
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import LLMClient
 from argus_core.models import (
+    AlertRuleStanding,
     ChangeEvent,
     Meaning,
     MetricBucket,
@@ -356,7 +357,7 @@ def some_sources(revenue: Revenue | None = None,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
                  reporting_currency: str = SOME_CURRENCY,
                  metrics_reporting_lag_minutes: int = DONT_CARE_REPORTING_LAG_MINUTES,
-                 rule_wait: RuleWait | None = None) -> Sources:
+                 paging_rule: PagingRule | None = None) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
 
     A test names only the source it is about and leaves the other five alone,
@@ -380,7 +381,7 @@ def some_sources(revenue: Revenue | None = None,
         working_hours_a_year=working_hours_a_year,
         reporting_currency=reporting_currency,
         metrics_reporting_lag_minutes=metrics_reporting_lag_minutes,
-        rule_wait=rule_wait if rule_wait is not None else a_rule_waiting(300)
+        paging_rule=paging_rule if paging_rule is not None else a_paging_rule(300)
     )
 
 
@@ -700,16 +701,25 @@ def metrics_recording_the_rule_into(rules: Kept[str | None]) -> Metrics:
     return metrics_between
 
 
-def a_rule_waiting(seconds: int | None, asked: Kept[str] | None = None) -> RuleWait:
-    """A rule source answering how long the paging rule waits before it fires -
-    `None` where it could not be read - and noting each rule it was asked about."""
-    def waits(rule: str) -> int | None:
+def a_paging_rule(waits_seconds: int | None,
+                  series_query: str | None = None,
+                  asked: Kept[str] | None = None) -> PagingRule:
+    """A rule source answering for the rule that paged: how long it waits before
+    it fires, and the query of the series it watches - nothing at all where the
+    rule could not be read - and noting each rule it was asked about."""
+    def standing(rule: str) -> AlertRuleStanding | None:
         if asked is not None:
             asked.take(rule)
 
-        return seconds
+        if waits_seconds is None:
+            return None
 
-    return waits
+        return AlertRuleStanding(rule=rule, is_normal=False, evaluated_at=ONSET,
+                                 range_seconds=0, interval_seconds=60,
+                                 keep_firing_for_seconds=0, pending_seconds=waits_seconds,
+                                 series_query=series_query)
+
+    return standing
 
 
 def a_bucket(at: datetime,

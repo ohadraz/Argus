@@ -125,20 +125,29 @@ def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
 
 
 @pytest.mark.unit
-def test_how_long_the_paging_rule_waits_is_asked_of_the_read_tier() -> None:
-    # The rule's own definition, over the session the metrics are read on.
+def test_the_paging_rule_is_asked_of_the_read_tier() -> None:
+    # The rule's own definition, over the session the metrics are read on - its
+    # standing whole, which says how long it waits and what series it watches.
     some_rule = "kuki-rule"
+    some_standing = AlertRuleStanding(rule=some_rule,
+                                      is_normal=True,
+                                      evaluated_at=DONT_CARE_END,
+                                      range_seconds=60,
+                                      interval_seconds=60,
+                                      keep_firing_for_seconds=0,
+                                      pending_seconds=300,
+                                      series_query="avg(some_confident_ratio)")
 
     Scenario() \
         .given(
-            read := _a_session_answering_that_the_rule_waits(some_rule, 300)
+            read := _a_session_answering_the_rule(some_standing)
         ) \
         .when(
-            lambda: _the_sources_over(read).rule_wait(some_rule)
+            lambda: _the_sources_over(read).paging_rule(some_rule)
         ) \
         .then(
             all_of(
-                the_answer_was(300),
+                the_answer_was(some_standing),
                 _the_rules_asked_for_were(read, [some_rule])
             )
         )
@@ -148,15 +157,15 @@ def test_how_long_the_paging_rule_waits_is_asked_of_the_read_tier() -> None:
 @pytest.mark.parametrize("failure", [McpToolError("some failure"),
                                      McpUnreachable("some failure")],
                          ids=["tool-failed", "unreachable"])
-def test_a_rule_the_read_tier_cannot_read_waits_for_no_known_time(
+def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
     failure: Exception,
     caplog: pytest.LogCaptureFixture
 ) -> None:
-    # `None`, never nothing: a rule that fires at once and one nobody could read
-    # are told to the model differently.
+    # `None`, never a standing made up: a rule that fires at once and one nobody
+    # could read are told to the model differently.
     Scenario() \
         .given(read := _a_session_whose_tool_fails(failure)) \
-        .when(lambda: _the_sources_over(read).rule_wait("dont-care-rule")) \
+        .when(lambda: _the_sources_over(read).paging_rule("dont-care-rule")) \
         .then(
             all_of(
                 the_answer_was(None),
@@ -243,17 +252,10 @@ def _a_session_answering(*answers: list[MetricBucket]) -> Mock:
     return client
 
 
-def _a_session_answering_that_the_rule_waits(rule: str, seconds: int) -> Mock:
-    """A client answering the rule's standing, every part of it arbitrary but
-    which rule it is and how long it waits before firing."""
+def _a_session_answering_the_rule(standing: AlertRuleStanding) -> Mock:
+    """A client answering with the rule's standing."""
     client: Mock = create_autospec(McpClient, instance=True)
-    client.call.return_value = AlertRuleStanding(rule=rule,
-                                                 is_normal=True,
-                                                 evaluated_at=DONT_CARE_END,
-                                                 range_seconds=60,
-                                                 interval_seconds=60,
-                                                 keep_firing_for_seconds=0,
-                                                 pending_seconds=seconds)
+    client.call.return_value = standing
 
     return client
 

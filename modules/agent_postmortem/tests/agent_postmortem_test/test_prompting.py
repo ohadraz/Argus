@@ -1125,6 +1125,51 @@ def test_the_rules_series_is_named_by_the_alerts_own_words_where_it_sent_any() -
 
 
 @pytest.mark.unit
+def test_the_rules_series_is_named_by_its_query_as_written() -> None:
+    # The alert's words are the rule's condition - its threshold and its wait -
+    # and a series named by them is named by when it pages. The query is what
+    # the series is, said as written: its numbers are none of the incident's,
+    # and tagged as figures they would be offered as some. Said in words in the
+    # document, since a reader does not read PromQL.
+    some_query = 'max(http_request_duration_seconds{quantile="0.99"}) * 1000'
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(
+                update={"alert_finding": "p99 latency above threshold for 5m"})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(rule_series=SOME_RULE_SERIES)
+                                .model_copy(update={"rule_series_query": some_query}))
+        ) \
+        .then(
+            _says_on_one_line(f"The series behind the alert, `{some_query}`",
+                              'its alert said "p99 latency above threshold for 5m {A1}"',
+                              f"{SOME_RULE_SERIES.baseline:g}",
+                              "in words, not by its query")
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_series_whose_query_is_unknown_is_told_by_what_its_alert_said() -> None:
+    # No query to name it by, and the alert's words still its condition: said
+    # as the alert's, and nothing asked of a query the model was never shown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(
+                update={"alert_finding": "p99 latency above threshold for 5m"})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(rule_series=SOME_RULE_SERIES))
+        ) \
+        .then(all_of(
+            _says_on_one_line('The series behind the alert - its alert said "p99 latency',
+                              f"{SOME_RULE_SERIES.baseline:g}"),
+            _does_not_say("by its query")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("error_rates", [ERRORS_THAT_STAYED_FLAT, ERRORS_THAT_FELL, None],
                          ids=["flat", "fell", "not known"])
 def test_where_no_rise_in_errors_was_measured_the_rules_series_is_the_harm(

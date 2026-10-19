@@ -1,10 +1,11 @@
 """Where the alert rule that paged stands, read from Grafana.
 
-Where the rule stands is a channel offered to no model: Mitigation reads it,
-and nothing else does. Mitigation judges an action on a series alert by whether the rule that
-paged has stopped firing - the rule is what defines "acceptable" for the
-service, as it would for a responder - so this says what the rule says, as of
-an evaluation that can be dated, and how long the rule looks back.
+Where the rule stands is offered to no model as a tool: Mitigation reads it,
+and the postmortem reads how long the rule waits and the series it watches.
+Mitigation judges an action on a series alert by whether the rule that paged
+has stopped firing - the rule is what defines "acceptable" for the service, as
+it would for a responder - so this says what the rule says, as of an
+evaluation that can be dated, and how long the rule looks back.
 
 Three of Grafana's reads meet here and none leaves the tier: the rule's
 definition (its queries' ranges, `keep_firing_for` and `for`), its group (the interval
@@ -174,7 +175,8 @@ def fetch_from_grafana(path: str,
 
 
 def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStanding:
-    """Where `rule` stands now, and how it reads its service."""
+    """Where `rule` stands now, and how it reads its service - the query of
+    its series among it, followed as the metrics read follows it."""
     definition = fetch(RULE_DEFINITION_PATH.format(rule=rule))
 
     try:
@@ -195,6 +197,8 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
                 f"[{state.get(HEALTH)}]"
             )
 
+        series = _the_series_followed_in(definition)
+
         return AlertRuleStanding(
             rule=rule,
             is_normal=state[STATE] == INACTIVE,
@@ -209,7 +213,8 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
             ),
             interval_seconds=int(group[INTERVAL]),
             keep_firing_for_seconds=_seconds_in(definition.get(KEEP_FIRING_FOR)),
-            pending_seconds=_seconds_in(definition.get(FOR))
+            pending_seconds=_seconds_in(definition.get(FOR)),
+            series_query=series.query if series is not None else None
         )
     except AlertRuleUnreadable:
         raise
@@ -244,6 +249,13 @@ refused by the metrics backend, which answers it with no reading.
 
         return None
 
+    return _the_series_followed_in(definition)
+
+
+def _the_series_followed_in(definition: dict[str, Any]) -> RuleSeries | None:
+    """The series a definition's condition reads, or `None` where its shape is
+    not one this follows - the one rule for which series a rule watches, for
+    the metrics read and the standing alike."""
     try:
         return _the_series_in(definition)
     except (KeyError, IndexError, TypeError):

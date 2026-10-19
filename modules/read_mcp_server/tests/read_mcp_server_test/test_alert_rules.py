@@ -219,6 +219,38 @@ def test_how_long_the_rule_waits_before_firing_is_read_from_its_for(pending: str
 
 
 @pytest.mark.unit
+def test_the_rule_names_the_query_of_the_series_it_watches() -> None:
+    # The postmortem names the series by it: the alert's words are the rule's
+    # condition, and a series named by its condition is named by its threshold.
+    # Followed as the metrics read follows it, so the query named is the one
+    # the readings were read with.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", SOME_QUERY),
+                       a_reduce("B", of="A"),
+                       a_threshold("C", of="B", evaluator=LT)),
+                condition="C"))
+        ) \
+        .then(_it_watches(SOME_QUERY))
+
+
+@pytest.mark.unit
+def test_a_rule_whose_series_argus_cannot_follow_names_no_query() -> None:
+    # Two queries, so no one series is what paged - and none is named.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", SOME_QUERY),
+                       a_query("B", SOME_OTHER_QUERY),
+                       a_reduce("C", of="A"),
+                       a_threshold("D", of="C", evaluator=GT)),
+                condition="D"))
+        ) \
+        .then(_it_watches(None))
+
+
+@pytest.mark.unit
 def test_a_rule_grafana_reports_no_state_for_is_unreadable() -> None:
     # Answered as normal, an absent rule would confirm whatever was just done.
     Scenario() \
@@ -543,7 +575,9 @@ def a_grafana_holding(state: str | None = INACTIVE,
                       pending: str | None = "0s",
                       health: str = HEALTHY,
                       others_firing: tuple[str, ...] = (),
-                      missing: str | None = None) -> FetchFromGrafana:
+                      missing: str | None = None,
+                      steps: tuple[dict[str, Any], ...] | None = None,
+                      condition: str | None = None) -> FetchFromGrafana:
     """A Grafana answering the three reads for `SOME_RULE`, in its own shapes.
 
     Each answer is served at its own path alone, the group's at the folder and
@@ -551,12 +585,14 @@ def a_grafana_holding(state: str | None = INACTIVE,
     that made it rather than finding an answer meant for another.
 
     `others_firing` are rules listed, firing, in a group ahead of this one's;
-    `missing` is a field dropped from whichever answer carries it.
+    `missing` is a field dropped from whichever answer carries it. `steps` and
+    `condition` are a definition's own, in place of the ranged steps, for a
+    rule whose series is followed.
     """
     definition: dict[str, Any] = {
         FOLDER_UID: SOME_FOLDER,
         RULE_GROUP: SOME_GROUP,
-        DATA: [
+        DATA: list(steps) if steps is not None else [
             *(
                 {"refId": f"Q{index}", RELATIVE_TIME_RANGE: {FROM: seconds, "to": 0}}
                 for index, seconds in enumerate(ranges_seconds)
@@ -565,6 +601,8 @@ def a_grafana_holding(state: str | None = INACTIVE,
             {"refId": "THRESHOLD"}
         ]
     }
+    if condition is not None:
+        definition[CONDITION] = condition
     if keep_firing_for is not None:
         definition[KEEP_FIRING_FOR] = keep_firing_for
     if pending is not None:
@@ -775,6 +813,19 @@ def _it_waits_before_firing(expected: timedelta) -> Assertion[AlertRuleStanding]
             raise AssertionError(
                 f"Expected the rule to wait [{expected.total_seconds():.0f}]s before "
                 f"firing, got [{standing.pending_seconds}]s."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_watches(expected: str | None) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_query != expected:
+            raise AssertionError(
+                f"Expected the rule to watch the series [{expected}], got "
+                f"[{standing.series_query}]."
             )
 
         return True
