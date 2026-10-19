@@ -80,6 +80,30 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("extent", "expected"), [
+    (ImpactExtent.MEASURED, Card(value="40m 0s", label="onset until back to normal")),
+    (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
+                                 label="since onset, still not back to normal")),
+    (ImpactExtent.UNOBSERVED, Card(value="at least 40m 0s", label="since onset, unobserved"))],
+    ids=["measured", "at-least", "unobserved"])
+def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
+    # Labelled "until back to normal", a duration that never got back names an
+    # end the incident never had - and a blind spell still going when the
+    # incident closed is no more over than a failure still going.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=40), extent=extent,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[0]
+        ) \
+        .then(
+            the_answer_was(expected))
+
+
+@pytest.mark.unit
 def test_a_lower_bound_on_the_loss_is_said_to_be_one() -> None:
     # For a destination that marks it: the page tags the card with which it is.
     Scenario() \

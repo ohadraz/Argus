@@ -19,6 +19,7 @@ from argus_core.models import (
     ChangeKind,
     Impact,
     ImpactExtent,
+    OpenedPullRequest,
     ResolutionStep,
     ReviewCriterion,
     TimelineMarker,
@@ -27,7 +28,7 @@ from argus_core.models import (
 from argus_testkit import Assertion, Scenario, the_answer_was
 from postmortem_rendering.head import a_head, a_title
 from postmortem_rendering.lines import Line, Role, Run
-from postmortem_rendering.resolution import ReportedResolution
+from postmortem_rendering.resolution import Escalation, ReportedResolution
 
 from postmortem_rendering_test.framework.builders import a_marker, a_postmortem, an_alert
 
@@ -354,6 +355,87 @@ def test_an_incident_nobody_is_recorded_ending_says_so() -> None:
         ) \
         .then(
             _it_reads("Not recorded."))
+
+
+@pytest.mark.unit
+def test_an_incident_argus_escalated_with_a_fix_waiting_was_ended_by_the_escalation() -> None:
+    # Nothing was done to the service and nobody resolved it, but how it ended
+    # is on the record: Argus handed it to a person, with a fix to merge.
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[], pull_request=some_fix)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None,
+                           escalation=Escalation(at=SOME_ONSET, detail="dont care")).ended_by
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="Argus"),
+                                      Run(text=": escalated to a person, "),
+                                      Run.a_moment(SOME_ONSET),
+                                      Run(text=" - "),
+                                      Run.a_pull_request(7).linked_to(some_fix.url),
+                                      Run(text=", a draft, waits for a person to merge")))))
+
+
+@pytest.mark.unit
+def test_an_escalation_with_no_fix_says_why_argus_handed_it_over() -> None:
+    Scenario() \
+        .given(
+            some_escalation := Escalation(at=SOME_ONSET,
+                                          detail="no mitigation Argus can take answers it")
+        ) \
+        .when(
+            lambda: a_head(a_postmortem(resolution=[]), an_alert(), resolution=None,
+                           escalation=some_escalation).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: escalated to a person, Oct 11, 2026, 14:03 UTC - no mitigation "
+                      "Argus can take answers it"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("escalated_after", "reads"), [
+    (timedelta(minutes=5), "Argus: escalated to a person, Oct 11, 2026, 14:08 UTC"),
+    (timedelta(minutes=-5), "Argus: rolled back the deployment - confirmed, still in place")],
+    ids=["escalated-after-the-step", "a-step-after-the-escalation"])
+def test_whichever_of_an_escalation_and_a_step_came_later_ended_the_incident(
+        escalated_after: timedelta, reads: str) -> None:
+    # A walk that acted and then gave up ended by giving up; one escalated and
+    # then walked again, by a refire or a re-run, ended by what it did then.
+    some_postmortem = a_postmortem(resolution=[
+        ResolutionStep(at=SOME_ONSET, action="Rolled back the deployment", by="Argus",
+                       reversible=True, outcome="confirmed, still in place", label="M1")])
+
+    Scenario() \
+        .given(
+            some_escalation := Escalation(at=SOME_ONSET + escalated_after, detail=None)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None,
+                           escalation=some_escalation).ended_by
+        ) \
+        .then(
+            _it_reads(reads))
+
+
+@pytest.mark.unit
+def test_a_person_s_resolution_ends_the_incident_whatever_argus_did() -> None:
+    Scenario() \
+        .given(
+            some_resolution := ReportedResolution(by="Kuki Buki", channel="the Argus UI",
+                                                  at=SOME_ONSET, note=None)
+        ) \
+        .when(
+            lambda: a_head(a_postmortem(), an_alert(), resolution=some_resolution,
+                           escalation=Escalation(at=SOME_ONSET + timedelta(minutes=5),
+                                                 detail=None)).ended_by_whom
+        ) \
+        .then(
+            the_answer_was("Kuki Buki"))
 
 
 def _an_action_item(number: str, status: ActionItemStatus) -> ActionItem:

@@ -15,7 +15,12 @@ from argus_core import new_id
 from argus_core.events import IncidentEvent, StatusChanged
 from argus_core.models import IncidentStatus, ReportChannel
 from argus_testkit import Scenario, the_answer_was
-from postmortem_rendering.resolution import ReportedResolution, the_reported_resolution
+from postmortem_rendering.resolution import (
+    Escalation,
+    ReportedResolution,
+    the_escalation,
+    the_reported_resolution,
+)
 
 from postmortem_rendering_test.framework.builders import a_person_resolved_it
 
@@ -84,6 +89,38 @@ def test_an_incident_with_no_events_has_no_reported_resolution() -> None:
         ) \
         .when(
             lambda: the_reported_resolution(no_events)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_argus_s_escalation_says_when_and_why() -> None:
+    some_moment = datetime(2026, 10, 11, 14, 20, tzinfo=UTC)
+
+    Scenario() \
+        .given(
+            some_events := [StatusChanged(incident_id=new_id(), at=some_moment,
+                                          to_status=IncidentStatus.ESCALATED,
+                                          detail="a draft pull request is open")]
+        ) \
+        .when(
+            lambda: the_escalation(some_events)
+        ) \
+        .then(
+            the_answer_was(Escalation(at=some_moment, detail="a draft pull request is open"))
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_never_escalated_has_no_escalation() -> None:
+    Scenario() \
+        .given(
+            some_events := [StatusChanged(incident_id=new_id(), to_status=IncidentStatus.MITIGATED)]
+        ) \
+        .when(
+            lambda: the_escalation(some_events)
         ) \
         .then(
             the_answer_was(None)

@@ -1,4 +1,5 @@
-"""Who reported an incident resolved, read off its events.
+"""Who reported an incident resolved, and when Argus escalated it, read off
+its events.
 
 Beside the postmortem rather than inside it. A document written before the
 report is not rewritten, and one written after is the model's prose - so what
@@ -27,6 +28,29 @@ class ReportedResolution(BaseModel):
     channel: str
     at: datetime
     note: str | None
+
+
+class Escalation(BaseModel):
+    """When Argus handed the incident to a person, and the reason it gave."""
+
+    model_config = ConfigDict(frozen=True)
+
+    at: datetime
+    detail: str | None
+
+
+def the_escalation(recorded: Sequence[IncidentEvent]) -> Escalation | None:
+    """Argus's last move of the incident to escalated, if it made one - how an
+    incident it could not end, and nobody has, did end."""
+    escalations = [event for event in recorded
+                   if isinstance(event, StatusChanged)
+                   and event.to_status is IncidentStatus.ESCALATED
+                   and event.reported is None]
+
+    if not escalations:
+        return None
+
+    return Escalation(at=escalations[-1].at, detail=escalations[-1].detail)
 
 
 def the_reported_resolution(recorded: Sequence[IncidentEvent]) -> ReportedResolution | None:

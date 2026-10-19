@@ -72,21 +72,35 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     impact = postmortem.impact
     a_lower_bound = impact is not None and impact.extent is not ImpactExtent.MEASURED
 
-    if impact is None:
-        duration = "not measured"
-    elif impact.extent is ImpactExtent.AT_LEAST:
-        duration = f"at least {as_span(impact.duration)}"
-    else:
-        duration = as_span(impact.duration)
-
     return ImpactSection(
-        cards=(Card(value=duration, label="onset until back to normal"),
+        cards=(_the_duration(impact),
                *_the_errors(impact),
                *_the_rules_series(impact),
                _the_loss(postmortem, a_lower_bound)),
         finding=(f"What the alert found: {alert.summary}"
                  if alert.summary and alert.claim is AlarmClaim.ITS_OWN_FINDING else None),
         unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None)
+
+
+def _the_duration(impact: Impact | None) -> Card:
+    """How long, said by where it ends. Back to normal only where it got back:
+    a failure still going when the metrics ran out, and a blind spell still
+    going when the incident closed, are each a floor - labelled as ending back
+    to normal, they name an end the incident never had."""
+    if impact is None:
+        return Card(value="not measured", label=_UNTIL_BACK_TO_NORMAL)
+
+    span = as_span(impact.duration)
+    match impact.extent:
+        case ImpactExtent.MEASURED:
+            return Card(value=span, label=_UNTIL_BACK_TO_NORMAL)
+        case ImpactExtent.AT_LEAST:
+            return Card(value=f"at least {span}", label="since onset, still not back to normal")
+        case ImpactExtent.UNOBSERVED:
+            return Card(value=f"at least {span}", label="since onset, unobserved")
+
+
+_UNTIL_BACK_TO_NORMAL: Final = "onset until back to normal"
 
 
 def _the_errors(impact: Impact | None) -> tuple[Card, ...]:

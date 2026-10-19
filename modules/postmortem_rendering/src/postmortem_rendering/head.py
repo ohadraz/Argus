@@ -17,6 +17,7 @@ from argus_core.models import (
     Alert,
     ChangeKind,
     ImpactExtent,
+    OpenedPullRequest,
     Postmortem,
     PostmortemDocument,
     TimelineMarker,
@@ -25,7 +26,7 @@ from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision, on_the_clock
 from postmortem_rendering.lines import Line, Role, Run
-from postmortem_rendering.resolution import ReportedResolution
+from postmortem_rendering.resolution import Escalation, ReportedResolution
 
 # A moment with its date, as the head says the start of the incident's window.
 _WITH_THE_DAY: Final = "%b %d, %Y, %H:%M"
@@ -89,13 +90,15 @@ def a_title(postmortem: PostmortemDocument | None, alert: Alert) -> Line:
 
 def a_head(postmortem: Postmortem,
            alert: Alert,
-           resolution: ReportedResolution | None) -> Head:
+           resolution: ReportedResolution | None,
+           escalation: Escalation | None = None) -> Head:
     """The rows above the first section of a written postmortem.
 
-    `resolution` is a person's, read off the record when the document is shown,
-    since it can arrive after the document was written.
+    `resolution` is a person's and `escalation` Argus's handing it to one, each
+    read off the record when the document is shown, since a resolution can
+    arrive after the document was written.
     """
-    ended_by, ended_by_whom = _who_ended_it(postmortem, resolution)
+    ended_by, ended_by_whom = _who_ended_it(postmortem, resolution, escalation)
 
     return Head(incident=Line(runs=(Run(text=alert.alert_name, role=Role.CODE),
                                     Run(text=" on "),
@@ -160,9 +163,13 @@ def _who_wrote_it(postmortem: Postmortem) -> Line:
 
 
 def _who_ended_it(postmortem: Postmortem,
-                  resolution: ReportedResolution | None) -> tuple[Line, str | None]:
-    """A person's resolution where there is one, else the last step taken, else
-    that nothing is recorded - with whoever that names."""
+                  resolution: ReportedResolution | None,
+                  escalation: Escalation | None) -> tuple[Line, str | None]:
+    """A person's resolution where there is one; else whichever came later of
+    Argus's escalation and the last step taken - a walk that acted and then
+    gave up ended by giving up, and one escalated and then walked again ended
+    by what it did then; else that nothing is recorded - with whoever that
+    names."""
     if resolution is not None:
         runs = [Run(text=resolution.by),
                 Run(text=f" from {resolution.channel}, "),
@@ -172,14 +179,35 @@ def _who_ended_it(postmortem: Postmortem,
 
         return Line(runs=tuple(runs)), resolution.by
 
-    if postmortem.resolution:
-        last = postmortem.resolution[-1]
+    last = postmortem.resolution[-1] if postmortem.resolution else None
+    if escalation is not None and (last is None or escalation.at > last.at):
+        return _the_escalation(escalation, postmortem.pull_request), _ARGUS
+
+    if last is not None:
         action = last.action[:1].lower() + last.action[1:]
 
         return Line(runs=(Run(text=last.by),
                           Run(text=f": {action} - {last.outcome}"))), last.by
 
     return Line(runs=(Run(text="Not recorded."),)), None
+
+
+def _the_escalation(escalation: Escalation, fix: OpenedPullRequest | None) -> Line:
+    """Argus handing the incident to a person, when, and what it left them: the
+    fix it proposed, where there is one, else the reason it gave."""
+    runs = [Run(text=_ARGUS), Run(text=": escalated to a person, "), Run.a_moment(escalation.at)]
+    if fix is not None:
+        runs += [Run(text=" - "),
+                 Run.a_pull_request(fix.number).linked_to(fix.url),
+                 Run(text=", a draft, waits for a person to merge")]
+    elif escalation.detail:
+        runs += [Run(text=f" - {escalation.detail}")]
+
+    return Line(runs=tuple(runs))
+
+
+# Who ends an incident by escalating it.
+_ARGUS: Final = "Argus"
 
 
 def _reviewed(postmortem: Postmortem) -> bool:

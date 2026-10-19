@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from argus_core import new_id
+from argus_core.events import StatusChanged
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -19,6 +21,7 @@ from argus_core.models import (
     CitedEvidence,
     Detection,
     HypothesisConsidered,
+    IncidentStatus,
     PostmortemLead,
     ResolutionStep,
     TimelineEntry,
@@ -127,6 +130,22 @@ def test_a_person_s_resolution_on_the_record_reaches_the_head_and_the_resolution
         ) \
         .then(
             _it_was_ended_everywhere_by("Kuki Buki"))
+
+
+@pytest.mark.unit
+def test_argus_s_escalation_on_the_record_reaches_the_head() -> None:
+    # Read off the events, as a person's resolution is.
+    Scenario() \
+        .given(
+            some_events := [StatusChanged(incident_id=new_id(), at=DONT_CARE_MOMENT,
+                                          to_status=IncidentStatus.ESCALATED, detail=None)]
+        ) \
+        .when(
+            lambda: render(a_postmortem(resolution=[]), an_alert(), some_events,
+                           SOME_ADDRESS).head.ended_by_whom
+        ) \
+        .then(
+            the_answer_was("Argus"))
 
 
 @pytest.mark.unit

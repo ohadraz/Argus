@@ -26,7 +26,7 @@ from postmortem_rendering.impact import Card, ImpactSection, the_impact
 from postmortem_rendering.leads import LeadItem, the_leads
 from postmortem_rendering.lessons import LessonList, the_lessons
 from postmortem_rendering.lines import Line, Role, Run
-from postmortem_rendering.resolution import the_reported_resolution
+from postmortem_rendering.resolution import the_escalation, the_reported_resolution
 from postmortem_rendering.review import ReviewSection, the_review
 from postmortem_rendering.supporting import SupportingSection, the_supporting_information
 from postmortem_rendering.timeline import TimelineSection, the_timeline
@@ -122,7 +122,7 @@ def render(postmortem: Postmortem,
     return RenderedPostmortem(
         incident_id=postmortem.incident_id,
         title=a_title(postmortem, alert),
-        head=a_head(postmortem, alert, resolution),
+        head=a_head(postmortem, alert, resolution, the_escalation(events)),
         headings={key: heading for key, heading in _HEADINGS.items()
                   if key != "leads" or leads},
         summary=(Line(runs=(Run(text=postmortem.executive_summary, role=Role.PROSE),))
