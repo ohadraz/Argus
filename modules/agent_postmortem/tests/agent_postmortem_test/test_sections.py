@@ -29,6 +29,7 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    CandidateConsidered,
     ChangeEvent,
     ChangeKind,
     CitedEvidence,
@@ -711,14 +712,18 @@ def test_candidates_blaming_the_same_move_are_one_row_under_each_label() -> None
     # Two readings of one change are one cause, and listed twice they read as
     # two the investigation weighed. The row goes by the best-ranked one's
     # words and by every label, so a line citing either still lands on it; what
-    # became of it is what became of the one tested.
+    # became of it is what became of the one tested. Each keeps its own words,
+    # mode and confidence, and the row says whose test decided it: shown as the
+    # row's own, one candidate's figures read as another's.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
                 a_candidate("the model was upgraded", subject="categoriser.model",
-                            from_state="v1", to_state="v2", confidence=0.8),
+                            from_state="v1", to_state="v2", confidence=0.8,
+                            failure_mode="output-quality-degradation"),
                 a_candidate("an alternative reading", subject="categoriser.model",
                             from_state="v1", to_state="v2", confidence=0.3,
+                            failure_mode="config-induced-failure",
                             tested=True, result=Verdict.CONFIRMED),
                 a_candidate("a bad deploy", confidence=0.1)])
         ) \
@@ -727,8 +732,16 @@ def test_candidates_blaming_the_same_move_are_one_row_under_each_label() -> None
         ) \
         .then(
             the_answer_was([
-                HypothesisConsidered(summary="the model was upgraded", confidence=0.8,
-                                     result="confirmed", label="C1", also=["C2"]),
+                HypothesisConsidered(
+                    summary="the model was upgraded", confidence=0.8, result="confirmed",
+                    label="C1", also=["C2"],
+                    members=[CandidateConsidered(label="C1", summary="the model was upgraded",
+                                                 confidence=0.8,
+                                                 failure_mode="output-quality-degradation"),
+                             CandidateConsidered(label="C2", summary="an alternative reading",
+                                                 confidence=0.3,
+                                                 failure_mode="config-induced-failure")],
+                    decided_by="C2"),
                 HypothesisConsidered(summary="a bad deploy", confidence=0.1,
                                      result="never tried", label="C3")
             ])

@@ -146,6 +146,16 @@ class TimelineEntry(BaseModel):
     outside_the_walk: bool = False
 
 
+class CandidateConsidered(BaseModel):
+    """One of the candidates a row of the hypotheses stands for, in its own
+    words, mode and confidence - under the label it is cited by."""
+
+    label: str
+    summary: str
+    confidence: float | None
+    failure_mode: str | None
+
+
 class HypothesisConsidered(BaseModel):
     """One candidate the Investigator ranked, and what became of it - under
     the label the document's prose cites it by (`C1`)."""
@@ -159,6 +169,13 @@ class HypothesisConsidered(BaseModel):
     # rather than read as causes weighed apart. Each keeps its own label, so a
     # line citing it still has this row to lead to.
     also: list[str] = []
+    # Where the row stands for several, each of them as it was ranked, best
+    # first, and the label of the one whose test says what became of the row:
+    # shown as the row's own, one candidate's figures read as another's. Empty
+    # and `None` on a row of one, and on a document written before either was
+    # carried.
+    members: list[CandidateConsidered] = []
+    decided_by: str | None = None
 
 
 class ResolutionStep(BaseModel):

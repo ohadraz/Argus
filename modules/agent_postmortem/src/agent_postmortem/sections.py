@@ -21,6 +21,7 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    CandidateConsidered,
     ChangeEvent,
     ChangeKind,
     CitedEvidence,
@@ -352,13 +353,25 @@ _SYNC_LEFT_OFF: Final = " - automatic sync left off"
 
 def hypotheses_of(evidence: IncidentEvidence) -> list[HypothesisConsidered]:
     """Every candidate ranked, with what became of it - untried ones included,
-    and candidates that are one cause shown once (`causes_of`)."""
+    and candidates that are one cause shown once (`causes_of`).
+
+    A row standing for several carries each of them in its own words, mode and
+    confidence, and which one's test decided it: shown as the row's own, one
+    candidate's figures read as another's.
+    """
     return [
         HypothesisConsidered(summary=cause.lead.summary,
                              confidence=cause.lead.confidence,
                              result=cause.became,
                              label=cause.label,
-                             also=cause.also)
+                             also=cause.also,
+                             members=[CandidateConsidered(label=label,
+                                                          summary=candidate.summary,
+                                                          confidence=candidate.confidence,
+                                                          failure_mode=candidate.failure_mode)
+                                      for label, candidate in cause.members]
+                             if cause.also else [],
+                             decided_by=cause.decided_by if cause.also else None)
         for cause in causes_of(evidence.candidates)
     ]
 
@@ -389,6 +402,12 @@ class OneCause:
         """The candidate whose test says what became of the cause - the first
         tested, or the lead where none was."""
         return next((candidate for _, candidate in self.members if candidate.tested), self.lead)
+
+    @property
+    def decided_by(self) -> str | None:
+        """The label of the candidate whose test says what became of the cause
+        - `None` where none was tested."""
+        return next((label for label, candidate in self.members if candidate.tested), None)
 
     @property
     def became(self) -> str:

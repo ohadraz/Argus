@@ -10,10 +10,11 @@ naming one revision two ways reads as naming two.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Final
 
 from argus_core import said_short
-from argus_core.models import PostmortemDocument
+from argus_core.models import CandidateConsidered, HypothesisConsidered, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Run
@@ -54,18 +55,58 @@ class HypothesesSection(BaseModel):
 
 
 def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
-    """Every candidate ranked, in the order the investigation ranked them."""
+    """Every candidate ranked, in the order the investigation ranked them.
+
+    A row standing for several says each in its own words, mode and confidence,
+    and whose test its result is: one candidate's figures shown as the row's
+    own read as another's - a candidate never tried as confirmed, at a
+    confidence it never had, and its own claim hidden. A document written
+    before the several were carried shows the row as it always did.
+    """
     shorts = the_short_forms(postmortem.changes_read)
     addresses = the_revision_addresses(postmortem.changes_read)
-    rows = tuple(HypothesisRow(label=hypothesis.label,
-                               summary=Line(runs=Run(text=said_short(hypothesis.summary, shorts))
-                                            .with_links(addresses)),
-                               confidence=(f"{hypothesis.confidence:.2f}"
-                                           if hypothesis.confidence is not None else "-"),
-                               result=hypothesis.result,
-                               also=tuple(hypothesis.also))
+
+    def said(summary: str) -> tuple[Run, ...]:
+        return Run(text=said_short(summary, shorts)).with_links(addresses)
+
+    rows = tuple(_a_row_of_several(hypothesis, said) if hypothesis.members
+                 else HypothesisRow(label=hypothesis.label,
+                                    summary=Line(runs=said(hypothesis.summary)),
+                                    confidence=_to_two_places(hypothesis.confidence),
+                                    result=hypothesis.result,
+                                    also=tuple(hypothesis.also))
                  for hypothesis in postmortem.hypotheses)
 
     return HypothesesSection(headings=_HEADINGS,
                              rows=rows,
                              absent=None if rows else "No hypotheses were ranked.")
+
+
+def _a_row_of_several(hypothesis: HypothesisConsidered,
+                      said: Callable[[str], tuple[Run, ...]]) -> HypothesisRow:
+    """A row standing for several candidates, each figure under the label of
+    the candidate it is."""
+    members = hypothesis.members
+    runs = tuple(run
+                 for place, member in enumerate(members)
+                 for run in (Run(text=f"{' ' if place else ''}{_named(member)}: "),
+                             *said(member.summary)))
+
+    return HypothesisRow(
+        label=hypothesis.label,
+        summary=Line(runs=runs),
+        confidence="; ".join(f"{_to_two_places(member.confidence)} ({member.label})"
+                             for member in members),
+        result=(f"{hypothesis.result}, as tested for {hypothesis.decided_by}"
+                if hypothesis.decided_by else hypothesis.result),
+        also=tuple(hypothesis.also))
+
+
+def _named(member: CandidateConsidered) -> str:
+    """A candidate's label, and its mode where it had one."""
+    return f"{member.label} ({member.failure_mode})" if member.failure_mode else member.label
+
+
+def _to_two_places(confidence: float | None) -> str:
+    """A ranking's confidence to two places, or `-` where it gave none."""
+    return f"{confidence:.2f}" if confidence is not None else "-"

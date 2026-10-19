@@ -8,7 +8,7 @@ Each case is one postmortem and the table the section says it as.
 from __future__ import annotations
 
 import pytest
-from argus_core.models import HypothesisConsidered
+from argus_core.models import CandidateConsidered, HypothesisConsidered
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.hypotheses import HypothesisRow, the_hypotheses
 from postmortem_rendering.lines import Line, Role, Run
@@ -57,6 +57,42 @@ def test_a_row_standing_for_several_candidates_goes_by_each_of_their_labels() ->
             the_answer_was((
                 HypothesisRow(label="C1", also=("C2",), summary=_said("the model was upgraded"),
                               confidence="0.80", result="confirmed"),)))
+
+
+@pytest.mark.unit
+def test_a_row_standing_for_several_candidates_says_whose_each_figure_is() -> None:
+    # One candidate's figures shown as the row's own read as another's: a
+    # candidate never tried reads as confirmed, at a confidence it never had,
+    # and its own claim is hidden. So each says its own words, mode and
+    # confidence, and the result says whose test reached it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(
+                    summary="The model was upgraded.", confidence=0.7, result="confirmed",
+                    label="C1", also=["C2"],
+                    members=[CandidateConsidered(label="C1", summary="The model was upgraded.",
+                                                 confidence=0.7,
+                                                 failure_mode="output-quality-degradation"),
+                             CandidateConsidered(label="C2",
+                                                 summary="The values file was changed.",
+                                                 confidence=0.2,
+                                                 failure_mode="config-induced-failure")],
+                    decided_by="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows
+        ) \
+        .then(
+            the_answer_was((
+                HypothesisRow(label="C1", also=("C2",),
+                              summary=Line(runs=(
+                                  Run(text="C1 (output-quality-degradation): "),
+                                  Run(text="The model was upgraded."),
+                                  Run(text=" C2 (config-induced-failure): "),
+                                  Run(text="The values file was changed."))),
+                              confidence="0.70 (C1); 0.20 (C2)",
+                              result="confirmed, as tested for C1"),)))
 
 
 @pytest.mark.unit
