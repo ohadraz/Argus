@@ -113,6 +113,10 @@ def _the_rules_series(impact: Impact | None, alert: Alert) -> tuple[Card, ...]:
     the prose writes a level, so the card and the sentence beside it are one
     figure. On average while broken, as the error rate is, with the worst
     minute beside it: one minute alone overstates the stretch.
+
+    And the line the rule pages past, in the same unit, where it was read: the
+    alert's words may say "80%" of a series written as 0.459, and the line lets
+    a reader bridge the two without the page guessing a unit.
     """
     harm = impact.rule_series_harm if impact else None
 
@@ -120,11 +124,13 @@ def _the_rules_series(impact: Impact | None, alert: Alert) -> tuple[Card, ...]:
         return ()
 
     moved = "fell" if harm.worse_when == "below" else "rose"
+    line = (f"; the rule's line is {said_as_a_level(harm.line)}"
+            if harm.line is not None else "")
 
     return (Card(value=said_as_a_level(harm.while_broken),
                  label=f"what {alert.alert_name} watches while broken, on average - "
                        f"{moved} from {said_as_a_level(harm.before)}, "
-                       f"worst minute {said_as_a_level(harm.at_its_worst)}"),)
+                       f"worst minute {said_as_a_level(harm.at_its_worst)}{line}"),)
 
 
 def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:

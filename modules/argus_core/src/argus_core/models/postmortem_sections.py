@@ -244,12 +244,18 @@ class RuleSeriesHarm(BaseModel):
 
     The direction travels with the levels, because a worst that is the lowest
     of a share and one that is the highest of a latency read alike as numbers.
+
+    `line` is the threshold the rule pages past, in the same unit: what lets a
+    reader bridge the levels to the alert's words, which may say "80%" of a
+    series read as 0.8, without anything guessing a unit. `None` where it could
+    not be read.
     """
 
     before: float
     while_broken: float
     at_its_worst: float
     worse_when: WorseWhen
+    line: float | None = None
 
 
 class Impact(BaseModel):

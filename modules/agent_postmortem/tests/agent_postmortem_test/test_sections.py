@@ -1321,14 +1321,15 @@ def test_impact_carries_the_rules_series_where_it_got_worse() -> None:
         .given(
             measured := a_measured_incident(
                 rule_series=RuleSeriesLevels(baseline=0.899, while_broken=0.459,
-                                             at_its_worst=0.391, worse_when="below"))
+                                             at_its_worst=0.391, worse_when="below",
+                                             line=0.8))
         ) \
         .when(
             lambda: impact_of(measured).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=0.899, while_broken=0.459,
-                                          at_its_worst=0.391, worse_when="below"))
+                                          at_its_worst=0.391, worse_when="below", line=0.8))
         )
 
 

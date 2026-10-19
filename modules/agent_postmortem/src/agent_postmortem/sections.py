@@ -153,7 +153,8 @@ def impact_of(measured: Measurements) -> Impact:
                   rule_series_harm=RuleSeriesHarm(before=series.baseline,
                                                   while_broken=series.while_broken,
                                                   at_its_worst=series.at_its_worst,
-                                                  worse_when=series.worse_when)
+                                                  worse_when=series.worse_when,
+                                                  line=series.line)
                   if series is not None and series.got_worse else None)
 
 

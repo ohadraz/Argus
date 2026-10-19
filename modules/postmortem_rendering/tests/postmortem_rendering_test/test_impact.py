@@ -286,6 +286,29 @@ def test_a_series_that_got_worse_is_a_card_named_by_the_alert_that_watches_it(
                                       f"broken, on average - {moved}, worst minute 0.391")))
 
 
+@pytest.mark.unit
+def test_a_series_card_names_the_line_its_rule_pages_past() -> None:
+    # In the series' own unit: the alert's words may say "80%" of a series
+    # written as 0.459, and the line beside it lets a reader bridge the two
+    # without the page guessing a unit.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=None,
+                              rule_series_harm=RuleSeriesHarm(before=0.8994, while_broken=0.45943,
+                                                              at_its_worst=0.39071,
+                                                              worse_when="below", line=0.8)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem,
+                               an_alert("CategorisationConfidenceLow")).cards[3].label
+        ) \
+        .then(
+            the_answer_was("what CategorisationConfidenceLow watches while broken, on average - "
+                           "fell from 0.899, worst minute 0.391; the rule's line is 0.8"))
+
+
 def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:
     def assertion(cards: tuple[Card, ...]) -> bool:
         values = tuple(card.value for card in cards)

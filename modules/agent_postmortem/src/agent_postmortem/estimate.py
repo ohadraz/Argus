@@ -300,6 +300,11 @@ class RuleSeriesLevels(BaseModel):
     while_broken: float
     at_its_worst: float
     worse_when: WorseWhen
+    # The threshold the rule pages past, in the series' own unit - what lets a
+    # reader bridge the levels to the alert's words, which may say "80%" of a
+    # series read as 0.8, without anything here guessing a unit. `None` where
+    # the rule's threshold could not be read.
+    line: float | None = None
 
     @property
     def got_worse(self) -> bool:
@@ -342,12 +347,14 @@ def rule_series_over(buckets: list[MetricBucket],
 
     worse_when = while_broken[0].worse_when
     values = [reading.value for reading in while_broken]
+    line = next((reading.line for reading in while_broken if reading.line is not None), None)
 
     return RuleSeriesLevels(
         baseline=_mean([reading.value for reading in before]),
         while_broken=_mean(values),
         at_its_worst=min(values) if worse_when == "below" else max(values),
-        worse_when=worse_when
+        worse_when=worse_when,
+        line=line.at if line is not None else None
     )
 
 

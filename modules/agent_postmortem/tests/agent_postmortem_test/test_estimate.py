@@ -26,7 +26,7 @@ from agent_postmortem.estimate import (
     rule_series_over,
     why_no_error_rates,
 )
-from argus_core.models import MetricBucket, RuleReading, WorseWhen
+from argus_core.models import MetricBucket, RuleLine, RuleReading, WorseWhen
 from argus_testkit import Assertion, Scenario, the_answer_was
 
 INCIDENT_START = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
@@ -590,6 +590,52 @@ def test_the_worst_of_a_series_its_rule_calls_worse_rising_is_its_highest() -> N
 
 
 @pytest.mark.unit
+def test_the_rules_series_carries_the_line_its_rule_pages_past() -> None:
+    # In the series' own unit, beside its levels: the alert's words may say
+    # "80%" of a series read as 0.8, and the line is what lets a reader bridge
+    # the two without anything here guessing a unit.
+    some_line = RuleLine(at=0.8, fires_on_it=False)
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=0.9, worse_when="below",
+                                                   line=some_line)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=0.46, worse_when="below",
+                                                   line=some_line))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_rules_line_is(0.8)
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_series_whose_line_could_not_be_read_carries_none() -> None:
+    # Not a line at nothing: a threshold nobody read is no threshold to show.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          rule_reading=RuleReading(value=0.9, worse_when="below")),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          rule_reading=RuleReading(value=0.46, worse_when="below"))
+            ]
+        ) \
+        .when(
+            lambda: rule_series_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_rules_line_is(None)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("worse_when", "while_broken", "got_worse"), [
     pytest.param("below", 0.46, True, id="fell-where-falling-is-worse"),
     pytest.param("below", 0.95, False, id="rose-where-falling-is-worse"),
@@ -902,6 +948,22 @@ def _the_rules_levels_are(expected: RuleSeriesLevels) -> Assertion[RuleSeriesLev
             or measured.worse_when != expected.worse_when
         ):
             raise AssertionError(f"Expected the rule's series at {expected}, got {measured}.")
+
+        return True
+
+    return assertion
+
+
+def _the_rules_line_is(expected: float | None) -> Assertion[RuleSeriesLevels | None]:
+    def assertion(measured: RuleSeriesLevels | None) -> bool:
+        if measured is None:
+            raise AssertionError(
+                f"Expected the rule's series measured with its line at {expected}, "
+                f"nothing was measured.")
+
+        if measured.line != expected:
+            raise AssertionError(
+                f"Expected the rule's line at {expected}, got {measured.line}.")
 
         return True
 
