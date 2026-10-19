@@ -245,6 +245,29 @@ def test_a_metrics_read_whose_rows_stop_is_said_as_an_absence() -> None:
 
 
 @pytest.mark.unit
+def test_a_metrics_read_whose_rows_stop_names_the_last_minute_they_cover_by_the_clock() -> None:
+    # The window's end is the start of the last minute read, so "they stop at
+    # 00:08" reads as nothing from 00:08 on, when 00:08 was read - and a
+    # postmortem retelling it said the metrics stopped at 00:08 in one place
+    # and 00:09 in another. Said by the clock, like every other line: the wire
+    # format is what the tools speak to each other.
+    some_read = MetricsRetrieved(
+        incident_id=new_id(),
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE,
+        buckets=[_a_bucket(AN_EARLIER_MINUTE), _a_bucket(SOME_MINUTE)],
+        stopped_before_the_alert=True
+    )
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("stop after the minute at"),
+                     _the_only_line_mentions(SOME_MINUTE[11:16]),
+                     _the_only_line_does_not_say(SOME_MINUTE)))
+
+
+@pytest.mark.unit
 def test_a_metrics_read_that_ran_to_the_alert_is_said_as_a_count() -> None:
     # The guard on the case above. Every incident before a window could stop is
     # this one, and what its line says has not changed.

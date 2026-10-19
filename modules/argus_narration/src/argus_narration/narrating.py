@@ -407,11 +407,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # A count where the rows run on, and an absence where they stop. The
             # count is true either way and it describes the wrong thing in the
             # second case: every minute it counts is from before the incident, and
-            # the incident is that there are none after.
+            # the incident is that there are none after. The end is the start
+            # of the last minute read, so said as a minute that was read:
+            # "stop at" it reads as though that minute were missing too. A read
+            # that stopped with no end read no minute, and its count says so.
             text = (
-                f"Read the service's metrics - they stop at {event.window_end} and "
-                f"nothing covers the minutes since"
-                if event.stopped_before_the_alert else
+                f"Read the service's metrics - they stop after the minute at "
+                f"{a_minute(event.window_end, beside=to_iso(event.at))}, and nothing "
+                f"covers the minutes since"
+                if event.stopped_before_the_alert and event.window_end is not None else
                 f"Read back {len(event.buckets)} minutes of metrics"
             )
         case LogsRetrieved():
