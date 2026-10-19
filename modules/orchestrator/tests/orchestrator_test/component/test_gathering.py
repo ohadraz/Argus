@@ -83,12 +83,14 @@ from argus_core.models import (
     a_chat_message,
     as_a_change,
 )
-from argus_core.replay import Replay
+from argus_core.replay import CallType, Replay
+from argus_incidents import calls_into
 from argus_incidents.repository import (
     conversation,
     events,
     hypotheses,
     incidents,
+    replay,
     taken_actions,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
@@ -1403,6 +1405,36 @@ def test_a_postmortem_is_written_from_the_sources_it_was_handed(
         ))
 
 
+@pytest.mark.component
+def test_a_postmortem_counts_the_tokens_its_own_writing_spent(
+    a_clean_database: None
+) -> None:
+    # What the incident cost Argus includes the write-up. The replay log is the
+    # one count of every call, and a total read from it before the writer ran
+    # left the writer's own calls out of a figure that claims to be all of them.
+    some_tokens_a_call = 9_148
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_postmortem_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_spending(some_tokens_a_call),
+                recorder=calls_into(connect_from_env)
+            )
+        ) \
+        .then(
+            _it_reports_every_token_the_replay_log_holds(incident_id)
+        )
+
+
 def _sources_recording_into(
     windows_asked_about: list[tuple[datetime, datetime]]
 ) -> Sources:
@@ -1537,6 +1569,64 @@ def _one_client_was_asked_for(
             raise AssertionError(
                 f"Expected exactly one client to be asked for, "
                 f"{len(clients_asked_for)} were.")
+
+        return True
+
+    return assertion
+
+
+class _AModelSpending:
+    """The submitting stand-in, filing each call it answers the way the real
+    client does - through the receipt it was handed - with what it spent.
+
+    The parameter names are the `LLMClient` protocol's own, for the reason
+    `_AModelSubmitting` gives.
+    """
+
+    def __init__(self, replay: Replay, answering: Mapping[str, str], spends: int) -> None:
+        self._replay = replay
+        self._answering = _AModelSubmitting(answering)
+        self._spends = spends
+
+    def converse(self,
+                 transcript: Transcript,
+                 tools: list[ToolDefinition],
+                 max_tokens: int | None = None) -> Turn:
+        self._replay.record(call_type=CallType.LLM,
+                            target="dont care",
+                            request={},
+                            response={"input_tokens": self._spends, "output_tokens": 0})
+
+        return self._answering.converse(transcript, tools, max_tokens)
+
+
+def _a_model_spending(tokens: int) -> ClientFor:
+    """The factory the document asks for a client, handing back one that files
+    each call it makes under the incident, `tokens` at a time. The summary
+    carries no figure, for the reason `_a_model_submitting` gives."""
+    def client_for(replay: Replay, policy: ModelPolicy | None = None) -> LLMClient:
+        return _AModelSpending(replay,
+                               {"root_cause": "dont care",
+                                "executive_summary": "The fallback was off and checkout failed."},
+                               spends=tokens)
+
+    return client_for
+
+
+def _it_reports_every_token_the_replay_log_holds(
+    incident_id: str
+) -> Assertion[PostmortemDocument]:
+    """The document's figure against the log's own total, read once the writing
+    is over - and a total of more than nothing, since a log holding none of the
+    writer's calls would agree with a figure that left them out."""
+    def assertion(document: PostmortemDocument) -> bool:
+        with connect_from_env() as conn:
+            held = replay.get_tokens_spent(conn, incident_id)
+
+        if held == 0 or document.tokens_spent != held:
+            raise AssertionError(
+                f"Expected the document to report the [{held}] tokens the replay log "
+                f"holds, its own writing included, got [{document.tokens_spent}].")
 
         return True
 

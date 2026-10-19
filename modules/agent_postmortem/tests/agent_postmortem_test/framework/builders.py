@@ -124,7 +124,6 @@ SOME_THRESHOLDS = AnomalyThresholds(
 
 
 DONT_CARE_INCIDENT_ID = "e1e1e1e1-0000-4000-8000-000000000001"
-DONT_CARE_TOKENS_SPENT = 1_000
 DONT_CARE_HOURLY_REVENUE = 4_800
 DONT_CARE_REVENUE_DURING_THE_INCIDENT = Decimal("100.00")
 DONT_CARE_ENGAGED_MINUTES = 25
@@ -173,7 +172,6 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        changes: list[ChangeEvent] | None = None,
                        deployment_changes: list[DeploymentChangesRecord] | None = None,
                        fix_explanation: str | None = None,
-                       tokens_spent: int = DONT_CARE_TOKENS_SPENT,
                        pull_request: OpenedPullRequest | None = None,
                        recommended_action: str | None = None,
                        rule: str | None = None,
@@ -219,7 +217,6 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         changes=changes if changes is not None else [],
         deployment_changes=deployment_changes if deployment_changes is not None else [],
         fix_explanation=fix_explanation,
-        tokens_spent=tokens_spent,
         pull_request=pull_request,
         recommended_action=recommended_action,
         rule=rule,

@@ -142,7 +142,9 @@ def write_postmortem(evidence: IncidentEvidence,
         responder_cost_minimum=measured.cost.minimum if measured.cost else None,
         responder_cost_maximum=measured.cost.maximum if measured.cost else None,
         responder_cost_currency=measured.cost.currency if measured.cost else None,
-        tokens_spent=evidence.tokens_spent,
+        # Left to whoever holds the replay log, which reads it once this is
+        # written: the count is of every call, this document's own among them.
+        tokens_spent=None,
         # Carried across, never asked for: the walk recorded where the fix can
         # be read, and a document that waited for the model to mention it would
         # lose the address on any run whose prose read well without one.

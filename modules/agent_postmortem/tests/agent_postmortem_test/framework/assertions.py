@@ -169,7 +169,7 @@ def reports_the_titles(*expected: str) -> Assertion[PostmortemDocument]:
     return assertion
 
 
-def reports_tokens_spent(expected: int) -> Assertion[PostmortemDocument]:
+def reports_tokens_spent(expected: int | None) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.tokens_spent != expected:
             raise AssertionError(

@@ -6,9 +6,9 @@ events, the candidates it ranked, the actions it took - and gathering them is
 that module's business, not this one's. What arrives here is the result of
 that gathering, in Argus's terms rather than in rows.
 
-`tokens_spent` is summed rather than listed for the same reason: what the
-replay log holds is one row per call, and adding them up is a query, not a
-judgment.
+What the incident spent in tokens is not here: the count is of every call the
+incident made, the write-up's own among them, so it can only be read once the
+document is written - by whoever holds the replay log.
 """
 
 from __future__ import annotations
@@ -162,7 +162,6 @@ class IncidentEvidence(BaseModel):
     # it first asked - the one thing that tells a broken configuration from bad
     # code, and what names the deploy that carried a change.
     deployment_changes: list[DeploymentChangesRecord] = []
-    tokens_spent: int
     # The fix Code-Fix proposed, where it proposed one. Structured rather than
     # left in `timeline` for the model to notice: the address is what a reader
     # of the finished document goes on to open, and a summary is free to be

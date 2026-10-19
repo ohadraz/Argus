@@ -108,13 +108,24 @@ def write_postmortem_for(incident_id: str,
     incident: the wrapper holds the incident it records for, and one client
     shared across a process would file every incident's calls under whichever
     was written up first.
+
+    The tokens spent are read off the replay log once the document is written,
+    not before: the log is the one count of every call the incident made, the
+    write-up's own among them, and a total read before the writer ran left its
+    calls out of a figure that claims to be all of them. Recording is done
+    before a client returns, so every call the writer made is there to count.
     """
     with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
 
-    return write_postmortem(
+    document = write_postmortem(
         evidence, sources, client_for(Replay(incident_id, recorder))
     )
+
+    with connections() as conn:
+        return document.model_copy(
+            update={"tokens_spent": replay.get_tokens_spent(conn, incident_id)}
+        )
 
 
 def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvidence:
@@ -159,7 +170,6 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         log_lines=_what_was_read(conn, incident_id),
         changes=_what_changed(conn, incident_id),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
-        tokens_spent=replay.get_tokens_spent(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
         fix_explanation=_what_code_fix_said(conn, incident_id),
         recommended_action=_what_is_still_owed(conn, incident_id),

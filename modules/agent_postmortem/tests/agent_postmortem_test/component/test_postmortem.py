@@ -57,7 +57,6 @@ from agent_postmortem_test.framework.assertions import (
     reports_no_responder_cost,
     reports_root_cause,
     reports_the_titles,
-    reports_tokens_spent,
     states_the_estimate_is_in,
 )
 from agent_postmortem_test.framework.builders import (
@@ -118,7 +117,6 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
     some_responders = 2
     some_root_cause = "the checkout fallback was disabled by a flag toggle at noon"
     some_summary = "Checkout failed for several minutes after a flag change; reverted."
-    some_tokens_spent = 48_120
     expected_loss = (
         Decimal(SOME_CALM_HOURLY_REVENUE) * Decimal(str(hours_between(ONSET, ENDED_AT)))
         - SOME_REVENUE_DURING_THE_INCIDENT
@@ -126,7 +124,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(tokens_spent=some_tokens_spent)
+            evidence := an_evidence_bundle()
         ) \
         .when(
             lambda: a_postmortem_written_with(
@@ -146,8 +144,7 @@ def test_a_postmortem_reports_the_model_s_prose_and_its_own_arithmetic() -> None
                 estimates_a_loss_of(expected_loss),
                 states_the_estimate_is_in(SOME_CURRENCY),
                 reports_engineer_minutes_across(minutes=some_engaged_person_minutes,
-                                                responders=some_responders),
-                reports_tokens_spent(some_tokens_spent)
+                                                responders=some_responders)
             )
         )
 

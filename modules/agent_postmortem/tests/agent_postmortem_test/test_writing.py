@@ -735,15 +735,14 @@ def test_the_document_carries_what_code_fix_read_in_the_source() -> None:
 
 
 @pytest.mark.unit
-def test_the_tokens_the_incident_spent_come_from_its_evidence() -> None:
-    # Not from this call. What the walk spent was counted while it was
-    # happening, and the postmortem's own tokens are not part of what the
-    # incident cost to handle.
-    some_tokens_spent = 48_120
-
+def test_the_tokens_spent_are_left_to_whoever_holds_the_replay_log() -> None:
+    # The agent holds no connection, and the count is of every call the
+    # incident made - this one's among them, which are not all made while it
+    # is still writing. Whoever holds the log reads it once the document is
+    # written.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(tokens_spent=some_tokens_spent)
+            evidence := an_evidence_bundle()
         ) \
         .when(
             lambda: write_postmortem(evidence,
@@ -755,7 +754,7 @@ def test_the_tokens_the_incident_spent_come_from_its_evidence() -> None:
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            reports_tokens_spent(some_tokens_spent)
+            reports_tokens_spent(None)
         )
 
 

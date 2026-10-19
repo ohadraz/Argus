@@ -606,13 +606,13 @@ def argus_created_a_postmortem_for_the_incident() -> Assertion[httpx2.Response]:
                 f"Postmortem for [{incident_id}] reports no tokens spent, so nothing "
                 f"counted what the incident cost.")
 
-        spent_before_the_postmortem = _tokens_spent_excluding_postmortem(incident_id)
+        spent_to_the_write_up = _tokens_spent_to_the_write_up(incident_id)
 
-        if postmortem.tokens_spent != spent_before_the_postmortem:
+        if postmortem.tokens_spent != spent_to_the_write_up:
             raise AssertionError(
                 f"Postmortem for [{incident_id}] reports [{postmortem.tokens_spent}] "
                 f"tokens spent, and its replay log adds up to "
-                f"[{spent_before_the_postmortem}].")
+                f"[{spent_to_the_write_up}] to the end of its write-up.")
 
         return True
 
@@ -1094,26 +1094,31 @@ def _the_tools_called_in(answer: dict[str, Any]) -> list[str]:
             if block.get("type") == TOOL_USE_TYPE]
 
 
-def _tokens_spent_excluding_postmortem(incident_id: str) -> int:
-    """Every token the incident spent up to the moment it was written up.
+def _tokens_spent_to_the_write_up(incident_id: str) -> int:
+    """Every token the incident spent, up to and including its write-up.
 
-    The postmortem's own calls are left out, and have to be: it counts what
-    the incident cost before asking the model to describe it, so its own
-    conversation is not part of the figure it reports. Which calls those are is
-    read from the tools each request offered - an incident that never reached a
-    model at all then adds up to nothing, which is a measurement rather than a
+    The write-up's own calls are counted: the figure is what the incident cost
+    Argus, and writing it up is part of that. Nothing after them is - a reply in
+    the incident's thread can come once the document is stored, and a figure
+    fixed when it was written cannot count it. Which calls are the write-up's is
+    read from the tools each request offered, and an incident that never
+    reached a model adds up to nothing, which is a measurement rather than a
     gap.
     """
     with psycopg.connect(DATABASE_URL) as conn:
-        entries = replay.get_by_incident(conn, incident_id)
+        calls = [entry for entry in replay.get_by_incident(conn, incident_id)
+                 if entry.call_type == CallType.LLM]
+
+    written_up = [position for position, entry in enumerate(calls)
+                  if _asked_for_a_postmortem(entry.request)]
+    counted = calls[:written_up[-1] + 1] if written_up else calls
 
     return sum(
         entry.response.get("input_tokens", 0)
         + entry.response.get("output_tokens", 0)
         + entry.response.get("cache_read_tokens", 0)
         + entry.response.get("cache_write_tokens", 0)
-        for entry in entries
-        if entry.call_type == CallType.LLM and not _asked_for_a_postmortem(entry.request)
+        for entry in counted
     )
 
 
