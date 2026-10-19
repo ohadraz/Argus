@@ -17,6 +17,7 @@ from argus_core.models import (
     CitedChange,
     CitedEvidence,
     PostmortemDocument,
+    RevisionSource,
 )
 from pydantic import BaseModel, ConfigDict
 
@@ -160,15 +161,42 @@ def a_reference(change: ChangeEvent, short: str) -> Run:
 
 
 def what_a_change_did(change: ChangeEvent, short: str) -> tuple[Run, ...]:
-    """What a change read did, in the words the model read, but the revision
-    those words name whole said by `short` - and the revision, the repository
-    and the directory each leading where they open.
+    """What a change read did, as the model read it, but the revision those
+    words name whole said by `short` - and the revision, the repository and the
+    directory each leading where they open.
+
+    A deploy that can be opened is said by where it came from alone: whatever
+    shows this names its revision already, and the words the model read name
+    it again. A row the model's prose cites may say what the model read in
+    other words, or say less of it, and never say more - so the repository and
+    the directory come off the change's own source rather than off a parse of
+    its words. Every other change is said in the words the model read.
 
     Public because the dashboard's table of the changes read says it too, and
     in these words rather than in a second wording of its own."""
-    shorts = {change.reference: short} if change.revision_source is not None else {}
+    source = change.revision_source
+
+    if change.kind is ChangeKind.DEPLOY and source is not None:
+        return _where_it_came_from(source)
+
+    shorts = {change.reference: short} if source is not None else {}
 
     return _shortened(Run(text=change.summary).with_links(_the_addresses_of(change)), shorts)
+
+
+def _where_it_came_from(source: RevisionSource) -> tuple[Run, ...]:
+    """A deploy's repository and the directory it was synced from, each leading
+    where it opens - the directory said where there was one."""
+    repository = (Run(text="from the "),
+                  Run(text=source.repository, role=Role.LINK, address=source.repository_address))
+
+    if source.directory is None:
+        return (*repository, Run(text=" repository"))
+
+    directory = (Run(text=source.directory, role=Role.LINK, address=source.directory_address)
+                 if source.directory_address is not None else Run(text=source.directory))
+
+    return (*repository, Run(text=" repository's "), directory, Run(text="/ directory"))
 
 
 def _the_addresses_of(change: ChangeEvent) -> dict[str, str]:

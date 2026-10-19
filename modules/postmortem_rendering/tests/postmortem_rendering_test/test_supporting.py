@@ -73,9 +73,10 @@ def test_an_incident_with_no_fix_lists_the_walk_alone() -> None:
 @pytest.mark.unit
 def test_a_deploy_read_is_a_row_naming_its_revision_short_each_time_a_link_to_it() -> None:
     # The prose says "the deploy P2"; this is the row that says what P2 was.
-    # Its revision short wherever the row names it, as the prose writes it - one
-    # revision said two ways reads as two - and the revision, the repository
-    # and the directory each lead to where a reader opens them.
+    # Its revision named once, short, as the prose writes it - the read tier's
+    # words name it again, and one revision said twice in a row reads as two -
+    # and the revision, the repository and the directory each lead to where a
+    # reader opens them.
     commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
     directory = f"{SOME_REPOSITORY_ADDRESS}/tree/{SOME_DEPLOYED_REVISION}/deploy"
 
@@ -92,9 +93,7 @@ def test_a_deploy_read_is_a_row_naming_its_revision_short_each_time_a_link_to_it
                 Run(text=" deploy "),
                 Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
                 Run(text=" by kuki: "),
-                Run(text="deployed revision "),
-                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit),
-                Run(text=" from the "),
+                Run(text="from the "),
                 Run(text="acme/shop", role=Role.LINK, address=SOME_REPOSITORY_ADDRESS),
                 Run(text=" repository's "),
                 Run(text="deploy", role=Role.LINK, address=directory),

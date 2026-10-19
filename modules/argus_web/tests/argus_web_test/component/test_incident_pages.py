@@ -2033,7 +2033,8 @@ def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> 
 @pytest.mark.component
 def test_a_change_read_is_named_on_the_incident_page_as_its_postmortem_row_names_it() -> None:
     # Short, and opening where it was committed; what it did in the same words,
-    # its revision and repository each opening where they are.
+    # the repository opening where it is - and its revision not named again,
+    # since the row's reference already names it.
     some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
     some_repository = "https://github.com/acme/shop"
     commit = f"{some_repository}/commit/{some_revision}"
@@ -2054,8 +2055,8 @@ def test_a_change_read_is_named_on_the_incident_page_as_its_postmortem_row_names
         ) \
         .then(all_of(
             _the_page_does_not_read(f"<code>{some_revision}</code>"),
-            the_page_says(f'deployed revision <a href="{commit}" target="_blank" '
-                          f'rel="noopener noreferrer">{some_revision[:7]}</a> from the '),
+            _the_page_does_not_read("deployed revision"),
+            the_page_links_to(commit),
             the_page_links_to(some_repository)
         ))
 

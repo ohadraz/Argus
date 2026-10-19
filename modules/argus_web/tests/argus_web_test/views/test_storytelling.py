@@ -272,9 +272,10 @@ def test_a_change_with_nowhere_to_open_is_named_as_a_name() -> None:
 
 
 @pytest.mark.unit
-def test_what_a_change_did_says_its_revision_short_and_opens_what_it_names() -> None:
-    # In the words the postmortem's row says it in: the revision short, and it
-    # and the repository each opening where they are.
+def test_what_a_deploy_did_says_where_it_came_from_and_opens_it() -> None:
+    # In the words the postmortem's row says it in: where it was synced from,
+    # the repository opening where it is. Not its revision again - the row's
+    # reference already names it.
     Scenario() \
         .given(
             a_deploy_read := [_changes_showing_a_deploy_of(
@@ -282,8 +283,7 @@ def test_what_a_change_did_says_its_revision_short_and_opens_what_it_names() -> 
                                        f"repository")]
         ) \
         .when(lambda: build_story(a_deploy_read)) \
-        .then(_what_the_changes_did_opens([[(SOME_REVISION[:7], _the_commit_of(SOME_REVISION)),
-                                             ("acme/shop", SOME_REPOSITORY)]]))
+        .then(_what_the_changes_did_opens([[("acme/shop", SOME_REPOSITORY)]]))
 
 
 @pytest.mark.unit
