@@ -14,7 +14,12 @@ from collections.abc import Callable
 from typing import Final
 
 from argus_core import said_short
-from argus_core.models import CandidateConsidered, HypothesisConsidered, PostmortemDocument
+from argus_core.models import (
+    CandidateConsidered,
+    FailureMode,
+    HypothesisConsidered,
+    PostmortemDocument,
+)
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Run
@@ -85,11 +90,13 @@ def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
 def _a_row_of_several(hypothesis: HypothesisConsidered,
                       said: Callable[[str], tuple[Run, ...]]) -> HypothesisRow:
     """A row standing for several candidates, each figure under the label of
-    the candidate it is."""
+    the candidate it is, and each claim on a line of its own - run together,
+    two claims read as one."""
     members = hypothesis.members
     runs = tuple(run
                  for place, member in enumerate(members)
-                 for run in (Run(text=f"{' ' if place else ''}{_named(member)}: "),
+                 for run in (*((Run(text="\n"),) if place else ()),
+                             Run(text=f"{_named(member)}: "),
                              *said(member.summary)))
 
     return HypothesisRow(
@@ -103,8 +110,20 @@ def _a_row_of_several(hypothesis: HypothesisConsidered,
 
 
 def _named(member: CandidateConsidered) -> str:
-    """A candidate's label, and its mode where it had one."""
-    return f"{member.label} ({member.failure_mode})" if member.failure_mode else member.label
+    """A candidate's label, and its mode where it had one, in plain words."""
+    if not member.failure_mode:
+        return member.label
+    return f"{member.label} ({_in_plain_words(member.failure_mode)})"
+
+
+def _in_plain_words(failure_mode: str) -> str:
+    """A mode as a reader calls it. One the taxonomy no longer has - a document
+    outlives the set it was written against - is said in its own words, its
+    hyphens spaces."""
+    try:
+        return FailureMode(failure_mode).in_plain_words()
+    except ValueError:
+        return failure_mode.replace("-", " ")
 
 
 def _to_two_places(confidence: float | None) -> str:

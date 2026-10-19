@@ -64,7 +64,9 @@ def test_a_row_standing_for_several_candidates_says_whose_each_figure_is() -> No
     # One candidate's figures shown as the row's own read as another's: a
     # candidate never tried reads as confirmed, at a confidence it never had,
     # and its own claim is hidden. So each says its own words, mode and
-    # confidence, and the result says whose test reached it.
+    # confidence, and the result says whose test reached it - each claim on a
+    # line of its own, since run together they read as one, and each mode in
+    # plain words rather than the value the model was taught.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(hypotheses=[
@@ -87,12 +89,36 @@ def test_a_row_standing_for_several_candidates_says_whose_each_figure_is() -> No
             the_answer_was((
                 HypothesisRow(label="C1", also=("C2",),
                               summary=Line(runs=(
-                                  Run(text="C1 (output-quality-degradation): "),
+                                  Run(text="C1 (a model answering worse): "),
                                   Run(text="The model was upgraded."),
-                                  Run(text=" C2 (config-induced-failure): "),
+                                  Run(text="\n"),
+                                  Run(text="C2 (a bad configuration change): "),
                                   Run(text="The values file was changed."))),
                               confidence="0.70 (C1); 0.20 (C2)",
                               result="confirmed, as tested for C1"),)))
+
+
+@pytest.mark.unit
+def test_a_mode_no_longer_in_the_taxonomy_is_said_in_its_own_words() -> None:
+    # A document outlives the taxonomy it was written against, and a mode since
+    # retired still has to be printed as something a person reads.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(
+                    summary="dont care", confidence=0.7, result="dont care", label="C1",
+                    also=["C2"],
+                    members=[CandidateConsidered(label="C1", summary="dont care", confidence=0.7,
+                                                 failure_mode="some-retired-mode"),
+                             CandidateConsidered(label="C2", summary="dont care either",
+                                                 confidence=0.2, failure_mode=None)],
+                    decided_by="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].summary.runs[0]
+        ) \
+        .then(
+            the_answer_was(Run(text="C1 (some retired mode): ")))
 
 
 @pytest.mark.unit

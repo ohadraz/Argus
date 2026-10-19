@@ -26,6 +26,7 @@ from argus_core.models import (
     ActionItemType,
     AlarmClaim,
     Alert,
+    CandidateConsidered,
     ChainStep,
     ChangeEvent,
     ChangeKind,
@@ -1781,6 +1782,42 @@ def test_a_row_standing_for_several_candidates_answers_to_each_label() -> None:
 
 
 @pytest.mark.component
+def test_a_row_standing_for_several_candidates_says_each_claim_on_a_line_of_its_own() -> None:
+    # Run together, two candidates' claims read as one. The cell keeps its
+    # line breaks, so it holds the one between the claims and no other - a
+    # break the markup carried would be one the document never had.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "hypotheses": [HypothesisConsidered(
+                summary="dont care", confidence=0.7, result="confirmed", label="C1",
+                also=["C2"],
+                members=[CandidateConsidered(label="C1", summary="The model was upgraded.",
+                                             confidence=0.7,
+                                             failure_mode="output-quality-degradation"),
+                         CandidateConsidered(label="C2", summary="The values file was changed.",
+                                             confidence=0.2,
+                                             failure_mode="config-induced-failure")],
+                decided_by="C1")]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _the_claims_of("C1", read="C1 (a model answering worse): The model was upgraded.\n"
+                                      "C2 (a bad configuration change): The values file was "
+                                      "changed.")
+        )
+
+
+@pytest.mark.component
 def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
     # The line that formed the candidates names them by label, and a reader
     # follows each to what it was.
@@ -2262,6 +2299,23 @@ def _the_page_does_not_read(text: str) -> Assertion[str]:
     def assertion(page: str) -> bool:
         if text in _what_a_reader_sees(page):
             raise AssertionError(f"Expected the page not to read [{text}], it did.")
+
+        return True
+
+    return assertion
+
+
+def _the_claims_of(label: str, read: str) -> Assertion[str]:
+    """The claims cell of the hypothesis row labelled `label` holds exactly
+    `read`, its markup gone and its line breaks kept - the cell keeps them, so
+    each one is a break a reader sees."""
+    def assertion(page: str) -> bool:
+        found = re.search(rf'<tr id="{label}">.*?</td><td[^>]*>(.*?)</td>', page, re.DOTALL)
+        claims = html.unescape(re.sub(r"<[^>]+>", "", found.group(1))) if found else None
+
+        if claims != read:
+            raise AssertionError(f"Expected the claims of {label} to read [{read!r}], got "
+                                 f"[{claims!r}].")
 
         return True
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 from argus_core.models import FailureMode
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 
 @pytest.mark.unit
@@ -28,6 +28,25 @@ def test_every_cause_says_what_it_means_and_not_only_what_it_is_called() -> None
             _every_cause_has_a_meaning(),
             _no_meaning_merely_repeats_the_name()
         ))
+
+
+@pytest.mark.unit
+def test_every_cause_has_a_name_in_plain_words() -> None:
+    # A document a person reads names the mode a candidate was, and a
+    # hyphenated value is a name only the model was taught. A mode added
+    # without one is printed as code in the next postmortem that ranks it.
+    Scenario() \
+        .given(the_taxonomy := list(FailureMode)) \
+        .when(lambda: {cause: _what_it_is_called(cause) for cause in the_taxonomy}) \
+        .then(_every_cause_has_a_plain_name())
+
+
+@pytest.mark.unit
+def test_output_quality_degradation_is_called_a_model_answering_worse() -> None:
+    Scenario() \
+        .given(the_mode := FailureMode.OUTPUT_QUALITY_DEGRADATION) \
+        .when(lambda: the_mode.in_plain_words()) \
+        .then(the_answer_was("a model answering worse"))
 
 
 @pytest.mark.unit
@@ -490,6 +509,30 @@ def _what_it_means(cause: FailureMode) -> str:
         return cause.meaning()
     except KeyError:
         return ""
+
+
+def _what_it_is_called(cause: FailureMode) -> str:
+    """The plain name, or the empty string where asking for one fails - caught
+    for the reason `_what_it_means` catches it."""
+    try:
+        return cause.in_plain_words()
+    except KeyError:
+        return ""
+
+
+def _every_cause_has_a_plain_name() -> Assertion[dict[FailureMode, str]]:
+    def assertion(names: dict[FailureMode, str]) -> bool:
+        unnamed = [cause.value for cause, name in names.items() if not name or "-" in name]
+
+        if unnamed:
+            raise AssertionError(
+                f"{sorted(unnamed)} have no name in plain words, so a postmortem "
+                f"ranking one prints the value the model was taught."
+            )
+
+        return True
+
+    return assertion
 
 
 def _every_cause_has_a_meaning() -> Assertion[dict[FailureMode, str]]:

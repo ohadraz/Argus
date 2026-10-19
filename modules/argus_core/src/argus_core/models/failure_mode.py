@@ -241,6 +241,17 @@ class FailureMode(StrEnum):
         """
         return _WHAT_EACH_MODE_MEANS[self]
 
+    def in_plain_words(self) -> str:
+        """What a person reading a document about an incident calls this mode -
+        the value is a name only the model was taught.
+
+        Here beside the meaning for the reason the meaning is here: the
+        taxonomy has one home, and a mode added there without a name a reader
+        knows is printed as code in the next postmortem that ranks it. Each a
+        noun phrase, so it reads wherever a name for a cause does.
+        """
+        return _WHAT_EACH_MODE_IS_CALLED[self]
+
 
 # Model-facing, so worded for somebody reading evidence rather than for
 # somebody maintaining the set: what was observed, and what would distinguish
@@ -494,4 +505,24 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "is the model's tolerance of the card, or where the deployment may land, "
         "so the pin mitigates and does not resolve"
     )
+}
+
+# Reader-facing: what each mode is called in a document a person reads.
+_WHAT_EACH_MODE_IS_CALLED: dict[FailureMode, str] = {
+    FailureMode.FEATURE_FLAG_TOGGLE: "a feature flag change",
+    FailureMode.BAD_DEPLOYMENT: "a bad deployment",
+    FailureMode.RESOURCE_LEAK: "a resource leak",
+    FailureMode.DEMAND_SATURATION: "demand beyond capacity",
+    FailureMode.AUTOSCALING_PATHOLOGY: "misbehaving autoscaling",
+    FailureMode.UPSTREAM_DEPENDENCY_FAILURE: "a failing outside dependency",
+    FailureMode.INTERNAL_DEPENDENCY_FAILURE: "a failing internal dependency",
+    FailureMode.CONFIG_INDUCED_FAILURE: "a bad configuration change",
+    FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: "a rollout mixing incompatible versions",
+    FailureMode.SILENT_DATA_CORRUPTION: "silent data corruption",
+    FailureMode.MONITORING_BLIND_SPOT: "a monitoring blind spot",
+    FailureMode.STATE_DIVERGENCE: "diverging copies of state",
+    FailureMode.MONITORING_CONFIGURATION_DRIFT: "monitoring configuration out of step with "
+                                                "the service",
+    FailureMode.OUTPUT_QUALITY_DEGRADATION: "a model answering worse",
+    FailureMode.ACCELERATOR_HETEROGENEITY: "a replica on a different kind of accelerator"
 }
