@@ -188,6 +188,12 @@ class ResolutionStep(BaseModel):
     reversible: bool
     outcome: str
     label: str
+    # Whether the action stopped the platform syncing the application from its
+    # repository, and left it stopped while the change stands. Apart from the
+    # outcome, which is cited wherever the action is: said inside it, the sync
+    # is said in every place that cites the action. `False` on a document
+    # written before it was carried, whose outcome says it already.
+    sync_left_off: bool = False
 
 
 class Detection(BaseModel):

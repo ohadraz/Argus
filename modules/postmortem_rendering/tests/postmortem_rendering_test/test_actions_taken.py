@@ -44,6 +44,27 @@ def test_each_action_is_a_row_saying_when_what_who_whether_it_undoes_and_what_it
 
 
 @pytest.mark.unit
+def test_an_action_that_left_automatic_sync_off_says_so_in_its_row_alone() -> None:
+    # In the table, beside whether the action still stands, which is what the
+    # sync being off explains - and not in the outcome a citation of the action
+    # shows, which is about what it came to and is cited wherever it is.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="rolled back io-shop", by="Argus",
+                               reversible=True, outcome="confirmed, still in place",
+                               label="M1", sync_left_off=True)])
+        ) \
+        .when(
+            lambda: [(step.outcome, step.outcome_in_the_table) for step in
+                     the_actions_taken(some_postmortem, resolution=None).steps]
+        ) \
+        .then(
+            the_answer_was([("confirmed, still in place",
+                             "confirmed, still in place - automatic sync left off")]))
+
+
+@pytest.mark.unit
 def test_an_action_that_cannot_be_undone_says_so() -> None:
     Scenario() \
         .given(

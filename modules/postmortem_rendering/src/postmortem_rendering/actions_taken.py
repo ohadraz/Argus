@@ -22,10 +22,19 @@ _HEADINGS: Final = ("Time (UTC)", "Action", "By", "Kind", "Outcome")
 # Who the narration says proposed a fix, which dates the fix's row.
 _THE_FIXER: Final = "Code-Fix Agent"
 
+# Said after an action's outcome in its row, where it left automatic sync off.
+_SYNC_LEFT_OFF: Final = " - automatic sync left off"
+
 
 class StepRow(BaseModel):
     """One row: when, what, by whom, whether it undoes, and what it came to.
-    `label` is the row's name for a citation, `None` on the fix's row."""
+    `label` is the row's name for a citation, `None` on the fix's row.
+
+    `outcome` is what the action came to, as a citation of it shows it;
+    `sync_left_off` whether it left the platform's automatic sync off, which
+    the table says beside the outcome and nothing else does - the one row is
+    where whether the action still stands is explained, and said in the
+    outcome it would be said wherever the action is cited."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -35,6 +44,12 @@ class StepRow(BaseModel):
     by: str
     kind: str
     outcome: str
+    sync_left_off: bool = False
+
+    @property
+    def outcome_in_the_table(self) -> str:
+        """The outcome as the table's row says it."""
+        return f"{self.outcome}{_SYNC_LEFT_OFF if self.sync_left_off else ''}"
 
 
 class ActionsTakenSection(BaseModel):
@@ -62,7 +77,8 @@ def the_actions_taken(postmortem: PostmortemDocument,
                           action=Line(runs=(Run(text=step.action),)),
                           by=step.by,
                           kind="reversible" if step.reversible else "irreversible",
-                          outcome=step.outcome)
+                          outcome=step.outcome,
+                          sync_left_off=step.sync_left_off)
                   for step in postmortem.resolution)
 
     fix = None

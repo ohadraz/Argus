@@ -333,22 +333,20 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
     """Every action taken, in order, with what it came to and whether it stands.
 
     And whether it left automatic sync off: until somebody turns it back on,
-    nothing merged reaches the service.
+    nothing merged reaches the service. Marked apart from the outcome, which is
+    cited wherever the action is - said inside it, the sync would be said in
+    every place that cites the action.
     """
     return [
         ResolutionStep(at=action.taken_at,
                        action=action.action,
                        by=TAKEN_BY,
                        reversible=action.reversible,
-                       outcome=(f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}"
-                                f"{_SYNC_LEFT_OFF if action.paused_sync_of is not None else ''}"),
-                       label=label_of(ACTION_PREFIX, position))
+                       outcome=f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}",
+                       label=label_of(ACTION_PREFIX, position),
+                       sync_left_off=action.paused_sync_of is not None)
         for position, action in enumerate(evidence.actions, start=1)
     ]
-
-
-# Said after an action's outcome where the action left automatic sync off.
-_SYNC_LEFT_OFF: Final = " - automatic sync left off"
 
 
 def hypotheses_of(evidence: IncidentEvidence) -> list[HypothesisConsidered]:

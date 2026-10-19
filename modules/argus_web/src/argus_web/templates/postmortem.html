@@ -232,7 +232,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <tbody>
   {% for step in taken.steps %}
     <tr id="{{ step.label }}"><td>{{ step.at }}</td><td>{{ said(step.action) }}</td><td>{{ step.by }}</td>
-      <td>{{ step.kind }}</td><td>{{ step.outcome }}</td></tr>
+      <td>{{ step.kind }}</td><td>{{ step.outcome_in_the_table }}</td></tr>
   {% endfor %}
   {% if taken.fix %}
     <tr><td>{{ taken.fix.at }}</td><td>{{ said(taken.fix.action, link="resolution-fix") }}</td>

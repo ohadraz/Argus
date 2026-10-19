@@ -624,23 +624,28 @@ def test_an_action_no_verdict_was_reached_on_says_so() -> None:
 
 
 @pytest.mark.unit
-def test_an_action_that_left_automatic_sync_off_says_so_in_its_outcome() -> None:
+def test_an_action_that_left_automatic_sync_off_is_marked_as_having_done_so() -> None:
     # Argus stops the platform syncing an application from its repository to
     # act on it, and leaves it stopped while the change stands - so nothing
-    # merged reaches the service until somebody turns it back on. Said in the
-    # row of the action that did it, beside whether that action still stands.
+    # merged reaches the service until somebody turns it back on. Marked on the
+    # row of the action that did it and on no other, and apart from what the
+    # action came to: the outcome is cited wherever the action is, and said
+    # there the sync is said in every place that cites it.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(actions=[
                 an_action("rolled back io-shop", verdict=Verdict.CONFIRMED,
-                          standing="still in place", paused_sync_of="io-shop")
+                          standing="still in place", paused_sync_of="io-shop"),
+                an_action("scaled io-shop out", verdict=Verdict.REFUTED,
+                          standing="put back when it did not help")
             ])
         ) \
         .when(
-            lambda: [step.outcome for step in resolution_of(evidence)]
+            lambda: [(step.outcome, step.sync_left_off) for step in resolution_of(evidence)]
         ) \
         .then(
-            the_answer_was(["confirmed, still in place - automatic sync left off"])
+            the_answer_was([("confirmed, still in place", True),
+                            ("refuted, put back when it did not help", False)])
         )
 
 

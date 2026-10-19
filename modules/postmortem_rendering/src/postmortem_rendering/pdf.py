@@ -910,7 +910,7 @@ def _the_resolution(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
             rows.append([(step.at, _TIME, None),
                          (step.action.said, _LINKED if address else None, address),
                          (step.by, None, None), (step.kind, None, None),
-                         (step.outcome, None, None)])
+                         (step.outcome_in_the_table, None, None)])
         _a_table(pdf, taken.headings, rows, widths=(18, 54, 24, 37, 41),
                  landings=[(step.label,) if step.label else () for step in steps])
     elif taken.absent:
