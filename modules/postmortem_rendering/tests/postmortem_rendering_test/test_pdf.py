@@ -972,6 +972,31 @@ def test_a_word_running_into_a_label_through_a_non_breaking_space_goes_on_with_i
 
 
 @pytest.mark.unit
+def test_a_word_going_on_into_the_next_piece_breaks_a_line_only_where_it_does_not_fit() -> None:
+    # The word is measured to see whether it fits what is left of the line,
+    # and every piece after it was measured with it: "Agent:" came out 131 mm
+    # wide and broke a line with room for it. A factor of every length puts
+    # the word at every place along the line.
+    some_lengths = range(1, 15)
+    some_factors = [ContributingFactor(text=f"Before{length:02d} " + " ".join(["zed"] * length)
+                                            + " AI-1, AI-1 " + " ".join(["zed"] * 24),
+                                       addressed_by=[])
+                    for length in some_lengths]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(contributing_factors=some_factors,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            all_of(*(_set_level_with("AI-1", f"Before{length:02d}") for length in some_lengths)))
+
+
+@pytest.mark.unit
 def test_each_item_a_step_rests_on_is_set_on_a_line_of_its_own() -> None:
     # As the page sets them. Run together after semicolons, where one item
     # ends and the next begins is the reader's to find.
@@ -1531,6 +1556,44 @@ def _on_one_page(*expected: str) -> Assertion[bytes]:
         return True
 
     return assertion
+
+
+def _set_level_with(later: str, earlier: str) -> Assertion[bytes]:
+    """The first `later` set after `earlier` is set on the line `earlier` is on
+    - so nothing broke the line between them."""
+    def assertion(pdf: bytes) -> bool:
+        set_at = [(text, number, baseline)
+                  for number, page in enumerate(PdfReader(io.BytesIO(pdf)).pages)
+                  for text, baseline in _baselines_on(page)]
+        first = next((place for place, (text, _, _) in enumerate(set_at) if earlier in text),
+                     None)
+        then = None if first is None else next(
+            (place for place in range(first, len(set_at)) if later in set_at[place][0]), None)
+
+        if first is None or then is None:
+            raise AssertionError(f"Expected [{later}] set after [{earlier}], and the PDF sets "
+                                 f"{[text for text, _, _ in set_at]}.")
+        (_, page, baseline), (_, then_page, then_baseline) = set_at[first], set_at[then]
+        if page != then_page or abs(baseline - then_baseline) > _LEEWAY:
+            raise AssertionError(f"Expected [{later}] on the line [{earlier}] is on, and it is "
+                                 f"set on page {then_page + 1} at {then_baseline:.1f} points up, "
+                                 f"against page {page + 1} at {baseline:.1f}.")
+
+        return True
+
+    return assertion
+
+
+def _baselines_on(page: PageObject) -> list[tuple[str, float]]:
+    """Each piece of text on `page` and the height of its baseline up it, in
+    the order they are set."""
+    pieces: list[tuple[str, float]] = []
+
+    def visit(text: str, cm: list[float], tm: list[float], *_: object) -> None:
+        pieces.append((text, _baseline(cm, tm)))
+
+    page.extract_text(visitor_text=visit)
+    return pieces
 
 
 def _set_lower_than(later: str, earlier: str) -> Assertion[bytes]:

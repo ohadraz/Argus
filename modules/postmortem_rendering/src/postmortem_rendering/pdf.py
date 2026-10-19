@@ -399,14 +399,16 @@ def _the_end_of_the_word(said: str, at: int) -> int:
 def _how_wide(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]], begins: Sequence[int],
               start: int, end: int) -> float:
     """How wide the words from `start` to `end` are set, each piece in the
-    look of the run it is in, a soft hyphen taking no room."""
+    look of the run it is in, a soft hyphen taking no room - and a run the
+    words do not reach taking none either."""
     wide = 0.0
     for place, (_, look) in enumerate(runs):
-        piece = look.text[max(start, begins[place]) - begins[place]:
-                          min(end, begins[place + 1]) - begins[place]]
-        if piece:
-            _set_as(pdf, look)
-            wide += pdf.get_string_width(piece.replace(_SOFT_HYPHEN, ""))
+        lo, hi = max(start, begins[place]), min(end, begins[place + 1])
+        if lo >= hi:
+            continue
+        _set_as(pdf, look)
+        wide += pdf.get_string_width(look.text[lo - begins[place]:hi - begins[place]]
+                                     .replace(_SOFT_HYPHEN, ""))
     return wide
 
 
