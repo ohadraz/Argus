@@ -1617,6 +1617,18 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
 
 
 @pytest.mark.unit
+def test_a_postmortem_line_says_nothing_of_minutes_nobody_spent() -> None:
+    # Nobody paged, or nobody engaged: the page says "none" and why, and a
+    # line in a channel saying so tells a reader nothing.
+    the_write_up = PostmortemWritten(incident_id=new_id(), engineer_minutes=0)
+
+    Scenario() \
+        .given(the_write_up) \
+        .when(lambda: build_narration([the_write_up])) \
+        .then(_the_only_line_does_not_mention("engineer minutes"))
+
+
+@pytest.mark.unit
 def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
     # A walk that tried its second-best candidate first, with nothing saying
     # why, is a walk a human reading the incident back cannot account for. The

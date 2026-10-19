@@ -1025,7 +1025,8 @@ def _the_postmortem_in_short(event: PostmortemWritten) -> str:
         currency = f"{event.estimate_currency} " if event.estimate_currency else ""
         said.append(f"Estimated customer loss {currency}{event.customer_loss_estimate:.2f}")
 
-    if event.engineer_minutes is not None:
+    # Not at zero: nobody paged, or nobody engaged, is no news in a channel.
+    if event.engineer_minutes:
         said.append(f"{event.engineer_minutes} engineer minutes spent on it")
 
     return "\n".join(said)

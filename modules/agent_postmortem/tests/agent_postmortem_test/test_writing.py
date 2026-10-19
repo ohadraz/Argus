@@ -57,7 +57,7 @@ from agent_postmortem.sections import (
     timeline_of,
     trigger_of,
 )
-from agent_postmortem.sources import EngagedResponder
+from agent_postmortem.sources import EngagedResponder, NotPaged
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -275,6 +275,34 @@ def test_an_incident_nobody_could_measure_reports_no_response() -> None:
         .then(
             all_of(
                 reports_no_engineer_minutes(),
+                reports_no_responder_cost()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_nobody_was_paged_for_reports_no_minutes_spent() -> None:
+    # Nobody was asked to respond, so nobody's minutes went on it: zero, not
+    # the blank of a source Argus failed to reach. Left blank, the two read
+    # alike, and only one of them is unknown.
+    Scenario() \
+        .given(
+            an_incident_nobody_was_paged_for := a_measured_incident(cost=None).model_copy(
+                update={"engaged": NotPaged()})
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle(),
+                some_sources(),
+                _dont_care_llm(),
+                measure=_measuring_that_returns(an_incident_nobody_was_paged_for),
+                ask=_asking_that_answers(a_submitted_answer()),
+                disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            all_of(
+                reports_engineer_minutes(0),
+                reports_responders(0),
                 reports_no_responder_cost()
             )
         )

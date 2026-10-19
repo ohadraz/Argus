@@ -63,6 +63,21 @@ def test_nothing_recorded_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_no_minutes_spent_reads_as_none() -> None:
+    # Nobody was paged, or nobody engaged: nothing was spent, and that is a
+    # measurement - not the "not recorded" of a figure nobody could take.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(engineer_minutes=0, responders=0)
+        ) \
+        .when(
+            lambda: the_cost(some_postmortem)[0]
+        ) \
+        .then(
+            the_answer_was(Card(value="none", label="engineer time")))
+
+
+@pytest.mark.unit
 def test_what_the_minutes_cost_in_pay_is_never_said() -> None:
     # Divided by the minutes, any figure for it is a responder's rate of pay -
     # and with one responder and their title beside it, that person's band.

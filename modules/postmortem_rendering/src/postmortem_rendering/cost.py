@@ -25,6 +25,14 @@ def the_cost(postmortem: PostmortemDocument) -> tuple[Card, ...]:
     minutes = postmortem.engineer_minutes
     tokens = postmortem.tokens_spent
 
-    return (Card(value=f"{minutes} min" if minutes is not None else "not recorded", label=label),
+    return (Card(value=_said_as_time(minutes), label=label),
             Card(value=f"{tokens:,}" if tokens is not None else "not recorded",
                  label="tokens spent by Argus"))
+
+
+def _said_as_time(minutes: int | None) -> str:
+    """The person-minutes, "none" where nobody spent any - a measured nothing,
+    which "not recorded" would make read as a figure nobody took."""
+    if minutes is None:
+        return "not recorded"
+    return f"{minutes} min" if minutes else "none"

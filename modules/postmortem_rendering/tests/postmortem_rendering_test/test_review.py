@@ -1,6 +1,6 @@
 """Whether it is finished: Google's five review checks, the three Argus checks
-met or not, and the two left for a person - crossed until a person meets them,
-and said to be theirs rather than failed.
+met or not, and the two left for a person - marked open until a person meets
+them, never crossed, since a cross reads as failed.
 
 Each case is one postmortem and what the checklist says.
 """
@@ -33,7 +33,7 @@ def test_each_check_is_ticked_crossed_or_left_for_a_person() -> None:
                           because=None),
                 ReviewRow(criterion="root-cause analysis complete", met="no", mark="✗",
                           meaning="not met", because=None),
-                ReviewRow(criterion="reviewed and shared", met="left", mark="✗",
+                ReviewRow(criterion="reviewed and shared", met="left", mark="○",
                           meaning="for a person", because=None))))
 
 
@@ -56,7 +56,7 @@ def test_a_check_left_for_a_person_says_what_they_would_do() -> None:
         ) \
         .then(
             the_answer_was((
-                ReviewRow(criterion="root-cause analysis complete", met="left", mark="✗",
+                ReviewRow(criterion="root-cause analysis complete", met="left", mark="○",
                           meaning="for a person",
                           because="the cause rests on F1, a reading of the source nothing "
                                   "ran"),)))

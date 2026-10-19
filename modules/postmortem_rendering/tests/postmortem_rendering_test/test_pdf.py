@@ -112,8 +112,8 @@ def test_every_section_says_what_the_document_holds() -> None:
                                "Log messages read (UTC)", "The divisor was zero.",
                                "The flag was the only change.",
                                "✓", "Key incident data collected",
-                               "✗", "Document reviewed and shared",
-                               "✗", "Root-cause analysis complete",
+                               "○", "Document reviewed and shared",
+                               "○", "Root-cause analysis complete",
                                "the cause rests on F1, a reading of the source nothing ran; "
                                "running the proposed fix's tests against the current code "
                                "would confirm it (AI-2)"))

@@ -318,8 +318,8 @@ def test_an_incident_nobody_responded_to_apologises_for_nothing() -> None:
 def test_an_incident_nobody_was_paged_for_says_so_on_the_page() -> None:
     # The third answer, between the two above. Not "nobody engaged" - nobody
     # was asked to - and not "could not say" - the platform answered, and no
-    # incident of its own was this one. A blank where the minutes go, and the
-    # sentence beside it saying which blank it is.
+    # incident of its own was this one. No minutes went on it, and the
+    # sentence beside them says why.
     Scenario() \
         .given(
             evidence := an_evidence_bundle()
@@ -332,6 +332,7 @@ def test_an_incident_nobody_was_paged_for_says_so_on_the_page() -> None:
         ) \
         .then(
             all_of(
+                reports_engineer_minutes(0),
                 discloses_the_assumption(NOT_PAGED_ASSUMPTION),
                 discloses_no_assumption_about(ENGAGEMENT_UNAVAILABLE_ASSUMPTION),
                 reports_no_responder_cost()

@@ -1150,7 +1150,7 @@ def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         pdf.cell(40, _LINE, row.meaning, align="R")
         pdf.set_xy(_SIDE, y)
         pdf.set_font(_FALLBACK, "B", _TEXT_PT)
-        pdf.set_text_color(*(_GREEN if row.met == "yes" else _RED))
+        pdf.set_text_color(*{"yes": _GREEN, "left": _MUTED}.get(row.met, _RED))
         pdf.cell(5, _LINE, row.mark)
         pdf.set_font(_BODY, "", _TEXT_PT)
         pdf.set_text_color(*_INK)
