@@ -20,8 +20,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections import deque
-from typing import Any
+from typing import Any, Final
 
 import httpx2
 from fastapi import FastAPI, Request
@@ -123,6 +124,9 @@ class _State:
         # A hold for the first call the queue cannot answer, asked for and not
         # yet caught.
         self.holding_when_dry: bool = False
+        # Each recording served to a question other than the one it answered,
+        # by name, with the part of the question that differed.
+        self.diverged: dict[str, str] = {}
 
     def reset(self) -> None:
         self.seeds.clear()
@@ -131,6 +135,7 @@ class _State:
         self.holding = False
         self.held = False
         self.holding_when_dry = False
+        self.diverged.clear()
 
     def catches(self) -> bool:
         """Whether the hold catches the call now arriving - the first to arrive
@@ -306,6 +311,7 @@ def state() -> dict[str, Any]:
         "holding": _state.holding,
         "holding_when_dry": _state.holding_when_dry,
         "held": _state.held,
+        "diverged": _state.diverged,
         "available_recordings": recordings.available(),
     }
 
@@ -320,14 +326,84 @@ def _error_body(status: int) -> dict[str, Any]:
     }
 
 
-def _serve(seed: Seed, streaming: bool = False) -> Response:
+def _the_part_that_differs(recorded: dict[str, Any], asked: dict[str, Any]) -> str | None:
+    """Which part of the question a recorded answer was given to differs from
+    the question now asked - `None` where neither does.
+
+    Two parts, compared two ways, because a replay never asks exactly the
+    question its recording answered. The brief carries the run's own instants,
+    incident id and measured figures, so a run that changed nothing still asks
+    with different numbers in it - and a comparison that counted those would
+    report every recording stale on every run.
+
+    So everything but the conversation - the instructions, the tools, the
+    model, its budget and its effort - is compared exactly: those differ only
+    where the code changed. Every field rather than a list of them, so a field
+    the adapter starts sending tomorrow shows as a difference instead of
+    passing unread; only what says how a question travels, and cannot change
+    its answer, is left out.
+
+    The conversation is compared with every id and digit masked out: what is
+    left is the wording of the brief and which lines it holds, which differ
+    where a sentence changed or the run took a different branch - and either
+    is a different question.
+    """
+    def all_but_the_conversation(body: dict[str, Any]) -> dict[str, Any]:
+        return {field: value for field, value in body.items()
+                if field != _THE_CONVERSATION and field not in _HOW_IT_TRAVELS}
+
+    if all_but_the_conversation(recorded) != all_but_the_conversation(asked):
+        return "instructions"
+
+    if _masked(recorded.get(_THE_CONVERSATION)) != _masked(asked.get(_THE_CONVERSATION)):
+        return "conversation"
+
+    return None
+
+
+# The field of a Messages API request that holds the conversation.
+_THE_CONVERSATION: Final = "messages"
+
+# The fields that say how a question travels and cannot change its answer:
+# streamed or not, and where the cache breakpoints sit.
+_HOW_IT_TRAVELS: Final = frozenset({"stream", "cache_control"})
+
+# What a run writes into a question differently every time it runs, masked out
+# of the conversation before it is compared: an id - a uuid, whose groups can be
+# all letters, or a run of hex long enough to be a commit - and any digit, which
+# takes an instant, a measured figure, a count and a port with it.
+_RUN_SPECIFIC: Final = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r"|\b[0-9a-f]{7,40}\b"
+    r"|\d+"
+)
+
+
+def _masked(conversation: Any) -> str:
+    """A conversation as one canonical text, with everything a run writes
+    differently each time masked out."""
+    return _RUN_SPECIFIC.sub("#", json.dumps(conversation, sort_keys=True))
+
+
+def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = None) -> Response:
     """One seeded answer, said whichever way the caller asked for it.
 
     Only a real answer can be streamed. An error is an error in both shapes -
     the SDK reads a non-200 as a failure before it looks for events - so a
     seeded status keeps the body it always had.
+
+    A recorded answer is still served when the question it answered has since
+    changed - a replay is not the place a stale recording fails, the case's own
+    assertions are - but the name goes on the list `/double-control/state`
+    reports, which is what a partial re-record is chosen from.
     """
     if seed.recording is not None:
+        recorded_question = recordings.load_question(seed.recording)
+        if recorded_question is not None and asked is not None:
+            differs = _the_part_that_differs(recorded_question, asked)
+            if differs is not None:
+                _state.diverged[seed.recording] = differs
+
         answered = recordings.load(seed.recording)
         if streaming:
             return StreamingResponse(as_stream(answered), media_type=SSE_MEDIA_TYPE)
@@ -384,7 +460,11 @@ async def _record_upstream(request: Request, streaming: bool) -> Response:
     if status != 200:
         return JSONResponse(status_code=status, content=answered)
 
-    recordings.save(_state.next_recording_name(), answered)
+    # The question beside the answer, as it was forwarded: what a later replay
+    # is compared with to tell whether this answer is still to the point.
+    name = _state.next_recording_name()
+    recordings.save(name, answered)
+    recordings.save_question(name, json.loads(sent))
 
     # Said back the way it was asked for, exactly as a seeded answer is. What
     # is stored is the assembled message either way - but a caller that asked
@@ -430,7 +510,7 @@ async def messages(request: Request) -> Response:
             await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
 
     if _state.seeds:
-        return _serve(_state.take_next_seed(), streaming)
+        return _serve(_state.take_next_seed(), streaming, asked)
 
     if _state.record_as is not None:
         return await _record_upstream(request, streaming)
