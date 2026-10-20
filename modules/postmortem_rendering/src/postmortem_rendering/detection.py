@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from argus_core.models import Alert, Detection, PostmortemDocument, shorter_than_the_rules_wait
+from argus_core.models import (
+    Alert,
+    Detection,
+    PostmortemDocument,
+    TimelineMarker,
+    shorter_than_the_rules_wait,
+)
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
@@ -37,10 +43,13 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
     if detection is None:
         return DetectionSection(line=None, absent="How it was detected was not recorded.")
 
+    # Where the metrics stop at the onset, what it dates is their stopping, and
+    # the service may have gone on serving as before - as the timeline says.
+    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in postmortem.timeline)
     if detection.onset_at:
-        runs = [Run(text="The incident on "),
+        runs = [Run(text="The metrics on " if stopped else "The incident on "),
                 Run(text=alert.service, role=Role.CODE),
-                Run(text=" began at "),
+                Run(text=" stopped at " if stopped else " began at "),
                 Run.a_moment(detection.onset_at),
                 Run(text=f". {alert.alert_name} fired at ")]
     else:
