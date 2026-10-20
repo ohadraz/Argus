@@ -40,6 +40,7 @@ from argus_core.models import (
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
+    Refusal,
     ResolutionStep,
     ReviewCriterion,
     TimelineEntry,
@@ -122,8 +123,11 @@ def test_impact_is_not_assessed_without_a_loss_figure() -> None:
 
 
 @pytest.mark.unit
-def test_impact_is_not_assessed_while_the_end_of_it_is_unknown() -> None:
-    # A duration that is a lower bound is impact not yet measured.
+def test_impact_measured_to_a_close_the_service_was_not_back_by_is_left_for_a_person() -> None:
+    # The loss was measured, and Argus stopped with the service still not back:
+    # when it is back is not something the document can learn, and a person
+    # reports it. A cross would say the document fell short where it could not
+    # have done more.
     Scenario() \
         .given(
             a_document_that_never_saw_recovery := _a_document(timeline=[
@@ -135,15 +139,16 @@ def test_impact_is_not_assessed_while_the_end_of_it_is_unknown() -> None:
                               reaches_a_cause=True)
         ) \
         .then(
-            _says_because(IMPACT_ASSESSED, met=False,
-                          because="the service was never seen back to normal")
+            _says_because(IMPACT_ASSESSED, met=None,
+                          because="the loss is measured to the close; when the service is "
+                                  "back to normal is for a person to report")
         )
 
 
 @pytest.mark.unit
-def test_impact_is_not_assessed_where_the_metrics_stopped_and_says_so() -> None:
-    # Still a lower bound, so still not assessed - but the end is unknown
-    # because nothing measured it, not because the service stayed broken.
+def test_impact_measured_where_the_metrics_stopped_is_left_for_a_person() -> None:
+    # The end is unknown because nothing measured it, and nothing will until
+    # the metrics resume - which is a person's to see.
     Scenario() \
         .given(
             a_document_whose_metrics_stopped := _a_document(timeline=[
@@ -155,9 +160,9 @@ def test_impact_is_not_assessed_where_the_metrics_stopped_and_says_so() -> None:
                               reaches_a_cause=True)
         ) \
         .then(
-            _says_because(IMPACT_ASSESSED, met=False,
-                          because="the metrics stopped, so the service was never measured "
-                                  "back to normal")
+            _says_because(IMPACT_ASSESSED, met=None,
+                          because="the loss is measured to the close; how long the metrics "
+                                  "stay missing is known once they resume")
         )
 
 
@@ -227,6 +232,81 @@ def test_an_analysis_that_tried_no_candidate_is_not_complete() -> None:
         ) \
         .when(
             lambda: review_of(a_document_trying_nothing, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="no candidate was confirmed - none was tried")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("refusal", [Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+                                     Refusal.NOT_A_GENERIC_MITIGATION,
+                                     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+                                     Refusal.SOMEBODY_ELSES_SERVICE,
+                                     Refusal.NOTHING_COULD_CONFIRM_IT])
+def test_an_analysis_whose_one_test_was_not_argus_s_to_take_is_left_for_a_person(
+        refusal: Refusal) -> None:
+    # Nothing was tried because the gate refused the test as not Argus's to
+    # take. The analysis went as far as Argus may, and what is left - taking
+    # the test, or judging the cause without it - is a person's.
+    Scenario() \
+        .given(
+            a_document_refused_its_test := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(refusal)])
+        ) \
+        .when(
+            lambda: review_of(a_document_refused_its_test, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the one test of the cause was refused at the gate, as not "
+                                  "Argus's to take")
+        )
+
+
+@pytest.mark.unit
+def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm_it() -> None:
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            a_document_with_a_fix := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(Refusal.WOULD_UNDO_A_MEANT_CHANGE)],
+                pull_request=some_fix,
+                action_items=[ActionItem(number="AI-1", text="dont care",
+                                         type=ActionItemType.MITIGATE, owner=None,
+                                         tracking=some_fix.url,
+                                         status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_with_a_fix, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the one test of the cause was refused at the gate, as not "
+                                  "Argus's to take; the proposed fix would confirm it (AI-1)")
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_with_no_mitigation_proposed_is_still_not_complete() -> None:
+    # Nothing proposed is evidence missing, not a boundary Argus held: the
+    # analysis fell short.
+    Scenario() \
+        .given(
+            a_document_that_proposed_nothing := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(Refusal.NO_MITIGATION_PROPOSED)])
+        ) \
+        .when(
+            lambda: review_of(a_document_that_proposed_nothing, faults=[], reaches_a_cause=True)
         ) \
         .then(
             _says_because(ANALYSIS_COMPLETE, met=False,
@@ -433,6 +513,11 @@ def _a_step(text: str) -> ChainStep:
 
 def _a_marker(marker: TimelineMarker) -> TimelineEntry:
     return TimelineEntry(at=SOME_MOMENT, who=None, text="dont care", marker=marker)
+
+
+def _a_refusal(refusal: Refusal) -> ResolutionStep:
+    return ResolutionStep(at=SOME_MOMENT, action="dont care", by="Argus", has_a_way_back=False,
+                          outcome="not taken", label=None, refused=refusal)
 
 
 class _WhatADocumentHolds(TypedDict, total=False):

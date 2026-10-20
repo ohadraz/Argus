@@ -455,13 +455,14 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
         for position, action in enumerate(evidence.actions, start=1)
     ]
     declined = [
-        ResolutionStep(at=evidence.timeline[line].at,
-                       action=evidence.timeline[line].text,
+        ResolutionStep(at=evidence.timeline[refused.line].at,
+                       action=evidence.timeline[refused.line].text,
                        by=TAKEN_BY,
                        has_a_way_back=False,
                        outcome=NOT_TAKEN,
-                       label=None)
-        for line in evidence.refusals
+                       label=None,
+                       refused=refused.refusal)
+        for refused in evidence.refusals
     ]
 
     return sorted([*taken, *declined], key=lambda step: step.at)

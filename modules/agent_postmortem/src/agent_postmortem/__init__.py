@@ -32,6 +32,7 @@ from agent_postmortem.evidence import (
     CandidateRecord,
     DeploymentChangesRecord,
     IncidentEvidence,
+    RefusalRecord,
 )
 from agent_postmortem.reviewing import (
     ANALYSIS_COMPLETE,
@@ -80,6 +81,7 @@ __all__ = [
     "NotPaged",
     "PayBand",
     "RateTable",
+    "RefusalRecord",
     "Sources",
     "postmortem_policy",
     "write_postmortem"

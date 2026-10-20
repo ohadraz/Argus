@@ -1342,7 +1342,8 @@ def test_the_evidence_points_at_each_line_saying_the_gate_refused_to_act(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _points_at_refusals_dated([parse_iso(the_refusal)])
+                _points_at_refusals_dated([(parse_iso(the_refusal),
+                                            Refusal.WOULD_UNDO_A_MEANT_CHANGE)])
             )
 
 
@@ -1888,11 +1889,14 @@ def _each_action_is_said_by_the_line_it_points_at() -> Assertion[IncidentEvidenc
     return assertion
 
 
-def _points_at_refusals_dated(expected: list[datetime]) -> Assertion[IncidentEvidence]:
-    """The lines the evidence points at as refusals are dated as `expected`."""
+def _points_at_refusals_dated(
+        expected: list[tuple[datetime, Refusal]]) -> Assertion[IncidentEvidence]:
+    """The lines the evidence points at as refusals are dated as `expected`,
+    each carrying the refusal it says."""
     def assertion(evidence: IncidentEvidence) -> bool:
-        pointed_at = [evidence.timeline[line].at if 0 <= line < len(evidence.timeline) else None
-                      for line in evidence.refusals]
+        pointed_at = [(evidence.timeline[refused.line].at, refused.refusal)
+                      if 0 <= refused.line < len(evidence.timeline) else None
+                      for refused in evidence.refusals]
 
         if pointed_at != expected:
             raise AssertionError(

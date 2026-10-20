@@ -19,6 +19,7 @@ from argus_core.models import (
     ChangeEvent,
     ChannelReading,
     OpenedPullRequest,
+    Refusal,
     ThreadMessage,
     TimelineEntry,
     Verdict,
@@ -84,6 +85,15 @@ class DeploymentChangesRecord(BaseModel):
 
     revision: str
     said: list[str]
+
+
+class RefusalRecord(BaseModel):
+    """One refusal to act at the gate: where in the timeline its line sits, and
+    which refusal it was - the line says it in words, and the review reads the
+    kind to say whether the next step is a person's."""
+
+    line: int
+    refusal: Refusal
 
 
 class IncidentEvidence(BaseModel):
@@ -178,12 +188,12 @@ class IncidentEvidence(BaseModel):
     # exactly this, and a summary is free to be written well without mentioning
     # it.
     recommended_action: str | None = None
-    # Where in `timeline` each line saying the gate refused to act sits. A
+    # Each refusal to act at the gate, by where its line sits in `timeline`. A
     # refusal is a decision about how the incident ended - an action declined,
     # or none there to take - and the resolution lists it beside the actions
     # taken, said and dated as its line is. Empty where the gate refused
     # nothing.
-    refusals: list[int] = []
+    refusals: list[RefusalRecord] = []
     # What people told the incident in its thread, as leads, each with what the
     # investigation last made of it. Structured rather than left to the
     # timeline's one line per weighing: the document reports the words, the

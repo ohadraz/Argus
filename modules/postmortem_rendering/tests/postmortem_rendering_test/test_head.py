@@ -20,6 +20,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     OpenedPullRequest,
+    Refusal,
     ResolutionStep,
     ReviewCriterion,
     TimelineMarker,
@@ -357,7 +358,8 @@ def test_a_refusal_after_the_last_action_is_not_what_ended_the_incident() -> Non
                                outcome="recovered, still in place", label="M1"),
                 ResolutionStep(at=SOME_ONSET + timedelta(minutes=5),
                                action="Refused to act - dont care", by="Argus",
-                               has_a_way_back=False, outcome="not taken", label=None)])
+                               has_a_way_back=False, outcome="not taken", label=None,
+                               refused=Refusal.WOULD_UNDO_A_MEANT_CHANGE)])
         ) \
         .when(
             lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by

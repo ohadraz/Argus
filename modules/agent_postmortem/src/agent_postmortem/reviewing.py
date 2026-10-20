@@ -14,7 +14,13 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import PostmortemDocument, ReviewCriterion, TimelineMarker, Verdict
+from argus_core.models import (
+    PostmortemDocument,
+    Refusal,
+    ReviewCriterion,
+    TimelineMarker,
+    Verdict,
+)
 
 from agent_postmortem.sections import CODE_READING_PREFIX, NEVER_TRIED
 
@@ -44,19 +50,79 @@ def review_of(document: PostmortemDocument,
     ran the reading, so the document calls the cause unverified, and a ticked
     box beside it would say the opposite. Not failed either - the analysis went
     as far as the evidence allowed, and what is left is somebody running it.
+
+    So is one that confirmed nothing only because the one test of its cause was
+    refused at the gate as not Argus's to take, and impact whose loss was
+    measured but whose end nothing could measure: a cross means the document
+    fell short where Argus could have done more, and here the next step is a
+    person's - which is what each says.
     """
     short = _what_the_analysis_lacks(document, faults, reaches_a_cause=reaches_a_cause)
     unrun = _readings_resting_alone(document) if not short else []
 
+    if unrun:
+        analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
+                                   because=_what_would_confirm(document, unrun))
+    elif short == [NONE_TRIED] and _its_test_was_not_argus_s_to_take(document):
+        analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
+                                   because=_what_would_confirm_a_refused_test(document))
+    else:
+        analysis = _a_criterion(ANALYSIS_COMPLETE, short)
+
     return [
         _a_criterion(KEY_DATA_COLLECTED, _what_the_key_data_lacks(document)),
-        _a_criterion(IMPACT_ASSESSED, _what_the_impact_lacks(document)),
-        (ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
-                         because=_what_would_confirm(document, unrun)) if unrun
-         else _a_criterion(ANALYSIS_COMPLETE, short)),
+        _the_impact_assessed(document),
+        analysis,
         ReviewCriterion(criterion=ITEMS_OWNED_AND_DATED, met=None),
         ReviewCriterion(criterion=REVIEWED_AND_SHARED, met=None)
     ]
+
+
+# The refusals that stop a test because it is not Argus's to take: a boundary
+# held, and the next step a person's. Not `NO_MITIGATION_PROPOSED`, which is
+# evidence missing - an analysis short of what it needed - nor
+# `ALREADY_TRIED_ENOUGH`, which follows a test rather than standing in for one.
+_NOT_ARGUS_S_TO_TAKE: Final = frozenset({
+    Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+    Refusal.NOT_A_GENERIC_MITIGATION,
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+    Refusal.SOMEBODY_ELSES_SERVICE,
+    Refusal.NOTHING_COULD_CONFIRM_IT
+})
+
+NONE_TRIED: Final = "no candidate was confirmed - none was tried"
+
+
+def _its_test_was_not_argus_s_to_take(document: PostmortemDocument) -> bool:
+    """Whether the gate refused a test as not Argus's to take - which, where
+    nothing was tried, is the leading candidate's: the walk tests it first."""
+    return any(step.refused in _NOT_ARGUS_S_TO_TAKE for step in document.resolution)
+
+
+def _what_would_confirm_a_refused_test(document: PostmortemDocument) -> str:
+    """That the test was refused as not Argus's, and - where a fix was
+    proposed - that it would confirm the cause, and the item it is done under."""
+    refused = "the one test of the cause was refused at the gate, as not Argus's to take"
+    item = _the_fix_s_item(document)
+
+    return f"{refused}; the proposed fix would confirm it ({item})" if item else refused
+
+
+def _the_impact_assessed(document: PostmortemDocument) -> ReviewCriterion:
+    """Impact assessed: met where the loss is estimated and the end measured;
+    left to a person where the loss is and the end could not be - nothing
+    measured the service back, and nothing will until a person reports it or
+    the metrics resume; and not met, saying why, otherwise."""
+    lacks = _what_the_impact_lacks(document)
+    if document.customer_loss_estimate is None or not lacks:
+        return _a_criterion(IMPACT_ASSESSED, lacks)
+
+    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in document.timeline)
+    end = ("how long the metrics stay missing is known once they resume" if stopped
+           else "when the service is back to normal is for a person to report")
+
+    return ReviewCriterion(criterion=IMPACT_ASSESSED, met=None,
+                           because=f"the loss is measured to the close; {end}")
 
 
 def _a_criterion(criterion: str, lacks: list[str]) -> ReviewCriterion:
@@ -91,15 +157,22 @@ def _what_would_confirm(document: PostmortemDocument, readings: list[str]) -> st
     """What the cause rests on, and - where a fix was proposed - what would
     confirm it and the item a person does it under."""
     rests = f"the cause rests on {', '.join(readings)}, a reading of the source nothing ran"
-    fix = document.pull_request
-    item = next((item.number for item in document.action_items
-                 if fix is not None and item.tracking == fix.url), None)
+    item = _the_fix_s_item(document)
 
     if item is None:
         return rests
 
     return (f"{rests}; running the proposed fix's tests against the current code would "
             f"confirm it ({item})")
+
+
+def _the_fix_s_item(document: PostmortemDocument) -> str | None:
+    """The number of the action item the proposed fix is done under, or `None`
+    where no fix was proposed or no item tracks it."""
+    fix = document.pull_request
+
+    return next((item.number for item in document.action_items
+                 if fix is not None and item.tracking == fix.url), None)
 
 
 def _what_the_key_data_lacks(document: PostmortemDocument) -> list[str]:
@@ -147,7 +220,7 @@ def _why_nothing_was_confirmed(results: list[str]) -> str:
     left with no verdict was tried all the same, and came to neither."""
     tried = [result for result in results if result != NEVER_TRIED]
     if not tried:
-        return "no candidate was confirmed - none was tried"
+        return NONE_TRIED
     if all(result == Verdict.REFUTED for result in tried):
         return "no candidate was confirmed - those tried were refuted"
     return "no candidate was confirmed"

@@ -187,8 +187,8 @@ def _who_ended_it(postmortem: Postmortem,
 
         return Line(runs=tuple(runs)), resolution.by
 
-    # A refusal is the one step with no label: the labels count the actions.
-    last = next((step for step in reversed(postmortem.resolution) if step.label), None)
+    last = next((step for step in reversed(postmortem.resolution) if step.refused is None),
+                None)
     if escalation is not None and (last is None or escalation.at > last.at):
         return _the_escalation(escalation, postmortem.pull_request), _ARGUS
 

@@ -22,6 +22,7 @@ from pydantic import BaseModel, model_validator
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.metrics import WorseWhen
 from argus_core.models.placement import RecordedPlacement
+from argus_core.models.refusal import Refusal
 
 
 class CitedEvidence(BaseModel):
@@ -212,6 +213,10 @@ class ResolutionStep(BaseModel):
     has_a_way_back: bool
     outcome: str
     label: str | None
+    # Which refusal a step is, on a refusal to act, and `None` on an action -
+    # what the review reads to say whether the next step is a person's: a test
+    # refused as not Argus's to take is the analysis gone as far as Argus may.
+    refused: Refusal | None = None
     # Whether the action stopped the platform syncing the application from its
     # repository, and left it stopped while the change stands. Apart from the
     # outcome, which is cited wherever the action is: said inside it, the sync

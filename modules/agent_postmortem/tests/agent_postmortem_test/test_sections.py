@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from agent_postmortem import CandidateRecord, DeploymentChangesRecord
+from agent_postmortem import CandidateRecord, DeploymentChangesRecord, RefusalRecord
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.sections import (
     detection_of,
@@ -39,6 +39,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     OpenedPullRequest,
+    Refusal,
     ResolutionStep,
     RuleSeriesHarm,
     TimelineEntry,
@@ -779,7 +780,8 @@ def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> N
     # Declining an action is how an incident ended as much as taking one is -
     # the one rollback that would answer it undoing a change made on purpose.
     # Said and dated as the timeline's line says it, and under no label:
-    # nothing was done, so no prose cites it as an action.
+    # nothing was done, so no prose cites it as an action. And which refusal it
+    # was, which is what the review reads to say whose the next step is.
     the_refusal = STARTED_AT + timedelta(minutes=1)
     the_action = STARTED_AT + timedelta(minutes=2)
 
@@ -790,16 +792,19 @@ def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> N
                 actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
                                    standing="still in place", has_a_way_back=True,
                                    taken_at=the_action)]
-            ).model_copy(update={"refusals": [0]})
+            ).model_copy(update={"refusals": [
+                RefusalRecord(line=0, refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE)]})
         ) \
         .when(
-            lambda: [(step.at, step.action, step.has_a_way_back, step.outcome, step.label)
+            lambda: [(step.at, step.action, step.has_a_way_back, step.outcome, step.label,
+                      step.refused)
                      for step in resolution_of(evidence)]
         ) \
         .then(
             the_answer_was([
-                (the_refusal, "Refused to act - some reason", False, "not taken", None),
-                (the_action, "dont care", True, "confirmed, still in place", "M1")
+                (the_refusal, "Refused to act - some reason", False, "not taken", None,
+                 Refusal.WOULD_UNDO_A_MEANT_CHANGE),
+                (the_action, "dont care", True, "confirmed, still in place", "M1", None)
             ])
         )
 

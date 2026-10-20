@@ -25,6 +25,7 @@ from agent_postmortem import (
     CandidateRecord,
     DeploymentChangesRecord,
     IncidentEvidence,
+    RefusalRecord,
     Sources,
     write_postmortem,
 )
@@ -185,9 +186,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         pull_request=_what_was_proposed(conn, incident_id),
         fix_explanation=_what_code_fix_said(conn, incident_id),
         recommended_action=_what_is_still_owed(conn, incident_id),
-        # By the line, as an action is found: the document says a refusal as
-        # the timeline does, and `told` is that timeline.
-        refusals=[position for position, line in enumerate(told) if line.kind == _ACTION_REFUSED],
+        refusals=_what_was_refused(account, told),
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
         # together - the latest standing, which is the one the walk acted on.
@@ -198,6 +197,22 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         logs_reading=_how_the_investigation_read(account, RetrievalChannel.LOGS,
                                                  LogsRetrieved)
     )
+
+
+def _what_was_refused(account: list[IncidentEvent],
+                      told: list[NarrationLine]) -> list[RefusalRecord]:
+    """Each refusal to act, by its line and with which refusal it was.
+
+    By the line, as an action is found: the document says a refusal as the
+    timeline does, and `told` is that timeline. By order, as a placement is
+    found (`_what_happened`): each refusal published is told as a line of its
+    own, in the order published.
+    """
+    refused = [event.refusal for event in account if isinstance(event, ActionRefused)]
+    lines = [position for position, line in enumerate(told) if line.kind == _ACTION_REFUSED]
+
+    return [RefusalRecord(line=line, refusal=refusal)
+            for line, refusal in zip(lines, refused, strict=True)]
 
 
 def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | None:
