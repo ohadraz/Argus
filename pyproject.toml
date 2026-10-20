@@ -72,6 +72,9 @@ select = [
 # mypy (static type checker)
 [tool.mypy]
 strict = true
+# Checks the keys and values of `model_copy(update={...})` against the model,
+# which pydantic itself never does - see the plugin's own docstring.
+plugins = ["scripts/mypy_model_copy.py"]
 
 
 # pytest config

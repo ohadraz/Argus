@@ -99,11 +99,21 @@ def typecheck(session: nox.Session) -> None:
     plain `uv sync`/`uv run` happened to resolve (without it, mypy can spuriously
     report "Cannot find implementation or library stub" for a dependency that's
     declared but wasn't actually installed into the shared venv yet).
+
+    Then runs `tests/scripts`, the suite of the mypy plugin `[tool.mypy]` loads
+    (`scripts/mypy_model_copy.py`). Here rather than anywhere else because what
+    it proves is that this session's check is still a check: a plugin whose hook
+    stopped firing leaves mypy green and every `model_copy` update unchecked, and
+    only running mypy over a known-bad line says so.
     """
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
     session.run(
         "uv", "run", "--all-packages", "python", "-m", "mypy", "modules", "tests",
+        external=True
+    )
+    session.run(
+        "uv", "run", "--all-packages", "python", "-m", "pytest", "tests/scripts",
         external=True
     )
 

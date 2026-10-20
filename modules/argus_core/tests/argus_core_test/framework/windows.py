@@ -140,11 +140,26 @@ def with_the_cpu_saturated(window: Sequence[MetricBucket],
     what makes it a window that departs in this series and in no other.
     """
     return [
-        bucket.model_copy(update={"cpu_used_cores": bucket.cpu_limit_cores})
+        bucket.model_copy(update={"cpu_used_cores": _every_core_of(bucket)})
         if offset in over
         else bucket
         for offset, bucket in enumerate(window)
     ]
+
+
+def _every_core_of(bucket: MetricBucket) -> float:
+    """The minute's whole CPU limit, which is what using every core means.
+
+    A minute with no limit has no such figure, and saturating it would write
+    `None` into a usage that is always a number.
+    """
+    if bucket.cpu_limit_cores is None:
+        raise ValueError(
+            f"The minute [{bucket.bucket_id}] has no CPU limit, so it cannot be "
+            f"saturated."
+        )
+
+    return bucket.cpu_limit_cores
 
 
 def _a_page_served(entropy: random.Random) -> int:
