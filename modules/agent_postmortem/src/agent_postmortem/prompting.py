@@ -580,7 +580,20 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "did not go wrong."
                                )
                            },
-                           GOT_LUCKY_FIELD: _SENTENCES},
+                           # Told only that any list may be empty, write-ups
+                           # filled this one with what kind of fault it was
+                           # and with a limit of the evidence - neither luck.
+                           GOT_LUCKY_FIELD: {
+                               **_SENTENCES,
+                               "description": (
+                                   "Something the record shows went the fortunate way "
+                                   "by chance, and would have made it worse had it not. "
+                                   "Empty where the record shows none. Not what kind of "
+                                   "fault it was, which the impact already says, nor a "
+                                   "limit of what the record shows, which is said in "
+                                   f"{ASSUMPTIONS_FIELD} as what was assumed."
+                               )
+                           }},
             "required": [WENT_WELL_FIELD, WENT_WRONG_FIELD, GOT_LUCKY_FIELD],
             "description": (
                 "What went well, what went wrong, and where the incident got "

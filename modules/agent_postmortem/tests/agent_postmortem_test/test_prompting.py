@@ -1935,6 +1935,23 @@ def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_w
 
 
 @pytest.mark.unit
+def test_luck_is_asked_for_as_what_the_record_shows_went_the_fortunate_way() -> None:
+    # Told only "a risk that went unnoticed this time", and that any list may
+    # be empty, two write-ups filled the list anyway: with what kind of fault
+    # it was, which the impact says, and with a limit of the evidence, which
+    # is an assumption. Said in the list itself, with where each goes instead.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [GOT_LUCKY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("by chance", "Empty where", "what kind of fault",
+                                      ASSUMPTIONS_FIELD)
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_what_people_told_the_incident_and_how_it_was_weighed() -> None:
     # What a person said and what the investigation made of it are one fact
     # about the incident: the words without the standing would read as advice
