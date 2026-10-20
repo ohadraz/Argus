@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Final
 
 from argus_core.models import CitedEvidence
@@ -63,12 +63,38 @@ def grouped(log_lines: Sequence[str]) -> list[CitedEvidence]:
     groups: dict[str, list[tuple[datetime | None, list[str]]]] = {}
     for line in log_lines:
         logged_at, message = _split(line)
-        parts = _A_NUMBER.split(message)
-        key = "#".join(parts[0::2])
-        groups.setdefault(key, []).append((logged_at, parts))
+        groups.setdefault(_key_of(message), []).append((logged_at, _A_NUMBER.split(message)))
 
     return [CitedEvidence(label=_label_for(key), text=_said_once(occurrences))
             for key, occurrences in groups.items()]
+
+
+def labels_reaching_into(log_lines: Sequence[str], since: datetime) -> list[str]:
+    """The labels of the groups with a line logged inside a stretch that began
+    at `since` and has not ended, in the order they were first logged.
+
+    A line is stamped with its minute, and is taken as the whole of it: one
+    from the minute `since` falls in reaches into the stretch. Exact for the
+    stretch it is asked about, whose start is the first minute the metrics did
+    not cover. No end is asked for because that stretch had none - it was still
+    running when Argus stopped. A line with no stamp reaches into nothing,
+    since naming it would say it was logged inside.
+    """
+    first_minute = since.replace(second=0, microsecond=0)
+    keys: list[str] = []
+    reaching: set[str] = set()
+    for line in log_lines:
+        logged_at, message = _split(line)
+        key = _key_of(message)
+        if key not in keys:
+            keys.append(key)
+
+        # The stamp's `Z` is optional, and a stamp without it is the same clock.
+        if logged_at is not None and (
+                _in_utc(logged_at).replace(second=0, microsecond=0) >= first_minute):
+            reaching.add(key)
+
+    return [_label_for(key) for key in keys if key in reaching]
 
 
 def _split(line: str) -> tuple[datetime | None, str]:
@@ -78,6 +104,15 @@ def _split(line: str) -> tuple[datetime | None, str]:
         return None, line
 
     return datetime.fromisoformat(stamped.group(1)), line[stamped.end():]
+
+
+def _key_of(message: str) -> str:
+    """What a group is keyed by: everything in the message but its numbers."""
+    return "#".join(_A_NUMBER.split(message)[0::2])
+
+
+def _in_utc(logged_at: datetime) -> datetime:
+    return logged_at if logged_at.tzinfo is not None else logged_at.replace(tzinfo=UTC)
 
 
 def _label_for(key: str) -> str:

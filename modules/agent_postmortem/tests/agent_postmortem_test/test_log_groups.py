@@ -12,9 +12,10 @@ another.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 
 import pytest
-from agent_postmortem.log_groups import LOG_GROUP_PREFIX, grouped
+from agent_postmortem.log_groups import LOG_GROUP_PREFIX, grouped, labels_reaching_into
 from argus_core.models import CitedEvidence
 from argus_testkit import Assertion, Scenario, the_answer_was
 
@@ -235,6 +236,44 @@ def test_a_number_inside_a_name_that_varied_is_said_by_how_many_names_there_were
                             f"3 minutes, 23:37–23:39; # was 900 to 2300, typically 1200, "
                             f"highest at 23:37; /baskets/shopper-#-#-# took 2 different values; "
                             f"# was 5 to 7, typically 6, highest at 23:38"])
+        )
+
+
+@pytest.mark.unit
+def test_only_a_message_logged_in_or_after_a_stretch_s_first_minute_reaches_into_it() -> None:
+    # A stretch the metrics did not cover is not one nobody saw where a message
+    # read was logged inside it - and a message last logged before it says
+    # nothing of it. A line is stamped with its whole minute, so one from the
+    # minute the stretch began in reaches into it.
+    some_lines = [f"2026-10-11T23:37:00Z {SOME_RATE.format('1.50')}",
+                  f"2026-10-11T23:38:00Z {SOME_ERROR}",
+                  f"2026-10-11T23:41:00Z {SOME_RATE.format('24.00')}"]
+
+    Scenario() \
+        .given(
+            the_stretch_began := datetime(2026, 10, 11, 23, 41, 30, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: labels_reaching_into(some_lines, the_stretch_began)
+        ) \
+        .then(
+            the_answer_was([_label_of(SOME_RATE.format("#"), grouped(some_lines))])
+        )
+
+
+@pytest.mark.unit
+def test_a_message_with_no_minute_reaches_into_no_stretch() -> None:
+    # Undated, it could have been logged anywhere, and naming it would say it
+    # was logged inside.
+    Scenario() \
+        .given(
+            some_lines := [SOME_ERROR]
+        ) \
+        .when(
+            lambda: labels_reaching_into(some_lines, datetime(2026, 10, 11, 23, 41, tzinfo=UTC))
+        ) \
+        .then(
+            the_answer_was([])
         )
 
 

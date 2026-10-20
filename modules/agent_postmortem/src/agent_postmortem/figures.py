@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 ALERT_RAISED_FIGURE: Final = "alert_raised"
 BEGAN_FIGURE: Final = "began"
 BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
-UNOBSERVED_FROM_FIGURE: Final = "unobserved_from"
+UNOBSERVED_FROM_FIGURE: Final = "metrics_stopped_at"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"

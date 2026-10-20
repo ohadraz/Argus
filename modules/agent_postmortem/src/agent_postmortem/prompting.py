@@ -22,7 +22,7 @@ the second, either does the arithmetic or repeats the figure.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from argus_core import parse_iso, short_form, to_iso
@@ -79,7 +79,7 @@ from agent_postmortem.figures import (
     the_finding_named,
     what_came_after_the_wait,
 )
-from agent_postmortem.log_groups import grouped
+from agent_postmortem.log_groups import grouped, labels_reaching_into
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.revisions import revisions_of
 from agent_postmortem.sections import (
@@ -710,7 +710,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
         _whether_anybody_was_paged(measured.engaged),
         *_how_long_the_rule_waits(evidence, measured, figures),
-        *_how_long_it_was_broken(measured, evidence.credited_action, figures),
+        *_how_long_it_was_broken(measured, evidence.credited_action, evidence.log_lines,
+                                 figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
         f"until {_shown(ARGUS_STOPPED_FIGURE, figures)}. That is how long the response took, "
         f"not how long the fault lasted - leave it out of your answer.",
@@ -1077,6 +1078,7 @@ def _shown(name: str, figures: Mapping[str, Figure]) -> str:
 
 def _how_long_it_was_broken(measured: Measurements,
                             credited: ActionRecord | None,
+                            log_lines: Sequence[str],
                             figures: Mapping[str, Figure]) -> list[str]:
     """When the service broke, when it came back, and how long that was.
 
@@ -1108,16 +1110,20 @@ def _how_long_it_was_broken(measured: Measurements,
     )
 
     if measured.unobserved_from is not None:
-        # Not a stretch of trouble but a stretch nobody could see. Said as that,
-        # because "had not recovered" would describe a broken service, and the
-        # window before the onset would read as though it were the incident.
+        # Not a stretch of trouble but a stretch the metrics did not cover. Said
+        # as that, because "had not recovered" would describe a broken service,
+        # and the window before the onset would read as though it were the
+        # incident. And not as one nobody saw: told so, a model holding the
+        # shop's own logs from inside it wrote that the record could not say how
+        # the shop was doing - so the logs that reach into it are named.
         return [
             f"No metrics were collected from "
             f"{_shown(UNOBSERVED_FROM_FIGURE, figures)} ({dated_from}) onwards: the "
-            f"service was still unobserved when Argus stopped working on the "
-            f"incident. That is {_shown(DURATION_FIGURE, figures)} nobody could see, "
-            f"not a stretch the service is known to have spent in trouble, and the "
-            f"error rates below cover none of it."
+            f"metrics had still not resumed when Argus stopped working on the "
+            f"incident. That is {_shown(DURATION_FIGURE, figures)} the metrics did "
+            f"not cover, not a stretch the service is known to have spent in "
+            f"trouble, and the error rates below cover none of it.",
+            _the_logs_reaching_into(log_lines, measured.unobserved_from)
         ]
 
     if measured.back_to_normal_at is None:
@@ -1137,6 +1143,21 @@ def _how_long_it_was_broken(measured: Measurements,
         f"That is {_shown(DURATION_FIGURE, figures)}, and every impact figure below "
         f"is measured over that stretch."
     ]
+
+
+def _the_logs_reaching_into(log_lines: Sequence[str], metrics_stopped_at: datetime) -> str:
+    """Which log lines read reach into the stretch the metrics did not cover -
+    or that none do, said rather than left out, since an absent list reads the
+    same as one nobody looked for. And where no logs were read, that: told none
+    reached in, a model is told logs were looked at and said nothing of it."""
+    if not log_lines:
+        return "No logs were read."
+
+    labels = labels_reaching_into(log_lines, metrics_stopped_at)
+    if not labels:
+        return "No log line read reaches into it."
+
+    return f"Log lines read that reach into it: {', '.join(f'[{label}]' for label in labels)}."
 
 
 def _back_before(credited: ActionRecord | None,
@@ -1172,10 +1193,10 @@ _WHY_UNMEASURED: Final[dict[Unmeasured, str]] = {
         "metrics were read, but none from while the service was broken")
 }
 
-# The same gap where the stretch after the onset is one nobody could see. Its
-# own sentence, because the line before it says that stretch is not known to
-# have been trouble, and "while the service was broken" would say it was.
-_NONE_WHILE_UNOBSERVED: Final = "none were collected while the service was unobserved"
+# The same gap where the metrics stopped at the onset. Its own sentence, because
+# the line before it says that stretch is not known to have been trouble, and
+# "while the service was broken" would say it was.
+_NONE_WHILE_UNOBSERVED: Final = "none were collected after the metrics stopped"
 
 
 # Said of a figure the calm before the incident was too short to hold up to

@@ -1362,7 +1362,7 @@ def test_no_reason_an_error_rate_went_unmeasured_says_it_is_not_known(why: Unmea
 
 @pytest.mark.unit
 def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
-    # The line before this one says the stretch is one nobody could see, not one
+    # The line before this one says the metrics did not cover the stretch, not one
     # the service is known to have spent in trouble. A reason naming its minutes
     # as the ones "while the service was broken" contradicts that, and hands the
     # model an outage the evidence does not show.
@@ -1376,7 +1376,7 @@ def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
         ) \
         .then(all_of(
-            _says("none were collected while the service was unobserved"),
+            _says("none were collected after the metrics stopped"),
             _does_not_say("none from while the service was broken")))
 
 
@@ -1667,7 +1667,8 @@ def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
         ) \
         .then(all_of(
-            _says("still unobserved when Argus stopped working on the incident"),
+            _says("the metrics had still not resumed when Argus stopped working on the "
+                  "incident"),
             _does_not_say("when the incident closed")
         ))
 
@@ -1754,7 +1755,7 @@ def test_a_service_back_after_the_action_credited_with_it_is_not_given_as_back_b
 def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserved() -> None:
     # The lower bound above is true and not enough. Where the rows stop at the
     # onset, the stretch it bounds is not one the service spent in trouble - it is
-    # one nobody could see at all - and a write-up that said only "had not
+    # one the metrics did not cover at all - and a write-up that said only "had not
     # recovered" would describe a broken shop that was never broken, and report
     # the short window before the onset as though it were the incident.
     Scenario() \
@@ -1765,7 +1766,7 @@ def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserve
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
         ) \
-        .then(_says("still unobserved", to_iso(ONSET)))
+        .then(_says("had still not resumed", to_iso(ONSET)))
 
 
 @pytest.mark.unit
@@ -1778,6 +1779,64 @@ def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> N
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
         ) \
         .then(_does_not_say("unobserved"))
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> None:
+    # The metrics stopping is not nobody seeing. Told the stretch was one
+    # "nobody could see", and the service "unobserved", a model holding the
+    # shop's own warned rate through it wrote that the record could not say how
+    # the shop was doing.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("reach into it", f"[{grouped([some_line_inside])[0].label}]"),
+            _does_not_say("nobody could see"),
+            _does_not_say("unobserved")))
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_no_log_line_reaches_into_is_said_to_have_none() -> None:
+    # Said rather than left out, since a list that is absent reads the same as
+    # one nobody looked for.
+    some_line_before = f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_before]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says("No log line read reaches into it")
+        )
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_of_a_walk_that_read_no_logs_is_said_to_have_read_none() -> None:
+    # Told that no line read reaches into the stretch, a model is told logs were
+    # looked at and said nothing of it - which a walk that read none never did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("No logs were read"),
+            _does_not_say("reaches into it")))
 
 
 @pytest.mark.unit
