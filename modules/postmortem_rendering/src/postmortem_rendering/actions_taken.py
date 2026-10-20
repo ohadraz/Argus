@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from postmortem_rendering.formatting import on_the_clock
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import ReportedResolution
+from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
 
 # The first column is the label a citation of a step names, headed by nothing,
 # as the hypotheses' is.
@@ -93,8 +94,11 @@ def the_actions_taken(postmortem: PostmortemDocument,
                                         Run.a_pull_request(postmortem.pull_request.number)
                                         .linked_to(postmortem.pull_request.url))),
                       by=_THE_FIXER,
-                      kind="needs a person to merge",
-                      outcome="draft - not merged")
+                      # A draft changes nothing running, so - like a restart -
+                      # there is nothing of it to put back: the column says of
+                      # the fix what it says of every action.
+                      kind=whether_it_can_be_put_back(False),
+                      outcome=OPENED_AS_A_DRAFT)
 
     return ActionsTakenSection(
         person=the_person_who_resolved(resolution) if resolution else None,

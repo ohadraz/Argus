@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict
 from postmortem_rendering.formatting import as_revision, on_the_clock
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
+from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
 
 # A moment with its date, as the head says the start of the incident's window.
 _WITH_THE_DAY: Final = "%b %d, %Y, %H:%M"
@@ -199,7 +200,7 @@ def _the_escalation(escalation: Escalation, fix: OpenedPullRequest | None) -> Li
     if fix is not None:
         runs += [Run(text=" - "),
                  Run.a_pull_request(fix.number).linked_to(fix.url),
-                 Run(text=", a draft, waits for a person to merge")]
+                 Run(text=f", {OPENED_AS_A_DRAFT}")]
     elif escalation.detail:
         runs += [Run(text=f" - {escalation.detail}")]
 

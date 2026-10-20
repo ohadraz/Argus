@@ -32,6 +32,11 @@ from postmortem_rendering.lines import Line, Role, Run
 # of reading it was carried.
 _NONE_READ: Final = "None read."
 
+# What became of the proposed fix, as far as the record goes: Argus opens a pull
+# request and never reads it again, so whether anybody has merged it since is
+# not something the document knows. Said the same wherever the fix is.
+OPENED_AS_A_DRAFT: Final = "opened as a draft"
+
 # Who a change no one is named for was made by, as the model is told it too.
 _NOBODY_NAMED: Final = "someone unnamed"
 
@@ -112,7 +117,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                 Run(text=" ("),
                                 Run.an_address(fix.url),
                                 Run(text=") "),
-                                Run(text="opened as a draft", role=Role.STATUS),
+                                Run(text=OPENED_AS_A_DRAFT, role=Role.STATUS),
                                 Run(text=f". {NOTHING_RECORDED_AFTER_IT_WAS_OPENED}."))))
 
     changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))

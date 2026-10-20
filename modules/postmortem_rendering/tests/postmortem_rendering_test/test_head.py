@@ -378,7 +378,7 @@ def test_an_incident_argus_escalated_with_a_fix_waiting_was_ended_by_the_escalat
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=" - "),
                                       Run.a_pull_request(7).linked_to(some_fix.url),
-                                      Run(text=", a draft, waits for a person to merge")))))
+                                      Run(text=", opened as a draft")))))
 
 
 @pytest.mark.unit
