@@ -40,6 +40,8 @@ from argus_core.models import (
     Transcript,
     Turn,
     labelled,
+    no_changes_listed,
+    no_logs_listed,
 )
 from pydantic import BaseModel, field_validator
 
@@ -133,6 +135,11 @@ REQUIRED_FIELDS: Final = [
     LESSONS_FIELD,
     REACHES_A_CAUSE_FIELD
 ]
+
+# What a list of things that happened says when nothing did. Said rather than
+# left as a heading over nothing, which tells the model there is something it
+# has failed to see - and an empty list is itself what happened.
+NOTHING: Final = "none"
 
 
 class SubmittedStep(BaseModel):
@@ -649,13 +656,14 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query, evidence,
                                     measured.error_rates, figures),
         *(line
-          for heading, cited in _the_evidence_by_kind(evidence)
+          for heading, cited, when_empty in _the_evidence_by_kind(evidence)
           for line in ["", heading,
                        *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
-                         for each in cited)]),
+                         for each in cited),
+                       *([] if cited else [f"  - {when_empty}"])]),
         "",
         "Action items the record already holds:",
-        *(_the_record_items(evidence) or ["  - none"]),
+        *(_the_record_items(evidence) or [f"  - {NOTHING}"]),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label, and name action items "
         f"in {CONTRIBUTING_FACTORS_FIELD} by their number. Items you propose in "
@@ -703,17 +711,28 @@ def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
 
 def _the_evidence_listed(evidence: IncidentEvidence) -> list[CitedEvidence]:
     """The evidence listed beneath its headings, in the order it is shown."""
-    return [cited for _, cited_of_a_kind in _the_evidence_by_kind(evidence)
+    return [cited for _, cited_of_a_kind, _ in _the_evidence_by_kind(evidence)
             for cited in cited_of_a_kind]
 
 
 def _the_evidence_by_kind(evidence: IncidentEvidence
-                          ) -> list[tuple[str, list[CitedEvidence]]]:
+                          ) -> list[tuple[str, list[CitedEvidence], str]]:
     """The evidence under the heading the model reads it beneath, in the order
-    it is shown: the narration, the changes, the logs, the candidates, the
-    actions - and what each deployment it looked into changed and what Code-Fix
-    read in the source, where there is any: a heading over nothing tells the
-    model there is something it has failed to see."""
+    it is shown, with what is said beneath the heading where it holds nothing.
+
+    The narration, the changes, the logs, the candidates and the actions are
+    shown whether or not they hold anything: a heading over nothing tells the
+    model there is something it has failed to see. Empty, the narration, the
+    candidates and the actions say none - nothing happened, and that is what
+    happened. The changes and the logs say what came of reading them instead,
+    in the page's words: "none" there reads as asked and nothing there, and a
+    model told that of a deploy history nobody asked says no change preceded
+    the onset.
+
+    What each deployment it looked into changed and what Code-Fix read in the
+    source are shown only where there is any: most incidents look into none,
+    and a heading for them would say a read was missed.
+    """
     looked_into = the_deployment_changes_labelled(evidence)
     read_in_the_source = the_code_reading_labelled(evidence)
 
@@ -722,17 +741,22 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
          [CitedEvidence(label=label, text=_a_line_of_the_narration(entry))
           for entry, label in zip(evidence.timeline,
                                   labels_of_the_narration(evidence.timeline),
-                                  strict=True)]),
+                                  strict=True)],
+         NOTHING),
         ("Changes to production it read:",
          [CitedEvidence(label=cited.label, text=_a_change_as_a_line(cited.change))
-          for cited in the_changes_labelled(evidence)]),
-        ("Log lines it read, one per message:", grouped(evidence.log_lines)),
-        ("Candidates it considered:", the_candidates_labelled(evidence)),
+          for cited in the_changes_labelled(evidence)],
+         no_changes_listed(evidence.deploys_reading, evidence.flags_reading)),
+        ("Log lines it read, one per message:", grouped(evidence.log_lines),
+         no_logs_listed(evidence.logs_reading)),
+        ("Candidates it considered:", the_candidates_labelled(evidence), NOTHING),
         ("Actions it took:",
-         _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions])),
-        *([("What each deployment it looked into changed:", looked_into)] if looked_into else []),
+         _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions]),
+         NOTHING),
+        *([("What each deployment it looked into changed:", looked_into, NOTHING)]
+          if looked_into else []),
         *([("What Code-Fix read in the source - a static reading, nothing ran it:",
-            read_in_the_source)] if read_in_the_source else [])
+            read_in_the_source, NOTHING)] if read_in_the_source else [])
     ]
 
 

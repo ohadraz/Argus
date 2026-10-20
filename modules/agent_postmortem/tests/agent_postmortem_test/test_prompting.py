@@ -88,6 +88,7 @@ from argus_core.models import (
     Ask,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedChange,
     CitedEvidence,
     Lessons,
@@ -517,6 +518,60 @@ def test_an_incident_that_looked_into_no_deployment_is_shown_no_heading_for_one(
         .then(
             _does_not_say("deployment it looked into")
         )
+
+
+@pytest.mark.unit
+def test_an_incident_argus_took_no_action_in_is_said_to_have_none() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see. And that nothing was done is itself what happened - left out, it
+    # would be left to be guessed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Actions it took:\n  - none")
+        )
+
+@pytest.mark.unit
+def test_no_change_listed_is_said_as_what_came_of_reading_each_kind() -> None:
+    # "None" under the changes reads as asked and nothing there, and a model
+    # told that writes "no change preceded the onset" of an incident whose
+    # deploy history nobody asked. Said in the page's words, since two
+    # spellings of one fact read as two facts.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(changes=[]).model_copy(update={
+                "deploys_reading": ChannelReading.NOT_ASKED,
+                "flags_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Changes to production it read:\n"
+                  "  - Deploys not read; flags read, none came back.")
+        )
+
+
+@pytest.mark.unit
+def test_no_log_line_listed_is_said_as_what_came_of_reading_the_logs() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[]).model_copy(update={
+                "logs_reading": ChannelReading.UNANSWERED})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Log lines it read, one per message:\n"
+                  "  - Asked for; no answer came back.")
+        )
+
 
 
 @pytest.mark.unit

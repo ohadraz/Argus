@@ -116,7 +116,13 @@ from argus_core.models.postmortem_sections import (
 )
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
-from argus_core.models.reading import ChannelReading, Reading, RetrievalChannel
+from argus_core.models.reading import (
+    ChannelReading,
+    Reading,
+    RetrievalChannel,
+    no_changes_listed,
+    no_logs_listed,
+)
 from argus_core.models.reference import (
     ALERT_FIRING,
     CHAT_MESSAGE,
@@ -277,6 +283,8 @@ __all__ = [
     "PublishedRates",
     "RatesUnavailable",
     "Reading",
+    "no_changes_listed",
+    "no_logs_listed",
     "ALERT_FIRING",
     "NOTIFICATION_KEY",
     "ON_CALL_INCIDENT",

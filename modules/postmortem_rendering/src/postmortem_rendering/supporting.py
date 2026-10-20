@@ -20,6 +20,8 @@ from argus_core.models import (
     CitedEvidence,
     PostmortemDocument,
     RevisionSource,
+    no_changes_listed,
+    no_logs_listed,
 )
 from pydantic import BaseModel, ConfigDict
 
@@ -28,23 +30,6 @@ from postmortem_rendering.lines import Line, Role, Run
 # Said in place of a list of evidence on a document written before what came
 # of reading it was carried.
 _NONE_READ: Final = "None read."
-
-# Said in place of the log messages, by what came of reading them.
-_NO_LOG_MESSAGES: Final[dict[ChannelReading, str]] = {
-    ChannelReading.READ: "Read; none came back.",
-    ChannelReading.ONLY_SINCE_ARGUS_ACTED: "Read; none came back.",
-    ChannelReading.NOT_ASKED: "Not read.",
-    ChannelReading.UNANSWERED: "Asked for; no answer came back."
-}
-
-# What came of reading one kind of change, as a clause after its name.
-_HOW_A_KIND_WAS_READ: Final[dict[ChannelReading, str]] = {
-    ChannelReading.READ: "read, none came back",
-    ChannelReading.ONLY_SINCE_ARGUS_ACTED:
-        "read, only changes made since Argus first acted came back",
-    ChannelReading.NOT_ASKED: "not read",
-    ChannelReading.UNANSWERED: "asked for, no answer came back"
-}
 
 # Who a change no one is named for was made by, as the model is told it too.
 _NOBODY_NAMED: Final = "someone unnamed"
@@ -162,13 +147,12 @@ def _no_changes(postmortem: PostmortemDocument) -> str:
     if deploys is None or flags is None:
         return _NONE_READ
 
-    return (f"Deploys {_HOW_A_KIND_WAS_READ[deploys]}; "
-            f"flags {_HOW_A_KIND_WAS_READ[flags]}.")
+    return no_changes_listed(deploys, flags)
 
 
 def _no_log_messages(reading: ChannelReading | None) -> str:
     """What came of reading the logs, where none are listed."""
-    return _NONE_READ if reading is None else _NO_LOG_MESSAGES[reading]
+    return _NONE_READ if reading is None else no_logs_listed(reading)
 
 
 def _a_change(cited: CitedChange) -> Line:
