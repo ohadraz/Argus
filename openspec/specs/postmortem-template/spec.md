@@ -172,9 +172,11 @@ SHALL be present.
 ### Requirement: The timeline is the narration with four markers
 
 Timeline SHALL be the incident's narration, in order, in UTC, with four
-markers placed by code: IMPACT BEGINS at the onset, DETECTED at the alert,
-MITIGATED at the first action whose recovery was confirmed, and IMPACT ENDS at
-the recovery. A marker whose time is unknown SHALL be left out.
+markers placed by code: IMPACT BEGINS at the onset - METRICS STOP there
+instead, where the metrics carry no minute from the onset on, since the onset
+then dates the metrics stopping and not the service being hurt - DETECTED at the
+alert, MITIGATED at the first action whose recovery was confirmed, and IMPACT
+ENDS at the recovery. A marker whose time is unknown SHALL be left out.
 
 #### Scenario: All four markers
 - **WHEN** a postmortem is written for an incident Argus mitigated

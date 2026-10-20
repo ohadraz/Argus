@@ -139,8 +139,8 @@ class Measurements(BaseModel):
     # answered and its rows stop before the incident began. A different fact from
     # `back_to_normal_at` being `None`: that one measured a service still in trouble at
     # the end of the window, and this one measured nothing after the onset - so
-    # the duration above is the time the metrics were missing, not a stretch of
-    # trouble.
+    # the duration above is how long the metrics had been missing by the close,
+    # not a stretch of trouble.
     unobserved_from: datetime | None = None
     # What the paging rule's own series did, at the error rate's levels, or
     # `None` where the metrics carry no such series. Told to the model beside
