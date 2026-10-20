@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from operator import attrgetter
 
 import pytest
-from argus_core.models import ChannelReading, CitedEvidence, OpenedPullRequest
+from argus_core.models import ChannelReading, CitedChange, CitedEvidence, OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow, the_supporting_information
@@ -227,6 +227,36 @@ def test_no_changes_says_of_the_deploys_and_the_flags_each_whether_they_were_rea
     Scenario() \
         .given(
             some_postmortem := a_postmortem(changes_read=[],
+                                            deploys_reading=deploys,
+                                            flags_reading=flags)
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).changes_absent
+        ) \
+        .then(
+            the_answer_was(said))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("listed", "deploys", "flags", "said"), [
+    ([a_change_read("P1")], ChannelReading.NOT_ASKED, ChannelReading.READ,
+     "Deploys not read."),
+    ([a_deploy_read("P1")], ChannelReading.READ, ChannelReading.READ,
+     "Flags read, none came back."),
+    ([a_deploy_read("P1"), a_change_read("P2")], ChannelReading.READ, ChannelReading.READ,
+     None)
+], ids=["only-flags-listed", "only-deploys-listed", "both-listed"])
+def test_a_kind_of_change_with_no_row_is_said_as_what_came_of_reading_it(
+        listed: list[CitedChange], deploys: ChannelReading, flags: ChannelReading,
+        said: str | None) -> None:
+    # A flag row alone says nothing of the deploys, and a reader takes them
+    # as read and ruled out - when the investigation never asked for them.
+    # So the kind with no row is said beneath the rows that are there, as it
+    # is when neither has any.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=listed,
                                             deploys_reading=deploys,
                                             flags_reading=flags)
         ) \

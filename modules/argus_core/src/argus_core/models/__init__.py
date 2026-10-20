@@ -120,7 +120,7 @@ from argus_core.models.reading import (
     ChannelReading,
     Reading,
     RetrievalChannel,
-    no_changes_listed,
+    changes_not_listed,
     no_logs_listed,
 )
 from argus_core.models.reference import (
@@ -284,7 +284,7 @@ __all__ = [
     "PublishedRates",
     "RatesUnavailable",
     "Reading",
-    "no_changes_listed",
+    "changes_not_listed",
     "no_logs_listed",
     "ALERT_FIRING",
     "NOTIFICATION_KEY",

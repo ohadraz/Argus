@@ -558,6 +558,28 @@ def test_no_change_listed_is_said_as_what_came_of_reading_each_kind() -> None:
 
 
 @pytest.mark.unit
+def test_a_kind_of_change_with_no_row_is_said_beneath_the_rows_there_are() -> None:
+    # A flag row alone says nothing of the deploys, and a model told only the
+    # toggle writes that no deploy preceded the onset - of an incident whose
+    # deploy history nobody asked. The last line under the changes says so,
+    # in the page's words.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(changes=[_a_change()]).model_copy(update={
+                "deploys_reading": ChannelReading.NOT_ASKED,
+                "flags_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("  - Deploys not read.\n"
+                  "\n"
+                  "Log lines it read, one per message:")
+        )
+
+
+@pytest.mark.unit
 def test_no_log_line_listed_is_said_as_what_came_of_reading_the_logs() -> None:
     Scenario() \
         .given(

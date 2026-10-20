@@ -29,6 +29,7 @@ from argus_core.models import (
     ChainStep,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedChange,
     CitedEvidence,
     ContributingFactor,
@@ -1909,6 +1910,33 @@ def test_a_change_the_root_cause_names_links_to_its_row() -> None:
         .then(all_of(
             the_page_links_to("#P2"),
             the_page_says('id="P2"')
+        ))
+
+
+@pytest.mark.component
+def test_a_kind_of_change_with_no_row_is_said_beneath_the_rows_there_are() -> None:
+    # A flag row alone says nothing of the deploys, and a reader takes them as
+    # read and ruled out. What came of reading them is said beneath the rows.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "changes_read": [_a_change_read("P2")],
+            "deploys_reading": ChannelReading.NOT_ASKED,
+            "flags_reading": ChannelReading.READ
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says('id="P2"'),
+            the_page_says('<p class="empty">Deploys not read.</p>')
         ))
 
 

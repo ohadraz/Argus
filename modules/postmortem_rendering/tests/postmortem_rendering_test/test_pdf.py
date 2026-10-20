@@ -23,6 +23,7 @@ from argus_core.models import (
     ActionItemType,
     ChainStep,
     ChangeKind,
+    ChannelReading,
     CitedEvidence,
     ContributingFactor,
     Detection,
@@ -363,6 +364,26 @@ def test_a_change_a_log_message_and_a_lead_the_prose_cites_lead_to_their_rows() 
             _a_link_lands_on("A deploy switched the model."),
             _a_link_lands_on("G3fa2 The divisor was zero."),
             _a_link_lands_on("The flag was flipped.")))
+
+
+@pytest.mark.unit
+def test_a_kind_of_change_with_no_row_is_said_beneath_the_rows_there_are() -> None:
+    # A flag row alone says nothing of the deploys, and a reader takes them as
+    # read and ruled out. What came of reading them follows the rows.
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(changes_read=[a_change_read("P1", summary="The flag went on.")],
+                             deploys_reading=ChannelReading.NOT_ASKED,
+                             flags_reading=ChannelReading.READ),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order("Changes to production read", "The flag went on.",
+                               "Deploys not read.", "Log messages read"))
 
 
 @pytest.mark.unit

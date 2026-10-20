@@ -39,8 +39,8 @@ from argus_core.models import (
     ToolResults,
     Transcript,
     Turn,
+    changes_not_listed,
     labelled,
-    no_changes_listed,
     no_logs_listed,
 )
 from pydantic import BaseModel, field_validator
@@ -656,11 +656,11 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query, evidence,
                                     measured.error_rates, figures),
         *(line
-          for heading, cited, when_empty in _the_evidence_by_kind(evidence)
+          for heading, cited, beneath in _the_evidence_by_kind(evidence)
           for line in ["", heading,
                        *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
                          for each in cited),
-                       *([] if cited else [f"  - {when_empty}"])]),
+                       *([] if beneath is None else [f"  - {beneath}"])]),
         "",
         "Action items the record already holds:",
         *(_the_record_items(evidence) or [f"  - {NOTHING}"]),
@@ -716,9 +716,9 @@ def _the_evidence_listed(evidence: IncidentEvidence) -> list[CitedEvidence]:
 
 
 def _the_evidence_by_kind(evidence: IncidentEvidence
-                          ) -> list[tuple[str, list[CitedEvidence], str]]:
+                          ) -> list[tuple[str, list[CitedEvidence], str | None]]:
     """The evidence under the heading the model reads it beneath, in the order
-    it is shown, with what is said beneath the heading where it holds nothing.
+    it is shown, with what is said beneath its rows - `None` where nothing is.
 
     The narration, the changes, the logs, the candidates and the actions are
     shown whether or not they hold anything: a heading over nothing tells the
@@ -727,36 +727,41 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
     happened. The changes and the logs say what came of reading them instead,
     in the page's words: "none" there reads as asked and nothing there, and a
     model told that of a deploy history nobody asked says no change preceded
-    the onset.
+    the onset. The changes say it of each kind with no row, beneath the rows
+    of the other: a toggle alone says nothing of the deploys, and is read as
+    though it did.
 
     What each deployment it looked into changed and what Code-Fix read in the
     source are shown only where there is any: most incidents look into none,
     and a heading for them would say a read was missed.
     """
+    narration = [CitedEvidence(label=label, text=_a_line_of_the_narration(entry))
+                 for entry, label in zip(evidence.timeline,
+                                         labels_of_the_narration(evidence.timeline),
+                                         strict=True)]
+    changes = the_changes_labelled(evidence)
+    log_lines = grouped(evidence.log_lines)
+    candidates = the_candidates_labelled(evidence)
+    actions = _numbered(ACTION_PREFIX,
+                        [_an_action_as_a_line(action) for action in evidence.actions])
     looked_into = the_deployment_changes_labelled(evidence)
     read_in_the_source = the_code_reading_labelled(evidence)
 
     return [
-        ("What Argus did, in order:",
-         [CitedEvidence(label=label, text=_a_line_of_the_narration(entry))
-          for entry, label in zip(evidence.timeline,
-                                  labels_of_the_narration(evidence.timeline),
-                                  strict=True)],
-         NOTHING),
+        ("What Argus did, in order:", narration, None if narration else NOTHING),
         ("Changes to production it read:",
          [CitedEvidence(label=cited.label, text=_a_change_as_a_line(cited.change))
-          for cited in the_changes_labelled(evidence)],
-         no_changes_listed(evidence.deploys_reading, evidence.flags_reading)),
-        ("Log lines it read, one per message:", grouped(evidence.log_lines),
-         no_logs_listed(evidence.logs_reading)),
-        ("Candidates it considered:", the_candidates_labelled(evidence), NOTHING),
-        ("Actions it took:",
-         _numbered(ACTION_PREFIX, [_an_action_as_a_line(action) for action in evidence.actions]),
-         NOTHING),
-        *([("What each deployment it looked into changed:", looked_into, NOTHING)]
+          for cited in changes],
+         changes_not_listed(evidence.deploys_reading, evidence.flags_reading,
+                            {cited.change.kind for cited in changes})),
+        ("Log lines it read, one per message:", log_lines,
+         None if log_lines else no_logs_listed(evidence.logs_reading)),
+        ("Candidates it considered:", candidates, None if candidates else NOTHING),
+        ("Actions it took:", actions, None if actions else NOTHING),
+        *([("What each deployment it looked into changed:", looked_into, None)]
           if looked_into else []),
         *([("What Code-Fix read in the source - a static reading, nothing ran it:",
-            read_in_the_source, NOTHING)] if read_in_the_source else [])
+            read_in_the_source, None)] if read_in_the_source else [])
     ]
 
 

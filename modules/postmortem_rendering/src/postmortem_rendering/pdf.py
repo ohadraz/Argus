@@ -1361,7 +1361,8 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     Between the two, the changes and the log messages read, what each
     deployment looked into changed and what Code-Fix read in the source, each
     a table of rows under the labels the prose cites them by - the last two
-    only where there is any."""
+    only where there is any - and beneath each, what is said of what it does
+    not list."""
     supporting = rendered.supporting
     for line in supporting.links:
         opening, *rest = line.runs
@@ -1377,14 +1378,15 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     ):
         if not rows and absent is None:
             continue
-        if absent:
-            _a_subheading(pdf, heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
-            _quiet(pdf, absent)
-        else:
+        if rows:
             _a_table_under_a_subheading(pdf, heading, _Table(
                 None, [[(row.label, _NUMBER, None), row.said] for row in rows],
                 widths=(16, 158), landings=[(row.label,) for row in rows],
                 under_a_heading=_a_subheading_s_height()))
+        else:
+            _a_subheading(pdf, heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
+        if absent:
+            _quiet(pdf, absent)
     pdf.ln(2.0)
 
     assumptions = [[*assumption.runs] for assumption in supporting.assumptions]

@@ -364,7 +364,8 @@ document.addEventListener('DOMContentLoaded', function () {
 {% endfor %}
 </ul>
 {# The two kinds of evidence no other section is a row for, each under the
-   label the prose cites it by, so a citation of one has somewhere to land. #}
+   label the prose cites it by, so a citation of one has somewhere to land -
+   and beneath the rows, what is said of what they do not list. #}
 {% for heading, rows, absent in [
      (supporting.changes_heading, supporting.changes, supporting.changes_absent),
      (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent)
@@ -378,7 +379,8 @@ document.addEventListener('DOMContentLoaded', function () {
   {% endfor %}
   </tbody>
 </table>
-{% else %}
+{% endif %}
+{% if absent %}
 <p class="empty">{{ absent }}</p>
 {% endif %}
 {% endfor %}

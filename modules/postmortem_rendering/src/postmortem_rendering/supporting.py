@@ -20,7 +20,7 @@ from argus_core.models import (
     CitedEvidence,
     PostmortemDocument,
     RevisionSource,
-    no_changes_listed,
+    changes_not_listed,
     no_logs_listed,
 )
 from pydantic import BaseModel, ConfigDict
@@ -54,7 +54,8 @@ class EvidenceRow(BaseModel):
 class SupportingSection(BaseModel):
     """The links, one line each; the changes and the log messages read, each a
     labelled row; the assumptions; and the word said in place of each list
-    where it is empty - `None` where it is not.
+    where it is empty - `None` where it is not. The changes' word is said
+    beneath their rows as well, of each kind of change that has none.
 
     The changes, the log messages and what each deployment looked into
     changed are the kinds of evidence no other section is a row for, so
@@ -123,7 +124,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
 
     return SupportingSection(links=tuple(links),
                              changes=changes,
-                             changes_absent=None if changes else _no_changes(postmortem),
+                             changes_absent=_no_changes(postmortem),
                              revision_addresses=revision_addresses,
                              log_messages=log_messages,
                              log_messages_absent=(None if log_messages
@@ -138,16 +139,21 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              assumptions_absent=None if assumptions else "None.")
 
 
-def _no_changes(postmortem: PostmortemDocument) -> str:
-    """What came of reading the deploys and the flags, each said apart: the
-    walk reads the flags every time and the deploys only when the
+def _no_changes(postmortem: PostmortemDocument) -> str | None:
+    """What came of reading each kind of change that has no row, each said
+    apart: the walk reads the flags every time and the deploys only when the
     investigation asks, so one word for both would say the deploys were read
-    whenever the flags were."""
+    whenever the flags were.
+
+    A document written before the readings were carried says "none read" where
+    nothing is listed, and nothing beneath rows it does list - what came of
+    reading the other kind is not known to it."""
+    listed = {cited.change.kind for cited in postmortem.changes_read}
     deploys, flags = postmortem.deploys_reading, postmortem.flags_reading
     if deploys is None or flags is None:
-        return _NONE_READ
+        return None if listed else _NONE_READ
 
-    return no_changes_listed(deploys, flags)
+    return changes_not_listed(deploys, flags, listed)
 
 
 def _no_log_messages(reading: ChannelReading | None) -> str:
