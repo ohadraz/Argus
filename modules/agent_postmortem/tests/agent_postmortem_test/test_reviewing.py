@@ -346,7 +346,7 @@ def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm
         .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
                           because=f"{why_it_was_refused(Refusal.WOULD_UNDO_A_MEANT_CHANGE)}; "
-                                  f"the proposed fix would confirm it (AI-1)")
+                                  f"the proposed fix would confirm the candidate (AI-1)")
         )
 
 

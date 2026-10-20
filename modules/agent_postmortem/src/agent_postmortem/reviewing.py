@@ -123,7 +123,9 @@ def _what_would_confirm_a_held_test(document: PostmortemDocument, held: Refusal)
 
     fix = _the_fix_s_item(document)
 
-    return f"{said}; the proposed fix would confirm it ({fix})" if fix else said
+    # The candidate by name: a bare "it" takes its meaning from the refusal's
+    # sentence before it, which ends on the failure or the action.
+    return f"{said}; the proposed fix would confirm the candidate ({fix})" if fix else said
 
 
 def _the_item_saying(document: PostmortemDocument, text: str | None) -> str | None:
