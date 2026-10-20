@@ -928,3 +928,9 @@ class Outcome(BaseModel):
     detail: str
     undo_descriptor: UndoDescriptor | None = None
     measured: bool = True
+    # What the verification wait judged, apart from the sentence that says it:
+    # the rule still firing, the service still at the incident's level, a
+    # window that never showed the incident. `detail` is for a reader; this is
+    # for a later round of the same incident, which is told why each attempt
+    # did not help and nothing else about it. `None` where nothing was watched.
+    because: str | None = None

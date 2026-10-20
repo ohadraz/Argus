@@ -1829,6 +1829,11 @@ def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
         .then(all_of(
             _the_only_line_marks(f"putting {the_flag_that_was_moved_down} back"),
             _the_only_line_mentions(the_incident_that_moved_it),
+            # As the narration says a verdict - "Judged the action REFUTED" -
+            # and not as a service that "did not recover", which is one of
+            # three findings a refutation can rest on.
+            _the_only_line_mentions("refuted there"),
+            _the_only_line_does_not_say("did not recover"),
             _the_lines_are_credited_to(["Argus"])))
 
 

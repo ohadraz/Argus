@@ -320,7 +320,10 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
             the_verdict_is(Verdict.WITHDRAWN),
             _the_detail_mentions("a person ended the incident before the verification wait "
                                  "reached a verdict"),
-            _the_detail_does_not_mention("withdrawn")
+            _the_detail_does_not_mention("withdrawn"),
+            # Nothing was watched, so nothing was judged and there is no reason
+            # for a later round to read.
+            _the_reason_is(None)
         ))
 
 
@@ -3000,7 +3003,8 @@ def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
             _the_detail_mentions("the service was no longer at the incident's level"),
-            _the_detail_does_not_mention("baseline")
+            _the_detail_does_not_mention("baseline"),
+            _the_reason_is("the service was no longer at the incident's level")
         ))
 
 
@@ -3104,6 +3108,21 @@ def _the_detail_mentions(expected: str) -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected the detail to mention [{expected}], "
                 f"got [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_reason_is(expected: str | None) -> Assertion[Outcome]:
+    """What the verification wait judged, carried apart from the sentence that
+    says it - for a later round, which is told the reason and not the rest."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.because != expected:
+            raise AssertionError(
+                f"Expected the outcome to carry the reason [{expected}], "
+                f"got [{outcome.because}]."
             )
 
         return True
@@ -3846,7 +3865,8 @@ def test_a_rule_still_firing_when_the_time_runs_out_refutes_the_action() -> None
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
             _the_detail_mentions("the rule that fired was still firing"),
-            _the_detail_does_not_mention("did not recover")
+            _the_detail_does_not_mention("did not recover"),
+            _the_reason_is("the rule that fired was still firing when the time it allows ran out")
         ))
 
 

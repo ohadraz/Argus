@@ -1478,11 +1478,13 @@ def _the_opening_message(alert: Alert,
         said.extend([
             "",
             "## Already tried",
-            "Argus took these actions on this incident and undid each one. The service "
-            "did not return to its baseline after any of them.",
+            "Argus took these actions on this incident, and none of them helped:",
+            # Each said as the verification wait judged it: the rule kept
+            # firing, the level never came down, or the window never showed the
+            # incident at all - different evidence about the cause.
             *(
                 f"- {_what_was_done_in(attempt)} at {attempt.occurred_at}: "
-                f"the service did not recover"
+                f"{attempt.refuted_because or 'refuted'}"
                 for attempt in already_refuted
             )
         ])

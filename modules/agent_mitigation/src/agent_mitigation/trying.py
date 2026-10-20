@@ -327,6 +327,7 @@ def take_action(action: Action,
     if settled.verdict is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
+            because=settled.because,
             # The reason the watching gave, rather than a sentence written here.
             # One verdict is reached four ways that mean different things - a
             # rule that stopped firing, a level that came down, a reading that
@@ -1303,6 +1304,7 @@ def _undone(performed: Performed,
     if undo_descriptor is None:
         return Outcome(
             verdict=Verdict.REFUTED,
+            because=because,
             detail=(
                 f"{taken}, but {because}, and "
                 f"{_why_nothing_was_put_back(action_type)}"
@@ -1326,18 +1328,21 @@ def _undone(performed: Performed,
 
             return Outcome(
                 verdict=Verdict.ESCALATED,
+                because=because,
                 detail=f"{taken}, but {because}, and {attempt.detail}",
                 undo_descriptor=undo_descriptor,
             )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
                 verdict=Verdict.REFUTED,
+                because=because,
                 detail=f"{taken}, but {because}, and {attempt.detail}",
                 undo_descriptor=undo_descriptor,
             )
         case Undone.RESTORED:
             return Outcome(
                 verdict=Verdict.REFUTED,
+                because=because,
                 detail=(
                     f"{taken}, but {because}, so it was put back "
                     f"{_how_it_was_put_back(undo_descriptor)}"
@@ -1355,6 +1360,7 @@ def _undone(performed: Performed,
             # so a kind that ever does both says one thing twice.
             return Outcome(
                 verdict=Verdict.REFUTED,
+                because=because,
                 detail=(
                     f"{taken}, but {because}, and "
                     f"{_why_nothing_was_put_back(action_type)}"

@@ -630,7 +630,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             emphasis = what_the_action_does(event.action_type, event.subject)
             text = (
                 f"Moved {emphasis} down the list - it was tried on incident "
-                f"{event.on_the_strength_of} and the service did not recover"
+                f"{event.on_the_strength_of} and refuted there"
             )
         case IncidentRemembered():
             who = _ARGUS

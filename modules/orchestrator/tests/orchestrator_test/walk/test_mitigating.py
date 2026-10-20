@@ -216,6 +216,41 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
 
 
 @pytest.mark.unit
+def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # A later round is told each attempt and why it did not help. "The rule
+    # kept firing" and "nothing in the window ever departed" are different
+    # evidence about the cause, and the walk is the only thing between the
+    # wait that judged it and the round that reads it.
+    some_reason = (
+        "the rule that fired was still firing when the time it allows ran out"
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.REFUTED, because=some_reason)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_reason_reported_is(some_reason))
+
+
+@pytest.mark.unit
 def test_a_refuted_action_reports_the_verdict_it_measured(
     take: MagicMock,
     record_action: MagicMock,
@@ -727,6 +762,40 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
         .then(all_of(_the_action_was_not_taken(take),
                      _nothing_was_completed(complete_action),
                      _the_verdict_reported_is(the_outcome_the_first_attempt_recorded)))
+
+
+@pytest.mark.unit
+def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The walk keeps every field a node leaves unset. A resumed claim records
+    # the verdict and not the reason, so a reason left by an earlier round's
+    # refuted action would be handed to the next round as this action's - a
+    # wrong reason, given to the Investigator as evidence.
+    some_earlier_reason = "the rule that fired was still firing"
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, Verdict.REFUTED)),
+            an_incident_past_a_refuted_round := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            ).model_copy(update={"action_because": some_earlier_reason})
+        ) \
+        .when(lambda: mitigation_node(an_incident_past_a_refuted_round,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(_the_walk_is_told_no_reason())
 
 
 @pytest.mark.unit
@@ -1705,11 +1774,13 @@ def _an_action_with_an_undo_descriptor() -> RevertFeatureFlag:
 def _the_action_came_back(take: MagicMock,
                           verdict: Verdict,
                           undo_descriptor: UndoDescriptor | None = None,
-                          measured: bool = True) -> None:
+                          measured: bool = True,
+                          because: str | None = None) -> None:
     take.return_value = Outcome(verdict=verdict,
                                 detail="dont care",
                                 undo_descriptor=undo_descriptor,
-                                measured=measured)
+                                measured=measured,
+                                because=because)
 
 
 def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
@@ -1743,6 +1814,36 @@ def _the_change_never_reached_the_provider(change_landed: MagicMock) -> None:
 
 def _the_provider_cannot_say(change_landed: MagicMock) -> None:
     change_landed.return_value = None
+
+
+def _the_walk_is_told_no_reason() -> Assertion[StateDelta]:
+    """Told outright, rather than left unset: a field a node leaves unset keeps
+    whatever an earlier node put there."""
+    def assertion(updates: StateDelta) -> bool:
+        told = updates.as_updates()
+
+        if "action_because" not in told or told["action_because"] is not None:
+            raise AssertionError(
+                f"Expected the node to tell the walk there is no reason, it told it "
+                f"[{told.get('action_because', 'nothing at all')}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_reason_reported_is(expected: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.action_because != expected:
+            raise AssertionError(
+                f"Expected the node to report the reason [{expected}], "
+                f"it reported [{updates.action_because}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_verdict_reported_is(expected: Verdict) -> Assertion[StateDelta]:

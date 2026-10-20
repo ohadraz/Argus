@@ -249,6 +249,7 @@ def mitigation_node(
 
         return StateDelta(
             action_outcome=outcome,
+            action_because=result.because,
             acted_at=announced.at,
             unreachable_platforms=[*state.unreachable_platforms, platform],
             narration=Narration(action="mitigation attempted", detail=result.detail)
@@ -256,6 +257,9 @@ def mitigation_node(
 
     return StateDelta(
         action_outcome=outcome,
+        # Carried for the round that reads this attempt, which is told how it
+        # did not help and nothing else about it.
+        action_because=result.because,
         acted_at=announced.at,
         narration=Narration(action="mitigation attempted", detail=result.detail)
     )
@@ -382,6 +386,10 @@ def _what_the_earlier_attempt_left(state: IncidentState,
         # The walk that announced it is gone, and the row is all that is left.
         return StateDelta(
             action_outcome=outcome,
+            # Told outright: the claim records the verdict and not the reason,
+            # and left unset the walk would keep an earlier round's reason and
+            # hand it on as this action's.
+            action_because=None,
             acted_at=claimed.claimed_at,
             narration=Narration(
                 action="mitigation resumed",
@@ -453,6 +461,8 @@ def _nothing_to_act_on() -> StateDelta:
     """
     return StateDelta(
         action_outcome=Verdict.ESCALATED,
+        # Nothing was watched, and an earlier round's reason is not this one's.
+        action_because=None,
         narration=Narration(
             action="mitigation attempted",
             detail="no action reached the mitigation step"

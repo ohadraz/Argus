@@ -6,13 +6,22 @@ from argus_core.models.action import ActionIdentity
 
 
 class Attempt(BaseModel):
-    """A mitigation already taken for this incident, and undone again.
+    """A mitigation already taken for this incident, and refuted.
 
     Only failures are worth recording here: a mitigation that worked ended the
     incident, and there is no later round to tell about it. So an attempt on
     this list is by definition one that changed production and did not help -
     which is why the type carries no outcome field. Adding one would invite a
     caller to record a success nothing would ever read.
+
+    `refuted_because` is how it did not help, as the verification wait judged
+    it, and is not that outcome: every attempt here is still a failure. It is
+    the same kind of evidence `identity` is. The rule kept firing says the
+    action did not move what paged; nothing in the window ever departed says
+    it was judged on a window that never showed the incident, which points a
+    later round at what was read rather than at the cause. `None` only for an
+    attempt whose walk resumed from a claim another worker wrote, which records
+    the verdict and not the reason.
 
     `identity` says what was done as well as where, and says them as one value.
     A later round told that a subject "was tried" cannot tell a flag put back
@@ -46,3 +55,4 @@ class Attempt(BaseModel):
     identity: ActionIdentity
     enabled: bool | None = None
     occurred_at: str
+    refuted_because: str | None = None

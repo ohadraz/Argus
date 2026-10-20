@@ -208,7 +208,12 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
         Attempt(
             identity=the_identity_of(action),
             enabled=the_direction_of(action),
-            occurred_at=to_iso(state.acted_at)
+            occurred_at=to_iso(state.acted_at),
+            # Always a refutation's reason here: this node is reached after a
+            # refuted action, and an escalated one ends the walk before it.
+            # `None` only where the walk resumed from a claim, whose recorded
+            # outcome carries the verdict and not the reason.
+            refuted_because=state.action_because
         )
     ]
 

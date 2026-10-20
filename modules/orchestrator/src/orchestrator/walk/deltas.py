@@ -148,6 +148,7 @@ class StateDelta(BaseModel):
     # comparison against a misspelt literal is a branch that silently never
     # runs.
     action_outcome: Verdict | None = None
+    action_because: str | None = None
     # What the node says it did. Never a field of the state: `with_status`
     # takes it out, writes the row, and passes on what remains.
     narration: Narration | None = None

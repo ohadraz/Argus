@@ -190,6 +190,26 @@ def test_what_was_tried_is_remembered_at_the_moment_it_was_taken() -> None:
 
 
 @pytest.mark.unit
+def test_what_was_tried_is_remembered_with_why_it_did_not_help() -> None:
+    # The reason the wait judged it on, carried to the round that reads the
+    # attempt: which way it failed is evidence about the cause.
+    incident_id = a_random_id()
+    some_reason = (
+        "the rule that fired was still firing when the time it allows ran out"
+    )
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 because=some_reason)
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(_the_attempt_recorded_was_refuted_because(some_reason))
+
+
+@pytest.mark.unit
 def test_a_walk_with_a_candidate_left_carries_on() -> None:
     incident_id = a_random_id()
 
@@ -506,7 +526,8 @@ def _a_walk_at(incident_id: str,
                index: int,
                acted_on: str = SOME_FLAG,
                acted_at: datetime = DONT_CARE_MOMENT_IT_WAS_TAKEN,
-               rounds: int = 1) -> IncidentState:
+               rounds: int = 1,
+               because: str | None = None) -> IncidentState:
     """An incident mid-walk: a candidate has just been tried and did not settle
     anything, and the state carries what it takes to decide what happens next.
 
@@ -540,7 +561,8 @@ def _a_walk_at(incident_id: str,
             enabled=False,
             undo_descriptor=FlagUndo(flag=acted_on, was_enabled=True)
         ),
-        acted_at=acted_at
+        acted_at=acted_at,
+        action_because=because
     )
 
 
@@ -712,6 +734,20 @@ def _the_attempts_recorded_are(expected: list[str]) -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the attempts to record {expected}, they record {recorded}."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_recorded_was_refuted_because(expected: str) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        reasons = [attempt.refuted_because for attempt in updates.attempts or []]
+
+        if reasons != [expected]:
+            raise AssertionError(
+                f"Expected the one attempt recorded to say it was refuted because "
+                f"[{expected}], got {reasons}.")
 
         return True
 

@@ -181,6 +181,10 @@ class IncidentState(BaseModel):
     # state machine branches on this, and a comparison against a string is one
     # that keeps compiling after somebody changes how a verdict is written.
     action_outcome: Verdict | None = None
+    # What the verification wait judged the attempt on, carried to the round
+    # that reads it as an attempt (`Attempt.refuted_because`). `None` where
+    # nothing was watched.
+    action_because: str | None = None
 
 
 def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
