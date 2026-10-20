@@ -44,7 +44,7 @@ from agent_codefix import FixSettings, SubmittedFix, propose_fix
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.models import FailureMode, Hypothesis, ProposedFix
+from argus_core.models import FailureMode, Hypothesis, ProposedFix, ToolDefinition
 from argus_testkit import Assertion, Scenario, all_of, calling
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
@@ -111,6 +111,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     _a_hypothesis_about(dont_care_incident_id),
                     dont_care_incident_id,
                     settings=FixSettings.of(settings),
+                    read_tier_tools=_nothing_served,
                     search=_nothing_found,
                     search_by_meaning=_nothing_found,
                     index_notice=_nothing_to_say,
@@ -151,6 +152,10 @@ def _a_hypothesis_about(incident_id: str) -> Hypothesis:
 # the submission. Empty rather than raising, because a read that raised would be
 # answered to the model as a failed tool call - and the test would fail on the
 # queue running dry, a step later and for a reason that reads like the double's.
+def _nothing_served() -> list[ToolDefinition]:
+    return []
+
+
 def _nothing_found(_asked: str, _ref: str, /) -> list[str]:
     return []
 

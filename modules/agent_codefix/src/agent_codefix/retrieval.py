@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from argus_core.models import ToolDefinition
+
 # `Protocol` rather than a `Callable` alias throughout, for the reason the
 # investigator's retrieval channels are: a test stands each of these in with
 # `create_autospec`, which needs something introspectable - and specing against
@@ -64,3 +66,14 @@ class BranchMembership(Protocol):
     """
 
     def __call__(self, branch: str, revision: str, /) -> bool: ...
+
+
+class ReadTierTools(Protocol):
+    """The repository tools Code-Fix holds, as the read tier declares them.
+
+    Asked once, before the conversation starts, like the two above: what a tier
+    serves does not change mid-fix, and the tool list is the start of every
+    request's cached prefix.
+    """
+
+    def __call__(self) -> list[ToolDefinition]: ...

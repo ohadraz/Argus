@@ -54,6 +54,7 @@ THE_PLACEMENT = "get_placements"
 # Whether the branch Code-Fix reads contains the revision that ran, which Code-Fix
 # is told before it reads anything.
 THE_BRANCH_CONTAINING = "branch_contains_revision"
+THE_FILE_READER = "read_repository_file"
 
 # The tools a model is offered as this tier declares them (MCP, `tools/list`),
 # each with the arguments its caller fills in itself rather than asking the
@@ -208,6 +209,23 @@ def test_a_tool_a_model_is_offered_is_described_for_the_model(tool: str) -> None
               for argument in OFFERED_TO_A_MODEL[tool])))
 
 
+@pytest.mark.unit
+def test_the_file_reader_tells_a_model_to_read_several_files_in_one_turn() -> None:
+    # Measured over Code-Fix's recorded corpus rather than supposed: the model
+    # asked for exactly one file in 59 of 88 turns, and its widest turn was two
+    # in most walks and four in two of them. Nothing in its loop was holding it
+    # to one - every parallel call is answered in a single reply - so what did
+    # was this tool's own first sentence, "Read one file's entire contents",
+    # which reads as a limit where a unit was meant.
+    #
+    # Worth correcting because turns are what the resend is quadratic in, and
+    # said in the tool rather than in a brief, because the sentence that reads
+    # as the constraint is the sentence that has to stop reading that way.
+    Scenario() \
+        .when(lambda: _the_tool_listed(SEARCHING_BY_GREP_ALONE, THE_FILE_READER)) \
+        .then(_its_description_says("several files"))
+
+
 def _the_tool_listed(mode: CodeSearch, name: str) -> Tool:
     """One tool as one deployment's read tier lists it."""
     found = [tool for tool in asyncio.run(_a_read_tier(mode).list_tools())
@@ -257,6 +275,21 @@ def _it_is_described_in_at_least(sentences: int) -> Assertion[Tool]:
             raise AssertionError(
                 f"Expected [{tool.name}] described in at least {sentences} sentences, "
                 f"and it is described in {counted}: [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_description_says(wanted: str) -> Assertion[Tool]:
+    def assertion(tool: Tool) -> bool:
+        said = tool.description or ""
+
+        if wanted not in said:
+            raise AssertionError(
+                f"Expected [{tool.name}]'s description to say [{wanted}], and it says "
+                f"[{said}]."
             )
 
         return True

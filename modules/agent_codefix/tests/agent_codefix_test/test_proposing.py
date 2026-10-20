@@ -35,6 +35,7 @@ from agent_codefix.retrieval import (
     FileReader,
     IndexNotice,
     MeaningSearcher,
+    ReadTierTools,
     SourceSearcher,
 )
 from agent_codefix.tools import READ_FILE_TOOL
@@ -686,36 +687,6 @@ def test_a_conclusion_that_names_a_file_sends_the_model_there_first() -> None:
 
 
 @pytest.mark.unit
-def test_the_model_may_ask_for_several_files_in_one_turn() -> None:
-    # Measured over the recorded corpus rather than supposed: the model asked
-    # for exactly one file in 59 of 88 turns, and its widest turn was two in
-    # most walks and four in two of them. Nothing in the loop was holding it to
-    # one - every parallel call is answered in a single reply, and always has
-    # been - so what did was the read tool's own first sentence, "Read one
-    # file's entire contents", which reads as a limit where a unit was meant.
-    #
-    # Worth correcting because turns are what the resend is quadratic in:
-    # everything read so far is sent again on every call, and three walks ran
-    # out mid-read having submitted nothing. Said in the tool rather than in the
-    # brief, because the sentence that reads as the constraint is the sentence
-    # that has to stop reading that way.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(_the_tool_offered_said(model, READ_FILE_TOOL, "several files"))
-
-
-@pytest.mark.unit
 def test_a_fault_that_already_wrote_wrong_values_is_asked_for_a_repair_too() -> None:
     # A patch stops the fault and leaves every value it already wrote wrong, so
     # a pull request carrying only the patch closes an incident while the
@@ -1090,117 +1061,6 @@ def test_a_listing_that_could_not_be_fetched_does_not_end_the_work() -> None:
 
 
 @pytest.mark.unit
-def test_a_deployment_with_an_index_offers_both_ways_of_searching() -> None:
-    # They answer different questions and are worth having together: one
-    # matches characters, the other meaning. A cause that has a name is found
-    # faster by the first, and one that only has a description is found at all
-    # by the second.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(retrieval=CodeSearch.BOTH),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(
-            all_of(
-                _the_model_was_offered(model, "search_repository"),
-                _the_model_was_offered(model, "search_repository_by_meaning"),
-                _the_model_was_offered(model, "read_repository_file"),
-                _the_model_was_offered(model, "submit_fix"),
-                # Offered alongside the patch tool, not instead of it: a
-                # deployment where the model can propose but cannot conclude is
-                # one where the only answer is a fix, however the code reads.
-                _the_model_was_offered(model, "report_nothing_to_change")
-            )
-        )
-
-
-@pytest.mark.unit
-def test_the_agent_is_offered_nothing_that_could_run_a_repair() -> None:
-    # The guarantee this agent rests on is the absence of a capability, not a
-    # check somebody could skip (§13) - and a repair script makes that concrete
-    # rather than theoretical. Code-Fix now proposes a file whose whole purpose
-    # is to rewrite stored data, so for the first time the difference between
-    # writing one and running one is a difference about this agent.
-    #
-    # Pinned as the whole set rather than asserted as the absence of a name
-    # nobody has written: a tool that ran something would be added under a name
-    # this test cannot predict, and a check for "no tool called execute" is a
-    # check that passes on the day somebody calls it something else.
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(),
-                converse=model.converse,
-                **a_repository(holding=[SOME_PATH]).ports()
-            )
-        ) \
-        .then(_the_only_tools_offered_were(model))
-
-
-@pytest.mark.unit
-def test_a_deployment_with_no_index_offers_no_tool_that_cannot_answer() -> None:
-    # A tool that is offered will be called, and one backed by an index nobody
-    # built answers nothing for every description - which a model reads as a
-    # fact about the code rather than about the deployment.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(retrieval=CodeSearch.GREP),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(
-            all_of(
-                _the_model_was_offered(model, "search_repository"),
-                _the_model_was_not_offered(model, "search_repository_by_meaning")
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_run_of_meaning_alone_offers_no_substring_search() -> None:
-    # What the benchmark's retriever comparison (§21) needs: one channel at a
-    # time, over the same incidents, or the answer is about having both.
-    repository = a_repository()
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
-
-    Scenario() \
-        .when(
-            lambda: propose_fix(
-                DONT_CARE_HYPOTHESIS,
-                DONT_CARE_INCIDENT,
-                settings=some_settings(retrieval=CodeSearch.MEANING),
-                converse=model.converse,
-                **repository.ports()
-            )
-        ) \
-        .then(
-            all_of(
-                _the_model_was_offered(model, "search_repository_by_meaning"),
-                _the_model_was_not_offered(model, "search_repository")
-            )
-        )
-
-
-@pytest.mark.unit
 def test_an_index_that_is_behind_is_said_before_the_model_reads_anything() -> None:
     # Told rather than left to find out. The index is built off any incident's
     # path, so it can describe an older commit than the one being fixed - and a
@@ -1386,79 +1246,6 @@ def _the_meaning_search_was_made_at(repository: _Repository,
             raise AssertionError(
                 f"Expected a search by meaning at ref [{ref}], got [{asked}]."
             )
-
-        return True
-
-    return assertion
-
-
-def _the_model_was_offered(model: _Model, tool: str) -> Assertion[Any]:
-    """A tool the model could reach for, which is the whole of what it has."""
-    def assertion(dont_care_result: Any) -> bool:
-        offered = {
-            definition.name
-            for definitions in model.tools_offered
-            for definition in definitions
-        }
-
-        if tool not in offered:
-            raise AssertionError(f"Expected [{tool}] to be offered, got {offered}.")
-
-        return True
-
-    return assertion
-
-
-def _the_only_tools_offered_were(model: _Model) -> Assertion[Any]:
-    """That the set of things this agent can reach is exactly this.
-
-    Named here rather than imported from the module that builds them, which
-    would make this a test that the code equals itself. The point of writing
-    them out is that widening the set is a line somebody has to add in two
-    places, one of which asks why.
-
-    Four reads and three answers. Nothing here reaches the service, nothing
-    runs anything, and nothing merges - which is the guarantee stated as an
-    absence (§13) rather than as a check a later caller could skip.
-    """
-    def assertion(dont_care_result: Any) -> bool:
-        offered = {
-            definition.name
-            for definitions in model.tools_offered
-            for definition in definitions
-        }
-        expected = {
-            "search_repository",
-            "search_repository_by_meaning",
-            "list_repository_files",
-            "read_repository_file",
-            "submit_fix",
-            "report_nothing_to_change",
-            "answer_question"
-        }
-
-        if offered != expected:
-            raise AssertionError(
-                f"Expected exactly {sorted(expected)} to be offered, got "
-                f"{sorted(offered)}. A tool added here can reach production "
-                f"without anybody deciding it should."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_model_was_not_offered(model: _Model, tool: str) -> Assertion[Any]:
-    def assertion(dont_care_result: Any) -> bool:
-        offered = {
-            definition.name
-            for definitions in model.tools_offered
-            for definition in definitions
-        }
-
-        if tool in offered:
-            raise AssertionError(f"Expected [{tool}] not to be offered, got {offered}.")
 
         return True
 
@@ -1954,6 +1741,58 @@ def test_every_turn_is_offered_the_same_tools() -> None:
             )
         ) \
         .then(_every_turn_was_offered_the_same_tools(model))
+
+
+@pytest.mark.unit
+def test_the_model_is_offered_what_the_read_tier_serves_on_every_turn() -> None:
+    # The read tier's reads are offered as it declares them, beside the three
+    # ways to answer - and a later turn is offered them as the first was.
+    some_served = ToolDefinition(name="some_read",
+                                 description="dont care what it reads",
+                                 properties={},
+                                 required=[])
+    repository = a_repository(serving=[some_served])
+    model = a_model_that(
+        asks_to_list_files(),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_every_turn_was_offered(model, some_served.name))
+
+
+@pytest.mark.unit
+def test_the_read_tier_is_asked_what_it_serves_once_however_many_turns() -> None:
+    # What a tier serves does not change mid-fix, and asking before every turn
+    # would be a request across the boundary per turn, for nothing.
+    repository = a_repository()
+    model = a_model_that(
+        asks_to_list_files(),
+        submits_a_fix_touching(SOME_PATH),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_read_tier_was_asked_once(repository))
 
 
 @pytest.mark.unit
@@ -2840,34 +2679,6 @@ def _the_model_was_not_told_a_repr(model: _Model) -> Assertion[Any]:
     return assertion
 
 
-def _the_tool_offered_said(model: _Model, named: str, said: str) -> Assertion[Any]:
-    """What one of the tools the model was handed told it about itself.
-
-    Asserted against what was offered rather than against the definition in the
-    module, because a description is an instruction only once it has reached the
-    model - and `tools_for` is what decides which definitions do.
-    """
-    def assertion(_: Any) -> bool:
-        offered = [
-            tool for turn in model.tools_offered for tool in turn if tool.name == named
-        ]
-
-        if not offered:
-            raise AssertionError(
-                f"Expected [{named}] to have been offered to the model; it was not."
-            )
-
-        if not any(said in tool.description for tool in offered):
-            raise AssertionError(
-                f"Expected [{named}] to have said [{said!r}], it said "
-                f"[{offered[0].description!r}]."
-            )
-
-        return True
-
-    return assertion
-
-
 def _the_branch_written_mentions(repository: _Repository, incident: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         written = repository.write_branch.call_args.kwargs["branch"]
@@ -3072,6 +2883,35 @@ def _every_turn_was_offered_the_same_tools(model: _Model) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected every turn to be offered the tools the first was, "
                 f"{offered[0]}; some were offered {different}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _every_turn_was_offered(model: _Model, tool: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        offered = [[definition.name for definition in tools] for tools in model.tools_offered]
+        missing = [names for names in offered if tool not in names]
+
+        if not offered or missing:
+            raise AssertionError(
+                f"Expected [{tool}] offered on every turn, and the turns were offered "
+                f"{offered}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_read_tier_was_asked_once(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if repository.read_tier_tools.call_count != 1:
+            raise AssertionError(
+                f"Expected the read tier asked once what it serves, and it was asked "
+                f"{repository.read_tier_tools.call_count} times."
             )
 
         return True
@@ -3327,7 +3167,11 @@ class _Repository:
                  found: list[str],
                  reading_like: list[str],
                  whose_index_says: str,
-                 containing_what_ran: bool) -> None:
+                 containing_what_ran: bool,
+                 serving: list[ToolDefinition]) -> None:
+        self.read_tier_tools: Any = create_autospec(
+            ReadTierTools, instance=True, return_value=serving
+        )
         self.list_files: Any = create_autospec(
             FileLister, instance=True, return_value=holding
         )
@@ -3367,6 +3211,7 @@ class _Repository:
         bury the line each test is actually about.
         """
         return {
+            "read_tier_tools": self.read_tier_tools,
             "list_files": self.list_files,
             "search": self.search,
             "search_by_meaning": self.search_by_meaning,
@@ -3383,13 +3228,18 @@ def a_repository(holding: list[str] | None = None,
                  where: list[str] | None = None,
                  reading_like: list[str] | None = None,
                  whose_index_says: str = "",
-                 containing_what_ran: bool = True) -> _Repository:
+                 containing_what_ran: bool = True,
+                 serving: list[ToolDefinition] | None = None) -> _Repository:
     """The repository as the loop sees it - indexed, and current unless said.
 
     `whose_index_says` empty is an index describing the commit being fixed,
     which is the ordinary state and the one that must add nothing to what the
     model is told. `containing_what_ran` is the same for the branch read: it contains
     the revision that ran unless said.
+
+    `serving` is the read tier's tools the loop offers beside its own - none
+    unless said, since which reads a deployment holds is `tools`' to decide and
+    `test_tools`' to pin.
     """
     return _Repository(
         holding or [SOME_PATH],
@@ -3399,7 +3249,8 @@ def a_repository(holding: list[str] | None = None,
             f"{SOME_PATH}:4-9\n{SOME_SOURCE}"
         ],
         whose_index_says,
-        containing_what_ran
+        containing_what_ran,
+        serving or []
     )
 
 

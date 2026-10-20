@@ -63,6 +63,7 @@ from read_mcp_client import (
     branch_contains_revision,
     get_repository_index_freshness,
     list_repository_files,
+    offered,
     read_repository_file,
     search_repository,
     search_repository_by_meaning,
@@ -94,9 +95,10 @@ from agent_codefix.retrieval import (
     FileReader,
     IndexNotice,
     MeaningSearcher,
+    ReadTierTools,
     SourceSearcher,
 )
-from agent_codefix.tools import the_answer_to, tools_for
+from agent_codefix.tools import READ_TIER_HELD, the_answer_to, tools_for
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +238,9 @@ def fixes_over(read: McpClient,
     return partial(
         propose_fix,
         settings=settings,
+        # The repository tools this deployment's way of finding source holds,
+        # as the read tier declares them.
+        read_tier_tools=partial(offered, READ_TIER_HELD[settings.code_search], client=read),
         search=partial(search_repository, client=read),
         search_by_meaning=partial(search_repository_by_meaning, client=read),
         index_notice=partial(get_repository_index_freshness, client=read),
@@ -252,6 +257,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                 incident_id: str,
                 *,
                 settings: FixSettings,
+                read_tier_tools: ReadTierTools,
                 search: SourceSearcher,
                 search_by_meaning: MeaningSearcher,
                 index_notice: IndexNotice,
@@ -314,10 +320,14 @@ def propose_fix(hypothesis: Hypothesis | None,
     `deployed` is the revision running when the alert fired, where one is
     known. `contains` is asked whether the branch read has it, and the opening
     says so only where it does not.
+
+    `read_tier_tools` is the repository tools the model is offered, as the read
+    tier declares them - asked once, before the conversation starts.
     """
     submitted = _what_the_model_submitted(
         hypothesis,
         settings=settings,
+        read_tier_tools=read_tier_tools,
         search=search,
         search_by_meaning=search_by_meaning,
         index_notice=index_notice,
@@ -383,6 +393,7 @@ def propose_fix(hypothesis: Hypothesis | None,
 def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               *,
                               settings: FixSettings,
+                              read_tier_tools: ReadTierTools,
                               search: SourceSearcher,
                               search_by_meaning: MeaningSearcher,
                               index_notice: IndexNotice,
@@ -414,7 +425,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     bounds bound, and the old one guessed "turns" because that was the only
     answer there was.
     """
-    tools = tools_for(settings)
+    tools = tools_for(read_tier_tools())
     # Every lead the model has been shown, in the order it was shown them.
     shown = leads()
     transcript: list[Exchange] = [
