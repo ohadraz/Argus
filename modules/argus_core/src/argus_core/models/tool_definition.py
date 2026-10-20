@@ -86,18 +86,19 @@ class ToolDefinition(BaseModel):
 
         Refuses an argument the offer cannot carry, naming it, rather than
         offering something wrong: one defined elsewhere in the schema (a `$ref`
-        into `$defs`, which properties alone leave pointing at nothing), and a
-        map, which strict tool use cannot say - stamped strict, it would take
-        no keys at all.
+        into `$defs`, which properties alone leave pointing at nothing), and an
+        object that does not name every key it takes - a map, one open to any
+        key, one naming none - which strict tool use cannot say: stamped strict,
+        it would take only the keys it named, and those may be none at all.
         """
         for argument, schema in input_schema.get(_PROPERTIES_KEY, {}).items():
             if _anywhere_in(schema, _refers_elsewhere):
                 raise ValueError(f"tool {name!r} argument {argument!r} is defined "
                                  f"elsewhere in its schema, which an offer does not carry")
 
-            if _anywhere_in(schema, _is_a_map):
-                raise ValueError(f"tool {name!r} argument {argument!r} is a map, which "
-                                 f"a strict offer cannot say")
+            if _anywhere_in(schema, _takes_keys_it_does_not_name):
+                raise ValueError(f"tool {name!r} argument {argument!r} is an object taking "
+                                 f"keys it does not name, which a strict offer cannot say")
 
         return cls(
             name=name,
@@ -175,9 +176,13 @@ def _refers_elsewhere(node: dict[str, Any]) -> bool:
     return _REF_KEY in node
 
 
-def _is_a_map(node: dict[str, Any]) -> bool:
-    """An object whose keys are anybody's, each holding a value of one schema."""
-    return isinstance(node.get(_ADDITIONAL_PROPERTIES_KEY), dict)
+def _takes_keys_it_does_not_name(node: dict[str, Any]) -> bool:
+    """An object open to keys beyond those it names - a map among them, whose
+    keys are anybody's - or one naming no keys at all."""
+    if node.get(_ADDITIONAL_PROPERTIES_KEY, False) is not False:
+        return True
+
+    return node.get(_TYPE_KEY) == _OBJECT_TYPE and _PROPERTIES_KEY not in node
 
 
 def _untitled(schema: Any) -> Any:

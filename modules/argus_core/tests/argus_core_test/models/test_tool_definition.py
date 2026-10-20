@@ -355,6 +355,36 @@ def test_a_map_argument_is_refused_since_a_strict_offer_cannot_say_it() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("argument_schema", [
+    {"type": "object"},
+    {"type": "object", "properties": {"path": {"type": "string"}}, "additionalProperties": True}
+], ids=["names-no-keys", "takes-keys-it-does-not-name"])
+def test_an_object_taking_keys_it_does_not_name_is_refused(
+        argument_schema: dict[str, Any]) -> None:
+    # A strict offer closes every object to the keys it names. One naming none
+    # would then take nothing, and one open to any key would quietly stop taking
+    # the keys it never named - either way an offer saying less than the server.
+    the_servers_schema = {
+        "type": "object",
+        "properties": {"files": argument_schema},
+        "required": ["files"]
+    }
+
+    Scenario() \
+        .when(
+            attempting(lambda: ToolDefinition.from_input_schema(
+                "dont_care_tool", "dont care what it does", the_servers_schema
+            ))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(ValueError),
+                the_error_mentioned("files")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_leaving_out_an_argument_the_tool_does_not_take_is_refused() -> None:
     # A server that renamed an argument its caller fills in would otherwise
     # have it offered to the model again, under its new name, with nothing
