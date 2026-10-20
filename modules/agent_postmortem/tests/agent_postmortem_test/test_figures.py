@@ -199,7 +199,7 @@ def test_the_ratio_of_two_shares_is_written_in_as_how_many_times() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(("working", "written"), [
     ("{began + duration}", "Sep 02, 2026, 12:10:00 UTC"),
-    ("{closed - held}", "Sep 02, 2026, 12:00:00 UTC"),
+    ("{argus_stopped - held}", "Sep 02, 2026, 12:00:00 UTC"),
     ("{held + duration}", "40 minutes"),
     ("{held - duration}", "20 minutes"),
     ("{held / duration}", "3.0 times"),
@@ -489,6 +489,27 @@ def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
                 CLOSED_FIGURE: Figure(given=to_iso(ENDED_AT), written="Sep 02, 2026, 12:30:00 UTC")
             })
         )
+
+
+@pytest.mark.unit
+def test_the_last_instant_is_named_for_argus_stopping_rather_than_the_incident_closing() -> None:
+    # Named "closed", it sat beside the last instant of an escalated incident
+    # too - one that had not closed, whose blind stretch was still running. The
+    # name is what a recorded answer writes, so it is spelled out here rather
+    # than read off the constant: renaming it is renaming what the model is
+    # shown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident()
+        ) \
+        .when(
+            lambda: sorted(figures_of(evidence, measured))
+        ) \
+        .then(all_of(
+            _includes("argus_stopped"),
+            _leaves_out("closed")
+        ))
 
 
 @pytest.mark.unit
@@ -837,6 +858,26 @@ def test_the_alerts_figures_are_among_the_incidents() -> None:
         .then(
             _the_figures_include(the_alerts_figures(SOME_FINDING))
         )
+
+
+def _includes(name: str) -> Assertion[list[str]]:
+    def assertion(names: list[str]) -> bool:
+        if name not in names:
+            raise AssertionError(f"Expected a figure named [{name}], got {names}.")
+
+        return True
+
+    return assertion
+
+
+def _leaves_out(name: str) -> Assertion[list[str]]:
+    def assertion(names: list[str]) -> bool:
+        if name in names:
+            raise AssertionError(f"Expected no figure named [{name}], got {names}.")
+
+        return True
+
+    return assertion
 
 
 def _the_figures_include(expected: Mapping[str, Figure]) -> Assertion[Mapping[str, Figure]]:

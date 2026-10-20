@@ -519,15 +519,15 @@ def test_a_working_that_makes_no_sense_is_named() -> None:
     Scenario() \
         .given(
             an_answer_adding_two_instants := _an_answer(
-                executive_summary="it ended at {began + closed}")
+                executive_summary="it ended at {began + argus_stopped}")
         ) \
         .when(
             lambda: faults_in(an_answer_adding_two_instants,
-                              given=_given_figures("began", "closed"))
+                              given=_given_figures("began", "argus_stopped"))
         ) \
         .then(
             all_of(
-                _named("[{began + closed}]"),
+                _named("[{began + argus_stopped}]"),
                 _named("works out to nothing"),
                 _named("an instant minus an instant"),
                 _found(1)
