@@ -457,6 +457,30 @@ def test_the_postmortem_page_offers_the_document_as_a_pdf() -> None:
 
 
 @pytest.mark.component
+def test_the_postmortem_page_s_all_incidents_link_leads_to_the_list_of_them() -> None:
+    # "/" is the live page - one incident, not a list of them - so a link
+    # promising all of them and leading there leaves the reader on the wrong
+    # page. The incident page's own link goes to the history, and this one says
+    # the same words.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says('<a href="/history">all incidents</a>')
+        )
+
+
+@pytest.mark.component
 def test_an_incident_with_no_postmortem_offers_no_pdf_of_one() -> None:
     # A download of nothing would be a file that fails to open.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")

@@ -96,7 +96,7 @@ class _Sheet(FPDF):
                         if run.role is Role.MOMENT), "")
         self._written = f"Argus postmortem · written {written}"
         self.labels = rendered.labels
-        self.addresses = rendered.supporting.revision_addresses
+        self.addresses = rendered.supporting.prose_addresses
         self._citations: dict[str, int] = {}
 
     def citation(self, label: str) -> int:
@@ -323,7 +323,8 @@ _TEXT_KEPT_WITH_A_SUBHEADING: Final = 2 * _LINE
 
 def _cited(pdf: _Sheet, runs: Sequence[Run]) -> Iterator[Run]:
     """The runs with every label the prose cites cut out as a citation of the
-    row it names, and every revision it names as a link to where it opens."""
+    row it names, and every revision it names - and the proposed fix - as a
+    link to where it opens."""
     for run in runs:
         yield from (run.with_references(pdf.labels, pdf.addresses) if run.role is Role.PROSE
                     else (run,))

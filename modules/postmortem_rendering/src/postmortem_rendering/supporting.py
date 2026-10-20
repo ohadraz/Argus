@@ -78,7 +78,10 @@ class SupportingSection(BaseModel):
     `revision_addresses` is each revision the changes read name - short, as
     the prose writes one, and whole - and where it opens: the prose names a
     deploy by its revision as well as by its label, and a reader follows
-    either.
+    either. `prose_addresses` is those and the proposed fix, by the name the
+    document gives it: an action item naming "PR #7" leads where the fix
+    opens. Only the document's own - a pull request it holds nothing of has
+    nowhere true to lead.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -88,6 +91,7 @@ class SupportingSection(BaseModel):
     changes: tuple[EvidenceRow, ...]
     changes_absent: str | None
     revision_addresses: dict[str, str]
+    prose_addresses: dict[str, str]
     log_messages_heading: str = "Log messages read (UTC)"
     log_messages: tuple[EvidenceRow, ...]
     log_messages_absent: str | None
@@ -134,6 +138,9 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              changes=changes,
                              changes_absent=_no_changes(postmortem),
                              revision_addresses=revision_addresses,
+                             prose_addresses={**revision_addresses,
+                                              **({Run.a_pull_request(fix.number).text: fix.url}
+                                                 if fix is not None else {})},
                              log_messages=log_messages,
                              log_messages_absent=(None if log_messages
                                                   else _no_log_messages(postmortem.logs_reading)),

@@ -86,10 +86,10 @@
 
 {# Every row the model's prose may cite, by the label it cites it by, so a
    citation links to its row - and one naming a row this page does not have
-   stays plain - and every revision the changes read name, so the prose naming
-   one opens it. #}
+   stays plain - and every revision the changes read name, and the proposed
+   fix by its name, so the prose naming one opens it. #}
 {% set labels = postmortem.labels %}
-{% set addresses = postmortem.supporting.revision_addresses %}
+{% set addresses = postmortem.supporting.prose_addresses %}
 
 {# What a reader asks before reading any of it, each row under the label the
    document gives it. The two times a reader most easily takes for each other -
@@ -442,7 +442,7 @@ document.addEventListener('DOMContentLoaded', function () {
 {% endif %}
 
 <p class="links">
-  <a href="/">all incidents</a> ·
+  <a href="/history">all incidents</a> ·
   <a href="/incidents/{{ incident.id }}">the walk</a>
 </p>
 {% endblock %}

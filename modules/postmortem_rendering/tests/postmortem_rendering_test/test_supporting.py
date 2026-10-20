@@ -126,6 +126,29 @@ def test_each_revision_a_change_read_names_leads_where_it_opens_short_and_whole(
 
 
 @pytest.mark.unit
+def test_the_prose_names_the_proposed_fix_as_a_link_to_it_beside_each_revision() -> None:
+    # Prose naming the fix - an action item's "PR #7" - leads where the fix
+    # opens, as a revision it names does. Only the document's own fix: a pull
+    # request it holds nothing of has nowhere true to lead.
+    commit = f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"
+    some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
+                                 branch="dont care")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(changes_read=[a_deploy_read("P2")],
+                                            pull_request=some_fix)
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).prose_addresses
+        ) \
+        .then(
+            the_answer_was({SOME_DEPLOYED_REVISION[:7]: commit, SOME_DEPLOYED_REVISION: commit,
+                            "PR #7": some_fix.url}))
+
+
+@pytest.mark.unit
 def test_a_change_with_nowhere_to_open_names_what_it_changed_in_code_and_who_nobody_named() -> None:
     # A flag toggle, or a deploy from a host whose pages are not known: its
     # reference is a name, said as one, and a change no one is named for is
