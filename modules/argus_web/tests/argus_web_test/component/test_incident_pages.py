@@ -2672,7 +2672,7 @@ def _links_to_its_incident(incident_id: str, times: int) -> Assertion[str]:
 
         if linked != times:
             raise AssertionError(f"Expected the page to link to its incident {times} times, "
-                                 f"it linked to it {linked}.")
+                                 f"and it linked to it {linked} times.")
 
         return True
 
