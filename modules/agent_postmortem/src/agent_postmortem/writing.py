@@ -183,7 +183,7 @@ def write_postmortem(evidence: IncidentEvidence,
         contributing_factors=[ContributingFactor(text=factor.factor,
                                                  addressed_by=factor.addressed_by)
                               for factor in answer.contributing_factors or []],
-        action_items=_the_record_s_items_then_the_model_s(evidence, answer),
+        action_items=_the_record_s_items_then_the_model_s(evidence, measured, answer),
         lessons=answer.lessons,
         # Under the labels the model was shown them by, so the prose that cites
         # one has a row to lead to.
@@ -219,6 +219,7 @@ def _the_chain_as_cited(answer: SubmittedPostmortem,
 
 
 def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
+                                        measured: Measurements,
                                         answer: SubmittedPostmortem) -> list[ActionItem]:
     """The record's items as numbered before the model was asked, and its
     proposals numbered on from them in the order it gave them.
@@ -226,7 +227,7 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
     Open and nobody's: Argus edits no item after the document is written, so
     whoever takes one on does so somewhere else.
     """
-    on_record = record_action_items_of(evidence)
+    on_record = record_action_items_of(evidence, measured.back_to_normal_at)
 
     return [
         *on_record,

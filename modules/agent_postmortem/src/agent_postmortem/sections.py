@@ -76,8 +76,10 @@ CODE_READING_PREFIX: Final = "F"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
-TURN_SYNC_BACK_ON: Final = ("Turn automatic sync of {application} back on - until then, "
-                            "nothing merged reaches it")
+TURN_SYNC_BACK_ON: Final = ("Turn automatic sync of {application} back on once its "
+                            "repository says what should run - until then nothing merged "
+                            "reaches it, and turned on sooner it puts back what the "
+                            "repository says, undoing what Argus changed by hand")
 
 # How a line of a configuration file says it is a comment: YAML's, TOML's and
 # INI's `#`, INI's `;`, and the `//` of JSON with comments.
@@ -542,13 +544,20 @@ def action_item_number(position: int) -> str:
     return f"{ACTION_ITEM_PREFIX}{position}"
 
 
-def record_action_items_of(evidence: IncidentEvidence) -> list[ActionItem]:
+def record_action_items_of(evidence: IncidentEvidence,
+                           back_to_normal_at: datetime | None) -> list[ActionItem]:
     """The action items the record implies, numbered from `AI-1`.
 
     What brought recovery is done, and is Argus's. The fix proposed and the
     action Argus declined are open, and nobody's: Argus edits no item after the
     document is written, so whoever takes one on does so somewhere else. An
     action that did not help is in the resolution and is not left to do.
+
+    The fix prevents a recurrence where the metrics show the service back
+    (`back_to_normal_at`), and is a mitigation where they do not: merging it is
+    then what ends the incident. Not read off a confirmed action, because an
+    incident can be over without one - a flap back before a refuted action -
+    and a person's word that it is over never reaches the document.
 
     Automatic sync an action left off is open too, once for each application:
     until somebody turns it back on, nothing merged reaches the service. After
@@ -559,12 +568,13 @@ def record_action_items_of(evidence: IncidentEvidence) -> list[ActionItem]:
     """
     left_off = dict.fromkeys(action.paused_sync_of for action in evidence.actions
                              if action.paused_sync_of is not None)
+    the_fix_is = (ActionItemType.PREVENT if back_to_normal_at is not None
+                  else ActionItemType.MITIGATE)
     implied = [
         *(_an_item(ActionItemType.MITIGATE, action.action, owner=TAKEN_BY,
                    status=ActionItemStatus.DONE)
           for action in evidence.actions if action.verdict == Verdict.CONFIRMED),
-        *([_an_item(ActionItemType.PREVENT, REVIEW_THE_FIX,
-                    tracking=evidence.pull_request.url)]
+        *([_an_item(the_fix_is, REVIEW_THE_FIX, tracking=evidence.pull_request.url)]
           if evidence.pull_request is not None else []),
         *(_an_item(ActionItemType.MITIGATE, TURN_SYNC_BACK_ON.format(application=application))
           for application in left_off),

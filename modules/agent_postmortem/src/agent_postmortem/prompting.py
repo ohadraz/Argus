@@ -726,7 +726,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
                        *([] if beneath is None else [f"  - {beneath}"])]),
         "",
         "Action items the record already holds:",
-        *(_the_record_items(evidence) or [f"  - {NOTHING}"]),
+        *(_the_record_items(evidence, measured) or [f"  - {NOTHING}"]),
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label, and name action items "
@@ -889,9 +889,9 @@ def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:
             for position, line in enumerate(lines, start=1)]
 
 
-def _the_record_items(evidence: IncidentEvidence) -> list[str]:
+def _the_record_items(evidence: IncidentEvidence, measured: Measurements) -> list[str]:
     return [f"  - {item.number} ({item.type}, {item.status}): {item.text}"
-            for item in record_action_items_of(evidence)]
+            for item in record_action_items_of(evidence, measured.back_to_normal_at)]
 
 
 def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) -> list[str]:

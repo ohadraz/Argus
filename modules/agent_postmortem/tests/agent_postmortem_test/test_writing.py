@@ -554,6 +554,7 @@ def test_the_model_s_proposals_are_numbered_after_the_record_s_own_items() -> No
     # written, so whoever takes one on does so somewhere else.
     evidence = an_evidence_bundle(pull_request=OpenedPullRequest(
         number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"))
+    measured = a_measured_incident()
 
     Scenario() \
         .given(
@@ -567,14 +568,13 @@ def test_the_model_s_proposals_are_numbered_after_the_record_s_own_items() -> No
             lambda: write_postmortem(evidence,
                                      some_sources(),
                                      _dont_care_llm(),
-                                     measure=_measuring_that_returns(
-                                         a_measured_incident()),
+                                     measure=_measuring_that_returns(measured),
                                      ask=a_model_proposing_two,
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the action items", lambda document: document.action_items, [
-                *record_action_items_of(evidence),
+                *record_action_items_of(evidence, measured.back_to_normal_at),
                 ActionItem(number="AI-2", text="test an empty month",
                            type=ActionItemType.PREVENT, owner=None, tracking=None,
                            status=ActionItemStatus.OPEN),

@@ -59,7 +59,7 @@ def answer_worth_writing(llm: LLMClient,
     submit = submit_postmortem_for(evidence.leads)
     # Every figure the answer may name, each written in as this run measured it.
     figures = figures_shown(evidence, measured)
-    given = _what_was_given(evidence, figures)
+    given = _what_was_given(evidence, measured, figures)
     submitted = llm.converse(asked, [submit])
 
     first = _reading_of(submitted, evidence.leads, given, figures)
@@ -75,7 +75,9 @@ def answer_worth_writing(llm: LLMClient,
                        figures)
 
 
-def _what_was_given(evidence: IncidentEvidence, figures: dict[str, Figure]) -> Given:
+def _what_was_given(evidence: IncidentEvidence,
+                    measured: Measurements,
+                    figures: dict[str, Figure]) -> Given:
     """What the answer is held to: the labels it could cite and which of them
     are hypotheses, the items already on the record, the revisions the incident
     read, and the figures it may name."""
@@ -84,7 +86,7 @@ def _what_was_given(evidence: IncidentEvidence, figures: dict[str, Figure]) -> G
                          for label in (cited.label, *cited.also)),
         hypotheses=frozenset(label for cited in the_candidates_labelled(evidence)
                              for label in (cited.label, *cited.also)),
-        items_on_record=len(record_action_items_of(evidence)),
+        items_on_record=len(record_action_items_of(evidence, measured.back_to_normal_at)),
         revisions=revisions_of(evidence),
         figures=figures
     )

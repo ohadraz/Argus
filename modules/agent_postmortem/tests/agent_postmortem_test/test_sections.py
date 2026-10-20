@@ -9,7 +9,7 @@ beside it, so each case names a record and the section it must come out as.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord
@@ -933,10 +933,11 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
                          an_action("revert-feature-flag on monthly-spend-feature",
                                    verdict=Verdict.CONFIRMED)],
                 pull_request=some_fix,
-                recommended_action="restarting io-shop")
+                recommended_action="restarting io-shop"),
+            the_service_back := STARTED_AT + timedelta(minutes=9)
         ) \
         .when(
-            lambda: record_action_items_of(evidence)
+            lambda: record_action_items_of(evidence, the_service_back)
         ) \
         .then(
             the_answer_was([
@@ -979,11 +980,12 @@ def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
                                    standing="still in place", paused_sync_of="io-shop"),
                          an_action("rolled back io-shop", verdict=Verdict.CONFIRMED,
                                    standing="still in place", paused_sync_of="io-shop")],
-                pull_request=some_fix)
+                pull_request=some_fix),
+            the_service_back := STARTED_AT + timedelta(minutes=9)
         ) \
         .when(
             lambda: [(item.number, item.text, item.type, item.status)
-                     for item in record_action_items_of(evidence)]
+                     for item in record_action_items_of(evidence, the_service_back)]
         ) \
         .then(
             the_answer_was([
@@ -991,9 +993,39 @@ def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
                 ("AI-2", "rolled back io-shop", ActionItemType.MITIGATE, ActionItemStatus.DONE),
                 ("AI-3", "Review and merge the proposed fix", ActionItemType.PREVENT,
                  ActionItemStatus.OPEN),
-                ("AI-4", "Turn automatic sync of io-shop back on - until then, nothing "
-                         "merged reaches it", ActionItemType.MITIGATE, ActionItemStatus.OPEN)
+                ("AI-4", "Turn automatic sync of io-shop back on once its repository says "
+                         "what should run - until then nothing merged reaches it, and turned "
+                         "on sooner it puts back what the repository says, undoing what Argus "
+                         "changed by hand", ActionItemType.MITIGATE, ActionItemStatus.OPEN)
             ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_to_normal_at", "kind"), [
+    (STARTED_AT + timedelta(minutes=9), ActionItemType.PREVENT),
+    (None, ActionItemType.MITIGATE)
+], ids=["measured-back", "never-measured-back"])
+def test_the_fix_is_a_mitigation_until_the_metrics_show_the_service_back(
+        back_to_normal_at: datetime | None, kind: ActionItemType) -> None:
+    # Typed prevent whatever happened, the fix read as a safeguard for next
+    # time on an incident it was the only way out of. Where the metrics show
+    # the service back it prevents a recurrence; where they do not, merging it
+    # is what ends the incident.
+    some_fix = OpenedPullRequest(number=7,
+                                 url="https://github.invalid/ohadraz/io-shop/pull/7",
+                                 branch="argus/fix-abc")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(pull_request=some_fix)
+        ) \
+        .when(
+            lambda: [item.type for item in record_action_items_of(evidence, back_to_normal_at)
+                     if item.tracking == some_fix.url]
+        ) \
+        .then(
+            the_answer_was([kind])
         )
 
 
