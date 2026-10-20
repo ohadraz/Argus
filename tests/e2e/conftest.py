@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import httpx2
 import pytest
@@ -50,6 +54,13 @@ _SETTLING_TIMEOUT_SECONDS = max(
     get_settings().mitigation_verification_timeout_seconds
 )
 _SETTLING_POLL_SECONDS = 0.5
+
+# Set by `-- --hold`, which holds each case's world open once the case is done
+# and before it is put back, so what the case left - the database, the page -
+# can be read. Named in the noxfile too, which sets it; nothing reads it but
+# this fixture.
+_HOLD_VARIABLE = "ARGUS_E2E_HOLD"
+_THE_HOLDER = Path(__file__).resolve().parents[2] / "scripts" / "hold_the_stack.py"
 
 
 @pytest.fixture(autouse=True)
@@ -136,6 +147,11 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     _every_run_came_to_a_stop()
     failed = _the_runs_that_failed()
     _every_reader_caught_up()
+    # Held here, where `--hold` asks: after every run has stopped and every
+    # reader has caught up, so what is held is the case finished, and before
+    # the tables are emptied, which is what destroys it.
+    if os.environ.get(_HOLD_VARIABLE):
+        subprocess.run([sys.executable, str(_THE_HOLDER)], check=False)
     _every_table_was_emptied()
     _long_term_memory_was_forgotten()
     _the_target_service_scenario_was_reset()

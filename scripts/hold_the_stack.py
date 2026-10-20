@@ -11,8 +11,9 @@ shop's console stages a scenario and fires its own alert, which is the truer
 demo anyway - a real shop's monitoring notices without anybody pressing a
 button on the watcher's side.
 
-It is also what `-- --hold` runs after a suite's tests, so what a run left -
-the database, the page - can be read before the teardown destroys it. A suite
+It is also what `-- --hold` runs once each case is done, before its world is
+put back, so what the case left - the database, the page - can be read before
+the suite empties it. A suite
 held in the background has nobody at its keyboard, and killing it would skip
 the teardown and leave its services holding their ports; so it lets go too
 when `RELEASE` appears, and takes the file away again.

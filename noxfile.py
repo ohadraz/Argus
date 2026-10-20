@@ -1874,10 +1874,12 @@ def _start_each_of(services: list[tuple[str, list[str], str | None]],
             _wait_for_http(name, ready_url)
 
 
-# Given after `--` to `e2e` or `e2e_replay`, holds the stack open once the
-# tests are done - `scripts/hold_the_stack.py` says how it is let go - so what
-# the run left behind can be looked at before the teardown destroys it.
+# Given after `--` to `e2e` or `e2e_replay`, holds each case's world open once
+# the case is done and before it is put back - `scripts/hold_the_stack.py` says
+# how it is let go - so what the case left can be looked at. Told to the suite
+# through the variable, which `tests/e2e/conftest.py` names too.
 _HOLD: Final = "--hold"
+_THE_HOLD_VARIABLE: Final = "ARGUS_E2E_HOLD"
 
 
 def _run_against_the_stack(
@@ -2015,7 +2017,11 @@ def _run_against_the_stack(
         # re-run against the stack (`-- -k fallback`) instead of the whole
         # suite. Bringing the stack up is the slow part of a green run and the
         # cheap part of a debugging one. All but `--hold`, which is this
-        # function's own and not pytest's.
+        # function's own and not pytest's: it is told to the suite instead,
+        # which holds each case before putting its world back - after pytest
+        # exits, the case's tables are already empty.
+        if _HOLD in session.posargs:
+            os.environ[_THE_HOLD_VARIABLE] = "1"
         session.run(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
             *(given for given in session.posargs if given != _HOLD), external=True
@@ -2033,14 +2039,6 @@ def _run_against_the_stack(
         _the_containers_said_this(session)
         raise
     finally:
-        # Held open after the tests, passed or failed, where `--hold` asks: the
-        # database, the page and the containers' state are the evidence of what
-        # a run did, and the teardown below is what destroys them. Before
-        # anything is cleaned up, so what is held is the stack as the tests
-        # left it.
-        if _HOLD in session.posargs:
-            session.run("uv", "run", "python", "scripts/hold_the_stack.py",
-                        external=True, success_codes=[0, 1])
         # Before the services stop, because the cleanup talks to the repository
         # over the network and not to anything in this stack - but after the
         # work, so a demo is cleaned up only once it is over.
