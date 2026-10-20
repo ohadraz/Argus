@@ -17,6 +17,7 @@ person is then told is `understanding`'s to say.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from textwrap import indent
 from typing import Final
 
 from argus_core import to_iso
@@ -87,10 +88,10 @@ def _the_opening(question: str, story: Sequence[NarrationLine]) -> Transcript:
 
 def _the_line_and_its_aside(line: NarrationLine) -> list[str]:
     """One line of the timeline, and what it says beside itself indented under
-    it - which already says whose reading it is."""
+    it, every line of it - which already says whose reading it is."""
     said = [f"- {to_iso(line.at)} {line.who}: {line.text}"]
 
-    return [*said, f"  {line.aside}"] if line.aside else said
+    return [*said, indent(line.aside, "  ")] if line.aside else said
 
 
 def _the_answer_in(turn: Turn) -> str | None:

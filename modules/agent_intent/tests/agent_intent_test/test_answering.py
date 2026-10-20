@@ -96,6 +96,27 @@ def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
 
 
 @pytest.mark.unit
+def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
+    # An explanation runs to more than one line; a later one at the margin
+    # reads as a line of the timeline of its own, said by nobody at no time.
+    asked: Kept[Transcript] = Kept()
+    some_timeline = [
+        NarrationLine(at=datetime(2026, 10, 11, 12, 9, tzinfo=UTC),
+                      kind="fix-attempted",
+                      who="Code-Fix Agent",
+                      text="Read the code and found no code-level fix to make",
+                      aside="Code-Fix's reading: scrape.yaml\nnames the old port")
+    ]
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .then(_the_model_was_shown(asked,
+                                   "\n  Code-Fix's reading: scrape.yaml\n  names the old port\n"))
+
+
+@pytest.mark.unit
 def test_the_model_is_held_to_the_timeline() -> None:
     asked: Kept[Transcript] = Kept()
 
