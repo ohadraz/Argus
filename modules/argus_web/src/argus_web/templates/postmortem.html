@@ -158,7 +158,7 @@ document.addEventListener('DOMContentLoaded', function () {
   </div>
 {% endfor %}
 </div>
-{% if impact.finding %}<p class="alert-finding">{{ impact.finding }}</p>{% endif %}
+{% if impact.finding %}<p class="alert-finding"{% if impact.finding_label %} id="{{ impact.finding_label }}"{% endif %}>{{ impact.finding }}</p>{% endif %}
 {% if impact.unobserved %}<p class="unobserved">{{ impact.unobserved }}</p>{% endif %}
 </section>
 

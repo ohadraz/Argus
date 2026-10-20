@@ -22,7 +22,12 @@ from postmortem_rendering.cost import the_cost
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.head import Head, a_head, a_title
 from postmortem_rendering.hypotheses import HypothesesSection, the_hypotheses
-from postmortem_rendering.impact import Card, ImpactSection, the_impact
+from postmortem_rendering.impact import (
+    Card,
+    ImpactSection,
+    the_alert_s_own_finding,
+    the_impact,
+)
 from postmortem_rendering.leads import LeadItem, the_leads
 from postmortem_rendering.lessons import LessonList, the_lessons
 from postmortem_rendering.lines import Line, Role, Run
@@ -98,7 +103,8 @@ class RenderedPostmortem(BaseModel):
                           *(row.label for row in self.supporting.deployment_changes),
                           *(row.label for row in self.supporting.code_read),
                           *(lead.label for lead in self.leads),
-                          *((self.detection.said.label,) if self.detection.said else ())})
+                          *((self.detection.said.label,) if self.detection.said else ()),
+                          *((self.impact.finding_label,) if self.impact.finding_label else ())})
 
 
 def render(postmortem: Postmortem,
@@ -116,8 +122,13 @@ def render(postmortem: Postmortem,
     timeline = the_timeline(postmortem)
     supporting = the_supporting_information(postmortem, incident_address)
     detection = the_detection(postmortem, alert)
+    impact = the_impact(postmortem, alert)
     rows = _the_rows(hypotheses, actions_taken, action_items, timeline, leads, supporting,
                      detection)
+    # What the alert said, where Impact is the one place it is said.
+    found = the_alert_s_own_finding(alert)
+    if impact.finding_label and found:
+        rows[impact.finding_label] = Line(runs=(Run(text=found),))
 
     return RenderedPostmortem(
         incident_id=postmortem.incident_id,
@@ -128,7 +139,7 @@ def render(postmortem: Postmortem,
         summary=(Line(runs=(Run(text=postmortem.executive_summary, role=Role.PROSE),))
                  if postmortem.executive_summary else None),
         summary_absent=None if postmortem.executive_summary else "No summary was written.",
-        impact=the_impact(postmortem, alert),
+        impact=impact,
         cause=the_cause(postmortem, rows),
         hypotheses=hypotheses,
         trigger=the_trigger(postmortem, alert),

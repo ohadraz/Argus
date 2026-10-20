@@ -17,6 +17,8 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    AlarmClaim,
+    Alert,
     ChainStep,
     CitedEvidence,
     Detection,
@@ -352,6 +354,30 @@ def test_what_the_alert_said_may_be_cited_and_reads_as_its_row() -> None:
         ) \
         .when(
             lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(all_of(
+            _it_may_cite("AL1"),
+            _the_first_step_rests_on("AL1 240 totals are off")))
+
+
+@pytest.mark.unit
+def test_an_alert_s_own_finding_said_under_impact_may_still_be_cited() -> None:
+    # Its row moved to Impact; a citation of it still leads to a row, and reads
+    # as what the alert said.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=SOME_MOMENT, rule="dont care", onset_at=None,
+                                    gap=None,
+                                    said=CitedEvidence(label="AL1", text="240 totals are off")),
+                causal_chain=_a_step_citing("AL1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem,
+                           Alert(alert_name="dont care", service="dont care",
+                                 summary="240 totals are off",
+                                 claim=AlarmClaim.ITS_OWN_FINDING),
+                           [], SOME_ADDRESS)
         ) \
         .then(all_of(
             _it_may_cite("AL1"),

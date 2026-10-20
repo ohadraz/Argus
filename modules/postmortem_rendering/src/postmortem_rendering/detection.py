@@ -12,6 +12,7 @@ from argus_core.models import Alert, Detection, PostmortemDocument, shorter_than
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
+from postmortem_rendering.impact import the_alert_s_own_finding
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow
 
@@ -61,7 +62,9 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
 
     runs.append(Run(text="."))
 
-    said = detection.said
+    # An alert's own finding is the measure of the damage, and Impact says it
+    # under the label it is cited by: a row here would say it again.
+    said = detection.said if the_alert_s_own_finding(alert) is None else None
     return DetectionSection(line=Line(runs=tuple(runs)), absent=None,
                             said=(EvidenceRow(label=said.label,
                                               said=Line(runs=(Run(text=said.text),)))

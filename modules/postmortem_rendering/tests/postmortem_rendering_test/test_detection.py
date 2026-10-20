@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import CitedEvidence, Detection
+from argus_core.models import AlarmClaim, Alert, CitedEvidence, Detection
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.lines import Line, Role, Run
@@ -184,6 +184,29 @@ def test_an_alert_that_said_nothing_of_its_own_has_no_row() -> None:
         ) \
         .when(
             lambda: the_detection(some_postmortem, an_alert()).said
+        ) \
+        .then(
+            the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_an_alert_s_own_finding_is_left_to_impact_and_has_no_row_here() -> None:
+    # What an alert found is the measure of the damage, and Impact says it
+    # under the label a citation leads to. A row here would say it again, a
+    # section further on.
+    some_finding = "240 of 240 shopper totals do not reconcile"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=SOME_ALERT, rule="dont care", onset_at=None, gap=None,
+                said=CitedEvidence(label="AL1", text=some_finding)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem,
+                                  Alert(alert_name="dont care", service="dont care",
+                                        summary=some_finding,
+                                        claim=AlarmClaim.ITS_OWN_FINDING)).said
         ) \
         .then(
             the_answer_was(None))

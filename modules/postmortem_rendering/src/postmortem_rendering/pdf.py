@@ -998,6 +998,9 @@ def _the_summary(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 def _the_impact(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     impact = rendered.impact
     _tiles(pdf, impact.cards)
+    if impact.finding and impact.finding_label:
+        # What the alert said is said here alone, so its citations land here.
+        pdf.lands_at(impact.finding_label, pdf.page_no(), pdf.get_y())
     for said in (impact.finding, impact.unobserved):
         if said:
             _quiet(pdf, said)

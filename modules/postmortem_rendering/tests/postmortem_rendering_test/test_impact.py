@@ -6,13 +6,15 @@ Each case is one postmortem and what a card, the finding or the note says.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from argus_core.models import (
     AlarmClaim,
     Alert,
+    CitedEvidence,
+    Detection,
     ErrorRateLevels,
     Impact,
     ImpactExtent,
@@ -171,6 +173,28 @@ def test_what_the_alert_found_is_said_beside_the_cards() -> None:
         ) \
         .then(
             the_answer_was("What the alert found: 212 order totals disagree with their items"))
+
+
+@pytest.mark.unit
+def test_what_the_alert_found_is_under_the_label_it_is_cited_by() -> None:
+    # Said here alone, so a citation of what the alert said leads here.
+    some_finding = "212 order totals disagree with their items"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=Detection(
+                alerted_at=datetime(2026, 10, 11, 14, 5, tzinfo=UTC), rule="dont care",
+                onset_at=None, gap=None,
+                said=CitedEvidence(label="AL1", text=some_finding)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem,
+                               Alert(alert_name="dont care", service="dont care",
+                                     summary=some_finding,
+                                     claim=AlarmClaim.ITS_OWN_FINDING)).finding_label
+        ) \
+        .then(
+            the_answer_was("AL1"))
 
 
 @pytest.mark.unit

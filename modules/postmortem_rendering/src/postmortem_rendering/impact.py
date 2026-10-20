@@ -52,13 +52,18 @@ class Card(BaseModel):
 class ImpactSection(BaseModel):
     """The cards, what the alert found, and what a duration the metrics carry
     nothing of measures - each of the last two `None` where there is nothing
-    to say."""
+    to say.
+
+    `finding_label` is the label a citation of what the alert said goes by,
+    where the finding is said here: this is then the one place the alert's
+    words are, and a citation of them leads here."""
 
     model_config = ConfigDict(frozen=True)
 
     cards: tuple[Card, ...]
     finding: str | None
     unobserved: str | None
+    finding_label: str | None = None
 
 
 def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
@@ -76,15 +81,25 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     """
     impact = postmortem.impact
     a_lower_bound = impact is not None and impact.extent is not ImpactExtent.MEASURED
+    found = the_alert_s_own_finding(alert)
+    said = postmortem.detection.said if postmortem.detection else None
 
     return ImpactSection(
         cards=(_the_duration(impact),
                *_the_errors(impact),
                *_the_rules_series(impact),
                _the_loss(postmortem, a_lower_bound)),
-        finding=(f"What the alert found: {alert.summary}"
-                 if alert.summary and alert.claim is AlarmClaim.ITS_OWN_FINDING else None),
-        unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None)
+        finding=f"What the alert found: {found}" if found else None,
+        unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None,
+        finding_label=said.label if found and said else None)
+
+
+def the_alert_s_own_finding(alert: Alert) -> str | None:
+    """What the alert found, where it reports a finding of its own - said
+    under Impact, and so nowhere else - or `None` where it watched a series and
+    said its condition, or said nothing."""
+    return (alert.summary
+            if alert.summary and alert.claim is AlarmClaim.ITS_OWN_FINDING else None)
 
 
 def _the_duration(impact: Impact | None) -> Card:
