@@ -240,14 +240,13 @@ def a_changed_file_line(status: str, path: str) -> str:
 
 def names_as_changed(line: str, path: str) -> bool:
     """Whether `line` is the one naming `path` among the files the diff
-    changed, as `a_changed_file_line` writes it: not set in, as each line under
-    a file is - that is the file's own text, and can name any other - and the
-    whole path after the one word of its status, so a longer path ending in
-    this one, or a sentence that does, is not it."""
+    changed, as `a_changed_file_line` writes it: the whole path after the one
+    word of its status. A line set in under a file - the file's own text, which
+    can name any other - opens with no word at all, and a longer path ending
+    in this one, or a sentence that does, is not the path after a status."""
     status, space, named = line.partition(" ")
 
-    return (not line.startswith(PATCH_LINE_INDENT)
-            and bool(status) and bool(space) and named == path)
+    return bool(status) and bool(space) and named == path
 
 
 class ChannelsUnread(_Event):
