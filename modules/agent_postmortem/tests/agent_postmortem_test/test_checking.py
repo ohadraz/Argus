@@ -357,13 +357,19 @@ def test_a_figure_spelled_out_in_words_is_named(spelled_out: str) -> None:
     "halved",
     "twice",
     "a third",
-    "two thirds"
+    "two thirds",
+    "a minute",
+    "an hour",
+    "a day",
+    "a minute and a half"
 ])
 def test_a_figure_said_in_one_word_is_named(said: str) -> None:
     # "About twenty minutes" for an incident six minutes long was accepted
     # while "about 20 minutes" was refused: the rule judged the spelling, not
     # the claim. One word measuring something is a figure as much as a run of
     # them, and a figure the incident gave, or a working of two, says it truly.
+    # "A" is one of those words before a unit: "about a minute" was written for
+    # ninety-one seconds.
     Scenario() \
         .given(
             an_answer_saying_a_figure_in_a_word := _an_answer(
@@ -407,7 +413,9 @@ def test_a_figure_spelled_out_with_what_it_measures_is_named_once() -> None:
     "most requests",
     "a few days",
     "one-minute buckets",
-    "the one that failed"
+    "the one that failed",
+    "a second candidate",
+    "no purchases in a month"
 ])
 def test_a_size_with_no_figure_in_it_is_accepted(said: str) -> None:
     # A count of things, a size said without a number, and a number that

@@ -104,13 +104,20 @@ _A_UNIT: Final = (
     r"|percent|per\s+cent|percentage\s+points?|times)\b"
 )
 
-# A figure said in one word: a number word, or a half, measuring something
-# ("twenty minutes", "half an hour", "three times"); a word that is a multiple
-# ("tripled", "twice"); or a fraction ("a third", "two thirds"). Joined to what
-# it measures by a space only - "one-minute buckets" describes the buckets, and
-# measures nothing.
+# A figure said in one word: a span of one unit ("a minute", "an hour and a
+# half"); a number word, or a half, measuring something ("twenty minutes", "half
+# an hour", "three times"); a word that is a multiple ("tripled", "twice"); or a
+# fraction ("a third", "two thirds"). Joined to what it measures by a space only
+# - "one-minute buckets" describes the buckets, and measures nothing.
+#
+# The span is first, and takes its "and a half" with it, so that one figure is
+# one fault rather than a span and a fraction. Its units are the ones Argus
+# measures between its own instants: "a second" is an ordinal as often as a span
+# ("a second candidate"), and "a month" is the shop's own noun for a statement
+# period, which no span here reaches.
 _A_FIGURE_IN_A_WORD: Final = re.compile(
-    rf"\b(?:{_A_NUMBER_WORD}|half(?:\s+an?)?)\s+{_A_UNIT}"
+    r"\b(?:a|an)\s+(?:minute|hour|day|week)(?:\s+and\s+a\s+half)?\b"
+    rf"|\b(?:{_A_NUMBER_WORD}|half(?:\s+an?)?)\s+{_A_UNIT}"
     r"|\b(?:doubled|tripled|quadrupled|halved|twice|thrice)\b"
     r"|\b(?:a|one|two|three|four)\s+(?:half|halves|thirds?|quarters?|fifths?|tenths?)\b",
     re.IGNORECASE
