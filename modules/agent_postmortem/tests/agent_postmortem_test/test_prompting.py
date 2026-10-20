@@ -45,6 +45,7 @@ from agent_postmortem.figures import (
     Figure,
     figures_of,
     named,
+    names_in,
     the_finding_named,
 )
 from agent_postmortem.log_groups import grouped
@@ -1807,6 +1808,69 @@ def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> 
 
 
 @pytest.mark.unit
+def test_a_message_logged_both_sides_of_where_the_metrics_stopped_is_shown_in_two() -> None:
+    # What the shop logged inside the stretch, apart from what it logged before
+    # it - the comparison a write-up of a blind stretch has to make, and could
+    # not while the two were summed.
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line(f"[{grouped(some_lines)[0].label}]", "before the metrics stopped",
+                              "After they stopped")
+        )
+
+
+@pytest.mark.unit
+def test_every_figure_a_brief_with_a_split_log_names_is_one_the_answer_may_name() -> None:
+    # The brief and the check each read the evidence, and one that split a log
+    # where the other summed it would name figures the check refuses - so an
+    # answer citing what the shop logged inside the stretch would be sent back.
+    some_rate = "WARN io-shop: account page error rate at {}% over the last minute"
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=6))} {some_rate.format('1.00')}",
+                  f"{to_iso(ONSET - timedelta(minutes=5))} {some_rate.format('2.00')}",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} {some_rate.format('0.50')}"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: (opening_ask(evidence, measured), figures_shown(evidence, measured))
+        ) \
+        .then(
+            _names_only_figures_it_may_name()
+        )
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_is_not_said_to_be_covered_by_no_error_rate() -> None:
+    # The metrics' own line already says they measured nothing after they
+    # stopped. Said of every rate shown below, it was false of the shop's own
+    # logged rate - which covered the stretch - and a model told it wrote that
+    # nothing said how the shop was doing.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _does_not_say("cover none of it")
+        )
+
+
+@pytest.mark.unit
 def test_an_unobserved_stretch_no_log_line_reaches_into_is_said_to_have_none() -> None:
     # Said rather than left out, since a list that is absent reads the same as
     # one nobody looked for.
@@ -3036,6 +3100,21 @@ def _accepts_no_number() -> Assertion[ToolDefinition]:
             raise AssertionError(
                 f"Expected the model to be asked for no figure of its own, and it "
                 f"was asked for {numeric}")
+
+        return True
+
+    return assertion
+
+
+def _names_only_figures_it_may_name() -> Assertion[tuple[Transcript, dict[str, Figure]]]:
+    def assertion(asked: tuple[Transcript, dict[str, Figure]]) -> bool:
+        transcript, may_name = asked
+        refused = sorted(set(names_in(_what_was_said(transcript))) - set(may_name))
+
+        if refused:
+            raise AssertionError(
+                f"Expected every figure the brief names to be one an answer may name, "
+                f"and it names {refused}, which the check refuses.")
 
         return True
 

@@ -277,6 +277,126 @@ def test_a_message_with_no_minute_reaches_into_no_stretch() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_message_logged_on_both_sides_of_where_the_metrics_stopped_is_said_in_two_parts() -> None:
+    # Summed across the stop, what the shop logged inside a stretch the metrics
+    # did not cover is lost in what it logged before: told only "0.50 to 2.00"
+    # over the whole half hour, a model wrote that nothing said whether shoppers
+    # were affected. Before comes first, so the figures it names keep their
+    # places whether or not a run is split.
+    some_lines = [f"2026-10-11T23:37:00Z {SOME_RATE.format('1.50')}",
+                  f"2026-10-11T23:38:00Z {SOME_RATE.format('24.00')}",
+                  f"2026-10-11T23:39:00Z {SOME_RATE.format('3.00')}",
+                  f"2026-10-11T23:40:00Z {SOME_RATE.format('0.50')}",
+                  f"2026-10-11T23:41:00Z {SOME_RATE.format('1.00')}"]
+
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
+                            f"3 occurrences in 3 minutes, 23:37–23:39; # was 1.50 to 24.00, "
+                            f"typically 3.00, highest at 23:38. After they stopped: "
+                            f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50 to 1.00, "
+                            f"typically 0.50, highest at 23:41"])
+        )
+
+
+@pytest.mark.unit
+def test_a_part_that_read_one_value_is_said_as_that_value() -> None:
+    # "0.50 to 0.50, typically 0.50" is a range of one number.
+    some_lines = [f"2026-10-11T23:38:00Z {SOME_RATE.format('24.00')}",
+                  f"2026-10-11T23:39:00Z {SOME_RATE.format('3.00')}",
+                  f"2026-10-11T23:40:00Z {SOME_RATE.format('0.50')}"]
+
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
+                            f"2 occurrences in 2 minutes, 23:38–23:39; # was 3.00 to 24.00, "
+                            f"typically 3.00, highest at 23:38. After they stopped: "
+                            f"1 occurrence in 1 minute, 23:40; # was 0.50"])
+        )
+
+
+@pytest.mark.unit
+def test_a_part_whose_lines_all_read_one_value_is_said_as_that_value() -> None:
+    # The same range of one number as a part of one line, from two.
+    some_lines = [f"2026-10-11T23:38:00Z {SOME_RATE.format('24.00')}",
+                  f"2026-10-11T23:39:00Z {SOME_RATE.format('3.00')}",
+                  f"2026-10-11T23:40:00Z {SOME_RATE.format('0.50')}",
+                  f"2026-10-11T23:41:00Z {SOME_RATE.format('0.50')}"]
+
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
+                            f"2 occurrences in 2 minutes, 23:38–23:39; # was 3.00 to 24.00, "
+                            f"typically 3.00, highest at 23:38. After they stopped: "
+                            f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50"])
+        )
+
+
+@pytest.mark.unit
+def test_a_name_that_held_within_a_part_is_said_as_that_name() -> None:
+    # A shopper's id varied across the group and held after the stop, where
+    # "took 1 different values" counts one name instead of saying it.
+    some_lines = [f"2026-10-11T23:37:00Z {SOME_SLOW_CALL.format('2300', '1-2-3', '5')}",
+                  f"2026-10-11T23:38:00Z {SOME_SLOW_CALL.format('900', '4-5-6', '7')}",
+                  f"2026-10-11T23:40:00Z {SOME_SLOW_CALL.format('1200', '1-2-3', '6')}"]
+
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_SLOW_CALL.format('#', '#-#-#', '#')} - before the metrics "
+                            f"stopped: 2 occurrences in 2 minutes, 23:37–23:38; # was 900 to "
+                            f"2300, typically 900, highest at 23:37; /baskets/shopper-#-#-# took "
+                            f"2 different values; # was 5 to 7, typically 5, highest at 23:38. "
+                            f"After they stopped: 1 occurrence in 1 minute, 23:40; # was 1200; "
+                            f"/baskets/shopper-#-#-# was /baskets/shopper-1-2-3; # was 6"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_lines", [
+    [f"2026-10-11T23:41:00Z {SOME_ERROR}", f"2026-10-11T23:43:00Z {SOME_ERROR}"],
+    [f"2026-10-11T23:37:00Z {SOME_ERROR}", f"2026-10-11T23:38:00Z {SOME_ERROR}"],
+    [f"2026-10-11T23:37:00Z {SOME_ERROR}", SOME_ERROR, f"2026-10-11T23:41:00Z {SOME_ERROR}"]
+], ids=["only-after", "only-before", "one-line-undated"])
+def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: list[str]) -> None:
+    # Two parts only where there are two sides to compare. A line with no
+    # stamp belongs to neither, and a part that dropped it would miscount.
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: grouped(some_lines, the_metrics_stopped)
+        ) \
+        .then(
+            the_answer_was(grouped(some_lines))
+        )
+
+
 def _label_of(message: str, groups: list[CitedEvidence]) -> str:
     return next(group.label for group in groups if message in group.text)
 

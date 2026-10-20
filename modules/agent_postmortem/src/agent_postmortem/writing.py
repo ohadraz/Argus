@@ -114,7 +114,7 @@ def write_postmortem(evidence: IncidentEvidence,
     """
     measured = measure(evidence, sources)
     answer, faults = ask(llm, evidence, measured)
-    shown = the_evidence_labelled(evidence)
+    shown = the_evidence_labelled(evidence, measured.unobserved_from)
 
     if faults:
         logger.warning("postmortem written incomplete", extra={"faults": faults})
@@ -188,7 +188,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # Under the labels the model was shown them by, so the prose that cites
         # one has a row to lead to.
         changes_read=the_changes_labelled(evidence),
-        log_messages_read=grouped(evidence.log_lines),
+        log_messages_read=grouped(evidence.log_lines, measured.unobserved_from),
         deployment_changes_read=the_deployment_changes_labelled(evidence),
         code_read=the_code_reading_labelled(evidence),
         deploys_reading=evidence.deploys_reading,

@@ -58,6 +58,7 @@ from agent_postmortem.sections import (
     trigger_of,
 )
 from agent_postmortem.sources import EngagedResponder, NotPaged
+from argus_core import to_iso
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -98,6 +99,7 @@ from agent_postmortem_test.framework.assertions import (
     states_the_estimate_is_in,
 )
 from agent_postmortem_test.framework.builders import (
+    ONSET,
     RECOVERED_AT,
     SOME_CURRENCY,
     a_candidate,
@@ -619,6 +621,42 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
 
 
 @pytest.mark.unit
+def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_text() -> None:
+    # The text a step carries is what the model was shown under the label it
+    # cites, and the row on the page beside it is split - so the step is too.
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+    its_label = grouped(some_lines)[0].label
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines)
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident(back_to_normal_at=None,
+                                                             unobserved_from=ONSET)),
+                                     ask=_asking_that_answers(
+                                         a_submitted_answer().model_copy(update={
+                                             "causal_chain": [SubmittedStep(
+                                                 step="dont care what the step says",
+                                                 cites=[its_label])]
+                                         })),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the causal chain", lambda document: document.causal_chain, [
+                ChainStep(text="dont care what the step says",
+                          cites=[CitedEvidence(label=its_label,
+                                               text=grouped(some_lines, ONSET)[0].text)])
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
     # The check has named it already, and the review holds it against the
     # analysis. Kept, it would be a citation a reader can follow nowhere.
@@ -725,6 +763,34 @@ def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -
                            lambda document: len(document.log_messages_read),
                            2)
             )
+        )
+
+
+@pytest.mark.unit
+def test_the_log_messages_published_are_split_where_the_metrics_stopped_as_shown() -> None:
+    # The page is where a reader follows a citation to, and a row summed across
+    # the stop would hold figures the prose was never shown.
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines)
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident(back_to_normal_at=None,
+                                                             unobserved_from=ONSET)),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the log messages read",
+                       lambda document: document.log_messages_read,
+                       grouped(some_lines, ONSET))
         )
 
 

@@ -82,7 +82,8 @@ def _what_was_given(evidence: IncidentEvidence,
     are hypotheses, the items already on the record, the revisions the incident
     read, and the figures it may name."""
     return Given(
-        labels=frozenset(label for cited in the_evidence_labelled(evidence)
+        labels=frozenset(label for cited in the_evidence_labelled(evidence,
+                                                                  measured.unobserved_from)
                          for label in (cited.label, *cited.also)),
         hypotheses=frozenset(label for cited in the_candidates_labelled(evidence)
                              for label in (cited.label, *cited.also)),

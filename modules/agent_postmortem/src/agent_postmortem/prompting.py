@@ -722,7 +722,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
                                     measured.rule_series_unit, evidence,
                                     measured.error_rates, figures),
         *(line
-          for heading, cited, beneath in _the_evidence_by_kind(evidence)
+          for heading, cited, beneath in _the_evidence_by_kind(evidence,
+                                                               measured.unobserved_from)
           for line in ["", heading,
                        *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
                          for each in cited),
@@ -759,10 +760,12 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     One list for the asking and the reading of the answer alike - a figure
     shown and not on it is one the check refuses and nothing writes in.
     """
-    return figures_of(evidence, measured) | the_evidence_figures(_the_evidence_listed(evidence))
+    return figures_of(evidence, measured) | the_evidence_figures(
+        _the_evidence_listed(evidence, measured.unobserved_from))
 
 
-def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+def the_evidence_labelled(evidence: IncidentEvidence,
+                          metrics_stopped_at: datetime | None = None) -> list[CitedEvidence]:
     """Every piece of evidence the model is shown, each under its own label:
     what the alert said, then the evidence listed beneath its headings.
 
@@ -772,17 +775,24 @@ def the_evidence_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
     in a run that read a different number of log lines, and a label counted
     across the kinds would then name a different line in every kind after the
     logs.
+
+    `metrics_stopped_at` is where the logs are split (`grouped`), and every
+    reader of what the model was shown passes it, so the text a step cites is
+    the text it was shown.
     """
-    return [*the_alert_labelled(evidence), *_the_evidence_listed(evidence)]
+    return [*the_alert_labelled(evidence), *_the_evidence_listed(evidence, metrics_stopped_at)]
 
 
-def _the_evidence_listed(evidence: IncidentEvidence) -> list[CitedEvidence]:
+def _the_evidence_listed(evidence: IncidentEvidence,
+                         metrics_stopped_at: datetime | None) -> list[CitedEvidence]:
     """The evidence listed beneath its headings, in the order it is shown."""
-    return [cited for _, cited_of_a_kind, _ in _the_evidence_by_kind(evidence)
+    return [cited
+            for _, cited_of_a_kind, _ in _the_evidence_by_kind(evidence, metrics_stopped_at)
             for cited in cited_of_a_kind]
 
 
-def _the_evidence_by_kind(evidence: IncidentEvidence
+def _the_evidence_by_kind(evidence: IncidentEvidence,
+                          metrics_stopped_at: datetime | None
                           ) -> list[tuple[str, list[CitedEvidence], str | None]]:
     """The evidence under the heading the model reads it beneath, in the order
     it is shown, with what is said beneath its rows - `None` where nothing is.
@@ -807,7 +817,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
                                          labels_of_the_narration(evidence.timeline),
                                          strict=True)]
     changes = the_changes_labelled(evidence)
-    log_lines = grouped(evidence.log_lines)
+    log_lines = grouped(evidence.log_lines, metrics_stopped_at)
     candidates = the_candidates_labelled(evidence)
     actions = _numbered(ACTION_PREFIX,
                         [_an_action_as_a_line(action) for action in evidence.actions])
@@ -1123,7 +1133,7 @@ def _how_long_it_was_broken(measured: Measurements,
             f"metrics had still not resumed when Argus stopped working on the "
             f"incident. That is {_shown(DURATION_FIGURE, figures)} the metrics did "
             f"not cover, not a stretch the service is known to have spent in "
-            f"trouble, and the error rates below cover none of it.",
+            f"trouble.",
             _the_logs_reaching_into(log_lines, measured.unobserved_from, figures)
         ]
 
