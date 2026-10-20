@@ -26,6 +26,7 @@ from typing import Any, Final
 
 from argus_core import parse_iso, short_form, to_iso
 from argus_core.models import (
+    NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
     Ask,
     ChangeEvent,
@@ -862,7 +863,7 @@ def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) ->
         return []
 
     return [f"PR #{pull_request.number} is a draft Argus opened for a person to review "
-            f"and merge. The record holds nothing about it after that: do not say it "
+            f"and merge. {NOTHING_RECORDED_AFTER_IT_WAS_OPENED}: do not say it "
             f"was reviewed, approved or merged, or that it was not."]
 
 

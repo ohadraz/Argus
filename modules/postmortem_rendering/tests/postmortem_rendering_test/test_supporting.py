@@ -55,7 +55,8 @@ def test_the_walk_and_the_fix_are_listed_with_every_address_in_full() -> None:
                            Run(text=" ("),
                            Run.an_address(some_fix.url),
                            Run(text=") "),
-                           Run(text="draft - nobody has merged it", role=Role.STATUS))))))
+                           Run(text="opened as a draft", role=Role.STATUS),
+                           Run(text=". The record holds nothing about it after that."))))))
 
 
 @pytest.mark.unit

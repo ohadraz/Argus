@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+from typing import Final
+
 from pydantic import BaseModel
+
+# What is known of a pull request Argus opened once it is open: nothing. Here
+# rather than with whoever says it, because the page and the brief the model
+# writes from both say it, and two spellings of one fact read as two facts.
+NOTHING_RECORDED_AFTER_IT_WAS_OPENED: Final = "The record holds nothing about it after that"
 
 
 class OpenedPullRequest(BaseModel):

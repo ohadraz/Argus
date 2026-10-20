@@ -13,6 +13,7 @@ from typing import Final
 from argus_core import A_REVISION, parse_iso, said_short
 from argus_core.events import PATCH_LINE_INDENT
 from argus_core.models import (
+    NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ChangeEvent,
     ChangeKind,
     ChannelReading,
@@ -111,7 +112,8 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                 Run(text=" ("),
                                 Run.an_address(fix.url),
                                 Run(text=") "),
-                                Run(text="draft - nobody has merged it", role=Role.STATUS))))
+                                Run(text="opened as a draft", role=Role.STATUS),
+                                Run(text=f". {NOTHING_RECORDED_AFTER_IT_WAS_OPENED}."))))
 
     changes = tuple(EvidenceRow(label=cited.label, said=_a_change(cited))
                     for cited in postmortem.changes_read)
