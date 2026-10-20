@@ -139,8 +139,10 @@ def _one_explanation() -> dict[str, Any]:
             "summary": {
                 "type": _STRING_TYPE,
                 "description": (
-                    "One or two sentences: what happened and, if known, why. Not "
-                    "what to do about it: the action is chosen from the failure "
+                    "One or two sentences: what happened and, if known, why. Never "
+                    "what to do about it - no fix, revert, rollback or next step - "
+                    "and not as the way an alternative differs: tell an alternative "
+                    "apart by what happened. The action is chosen from the failure "
                     "mode, and the fix by an agent that reads the code."
                 )
             },

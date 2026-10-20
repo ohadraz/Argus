@@ -116,12 +116,20 @@ def test_the_summary_says_what_happened_and_leaves_what_to_do_to_others() -> Non
     # takes it literally, and everywhere else it is shown - the page, Slack, the
     # postmortem, the pull request - it reads as Argus's plan, beside the action
     # Argus actually took.
+    #
+    # Said of alternatives too, because that is where it survived being told
+    # once: "It is put right by reverting the values file", "The fix would be
+    # in the code, not the flag" - an alternative set apart from the first by
+    # its remedy rather than by what happened.
     Scenario() \
         .when(
             lambda: answer_tool()
         ) \
         .then(
-            _the_field("summary").says("Not what to do about it")
+            all_of(
+                _the_field("summary").says("Never what to do about it"),
+                _the_field("summary").says("tell an alternative apart by what happened")
+            )
         )
 
 
