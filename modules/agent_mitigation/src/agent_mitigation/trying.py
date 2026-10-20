@@ -366,10 +366,7 @@ def take_action(action: Action,
     if settled.verdict is Verdict.WITHDRAWN:
         return Outcome(
             verdict=Verdict.WITHDRAWN,
-            detail=(
-                f"{performed.said}, and a person ended the incident before the "
-                f"service could answer for it"
-            ),
+            detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
             # Nothing was measured here either, and saying so rather than
             # leaving the walk to recognise the word is what lets one fact
@@ -378,7 +375,7 @@ def take_action(action: Action,
             measured=False,
         )
 
-    return _undone(performed, undo, action.action_type)
+    return _undone(performed, undo, action.action_type, settled.because)
 
 
 def _perform(action: Action, writes: PerformingWrites) -> Performed:
@@ -798,10 +795,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 if not anything_was_read:
                     logger.warning("nothing was measured before the deadline")
 
+                # What is known is the last look's finding: this read failed,
+                # so the one before it is the last the service was seen at.
                 return (
                     _Settled(
                         Verdict.REFUTED,
-                        "it did not visibly help in the time it was given"
+                        "the service was still at the incident's level at the last "
+                        "look before the verification wait ran out"
                     )
                     if anything_was_read else
                     _Settled(
@@ -927,7 +927,8 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             if not still_wanted():
                 return _Settled(
                     Verdict.WITHDRAWN,
-                    "a person ended the incident before the service could answer"
+                    "a person ended the incident before the verification wait "
+                    "reached a verdict"
                 )
 
             if resolved:
@@ -1013,7 +1014,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             return _Settled(
                 Verdict.REFUTED,
                 "nothing in this window ever departed, so there was no "
-                "improvement for it to show and this action answered for nothing"
+                "improvement for it to show"
             )
 
         recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
@@ -1052,18 +1053,22 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         if not still_wanted():
             return _Settled(
                 Verdict.WITHDRAWN,
-                "a person ended the incident before the service could answer"
+                "a person ended the incident before the verification wait reached a verdict"
             )
 
+        # What the looks judge, in their words: whether the service left the
+        # incident's level - never whether it was back at a baseline, which no
+        # look measures.
         if recovered:
             return _Settled(
-                Verdict.CONFIRMED, "the service returned to baseline"
+                Verdict.CONFIRMED, "the service was no longer at the incident's level"
             )
 
         if now() >= watch_until:
             return _Settled(
                 Verdict.REFUTED,
-                "it did not visibly help in the time it was given"
+                "the service was still at the incident's level when the verification "
+                "wait ran out"
             )
 
         sleep(_SECONDS_BETWEEN_METRIC_READS)
@@ -1261,7 +1266,8 @@ def _why_nothing_was_put_back(action_type: ActionType) -> str:
 
 def _undone(performed: Performed,
             undo: UndoChange,
-            action_type: ActionType) -> Outcome:
+            action_type: ActionType,
+            because: str) -> Outcome:
     """Puts a refuted action back, and says so as a verdict.
 
     A refuted action was taken on a hypothesis the evidence has not borne out,
@@ -1281,10 +1287,15 @@ def _undone(performed: Performed,
     written to.
 
     The undo itself is `undo_change`; what this adds is what a *verdict* is
-    made of. A change left as found is still a refutation - the service did not
-    recover, which is what the verdict is about - while a change nobody could
-    account for escalates, because an environment Argus cannot describe is
-    precisely what a human needs paging for.
+    made of. A change left as found is still a refutation - the wait found
+    against it, which is what the verdict is about - while a change nobody
+    could account for escalates, because an environment Argus cannot describe
+    is precisely what a human needs paging for.
+
+    `because` is what the verification wait judged, said as it said it: the
+    rule still firing, the service still at the incident's level, or a window
+    that never showed the incident at all. Three findings that point a reader
+    three different ways, so no branch writes one sentence over all of them.
     """
     taken = performed.said
     undo_descriptor = performed.undo_descriptor
@@ -1293,7 +1304,7 @@ def _undone(performed: Performed,
         return Outcome(
             verdict=Verdict.REFUTED,
             detail=(
-                f"{taken}, the service did not recover, and "
+                f"{taken}, but {because}, and "
                 f"{_why_nothing_was_put_back(action_type)}"
             ),
         )
@@ -1315,20 +1326,20 @@ def _undone(performed: Performed,
 
             return Outcome(
                 verdict=Verdict.ESCALATED,
-                detail=f"{taken}, the service did not recover, and {attempt.detail}",
+                detail=f"{taken}, but {because}, and {attempt.detail}",
                 undo_descriptor=undo_descriptor,
             )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
                 verdict=Verdict.REFUTED,
-                detail=f"{taken}, the service did not recover, and {attempt.detail}",
+                detail=f"{taken}, but {because}, and {attempt.detail}",
                 undo_descriptor=undo_descriptor,
             )
         case Undone.RESTORED:
             return Outcome(
                 verdict=Verdict.REFUTED,
                 detail=(
-                    f"{taken}, the service did not recover, so it was put back "
+                    f"{taken}, but {because}, so it was put back "
                     f"{_how_it_was_put_back(undo_descriptor)}"
                 ),
                 undo_descriptor=undo_descriptor,
@@ -1345,7 +1356,7 @@ def _undone(performed: Performed,
             return Outcome(
                 verdict=Verdict.REFUTED,
                 detail=(
-                    f"{taken}, the service did not recover, and "
+                    f"{taken}, but {because}, and "
                     f"{_why_nothing_was_put_back(action_type)}"
                 ),
                 undo_descriptor=undo_descriptor,

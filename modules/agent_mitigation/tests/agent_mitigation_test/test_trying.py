@@ -255,8 +255,11 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
 @pytest.mark.unit
 def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -> None:
     # An expired verification is refuted rather than an error: the action was
-    # taken and did not visibly help within the time allowed, which is exactly
-    # what refuted means.
+    # taken and the service was still at the incident's level when the wait
+    # ran out, which is exactly what refuted means. Said as that, rather than
+    # as a service that "did not recover": the brief carries the sentence, and
+    # a refutation that does not say what was judged is no evidence a reader
+    # can weigh.
     Scenario() \
         .given(
             some_old_state := False,
@@ -278,9 +281,12 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 undo=an_undo_putting_flags_back(set_state, nobody_changed_it())
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("the service was still at the incident's level when the "
+                                 "verification wait ran out"),
+            _the_detail_does_not_mention("did not recover")
+        ))
 
 
 @pytest.mark.unit
@@ -312,7 +318,8 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.WITHDRAWN),
-            _the_detail_mentions("a person ended the incident"),
+            _the_detail_mentions("a person ended the incident before the verification wait "
+                                 "reached a verdict"),
             _the_detail_does_not_mention("withdrawn")
         ))
 
@@ -2344,7 +2351,7 @@ def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there()
             _the_service_was_looked_at(the_rows_return_as_the_action_lands, times=2),
             _the_detail_mentions("could be read again"),
             _the_detail_does_not_mention("never departed"),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level")
         ))
 
 
@@ -2807,7 +2814,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> N
         ) \
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level")
         ))
 
 
@@ -2853,7 +2860,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_nothing_is_published() -> N
             # verdict alone would stay green with the receipt still gated, which
             # is the hole this closes rather than the one it reports.
             _the_detail_mentions("the store reported what it removed"),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level")
         ))
 
 
@@ -2963,7 +2970,8 @@ def test_a_restart_is_not_confirmed_by_a_window_that_never_departed() -> None:
         ) \
         .then(all_of(
             _the_verdict_is_not(Verdict.CONFIRMED),
-            _the_detail_does_not_mention("returned to baseline")
+            _the_detail_does_not_mention("no longer at the incident's level"),
+            _the_detail_does_not_mention("answer")
         ))
 
 
@@ -2991,7 +2999,8 @@ def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.CONFIRMED),
-            _the_detail_mentions("returned to baseline")
+            _the_detail_mentions("the service was no longer at the incident's level"),
+            _the_detail_does_not_mention("baseline")
         ))
 
 
@@ -3834,9 +3843,11 @@ def test_a_rule_still_firing_when_the_time_runs_out_refutes_the_action() -> None
                 clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("the rule that fired was still firing"),
+            _the_detail_does_not_mention("did not recover")
+        ))
 
 
 @pytest.mark.unit
