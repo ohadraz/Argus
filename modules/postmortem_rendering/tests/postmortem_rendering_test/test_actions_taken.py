@@ -39,7 +39,7 @@ def test_each_action_is_a_row_saying_when_what_who_whether_it_undoes_and_what_it
             the_answer_was((StepRow(label="M1", at="14:08:30",
                                     action=Line(runs=(Run(
                                         text="turned monthly-spend-feature off"),)),
-                                    by="Argus", kind="reversible",
+                                    by="Argus", kind="can be put back",
                                     outcome="recovered, still in place"),)))
 
 
@@ -65,7 +65,9 @@ def test_an_action_that_left_automatic_sync_off_says_so_in_its_row_alone() -> No
 
 
 @pytest.mark.unit
-def test_an_action_that_cannot_be_undone_says_so() -> None:
+def test_an_action_with_nothing_to_put_back_says_so() -> None:
+    # Said as what the record holds, not as "irreversible": that word names the
+    # autonomy tier, and a restart Argus may take unasked is on its safe side.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(resolution=[
@@ -76,7 +78,7 @@ def test_an_action_that_cannot_be_undone_says_so() -> None:
             lambda: the_actions_taken(some_postmortem, resolution=None).steps[0].kind
         ) \
         .then(
-            the_answer_was("irreversible"))
+            the_answer_was("nothing to put back"))
 
 
 @pytest.mark.unit

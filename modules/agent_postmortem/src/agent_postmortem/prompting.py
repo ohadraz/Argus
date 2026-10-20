@@ -43,6 +43,7 @@ from argus_core.models import (
     changes_not_listed,
     labelled,
     no_logs_listed,
+    whether_it_can_be_put_back,
 )
 from pydantic import BaseModel, field_validator
 
@@ -902,8 +903,15 @@ def _in_its_own_words(summary: str,
 
 
 def _an_action_as_a_line(action: ActionRecord) -> str:
-    """An action, its verdict, and whether it still stands."""
-    return f"{action.action} - {action.verdict or NO_VERDICT_RECORDED}, {action.standing}"
+    """An action, whether it left anything to put back, its verdict, and
+    whether it still stands.
+
+    Whether it can be put back is said in the page's own words: the brief said
+    nothing of it, and a model guessed "reversible" a section away from a row
+    saying "irreversible" - both the autonomy tier's words, about a restart.
+    """
+    return (f"{action.action} ({whether_it_can_be_put_back(action.reversible)}) - "
+            f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}")
 
 
 def _what_people_told_it(leads: Sequence[ThreadMessage]) -> list[str]:

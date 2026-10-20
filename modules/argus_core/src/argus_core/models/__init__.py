@@ -113,6 +113,7 @@ from argus_core.models.postmortem_sections import (
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    whether_it_can_be_put_back,
 )
 from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.rates import PublishedRates, RatesUnavailable
@@ -277,6 +278,7 @@ __all__ = [
     "TimelineEntry",
     "TimelineMarker",
     "Trigger",
+    "whether_it_can_be_put_back",
     "Postmortem",
     "PostmortemDocument",
     "PostmortemLead",

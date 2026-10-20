@@ -215,6 +215,22 @@ class ResolutionStep(BaseModel):
     sync_left_off: bool = False
 
 
+def whether_it_can_be_put_back(has_a_way_back: bool) -> str:
+    """Whether an action left something to put back, in the words every place
+    showing it uses.
+
+    Not "reversible" and "irreversible": those two name the autonomy tier
+    (spec §13), where irreversible is the kind of action Argus never takes
+    unasked. A restart has nothing to put back and is on the safe side of that
+    line, and a page calling it irreversible said Argus had broken its own rule.
+
+    Here rather than with whoever shows it, because the page and the brief the
+    model writes from both say it, and two spellings of one fact read as two
+    facts.
+    """
+    return "can be put back" if has_a_way_back else "nothing to put back"
+
+
 class Detection(BaseModel):
     """How the incident came to be known about.
 

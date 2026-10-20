@@ -1538,6 +1538,33 @@ def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("has_a_way_back", "said"),
+                         [(True, "can be put back"), (False, "nothing to put back")],
+                         ids=["a-way-back", "nothing-to-put-back"])
+def test_an_action_is_told_with_whether_it_can_be_put_back(has_a_way_back: bool,
+                                                          said: str) -> None:
+    # The document's Resolution says it of every action, and the brief said
+    # nothing. Left to guess, a model called a restart reversible under what went
+    # well, a section away from a row calling it irreversible - and both were
+    # the wrong word: those two name the autonomy tier, which a restart is on
+    # the safe side of. What the record holds is whether there is anything to
+    # put back.
+    some_action = "restart-service on io-shop"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(some_action, reversible=has_a_way_back)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"{some_action} ({said})"),
+            _does_not_say("irreversible")))
+
+
+@pytest.mark.unit
 def test_an_incident_back_to_normal_is_given_as_back_to_normal_rather_than_recovered() -> None:
     # Where the impact ends is where the service was back inside its usual range,
     # which is not where Mitigation saw it fall off the incident's level - and

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core.models import PostmortemDocument
+from argus_core.models import PostmortemDocument, whether_it_can_be_put_back
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_clock
@@ -78,7 +78,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
                           at=on_the_clock(step.at),
                           action=Line(runs=(Run(text=step.action),)),
                           by=step.by,
-                          kind="reversible" if step.reversible else "irreversible",
+                          kind=whether_it_can_be_put_back(step.reversible),
                           outcome=step.outcome,
                           sync_left_off=step.sync_left_off)
                   for step in postmortem.resolution)

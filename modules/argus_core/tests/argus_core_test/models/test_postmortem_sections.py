@@ -12,7 +12,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import CandidateConsidered, Detection, HypothesisConsidered
+from argus_core.models import (
+    CandidateConsidered,
+    Detection,
+    HypothesisConsidered,
+    whether_it_can_be_put_back,
+)
 from argus_testkit import Scenario, an_error_was_raised, attempting, the_answer_was
 from pydantic import ValidationError
 
@@ -67,6 +72,24 @@ def test_a_merged_candidate_tested_itself_or_where_none_was_has_the_result_bare(
         ) \
         .then(
             the_answer_was(result)
+        )
+
+
+@pytest.mark.parametrize(("has_a_way_back", "said"), [(True, "can be put back"),
+                                                      (False, "nothing to put back")])
+@pytest.mark.unit
+def test_whether_an_action_can_be_put_back_is_said_without_the_tier_s_words(
+        has_a_way_back: bool, said: str) -> None:
+    # Not "reversible" and "irreversible": those two name the autonomy tier, and
+    # a restart - pre-authorised, taken unasked - shown as irreversible read as
+    # Argus having broken its own rule. What the record holds is whether there is
+    # anything to put back, and the page and the brief both say it.
+    Scenario() \
+        .when(
+            lambda: whether_it_can_be_put_back(has_a_way_back)
+        ) \
+        .then(
+            the_answer_was(said)
         )
 
 
