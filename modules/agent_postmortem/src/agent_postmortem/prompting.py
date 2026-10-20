@@ -523,7 +523,11 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "evidence by its label. At the step that ties the incident to the "
             "change that set it off, say what else the record ruled out and why - "
             "an earlier change, a flag the provider showed unchanged, a candidate "
-            "refuted - citing what ruled it out. Stop where the evidence stops."
+            "refuted - citing what ruled it out. An earlier change is ruled out only "
+            "by the service measured healthy with it in place - in metrics read "
+            "between it and the onset, or after a confirmed action that left it "
+            "there - never by how long before the onset it came. Where the record "
+            "shows neither, say it was not ruled out. Stop where the evidence stops."
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
             {FACTOR_FIELD: {"type": "string"},

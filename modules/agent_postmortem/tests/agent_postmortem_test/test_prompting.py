@@ -1852,6 +1852,23 @@ def test_the_cause_is_asked_to_say_what_else_the_record_ruled_out() -> None:
 
 
 @pytest.mark.unit
+def test_an_earlier_change_is_asked_to_be_ruled_out_by_the_service_healthy_with_it() -> None:
+    # A write-up ruled the earlier deploy out because it "went out well before
+    # the onset" - but a change can take hours to show. What rules it out is
+    # the service measured healthy with it in place: in metrics read before the
+    # onset, or after a confirmed action that left it there. Where the record
+    # shows neither, it stands.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never by how long before",
+                                      "a confirmed action that left it", "not ruled out")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD])
 def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: str) -> None:
     # Told once, in the tool's own description, to state only what the evidence
