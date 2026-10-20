@@ -947,6 +947,47 @@ def test_a_rule_that_waits_for_nothing_is_told_as_firing_at_once() -> None:
 
 
 @pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_is_told_how_long_after_the_onset_its_alert_came(
+) -> None:
+    # Told only that the rule fires as soon as its condition holds, a write-up
+    # left 5m 53s from the onset to the alert unweighed. Part of it can be the
+    # condition's own window - "5m with no sample" holds only once five minutes
+    # have passed with none - which the alert's own words may name.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=53)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line(A_RULE_FIRING_AT_ONCE, "The alert came",
+                              f"{{{AFTER_THE_WAIT_FIGURE}}} after the onset",
+                              "looks back over a window")
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_under_a_minute_after_the_onset_of_a_rule_that_waits_for_nothing_names_no_lag(
+) -> None:
+    # A measured onset is a whole minute, so seconds after it are inside what
+    # it can tell. Named, they read as a lag.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(seconds=40)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("The alert came as soon as its condition held"),
+            _does_not_say(f"{{{AFTER_THE_WAIT_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
 def test_a_rule_whose_wait_could_not_be_read_is_told_so() -> None:
     # Unread is not "fires at once", and a model told nothing assumed one.
     Scenario() \

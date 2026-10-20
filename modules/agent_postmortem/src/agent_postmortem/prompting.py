@@ -1412,12 +1412,44 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
         return []
 
     if not measured.rule_waits:
-        return ["The alert rule fires as soon as its condition holds."]
+        return [f"The alert rule fires as soon as its condition holds."
+                f"{_the_alert_against_no_wait(evidence, measured, figures)}"]
 
     return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
             f"condition holding before it fires: that wait is part of the time from "
             f"the onset to the alert - count it before calling detection slow."
             f"{_the_alert_against_its_wait(evidence, measured, figures)}"]
+
+
+def _the_alert_against_no_wait(evidence: IncidentEvidence,
+                               measured: Measurements,
+                               figures: Mapping[str, Figure]) -> str:
+    """How long after the onset the alert of a rule that waits for nothing
+    came, as a sentence to follow the rule's own - or nothing, where no onset
+    was measured to take a gap from.
+
+    Told only that the rule fires at once, a write-up left the whole gap from
+    the onset to the alert unweighed. Part of it can be the condition's own
+    window - an absence of samples holds only once the minutes it counts have
+    passed - which the alert's own words may name. From a minute up, by its
+    figure; under one, in words, as a wait's own gap is said.
+    """
+    after_the_onset = what_came_after_the_wait(evidence, measured)
+
+    if after_the_onset is None:
+        return ""
+
+    if after_the_onset < timedelta(0):
+        return " The alert came before the measured onset."
+
+    if after_the_onset < A_MINUTE:
+        return (" The alert came as soon as its condition held, as near as a measured "
+                "onset - a whole minute - can tell.")
+
+    return (f" The alert came {_shown(AFTER_THE_WAIT_FIGURE, figures)} after the onset: where "
+            f"the condition itself looks back over a window - samples missing for some "
+            f"minutes, a rate over some minutes - that window is part of it, and what the "
+            f"alert said may name it.")
 
 
 def _the_alert_against_its_wait(evidence: IncidentEvidence,

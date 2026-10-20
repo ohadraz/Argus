@@ -341,12 +341,16 @@ def what_came_after_the_wait(evidence: IncidentEvidence,
                              measured: Measurements) -> timedelta | None:
     """How long after its rule's wait ended the alert came - below nothing
     where it came sooner than the wait allows - or `None` where there is no
-    gap to take it from: no onset measured, or no wait.
+    gap to take it from: no onset measured, or no wait read.
+
+    A wait of nothing is still a wait the gap comes after: told only that the
+    rule fires as soon as its condition holds, a write-up left the whole gap
+    from the onset to the alert unweighed.
 
     One working for the figure and the brief's sentence alike, so the two
     never say different things of the same alert.
     """
-    if measured.onset_at is None or not measured.rule_waits:
+    if measured.onset_at is None or measured.rule_waits is None:
         return None
 
     return evidence.alerted_at - measured.onset_at - measured.rule_waits

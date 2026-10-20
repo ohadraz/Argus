@@ -763,6 +763,27 @@ def test_how_long_the_alert_came_after_its_rule_s_wait_is_named_from_a_minute_up
 
 
 @pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_still_names_how_long_after_the_onset_it_came() -> None:
+    # A wait of nothing is still a wait the gap comes after. Told only that the
+    # rule fires as soon as its condition holds, a write-up left 5m 53s from the
+    # onset to the alert unweighed - and said nothing of detection at all.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=53)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(0))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                AFTER_THE_WAIT_FIGURE: Figure(given="5 minutes 53 seconds",
+                                              written="5 minutes 53 seconds")
+            })
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("alerted_after_the_onset", "onset_at"), [
     (timedelta(minutes=5, seconds=16), ONSET),
     (timedelta(minutes=4, seconds=51), ONSET),
