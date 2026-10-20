@@ -80,11 +80,11 @@ from argus_core.models import (
     PodPlacement,
     RecordedPlacement,
     Reference,
-    Refusal,
     ReportChannel,
     RetrievalChannel,
     RolloutAccount,
     Undone,
+    why_it_was_refused,
 )
 from pydantic import BaseModel, Field
 
@@ -122,57 +122,6 @@ _AGENTS = {
     Actor.COMMUNICATOR: _COMMUNICATOR,
     Actor.POSTMORTEM: _POSTMORTEM
 }
-
-# Why the gate would not let an action through, in a reader's words. Derived
-# from the value rather than stored beside it: two sentences that must agree
-# with one enum is one of them eventually disagreeing.
-_WHY_IT_WAS_REFUSED = {
-    Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed",
-    # Said as what it is rather than as an absence. These two are Argus having
-    # understood the incident and taking nothing for it - a reader who took
-    # either for a thin investigation would go looking for evidence instead of
-    # for whoever can act. And each says its own reason, because the two send a
-    # reader to different people: whoever can call the third party, or whoever
-    # owns the monitoring that did not follow a change somebody meant. Said of
-    # the second as "nothing Argus can do", it was false - a rollback reaches it
-    # and was declined - and a model reading it wrote that Argus could not act.
-    Refusal.SOMEBODY_ELSES_SERVICE: "the failure is in a service another company "
-                                    "runs, and nothing Argus can do reaches it",
-    Refusal.WOULD_UNDO_A_MEANT_CHANGE: "the only action that would answer it "
-                                       "undoes a change that was made on purpose",
-    Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked",
-    # The cap, said as the count it is rather than as a failure. A reader who
-    # took this for something going wrong would look for a fault; what happened
-    # is a control working.
-    Refusal.ALREADY_TRIED_ENOUGH: "has already been tried on this subject as "
-                                  "often as this incident allows",
-    # Said as the estate rather than as the action, because that is the half
-    # somebody can correct. The kind was fine and the address was not, and a
-    # reader who read this as "Argus may not do that" would go looking at the
-    # declared set instead of at the service register.
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "is addressed to a service outside "
-                                          "the estate Argus may act on",
-    # Said as what nobody could find out rather than as what Argus declined,
-    # because the action is not what was wrong with it. A reader who took this
-    # for Argus doubting the diagnosis would go looking for better evidence of
-    # the cause; what is missing is evidence of the *outcome*, which no amount
-    # of investigating supplies. The action still stands, and somebody has to
-    # take it.
-    Refusal.NOTHING_COULD_CONFIRM_IT: "is sound, and nothing would have said "
-                                      "whether it worked inside the time Argus "
-                                      "waits - so it is recommended rather than "
-                                      "taken"
-}
-
-# The reasons said of the action rather than of the investigation. Each opens
-# on its verb, so the line gives it its subject; the other two carry their own.
-_SAID_OF_THE_ACTION = frozenset({
-    Refusal.NOT_A_GENERIC_MITIGATION,
-    Refusal.ALREADY_TRIED_ENOUGH,
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-    Refusal.NOTHING_COULD_CONFIRM_IT
-})
-
 
 # What each retrieval channel is, said so that somebody who has never read the
 # spec knows what was asked for. "changes" in particular: it means deploys and
@@ -560,9 +509,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # The reason, for the same reason a refused message marks its
             # refusal: the two are different findings, and which of them
             # happened is the only part a person can act on.
-            emphasis = _WHY_IT_WAS_REFUSED[event.refusal]
-            subject = "the action " if event.refusal in _SAID_OF_THE_ACTION else ""
-            text = f"Refused to act - {subject}{emphasis}"
+            emphasis = why_it_was_refused(event.refusal)
+            text = f"Refused to act - {emphasis}"
         case ActionRecommended():
             who = _ARGUS
             # The subject rather than the kind, because the kind is not

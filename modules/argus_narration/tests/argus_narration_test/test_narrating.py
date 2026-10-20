@@ -103,6 +103,7 @@ from argus_core.models import (
     Undone,
     Verdict,
     the_actions_through,
+    why_it_was_refused,
 )
 from argus_narration.narrating import (
     NarrationLine,
@@ -936,38 +937,21 @@ def test_a_report_without_a_note_says_nothing_in_its_place() -> None:
 
 
 @pytest.mark.unit
-def test_a_refusal_marks_why_the_action_was_not_taken() -> None:
+@pytest.mark.parametrize("refusal", list(Refusal), ids=lambda refusal: refusal.value)
+def test_a_refusal_marks_why_the_action_was_not_taken_in_the_sentence_every_reader_says(
+    refusal: Refusal
+) -> None:
     # The autonomy boundary holding, said as the one thing a reader can act on.
     # Which candidate went untested is on the candidate's own row; what a person
-    # scanning the account needs is which of the two refusals this was - an
-    # investigation with nothing to offer, or something to do that nobody has
-    # pre-authorised. Marked for the reason a refused message marks its
-    # refusal: the reason is the actionable half.
-    some_refusal = ActionRefused(
-        incident_id=new_id(),
-        hypothesis_id=new_id(),
-        refusal=Refusal.NOT_A_GENERIC_MITIGATION
-    )
-
-    Scenario() \
-        .given(some_refusal) \
-        .when(lambda: build_narration([some_refusal])) \
-        .then(all_of(
-            _the_only_line_marks("is not a mitigation Argus may take unasked"),
-            _the_lines_are_credited_to(["Argus"])))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("refusal", [
-    Refusal.NOT_A_GENERIC_MITIGATION,
-    Refusal.ALREADY_TRIED_ENOUGH,
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-    Refusal.NOTHING_COULD_CONFIRM_IT
-])
-def test_a_refusal_said_of_the_action_names_the_action_as_its_subject(refusal: Refusal) -> None:
-    # These four reasons are about the action rather than the investigation,
-    # and each opens on its verb. After "Refused to act - " alone the sentence
-    # has no subject: "Refused to act - is sound, and nothing would have said".
+    # scanning the account needs is which refusal this was, since each sends
+    # them to somebody different. Marked for the reason a refused message marks
+    # its refusal: the reason is the actionable half. And in the kernel's own
+    # sentence, which the candidate's row and the review say too - three
+    # spellings of one reason read as three reasons.
+    #
+    # Over the whole enum: a refusal nobody wrote a sentence for raises while
+    # the incident is being narrated, in the one path that exists to say what
+    # happened.
     some_refusal = ActionRefused(
         incident_id=new_id(),
         hypothesis_id=new_id(),
@@ -977,7 +961,10 @@ def test_a_refusal_said_of_the_action_names_the_action_as_its_subject(refusal: R
     Scenario() \
         .given(some_refusal) \
         .when(lambda: build_narration([some_refusal])) \
-        .then(_the_only_line_says("Refused to act - the action "))
+        .then(all_of(
+            _the_only_line_marks(why_it_was_refused(refusal)),
+            _the_only_line_says(f"Refused to act - {why_it_was_refused(refusal)}"),
+            _the_lines_are_credited_to(["Argus"])))
 
 
 @pytest.mark.unit
@@ -2303,58 +2290,6 @@ def test_a_restart_of_the_service_that_alerted_says_nothing_about_dependencies()
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("refusal", "said"), [
-    (Refusal.SOMEBODY_ELSES_SERVICE,
-     "the failure is in a service another company runs, and nothing Argus can do "
-     "reaches it"),
-    (Refusal.WOULD_UNDO_A_MEANT_CHANGE,
-     "the only action that would answer it undoes a change that was made on purpose")
-], ids=["somebody-elses-service", "would-undo-a-meant-change"])
-def test_a_failure_argus_takes_nothing_for_says_why_rather_than_saying_nothing_was_proposed(
-    refusal: Refusal,
-    said: str
-) -> None:
-    # The line a person reads when Argus knew what happened and took nothing
-    # for it. "No mitigation was proposed" would read as an investigation that
-    # came up short, which is the opposite of this: the cause is named. And the
-    # reason is said, because the two send a reader to different people -
-    # whoever can call the other company, or whoever owns the monitoring that
-    # did not follow a change somebody meant. "Nothing Argus can do" said of
-    # both was false of the second, where a rollback reaches the fault.
-    some_refusal = ActionRefused(
-        incident_id=new_id(),
-        hypothesis_id=new_id(),
-        refusal=refusal
-    )
-
-    Scenario() \
-        .given(some_refusal) \
-        .when(lambda: build_narration([some_refusal])) \
-        .then(all_of(
-            _the_only_line_marks(said),
-            _the_lines_are_credited_to(["Argus"])))
-
-
-@pytest.mark.unit
-def test_every_refusal_reaches_a_reader_in_words() -> None:
-    # The lookup that renders a refusal is a subscript, not a `get`, so a value
-    # with no sentence does not degrade - it raises, while an incident is being
-    # narrated, in the one path that exists to tell somebody what happened.
-    #
-    # Asserted over the whole enum rather than per member for the reason the
-    # taxonomy's meanings are: what must hold is that no refusal reaches a page
-    # as a value nobody wrote a sentence for, and a test naming the three that
-    # exist today would say nothing about the fourth.
-    Scenario() \
-        .given(every_reason_to_refuse := list(Refusal)) \
-        .when(lambda: {
-            refusal: _what_a_reader_is_told_about(refusal)
-            for refusal in every_reason_to_refuse
-        }) \
-        .then(_every_refusal_was_put_into_words())
-
-
-@pytest.mark.unit
 def test_a_scale_out_is_said_as_a_scale_out_when_it_is_taken() -> None:
     # Words for the fourth kind of action. Without them the line rendered as the
     # tag's own identifier - "scale-out" - which reads as a bug in the page and
@@ -3182,41 +3117,6 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[list[NarrationLin
             raise AssertionError(
                 f"Expected the candidate to have moved [{was}] to [{now}], "
                 f"got [{candidate.moved_from}] to [{candidate.moved_to}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _what_a_reader_is_told_about(refusal: Refusal) -> str:
-    """The narrated line for one refusal, or the empty string where narrating it
-    fails.
-
-    Caught rather than allowed to raise, so the assertion below names every
-    refusal that has no sentence instead of the test ending on the first one.
-    """
-    try:
-        return build_narration([ActionRefused(
-            incident_id=new_id(),
-            hypothesis_id=new_id(),
-            refusal=refusal
-        )])[0].text
-    except KeyError:
-        return ""
-
-
-def _every_refusal_was_put_into_words() -> Assertion[dict[Refusal, str]]:
-    def assertion(narrated: dict[Refusal, str]) -> bool:
-        wordless = [
-            refusal.value for refusal, line in narrated.items() if not line
-        ]
-
-        if wordless:
-            raise AssertionError(
-                f"{sorted(wordless)} have no sentence, so an incident refused "
-                f"for one of those reasons fails while it is being narrated - "
-                f"in the one path whose whole job is to say what happened."
             )
 
         return True

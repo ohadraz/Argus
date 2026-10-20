@@ -140,7 +140,7 @@ from argus_core.models.reference import (
     a_chat_withdrawal_offer,
     the_place_of,
 )
-from argus_core.models.refusal import Refusal
+from argus_core.models.refusal import Refusal, why_it_was_refused
 from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutAccount, RolloutProgress
 from argus_core.models.service_dependency import Ownership, ServiceDependency
@@ -308,6 +308,7 @@ __all__ = [
     "not_yet_shown",
     "the_place_of",
     "Refusal",
+    "why_it_was_refused",
     "Report",
     "ReportChannel",
     "RetrievalChannel",

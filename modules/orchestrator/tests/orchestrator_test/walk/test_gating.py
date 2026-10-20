@@ -46,11 +46,12 @@ from argus_core.models import (
     RestartService,
     RevertFeatureFlag,
     ServiceDependency,
+    why_it_was_refused,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.gating import route_after_gate, tier_gate_node, what_the_row_says
+from orchestrator.walk.gating import route_after_gate, tier_gate_node
 from orchestrator.walk.routes import (
     FIXING_ROUTE,
     MITIGATING_ROUTE,
@@ -187,9 +188,10 @@ def test_a_candidate_the_gate_refused_is_recorded_as_never_having_been_tried(
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_not_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
-        .then(_the_candidate_was_recorded_as_untried(some_candidate,
-                                                     "Argus may take unasked",
-                                                     record_outcome))
+        .then(_the_candidate_was_recorded_as_untried(
+            some_candidate,
+            why_it_was_refused(Refusal.NOT_A_GENERIC_MITIGATION),
+            record_outcome))
 
 
 @pytest.mark.unit
@@ -383,9 +385,10 @@ def test_a_candidate_refused_for_having_been_tried_enough_says_so_in_its_row(
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=1)) \
-        .then(_the_candidate_was_recorded_as_untried(some_candidate,
-                                                     "as often as the incident allows",
-                                                     record_outcome))
+        .then(_the_candidate_was_recorded_as_untried(
+            some_candidate,
+            why_it_was_refused(Refusal.ALREADY_TRIED_ENOUGH),
+            record_outcome))
 
 
 @pytest.mark.unit
@@ -477,13 +480,13 @@ def test_a_cause_nobody_could_act_on_is_still_refused_as_unproposed(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("mode", "reason"), [
-    (FailureMode.UPSTREAM_DEPENDENCY_FAILURE, "a service another company runs"),
-    (FailureMode.MONITORING_CONFIGURATION_DRIFT, "undoes a change that was made on purpose")
+@pytest.mark.parametrize(("mode", "refusal"), [
+    (FailureMode.UPSTREAM_DEPENDENCY_FAILURE, Refusal.SOMEBODY_ELSES_SERVICE),
+    (FailureMode.MONITORING_CONFIGURATION_DRIFT, Refusal.WOULD_UNDO_A_MEANT_CHANGE)
 ], ids=["upstream", "drift"])
 def test_the_candidate_row_says_why_argus_takes_nothing_for_this_kind_of_failure(
     mode: FailureMode,
-    reason: str,
+    refusal: Refusal,
     record_outcome: MagicMock
 ) -> None:
     # The row is read beside the other candidates rather than on the timeline,
@@ -503,7 +506,7 @@ def test_the_candidate_row_says_why_argus_takes_nothing_for_this_kind_of_failure
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(some_candidate,
-                                                     reason,
+                                                     why_it_was_refused(refusal),
                                                      record_outcome))
 
 
@@ -769,28 +772,8 @@ def test_a_candidate_refused_for_where_it_was_aimed_says_so_in_its_row(
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(_the_candidate_was_recorded_as_untried(
             some_candidate,
-            "outside the estate Argus may act on",
+            why_it_was_refused(Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH),
             record_outcome))
-
-
-@pytest.mark.unit
-def test_every_refusal_has_a_sentence_for_the_candidates_row() -> None:
-    # The same subscript the narration carried, in a worse place. A refusal
-    # with no sentence here does not degrade to a blank row - it raises inside
-    # the gate, which is on the walk itself rather than on the page, so a new
-    # refusal would end the incident instead of spoiling its account.
-    #
-    # Over the whole enum rather than per member, for the reason the narration's
-    # is: what must hold is that no refusal reaches a candidate's row as a value
-    # nobody wrote a sentence for, and a test naming the ones that exist today
-    # would say nothing about the next.
-    Scenario() \
-        .given(every_reason_to_refuse := list(Refusal)) \
-        .when(lambda: {
-            refusal: _what_the_row_would_say_about(refusal)
-            for refusal in every_reason_to_refuse
-        }) \
-        .then(_every_refusal_was_put_into_words())
 
 
 @pytest.mark.unit
@@ -1233,34 +1216,6 @@ def _a_cause_with_no_mitigation(mode: FailureMode) -> Hypothesis:
     drift.
     """
     return a_determined_hypothesis(a_random_id(), failure_mode=mode)
-
-
-def _what_the_row_would_say_about(refusal: Refusal) -> str:
-    """The row's sentence for one refusal, or the empty string where there is none.
-
-    Caught rather than allowed to raise, so the assertion below names every
-    refusal without a sentence instead of the test ending on the first one.
-    """
-    try:
-        return what_the_row_says(refusal)
-    except KeyError:
-        return ""
-
-
-def _every_refusal_was_put_into_words() -> Assertion[dict[Refusal, str]]:
-    def assertion(said: dict[Refusal, str]) -> bool:
-        wordless = [refusal.value for refusal, sentence in said.items() if not sentence]
-
-        if wordless:
-            raise AssertionError(
-                f"{sorted(wordless)} have no sentence, so a candidate refused "
-                f"for one of those reasons fails the walk at the gate - before "
-                f"anything has been tried and before anything has been said."
-            )
-
-        return True
-
-    return assertion
 
 
 def _a_dependency_of_ours(name: str) -> ServiceDependency:

@@ -22,6 +22,7 @@ from argus_core.models import (
     reports_what_it_changed,
     the_identity_of,
     the_subject_of,
+    why_it_was_refused,
 )
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -35,33 +36,6 @@ from orchestrator.walk.state import IncidentState
 
 logger = logging.getLogger(__name__)
 
-# What the candidate's own row says stopped it, one sentence per reason. The
-# row is read beside the other candidates rather than on the timeline, so it
-# says what happened to *this* explanation in full - where the published event
-# carries the value anything counting refusals reads.
-#
-# A subscript rather than a `get`, deliberately: a refusal nobody has written a
-# sentence for is a refusal a reader would see as a blank row and take for a
-# candidate nothing happened to. What that costs is why it is reached through
-# the function below rather than read here - see `what_the_row_says`.
-_WHAT_THE_ROW_SAYS = {
-    Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed for this cause",
-    Refusal.SOMEBODY_ELSES_SERVICE: "the failure is in a service another "
-                                    "company runs, and nothing Argus can do "
-                                    "reaches it",
-    Refusal.WOULD_UNDO_A_MEANT_CHANGE: "the only action that would answer it "
-                                       "undoes a change that was made on purpose",
-    Refusal.NOT_A_GENERIC_MITIGATION: "actions of this kind are not among the "
-                                      "mitigations Argus may take unasked",
-    Refusal.ALREADY_TRIED_ENOUGH: "this has already been tried on this subject "
-                                  "as often as the incident allows",
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH: "this is addressed to a service "
-                                          "outside the estate Argus may act on",
-    Refusal.NOTHING_COULD_CONFIRM_IT: "nothing would say whether this worked "
-                                      "inside the time Argus waits, so it is "
-                                      "recommended rather than taken"
-}
-
 # The refusals that are the diagnosis saying Argus takes nothing for this kind
 # of failure, for one reason or the other. Both end the mitigation phase the
 # same way; what differs is the sentence, and a reader's next call.
@@ -69,26 +43,6 @@ _THE_MODE_HAS_NO_MITIGATION = frozenset({
     Refusal.SOMEBODY_ELSES_SERVICE,
     Refusal.WOULD_UNDO_A_MEANT_CHANGE
 })
-
-
-def what_the_row_says(refusal: Refusal) -> str:
-    """The sentence a refused candidate's row carries, for one refusal.
-
-    Public, and one line long, because the table it reads is a subscript on the
-    walk itself. A refusal with no entry does not degrade to a blank row - it
-    raises inside the gate, before anything has been tried and before anything
-    has been said, so the incident ends rather than its account being spoiled.
-    The narration's twin of this table cost exactly that once, in the milder
-    place, and was answered with a test over the whole enum; that test needs
-    something taking a `Refusal`, and the node takes a state it derives one
-    from.
-
-    So this is the unit, rather than a private name a test reaches past its own
-    rules to touch. Deriving the sentence and deciding the refusal are two jobs
-    anyway: one is a rendering, the other is the one judgement standing between
-    a proposal and production.
-    """
-    return _WHAT_THE_ROW_SAYS[refusal]
 
 
 def tier_gate_node(
@@ -186,7 +140,7 @@ def tier_gate_node(
     if state.hypothesis is not None:
         record_outcome(state.hypothesis.id,
                        tested=False,
-                       result=what_the_row_says(refusal))
+                       result=why_it_was_refused(refusal))
 
     publish(
         ActionRefused(
@@ -229,7 +183,7 @@ def tier_gate_node(
             proposed_action=None,
             the_mode_has_no_mitigation=True,
             narration=Narration(action="no mitigation taken",
-                                detail=what_the_row_says(refusal))
+                                detail=why_it_was_refused(refusal))
         )
 
     return StateDelta(
@@ -246,7 +200,7 @@ def tier_gate_node(
         # fact, and two spellings of it would read as two.
         narration=(
             Narration(action="action recommended",
-                      detail=what_the_row_says(refusal))
+                      detail=why_it_was_refused(refusal))
             if recommended is not None else None
         )
     )

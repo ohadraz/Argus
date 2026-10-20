@@ -47,6 +47,7 @@ from argus_core.models import (
     TimelineMarker,
     Trigger,
     Verdict,
+    why_it_was_refused,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
@@ -240,27 +241,21 @@ def test_an_analysis_that_tried_no_candidate_is_not_complete() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("refusal", "because"), [
-    (Refusal.WOULD_UNDO_A_MEANT_CHANGE,
-     "the one action that would test the cause undoes a change that was made on purpose"),
-    (Refusal.NOT_A_GENERIC_MITIGATION,
-     "the one action that would test the cause is not a mitigation Argus may take unasked"),
-    (Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-     "the one action that would test the cause is addressed to a service outside the "
-     "estate Argus may act on"),
-    (Refusal.SOMEBODY_ELSES_SERVICE,
-     "the cause is in a service another company runs, which nothing Argus can do reaches"),
-    (Refusal.NOTHING_COULD_CONFIRM_IT,
-     "nothing would say in time whether the one action that would test the cause worked, "
-     "so it is recommended rather than taken")],
-    ids=["would-undo-a-meant-change", "not-a-generic-mitigation",
-         "outside-what-argus-may-touch", "somebody-elses-service", "nothing-could-confirm-it"])
+@pytest.mark.parametrize("refusal", [
+    Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+    Refusal.NOT_A_GENERIC_MITIGATION,
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+    Refusal.SOMEBODY_ELSES_SERVICE,
+    Refusal.NOTHING_COULD_CONFIRM_IT
+], ids=lambda refusal: refusal.value)
 def test_an_analysis_whose_leader_was_not_argus_s_to_test_says_why_and_is_left_for_a_person(
-        refusal: Refusal, because: str) -> None:
+        refusal: Refusal) -> None:
     # Nothing was tried because the gate held the leading candidate back at a
     # boundary of Argus's. The analysis went as far as Argus may, and what is
     # left is a person's - which each refusal says in its own words, since
-    # each sends a reader to a different next step.
+    # each sends a reader to a different next step. The words the timeline and
+    # the candidate's row say it in: three spellings of one reason read as
+    # three reasons.
     Scenario() \
         .given(
             a_document_refused_its_test := _a_document(
@@ -272,7 +267,7 @@ def test_an_analysis_whose_leader_was_not_argus_s_to_test_says_why_and_is_left_f
             lambda: review_of(a_document_refused_its_test, faults=[], reaches_a_cause=True)
         ) \
         .then(
-            _says_because(ANALYSIS_COMPLETE, met=None, because=because)
+            _says_because(ANALYSIS_COMPLETE, met=None, because=why_it_was_refused(refusal))
         )
 
 
@@ -298,9 +293,8 @@ def test_an_analysis_whose_leader_s_test_is_recommended_names_the_item_it_is_don
         ) \
         .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
-                          because="nothing would say in time whether the one action that "
-                                  "would test the cause worked, so it is recommended rather "
-                                  "than taken (AI-1)")
+                          because=f"{why_it_was_refused(Refusal.NOTHING_COULD_CONFIRM_IT)} "
+                                  f"(AI-1)")
         )
 
 
@@ -351,9 +345,8 @@ def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm
         ) \
         .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
-                          because="the one action that would test the cause undoes a change "
-                                  "that was made on purpose; the proposed fix would confirm it "
-                                  "(AI-1)")
+                          because=f"{why_it_was_refused(Refusal.WOULD_UNDO_A_MEANT_CHANGE)}; "
+                                  f"the proposed fix would confirm it (AI-1)")
         )
 
 

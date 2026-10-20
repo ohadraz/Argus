@@ -20,6 +20,7 @@ from argus_core.models import (
     ReviewCriterion,
     TimelineMarker,
     Verdict,
+    why_it_was_refused,
 )
 
 from agent_postmortem.sections import CODE_READING_PREFIX, NEVER_TRIED
@@ -79,25 +80,18 @@ def review_of(document: PostmortemDocument,
 
 
 # The refusals that hold the leading candidate's test back at a boundary of
-# Argus's, each said as its own next step - the refusals send a reader to
+# Argus's, each said in its own sentence - the refusals send a reader to
 # different people, and one sentence for all of them misstates most. Not
 # `NO_MITIGATION_PROPOSED`, which is evidence missing - an analysis short of
 # what it needed - nor `ALREADY_TRIED_ENOUGH`, which follows a test rather than
 # standing in for one.
-_HELD_AT_A_BOUNDARY: Final[dict[Refusal, str]] = {
-    Refusal.WOULD_UNDO_A_MEANT_CHANGE:
-        "the one action that would test the cause undoes a change that was made on purpose",
-    Refusal.NOT_A_GENERIC_MITIGATION:
-        "the one action that would test the cause is not a mitigation Argus may take unasked",
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH:
-        "the one action that would test the cause is addressed to a service outside the "
-        "estate Argus may act on",
-    Refusal.SOMEBODY_ELSES_SERVICE:
-        "the cause is in a service another company runs, which nothing Argus can do reaches",
-    Refusal.NOTHING_COULD_CONFIRM_IT:
-        "nothing would say in time whether the one action that would test the cause "
-        "worked, so it is recommended rather than taken"
-}
+_HELD_AT_A_BOUNDARY: Final = frozenset({
+    Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+    Refusal.NOT_A_GENERIC_MITIGATION,
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+    Refusal.SOMEBODY_ELSES_SERVICE,
+    Refusal.NOTHING_COULD_CONFIRM_IT
+})
 
 NONE_TRIED: Final = "no candidate was confirmed - none was tried"
 
@@ -121,7 +115,7 @@ def _what_would_confirm_a_held_test(document: PostmortemDocument, held: Refusal)
     item the next step is done under: the recommended action, where the test
     itself is what was recommended, and the proposed fix, which would confirm
     the cause, where there is one."""
-    said = _HELD_AT_A_BOUNDARY[held]
+    said = why_it_was_refused(held)
     recommended = (_the_item_saying(document, document.recommended_action)
                    if held is Refusal.NOTHING_COULD_CONFIRM_IT else None)
     if recommended:
