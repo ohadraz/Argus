@@ -1511,8 +1511,29 @@ def test_an_incident_never_back_to_normal_is_given_as_a_lower_bound_to_its_close
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
         ) \
         .then(all_of(
-            _says("not back to normal by", "when the incident was closed"),
-            _says("at least")
+            _says("not back to normal by", "when Argus stopped working on the incident"),
+            _says("at least"),
+            _does_not_say("when the incident was closed")
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
+    # Where Argus stopped is not where the incident did. An escalated incident
+    # whose blind stretch was still running was told to the model as "still
+    # unobserved when the incident closed", and the write-up said the incident
+    # had closed - over a period nobody could see that had not ended.
+    Scenario() \
+        .given(
+            an_incident_nobody_could_see := a_measured_incident(
+                back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
+        ) \
+        .then(all_of(
+            _says("still unobserved when Argus stopped working on the incident"),
+            _does_not_say("when the incident closed")
         ))
 
 

@@ -1028,6 +1028,11 @@ def _how_long_it_was_broken(measured: Measurements,
     ending at a recovery the metrics showed and one cut short by the metrics
     running out are different facts, and printed alike the second reads as the
     first.
+
+    A floor ends where Argus stopped working on the incident, and is said as
+    that rather than as the incident closing: an escalated incident has not
+    closed, and a model told it had wrote that it had - over a blind stretch
+    that was still running.
     """
     dated_from = (
         "the onset" if measured.onset_at is not None
@@ -1041,17 +1046,17 @@ def _how_long_it_was_broken(measured: Measurements,
         return [
             f"No metrics were collected from "
             f"{_shown(UNOBSERVED_FROM_FIGURE, figures)} ({dated_from}) onwards: the "
-            f"service was still unobserved when the incident closed. That is "
-            f"{_shown(DURATION_FIGURE, figures)} nobody could see, not "
-            f"a stretch the service is known to have spent in trouble, and the "
+            f"service was still unobserved when Argus stopped working on the "
+            f"incident. That is {_shown(DURATION_FIGURE, figures)} nobody could see, "
+            f"not a stretch the service is known to have spent in trouble, and the "
             f"error rates below cover none of it."
         ]
 
     if measured.back_to_normal_at is None:
         return [
             f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}). The service "
-            f"was not back to normal by {_shown(CLOSED_FIGURE, figures)}, when the "
-            f"incident was closed, so it was broken for at least "
+            f"was not back to normal by {_shown(CLOSED_FIGURE, figures)}, when Argus "
+            f"stopped working on the incident, so it was broken for at least "
             f"{_shown(DURATION_FIGURE, figures)} - a lower bound, not a measurement, "
             f"and every impact figure below is bounded the same way."
         ]
