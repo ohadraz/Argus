@@ -3808,7 +3808,11 @@ def test_a_rule_that_stopped_firing_after_the_action_confirms_it() -> None:
             )
         ) \
         .then(
-            the_verdict_is(Verdict.CONFIRMED)
+            all_of(
+                # A rule fires; a person is paged - one word for each.
+                the_verdict_is(Verdict.CONFIRMED),
+                _the_detail_mentions("the rule that fired stopped firing")
+            )
         )
 
 
@@ -3933,7 +3937,10 @@ def test_a_rule_that_could_never_be_read_reaches_no_verdict() -> None:
             )
         ) \
         .then(
-            the_verdict_is(Verdict.ESCALATED)
+            all_of(
+                the_verdict_is(Verdict.ESCALATED),
+                _the_detail_mentions("the rule that fired could not be read")
+            )
         )
 
 
@@ -4348,9 +4355,9 @@ def _the_rule_read_was_said_unanswered(
             if isinstance(event, RetrievalUnanswered)
         ]
 
-        if "the alert rule that paged" not in asked:
+        if "the alert rule that fired" not in asked:
             raise AssertionError(
-                f"Expected a read of the alert rule that paged to be said to have "
+                f"Expected a read of the alert rule that fired to be said to have "
                 f"gone unanswered, and the unanswered reads were {asked}."
             )
 

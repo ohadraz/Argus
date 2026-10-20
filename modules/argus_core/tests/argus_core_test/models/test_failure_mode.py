@@ -453,6 +453,32 @@ def test_a_card_says_when_to_prefer_it_to_a_bad_deployment() -> None:
         ))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("cause", list(FailureMode))
+def test_no_meaning_says_a_rule_pages(cause: FailureMode) -> None:
+    # A rule fires; a person is paged. A meaning that sent the model to "the
+    # series the paging rule watches" taught it the word, and a write-up then
+    # said the alert paged somebody of an incident nobody was paged for.
+    Scenario() \
+        .when(lambda: cause.meaning()) \
+        .then(all_of(
+            _never_says("paging"), 
+            _never_says("paged")))
+
+
+def _never_says(word: str) -> Assertion[str]:
+    """That a meaning never puts one word in front of the model."""
+    def assertion(meaning: str) -> bool:
+        if word in meaning:
+            raise AssertionError(
+                f"Expected the meaning never to say [{word}], got [{meaning}]."
+            )
+
+        return True
+
+    return assertion
+
+
 class _Meaning:
     """The assertions about one mode's meaning, which all need to name it.
 

@@ -29,7 +29,7 @@ import re
 from datetime import timedelta
 
 import pytest
-from agent_postmortem import DeploymentChangesRecord
+from agent_postmortem import DeploymentChangesRecord, EngagementAnswer, NotPaged
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
     BACK_TO_NORMAL_FIGURE,
@@ -926,6 +926,64 @@ def test_an_incident_no_rule_paged_for_is_told_nothing_of_a_wait() -> None:
                 _does_not_say(A_RULE_S_WAIT),
                 _does_not_say(A_RULE_FIRING_AT_ONCE)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_is_told_as_firing_never_as_paging() -> None:
+    # "Paged" is what happens to a person. A brief that said "the paging rule"
+    # had a write-up say "the alert paged" in its chain and "nobody was paged"
+    # in its assumptions, of the same incident - one word, two meanings.
+    Scenario() \
+        .given(
+            an_incident_a_waiting_rule_fired_for := a_measured_incident(
+                rule_waits=timedelta(minutes=5), rule_series=SOME_RULE_SERIES)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_a_waiting_rule_fired_for)
+        ) \
+        .then(
+            all_of(
+                _says("The alert rule waits", "which its alert rule evaluates"),
+                _does_not_say("paging"),
+                _does_not_say("that paged")
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("engaged", "told"), [
+    (NotPaged(), "Nobody was paged: no on-call incident was linked to this one."),
+    (EngagementAnswer(minutes=0, responders=0),
+     "Somebody was paged: an on-call incident was linked to this one."),
+    (None, "Whether anybody was paged could not be read.")
+], ids=["nobody-paged", "somebody-paged", "unread"])
+def test_the_model_is_told_whether_anybody_was_paged(
+        engaged: EngagementAnswer | NotPaged | None, told: str) -> None:
+    # Never told, a model fills the gap from habit: an alert pages somebody.
+    # The document's assumptions then said nobody was, of an incident whose
+    # chain said the alert paged. Told the fact, it has nothing to fill - and
+    # told that a rule fires and a person is paged, one word for each.
+    Scenario() \
+        .given(
+            some_incident := a_measured_incident().model_copy(update={"engaged": engaged})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), some_incident)
+        ) \
+        .then(
+            _says(told, "An alert rule fires; a person is paged.")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_for_without_saying_a_metric_paged() -> None:
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_avoids("paged")
         )
 
 

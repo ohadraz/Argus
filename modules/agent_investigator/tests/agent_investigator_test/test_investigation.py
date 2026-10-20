@@ -1721,6 +1721,36 @@ def test_the_model_is_told_which_rule_the_column_is_and_which_way_is_worse(
 
 
 @pytest.mark.unit
+def test_the_rule_is_told_as_the_one_that_fired_never_as_one_that_paged() -> None:
+    # "Paged" is what happens to a person, and a rule that "paged" is how a
+    # write-up came to say the alert paged somebody of an incident nobody was
+    # paged for. A rule fires.
+    some_rule = "kuki-rule"
+    some_metrics = a_window_of(
+        [CALM_ERROR_RATE] * CALM_MINUTES + [0.09, 0.18],
+        rule_readings=[RuleReading(value=SOME_CALM_SHARE, worse_when="below")]
+        * (CALM_MINUTES + 2)
+    )
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(some_metrics))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(rule=some_rule))
+        ) \
+        .then(
+            all_of(
+                _what_was_asked_first_mentions(
+                    investigation.model, f"the rule that fired ({some_rule})"
+                ),
+                _what_was_asked_first_avoids(investigation.model, "that paged", "what paged")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_the_rules_column_is_explained_before_the_rows_rather_than_after_them() -> None:
     # The rows are what a model scans for where a series turned, and a sentence
     # after the last of them reads as another row - one with no minute and no

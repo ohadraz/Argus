@@ -273,7 +273,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "correctly while the minutes that would show it go missing. Choose it "
         "over output-quality-degradation when the request-level series moved - "
         "an error rate that stepped or latency that climbed; where all of them "
-        "held still and only rule_reading, the series the paging rule watches, "
+        "held still and only rule_reading, the series the alert rule watches, "
         "departed, the revision made the answers worse rather than the serving"
     ),
     FailureMode.RESOURCE_LEAK: (
@@ -464,7 +464,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "generating with less confidence or less sense than before - while "
         "every request succeeds as quickly as it always did. Expect the error "
         "rate and every latency and resource series to be flat: the departure "
-        "is in rule_reading, the series the paging rule watches, which is a "
+        "is in rule_reading, the series the alert rule watches, which is a "
         "quality measure rather than a request-level one. Choose this over "
         "bad-deployment when a revision landed at the onset and only "
         "rule_reading moved: both arrive as one deployment and both are "

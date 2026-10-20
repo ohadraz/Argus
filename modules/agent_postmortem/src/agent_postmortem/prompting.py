@@ -89,6 +89,7 @@ from agent_postmortem.sections import (
     said_of_a_line,
     the_alert_labelled,
 )
+from agent_postmortem.sources import EngagementAnswer, NotPaged
 
 # The tool's name and its fields, named once. Both ends of the exchange read
 # them - the definition offered to the model, and the reader taking the call
@@ -489,7 +490,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "description": (
                 "What went wrong as somebody using the service saw it, in a few "
                 "words with no number: 'Account pages failed'. Not the metric "
-                "that paged, and not the cause - the document adds the change "
+                "the alert fired on, and not the cause - the document adds the change "
                 "it began with itself."
             )
         },
@@ -646,6 +647,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *([f"What the alert said [{cited.label}]: {the_finding_named(cited.text)}"
            for cited in the_alert_labelled(evidence)]),
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
+        _whether_anybody_was_paged(measured.engaged),
         *_how_long_the_rule_waits(measured, figures),
         *_how_long_it_was_broken(measured, evidence.credited_action, figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
@@ -1155,26 +1157,44 @@ def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
                     f"failed that otherwise would not have.")
 
 
+def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None) -> str:
+    """Whether a person was paged for the incident, and the word for each act.
+
+    Never told it, a model fills the gap from habit - an alert pages somebody -
+    and a write-up said "the alert paged" in its chain of an incident its own
+    assumptions said nobody was paged for. Told the fact, it has no gap to fill;
+    told that a rule fires and a person is paged, it has one word for each.
+    """
+    if isinstance(engaged, NotPaged):
+        paged = "Nobody was paged: no on-call incident was linked to this one."
+    elif engaged is None:
+        paged = "Whether anybody was paged could not be read."
+    else:
+        paged = "Somebody was paged: an on-call incident was linked to this one."
+
+    return f"{paged} An alert rule fires; a person is paged."
+
+
 def _how_long_the_rule_waits(measured: Measurements,
                              figures: Mapping[str, Figure]) -> list[str]:
-    """How long the paging rule waits with its condition holding before it
+    """How long the alert rule waits with its condition holding before it
     fires, which is part of the time from the onset to the alert.
 
     Not told it, a write-up called the rule's own wait slow detection. Said as
     a rule that fires at once where it waits for nothing, and as unread where
     nobody could read it - which is not the same rule. Nothing where no rule
-    paged.
+    fired.
     """
     if measured.rule_wait_unread:
-        return ["How long the paging rule waits before it fires could not be read."]
+        return ["How long the alert rule waits before it fires could not be read."]
 
     if measured.rule_waits is None:
         return []
 
     if not measured.rule_waits:
-        return ["The paging rule fires as soon as its condition holds."]
+        return ["The alert rule fires as soon as its condition holds."]
 
-    return [f"The paging rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
+    return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
             f"condition holding before it fires: that wait is part of the time from "
             f"the onset to the alert - count it before calling detection slow."]
 
@@ -1184,7 +1204,7 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
                                evidence: IncidentEvidence,
                                rates: ErrorRates | None,
                                figures: Mapping[str, Figure]) -> list[str]:
-    """The series the paging rule evaluates, at the error rate's levels.
+    """The series the alert rule evaluates, at the error rate's levels.
 
     Nothing at all where the metrics carry no such series - not a line saying it
     sat at nothing, which would describe a service whose answers had gone
@@ -1193,7 +1213,7 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
 
     Named by the rule's query, where its series could be followed to one: the
     alert's words are the rule's condition - its threshold and its wait - and a
-    series named by them is named by when it pages. The query goes as written,
+    series named by them is named by when it fires. The query goes as written,
     because its numbers are none of the incident's and tagged as figures they
     would be offered as some; and the model is asked to say it in words, since
     a reader does not read PromQL. Beside it, what the alert said - the words it
@@ -1226,7 +1246,7 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
     in_words = " Say what it measures in words, not by its query." if query is not None else ""
 
     return [
-        f"The series behind the alert{named} which its paging rule evaluates "
+        f"The series behind the alert{named} which its alert rule evaluates "
         f"and calls {worse}: {_shown(SERIES_BEFORE_FIGURE, figures)} before it began, "
         f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
         f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst.{in_words}",

@@ -1460,12 +1460,13 @@ def _the_opening_message(alert: Alert,
         # cannot say for themselves is which way the rule calls worse. Above the
         # rows rather than after them, where it would read as one more row.
         rule_named = (
-            f"the rule that paged ({alert.rule})" if alert.rule else "the rule that paged"
+            f"the rule that fired ({alert.rule})" if alert.rule else "the rule that fired"
         )
         said.append(
             f"rule_reading is the series {rule_named} evaluates, and that rule calls "
             f"it worse when {worse_when} its threshold. A departure in it is a "
-            f"departure in exactly what paged, even where every other column is flat."
+            f"departure in exactly what the rule fired on, even where every other "
+            f"column is flat."
         )
 
     said.append(_the_minutes_as_rows(metric_buckets))

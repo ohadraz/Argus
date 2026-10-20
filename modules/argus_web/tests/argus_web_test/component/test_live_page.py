@@ -210,7 +210,12 @@ def test_a_metrics_retrieval_read_for_a_rule_shows_the_rules_series() -> None:
             lambda: page_at("/")
         ) \
         .then(
-            the_page_shows("rule-reading", "0.9", "0.4")
+            all_of(
+                the_page_shows("rule-reading", "0.9", "0.4"),
+                # A rule fires; a person is paged - and the column is the
+                # series of the rule that fired.
+                the_page_says("alert rule's series")
+            )
         )
 
 
@@ -244,7 +249,7 @@ def test_a_metrics_retrieval_read_for_no_rule_shows_no_rules_series() -> None:
         .then(
             all_of(
                 the_page_shows("rule-reading"),
-                _the_page_does_not_say("paging rule's series")
+                _the_page_does_not_say("alert rule's series")
             )
         )
 

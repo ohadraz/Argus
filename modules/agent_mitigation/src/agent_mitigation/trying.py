@@ -857,7 +857,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 if incident_id is not None:
                     say(RetrievalUnanswered(
                         incident_id=incident_id,
-                        what_was_asked="the alert rule that paged",
+                        what_was_asked="the alert rule that fired",
                         because=str(unanswered),
                         minute=first_whole_minute
                     ))
@@ -872,13 +872,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                     return (
                         _Settled(
                             Verdict.REFUTED,
-                            "the rule that paged was still firing when the time "
+                            "the rule that fired was still firing when the time "
                             "it allows ran out"
                         )
                         if the_rule_was_read else
                         _Settled(
                             Verdict.ESCALATED,
-                            "the rule that paged could not be read once before "
+                            "the rule that fired could not be read once before "
                             "the time allowed ran out - so nothing was measured "
                             "either way"
                         )
@@ -932,13 +932,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
 
             if resolved:
                 return _Settled(
-                    Verdict.CONFIRMED, "the rule that paged stopped firing"
+                    Verdict.CONFIRMED, "the rule that fired stopped firing"
                 )
 
             if now() >= watch_until:
                 return _Settled(
                     Verdict.REFUTED,
-                    "the rule that paged was still firing when the time it "
+                    "the rule that fired was still firing when the time it "
                     "allows ran out"
                 )
 
