@@ -503,7 +503,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case AwaitingRecovery():
             who = _MITIGATION
             text = (
-                f"Waiting for the service to answer, from {a_minute(event.from_minute)} - "
+                f"Waiting to see whether the service is still at the incident's level, "
+                f"from {a_minute(event.from_minute)} - "
                 f"up to {int(event.seconds_allowed)}s"
             )
         case RecoveryChecked():

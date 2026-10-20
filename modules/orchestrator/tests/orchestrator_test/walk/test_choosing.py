@@ -173,8 +173,8 @@ def test_what_was_tried_is_remembered_for_the_round_after() -> None:
 @pytest.mark.unit
 def test_what_was_tried_is_remembered_at_the_moment_it_was_taken() -> None:
     # A later round reads the attempt beside the flag provider's record of the
-    # same change. Remembered when the walk moved on from it - after the wait
-    # for the service to answer - it was dated minutes after that record, and
+    # same change. Remembered when the walk moved on from it - after the
+    # verification wait - it was dated minutes after that record, and
     # the round read two changes where there was one.
     incident_id = a_random_id()
 

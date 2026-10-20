@@ -133,8 +133,8 @@ def mitigation_node(
     )
     publish(announced, publisher)
 
-    # The incident and the publisher travel with the action, so the wait for
-    # the service to answer - the longest silence in an incident - is narrated
+    # The incident and the publisher travel with the action, so the
+    # verification wait - the longest silence in an incident - is narrated
     # from inside Mitigation, where the looking actually happens. So does the
     # question of whether anybody still wants it: that wait is the one stretch
     # long enough for somebody to give up on it, and the only place in the walk

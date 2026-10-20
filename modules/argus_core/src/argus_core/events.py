@@ -401,7 +401,7 @@ class ActionTaken(_Event):
 
 
 class AwaitingRecovery(_Event):
-    """An action has been taken and the service is being given time to answer.
+    """An action has been taken and the verification wait has begun.
 
     Published at the moment production has already changed, because that is
     where the account would otherwise go quiet: the flag has moved and nothing

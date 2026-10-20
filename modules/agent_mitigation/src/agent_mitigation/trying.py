@@ -1,8 +1,8 @@
 """Taking one proposed action, and judging what the service did (spec §7.3).
 
 The mutating half of the agent. `actions.py` decides what to do without
-touching anything; this performs it, waits for the service to answer, and puts
-the change back where the answer refutes the hypothesis it was taken on.
+touching anything; this performs it, runs the verification wait, and puts the
+change back where the wait refutes the hypothesis it was taken on.
 """
 
 from __future__ import annotations

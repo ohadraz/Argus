@@ -195,7 +195,7 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
 
     Dated by when the action was taken, not by when the walk moved on from it.
     A later round reads the attempt beside the flag provider's record of the
-    same change, and this node runs after the wait for the service to answer -
+    same change, and this node runs after the verification wait -
     dated here, the two disagreed by the length of that wait, and the round
     read two changes where there was one.
     """

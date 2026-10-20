@@ -668,7 +668,7 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
 ) -> None:
     # A later round is told when each attempt was made, beside the flag
     # provider's record of the same change. Dated by the moment the walk moved
-    # on from it - after the wait for the service to answer - the two disagreed
+    # on from it - after the verification wait - the two disagreed
     # by the length of that wait, and the round read two changes where there
     # was one.
     published: list[IncidentEvent] = []

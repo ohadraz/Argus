@@ -697,6 +697,24 @@ def test_a_look_says_what_it_judged_rather_than_that_the_service_was_back_to_nor
 
 
 @pytest.mark.unit
+def test_a_wait_asks_what_its_looks_answer_rather_than_waiting_for_an_answer() -> None:
+    # "Waiting for the service to answer" reads as a service that had stopped
+    # answering - said of a latency incident in which it answered throughout,
+    # only slowly. The wait asks the question the looks after it answer, in
+    # their words.
+    Scenario() \
+        .given(
+            some_wait := AwaitingRecovery(incident_id=new_id(), from_minute=SOME_MINUTE,
+                                          seconds_allowed=180.0)
+        ) \
+        .when(lambda: build_narration([some_wait])) \
+        .then(all_of(
+            _the_only_line_says("whether the service is still at the incident's level"),
+            _the_only_line_does_not_say("answer")
+        ))
+
+
+@pytest.mark.unit
 def test_the_onset_line_names_the_minute_it_placed() -> None:
     # It names one minute out of ninety, and the account carries which one so
     # that a reader is never left to find it by eye. What a page then does with

@@ -166,7 +166,7 @@ def test_an_incident_whose_walk_failed_is_escalated_rather_than_left_mid_walk(
     #
     # Staged at `mitigating` rather than at whatever `create` leaves behind,
     # because that is the status the two observed failures stranded - a walk
-    # that had taken an action and was waiting for the service to answer when
+    # that had taken an action and was in its verification wait when
     # the read it was waiting on raised.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"

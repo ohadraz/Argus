@@ -158,7 +158,7 @@ class TakeAction(Protocol):
     # The action is positional, so any callable naming it whatever it likes is
     # one. The rest are keyword-only and defaulted: the incident and the
     # publisher are what the action narrates itself against, and `still_wanted`
-    # is how the wait for the service to answer hears that somebody stopped the
+    # is how the verification wait hears that somebody stopped the
     # walk. A caller with none of the three takes the same action, tells nobody,
     # and is stopped by nothing.
     #
