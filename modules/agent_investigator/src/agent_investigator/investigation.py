@@ -196,11 +196,11 @@ cause at all. Being the only thing on offer is not being the best of several: \
 a lone explanation nothing in the evidence supports belongs below 0.5, not in \
 the middle of the range.
 
-`subject` names the specific thing the cause is about - for a feature flag, \
-the flag's own name; for a failure arriving from a service this one depends \
-on, that service as the evidence names it - copied verbatim either way. \
-Something acts on that name, so a name that is not in the evidence identifies \
-nothing.
+`subject` names the specific thing the cause is about, as one name with no \
+spaces. A feature flag, a revision or a service this one depends on is copied \
+verbatim, as the evidence spells it; a file by its path in the repository; a \
+key nested in a configuration file by its full dotted path, `section.key`. \
+Something acts on that name, so a description of the thing identifies nothing.
 
 `from_state` and `to_state` are what that subject moved between, in the words \
 the evidence uses - `off` and `on` for a feature flag, two versions for a \

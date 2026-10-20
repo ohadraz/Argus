@@ -184,10 +184,12 @@ def _one_explanation() -> dict[str, Any]:
             "subject": {
                 "type": [_STRING_TYPE, _NULL_TYPE],
                 "description": (
-                    "The specific thing the cause names - for a feature-flag toggle, "
-                    "the flag's own name, copied verbatim from the evidence. Null "
-                    "when the cause names nothing specific, and null when you named "
-                    "no cause at all."
+                    "The specific thing the cause names, as one name with no spaces: "
+                    "a feature flag, a revision or a service copied verbatim from the "
+                    "evidence, a file by its path in the repository, or a key nested "
+                    "in a configuration file by its full dotted path, `section.key`. "
+                    "Null when the cause names nothing specific, and null when you "
+                    "named no cause at all."
                 )
             },
             "from_state": _a_state(
