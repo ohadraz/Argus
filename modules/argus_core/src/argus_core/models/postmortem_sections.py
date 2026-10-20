@@ -204,7 +204,7 @@ class ResolutionStep(BaseModel):
     at: datetime
     action: str
     by: str
-    reversible: bool
+    has_a_way_back: bool
     outcome: str
     label: str
     # Whether the action stopped the platform syncing the application from its

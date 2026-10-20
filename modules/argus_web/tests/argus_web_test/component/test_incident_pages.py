@@ -1112,7 +1112,7 @@ def test_the_postmortem_header_says_argus_ended_an_incident_nobody_reported_over
         postmortems.record(conn, incident_id, _a_document_with(resolution=[
             ResolutionStep(at=datetime(2026, 10, 11, 14, 11, tzinfo=UTC),
                            action="revert-feature-flag on monthly-spend-feature",
-                           by="Argus", reversible=True, outcome="confirmed, still in place",
+                           by="Argus", has_a_way_back=True, outcome="confirmed, still in place",
                            label="M1")
         ]))
 
@@ -1647,7 +1647,7 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
             ],
             resolution=[
                 ResolutionStep(at=dont_care_moment, action="dont care", by="Argus",
-                               reversible=True, outcome="dont care", label="M1")
+                               has_a_way_back=True, outcome="dont care", label="M1")
             ]
         ).model_copy(update={
             "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
@@ -1844,7 +1844,7 @@ def test_a_step_and_a_line_of_the_timeline_show_the_label_they_are_cited_by() ->
         postmortems.record(conn, incident_id, _a_document_with(
             resolution=[ResolutionStep(at=datetime(2026, 10, 11, 14, 5, tzinfo=UTC),
                                        action="Turned the flag off", by="Argus",
-                                       reversible=True, outcome="dont care", label="M1")],
+                                       has_a_way_back=True, outcome="dont care", label="M1")],
             timeline=[TimelineEntry(at=datetime(2026, 10, 11, 14, 3, tzinfo=UTC),
                                     who="Argus", text="The flag went on.", label="T1")]))
 

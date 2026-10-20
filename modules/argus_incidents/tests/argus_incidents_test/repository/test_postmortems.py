@@ -362,7 +362,7 @@ def _every_section_of_the_template() -> dict[str, Any]:
             at=SOME_MOMENT + timedelta(minutes=5),
             action="turned monthly-spend-feature off",
             by="Argus",
-            reversible=True,
+            has_a_way_back=True,
             outcome="recovered, still in place",
             label="M1"
         )],

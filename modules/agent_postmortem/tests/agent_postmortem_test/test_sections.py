@@ -703,7 +703,7 @@ def test_resolution_lists_each_action_as_argus_took_it() -> None:
             evidence := an_evidence_bundle(actions=[
                 an_action("revert-feature-flag on monthly-spend-feature",
                           verdict=Verdict.CONFIRMED, standing="still in place",
-                          reversible=True, taken_at=some_moment)
+                          has_a_way_back=True, taken_at=some_moment)
             ])
         ) \
         .when(
@@ -714,7 +714,7 @@ def test_resolution_lists_each_action_as_argus_took_it() -> None:
                 at=some_moment,
                 action="revert-feature-flag on monthly-spend-feature",
                 by="Argus",
-                reversible=True,
+                has_a_way_back=True,
                 outcome="confirmed, still in place",
                 label="M1"
             )])

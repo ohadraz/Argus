@@ -1554,7 +1554,7 @@ def test_an_action_is_told_with_whether_it_can_be_put_back(has_a_way_back: bool,
     Scenario() \
         .given(
             evidence := an_evidence_bundle(actions=[
-                an_action(some_action, reversible=has_a_way_back)])
+                an_action(some_action, has_a_way_back=has_a_way_back)])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())

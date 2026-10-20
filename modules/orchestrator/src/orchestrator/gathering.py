@@ -508,7 +508,7 @@ def _what_was_done(conn: psycopg.Connection,
     return [
         ActionRecord(taken_at=_when_it_was_taken(taken_action, said),
                      action=_what_it_did(taken_action, said),
-                     reversible=taken_action.has_a_way_back,
+                     has_a_way_back=taken_action.has_a_way_back,
                      verdict=taken_action.outcome,
                      standing=_what_became_of(taken_action),
                      paused_sync_of=_whose_sync_it_left_stopped(taken_action),

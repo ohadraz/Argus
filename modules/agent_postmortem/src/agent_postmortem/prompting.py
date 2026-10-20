@@ -910,7 +910,7 @@ def _an_action_as_a_line(action: ActionRecord) -> str:
     nothing of it, and a model guessed "reversible" a section away from a row
     saying "irreversible" - both the autonomy tier's words, about a restart.
     """
-    return (f"{action.action} ({whether_it_can_be_put_back(action.reversible)}) - "
+    return (f"{action.action} ({whether_it_can_be_put_back(action.has_a_way_back)}) - "
             f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}")
 
 

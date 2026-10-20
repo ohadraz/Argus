@@ -421,7 +421,7 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
         ResolutionStep(at=action.taken_at,
                        action=action.action,
                        by=TAKEN_BY,
-                       reversible=action.reversible,
+                       has_a_way_back=action.has_a_way_back,
                        outcome=f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}",
                        label=label_of(ACTION_PREFIX, position),
                        sync_left_off=action.paused_sync_of is not None)

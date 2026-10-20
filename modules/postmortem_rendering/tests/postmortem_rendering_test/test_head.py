@@ -319,7 +319,7 @@ def test_an_incident_argus_ended_was_ended_by_its_last_step() -> None:
         .given(
             some_postmortem := a_postmortem(resolution=[
                 ResolutionStep(at=SOME_ONSET, action="Turned monthly-spend-feature off",
-                               by="Argus", reversible=True,
+                               by="Argus", has_a_way_back=True,
                                outcome="recovered, still in place", label="M1")])
         ) \
         .when(
@@ -408,7 +408,7 @@ def test_whichever_of_an_escalation_and_a_step_came_later_ended_the_incident(
     # then walked again, by a refire or a re-run, ended by what it did then.
     some_postmortem = a_postmortem(resolution=[
         ResolutionStep(at=SOME_ONSET, action="Rolled back the deployment", by="Argus",
-                       reversible=True, outcome="confirmed, still in place", label="M1")])
+                       has_a_way_back=True, outcome="confirmed, still in place", label="M1")])
 
     Scenario() \
         .given(

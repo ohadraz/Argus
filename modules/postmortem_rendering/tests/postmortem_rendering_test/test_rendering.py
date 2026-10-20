@@ -172,7 +172,7 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
                 hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
                                                  result="dont care", label="C1")],
                 resolution=[ResolutionStep(at=DONT_CARE_MOMENT, action="dont care",
-                                           by="dont care", reversible=True,
+                                           by="dont care", has_a_way_back=True,
                                            outcome="dont care", label="M1")],
                 action_items=[ActionItem(number="AI-1", text="dont care",
                                          type=ActionItemType.PROCESS, owner=None,
@@ -249,7 +249,7 @@ def test_a_cited_step_taken_reads_as_its_row() -> None:
         .given(
             some_postmortem := a_postmortem(
                 resolution=[ResolutionStep(at=SOME_MOMENT, action="Turned the flag off",
-                                           by="dont care", reversible=True,
+                                           by="dont care", has_a_way_back=True,
                                            outcome="recovered", label="M1")],
                 causal_chain=_a_step_citing("M1"))
         ) \

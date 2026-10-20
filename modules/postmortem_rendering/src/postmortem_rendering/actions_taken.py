@@ -78,7 +78,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
                           at=on_the_clock(step.at),
                           action=Line(runs=(Run(text=step.action),)),
                           by=step.by,
-                          kind=whether_it_can_be_put_back(step.reversible),
+                          kind=whether_it_can_be_put_back(step.has_a_way_back),
                           outcome=step.outcome,
                           sync_left_off=step.sync_left_off)
                   for step in postmortem.resolution)

@@ -321,7 +321,7 @@ def test_a_citation_lands_on_its_row_in_every_table_that_has_one() -> None:
                              status=ActionItemStatus.OPEN)
                   for number in range(1, 81)]
     some_step = ResolutionStep(at=SOME_ONSET, action="Turned the flag off", by="Argus",
-                               reversible=True, outcome="dont care", label="M1")
+                               has_a_way_back=True, outcome="dont care", label="M1")
     some_line = TimelineEntry(at=SOME_ONSET, who=None, text="The flag went on.", label="T1")
 
     Scenario() \
@@ -997,7 +997,7 @@ def test_a_resolution_a_person_reported_keeps_its_heading_with_their_line_alone(
     # The section opens with who resolved it, not with the table of steps, and
     # a heading kept with a first row of forty lines went to the next page
     # with half of this one still empty.
-    some_step = ResolutionStep(at=SOME_ONSET, action="Zstep", by="Argus", reversible=True,
+    some_step = ResolutionStep(at=SOME_ONSET, action="Zstep", by="Argus", has_a_way_back=True,
                                outcome="\n".join(f"step{line}" for line in range(40)),
                                label="M1")
 
@@ -1195,7 +1195,7 @@ def test_a_cited_step_and_a_cited_line_of_the_timeline_show_their_labels() -> No
     # labels, and a row that answers to M1 without saying so is found only by
     # clicking.
     some_step = ResolutionStep(at=SOME_ONSET, action="Turned the flag off", by="Argus",
-                               reversible=True, outcome="dont care", label="M1")
+                               has_a_way_back=True, outcome="dont care", label="M1")
     some_line = TimelineEntry(at=SOME_ONSET, who=None, text="The flag went on.", label="T1")
 
     Scenario() \
@@ -1265,7 +1265,7 @@ def _every_section_filled() -> Postmortem:
         trigger=Trigger(subject="monthly-spend", from_state="off", to_state="on",
                         changed_at=SOME_ONSET, kind=ChangeKind.FLAG_TOGGLE, actor="dana"),
         resolution=[ResolutionStep(at=SOME_ONSET + timedelta(minutes=5),
-                                   action="Turned the flag off", by="Argus", reversible=True,
+                                   action="Turned the flag off", by="Argus", has_a_way_back=True,
                                    outcome="recovered", label="M1")],
         detection=Detection(alerted_at=SOME_ONSET + timedelta(minutes=1), rule="HighErrorRate",
                             onset_at=SOME_ONSET, gap=timedelta(minutes=1)),
@@ -1301,7 +1301,7 @@ def _a_table_under_every_heading(root_cause_words: int) -> Postmortem:
         hypotheses=[HypothesisConsidered(summary=f"Zhypothesis {some_words}", confidence=0.8,
                                          result="dont care", label="C1")],
         resolution=[ResolutionStep(at=SOME_ONSET, action=f"Zresolution {some_words}",
-                                   by="Argus", reversible=True, outcome="dont care",
+                                   by="Argus", has_a_way_back=True, outcome="dont care",
                                    label="M1")],
         action_items=[ActionItem(number="AI-1", text=f"Zaction {some_words} {some_words}",
                                  type=ActionItemType.PROCESS, owner=None, tracking=None,

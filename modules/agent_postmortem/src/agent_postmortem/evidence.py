@@ -66,7 +66,7 @@ class ActionRecord(BaseModel):
 
     taken_at: datetime
     action: str
-    reversible: bool
+    has_a_way_back: bool
     verdict: str | None
     standing: str
     paused_sync_of: str | None = None

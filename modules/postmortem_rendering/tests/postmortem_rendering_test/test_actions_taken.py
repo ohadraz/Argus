@@ -29,7 +29,7 @@ def test_each_action_is_a_row_saying_when_what_who_whether_it_undoes_and_what_it
         .given(
             some_postmortem := a_postmortem(resolution=[
                 ResolutionStep(at=SOME_MOMENT, action="turned monthly-spend-feature off",
-                               by="Argus", reversible=True,
+                               by="Argus", has_a_way_back=True,
                                outcome="recovered, still in place", label="M1")])
         ) \
         .when(
@@ -52,7 +52,7 @@ def test_an_action_that_left_automatic_sync_off_says_so_in_its_row_alone() -> No
         .given(
             some_postmortem := a_postmortem(resolution=[
                 ResolutionStep(at=SOME_MOMENT, action="rolled back io-shop", by="Argus",
-                               reversible=True, outcome="confirmed, still in place",
+                               has_a_way_back=True, outcome="confirmed, still in place",
                                label="M1", sync_left_off=True)])
         ) \
         .when(
@@ -72,7 +72,7 @@ def test_an_action_with_nothing_to_put_back_says_so() -> None:
         .given(
             some_postmortem := a_postmortem(resolution=[
                 ResolutionStep(at=SOME_MOMENT, action="dont care", by="dont care",
-                               reversible=False, outcome="dont care", label="M1")])
+                               has_a_way_back=False, outcome="dont care", label="M1")])
         ) \
         .when(
             lambda: the_actions_taken(some_postmortem, resolution=None).steps[0].kind
