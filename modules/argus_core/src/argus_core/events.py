@@ -339,10 +339,16 @@ class FlagChangesRetrieved(_Event):
     be reached reports nothing, and nothing is not an empty history - "nobody
     could say what changed" and "nothing changed" lead to the same place and
     are not the same fact.
+
+    The window it was read over rides with it, in wire format as a retrieval's
+    does: "none changed" is only true of those minutes. Absent only on an event
+    written before it was carried.
     """
 
     kind: Literal["flag-changes-retrieved"] = "flag-changes-retrieved"
     changes: list[FlagChange]
+    window_start: str | None = None
+    window_end: str | None = None
 
 
 class PlacementRecorded(_Event):

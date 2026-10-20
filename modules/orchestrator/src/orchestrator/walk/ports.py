@@ -22,7 +22,7 @@ from argus_core.models import (
     ChangeEvent,
     EstablishedOnset,
     Findings,
-    FlagChange,
+    FlagHistory,
     Hypothesis,
     IncidentStatus,
     Leads,
@@ -116,7 +116,7 @@ class FetchFlagChanges(Protocol):
     on the parameter after those two, which is the clock.
     """
 
-    def __call__(self, *, onset: datetime | None) -> list[FlagChange]: ...
+    def __call__(self, *, onset: datetime | None) -> FlagHistory: ...
 
 
 class FetchDeployments(Protocol):

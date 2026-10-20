@@ -34,6 +34,7 @@ from argus_core.models import (
     Evidence,
     FailureMode,
     FlagChange,
+    FlagHistory,
     Hypothesis,
     IncidentStatus,
     Leads,
@@ -683,6 +684,11 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
     return investigate
 
 
+# The window a provider double says it was read over, which no case here reads.
+DONT_CARE_HISTORY_START = datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+DONT_CARE_HISTORY_END = datetime(2026, 8, 20, 10, 30, tzinfo=UTC)
+
+
 def _a_provider_reporting(*changes: FlagChange) -> ports.FetchFlagChanges:
     """Whatever the provider recorded, whichever window it is asked about.
 
@@ -692,8 +698,9 @@ def _a_provider_reporting(*changes: FlagChange) -> ports.FetchFlagChanges:
     starred, so that a caller passing it positionally stops here instead of
     landing on a parameter this does not have.
     """
-    def fetch_flag_changes(*, onset: datetime | None) -> list[FlagChange]:
-        return list(changes)
+    def fetch_flag_changes(*, onset: datetime | None) -> FlagHistory:
+        return FlagHistory(changes=list(changes), since=DONT_CARE_HISTORY_START,
+                           until=DONT_CARE_HISTORY_END)
 
     return fetch_flag_changes
 

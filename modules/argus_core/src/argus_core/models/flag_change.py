@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -35,3 +37,20 @@ class FlagChange(BaseModel):
     # tells its own revert from a human's - see `agent_mitigation.attribution`,
     # which is what stops Argus offering its own action as a candidate cause.
     actor: str | None = None
+
+
+class FlagHistory(BaseModel):
+    """What the flag provider said changed, over the window it was asked.
+
+    The window travels with the changes because "none changed" is only true of
+    the minutes it was read over: said without them, it is "none changed
+    lately", and a write-up ruling the flags out rules out a stretch nobody can
+    see. `until` is where the changes were cut off - the stated onset, or the
+    moment of the read - and `since` that less the lookback, so the window is
+    exactly the one the changes were kept from. A contract rather than one
+    module's value, because Mitigation reads it and the walk publishes it.
+    """
+
+    changes: list[FlagChange]
+    since: datetime
+    until: datetime

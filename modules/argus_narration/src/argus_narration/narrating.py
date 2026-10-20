@@ -449,11 +449,18 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case FlagChangesRetrieved():
             # The walk's own read, made every round before any agent is called
             # in to act on it.
+            # Over the window it was read, and by whom: "none changed lately"
+            # has no span, and the read leaves Argus's own toggles out. An
+            # event written before the window was carried says "recent", as it
+            # always did, rather than a span made up for it.
             who = _ARGUS
-            recent = len(event.changes)
+            read = len(event.changes)
+            changes = f"flag change{'s' if read != 1 else ''}"
             text = (
-                f"Read the flag provider's history - "
-                f"{recent} recent flag change{'s' if recent != 1 else ''}"
+                f"Read the flag provider's history - {read} {changes} by anyone but Argus, "
+                f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
+                if event.window_start is not None and event.window_end is not None
+                else f"Read the flag provider's history - {read} recent {changes}"
             )
         case ChannelsUnread():
             who = _INVESTIGATOR

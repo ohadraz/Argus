@@ -343,6 +343,35 @@ def test_a_flag_history_read_is_credited_to_argus() -> None:
 
 
 @pytest.mark.unit
+def test_a_flag_history_read_says_the_window_it_covered_and_whose_changes_it_counts() -> None:
+    # "Recent" has no span, so a write-up saying no flag moved lately ruled out
+    # a stretch nobody could see. And Argus's own toggles are left out of the
+    # read: over a window ending now, a count of none says nothing of one Argus
+    # made.
+    some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[],
+                                     window_start=AN_EARLIER_MINUTE, window_end=SOME_MINUTE,
+                                     at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_says("0 flag changes by anyone but Argus",
+                                  "1 minute before 10:14"))
+
+
+@pytest.mark.unit
+def test_a_flag_history_read_recorded_with_no_window_is_said_as_recent() -> None:
+    # Recorded before the window was carried: said as it always was, rather
+    # than with a span made up for it.
+    some_read = FlagChangesRetrieved(incident_id=new_id(), changes=[])
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_says("0 recent flag changes"))
+
+
+@pytest.mark.unit
 def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
     # The read that tells a configuration change from a code change, and what a
     # reader of the page is given of it is which deployment was looked into.

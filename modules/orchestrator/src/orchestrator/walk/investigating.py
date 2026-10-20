@@ -15,6 +15,7 @@ from datetime import datetime
 from functools import partial
 from typing import Final
 
+from argus_core import to_iso
 from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
@@ -346,7 +347,7 @@ def _what_the_provider_recorded(state: IncidentState,
     `ChannelsUnread` exists to draw and cannot draw on its own.
     """
     try:
-        flag_changes = fetch_flag_changes(
+        history = fetch_flag_changes(
             onset=_where_the_change_window_ends(state, readings_cover_the_incident)
         )
     except Exception as unanswered:
@@ -366,11 +367,14 @@ def _what_the_provider_recorded(state: IncidentState,
         return None
 
     publish(
-        FlagChangesRetrieved(incident_id=state.incident_id, changes=flag_changes),
+        FlagChangesRetrieved(incident_id=state.incident_id,
+                             changes=history.changes,
+                             window_start=to_iso(history.since),
+                             window_end=to_iso(history.until)),
         publisher
     )
 
-    return flag_changes
+    return history.changes
 
 
 def _what_the_platform_recorded(state: IncidentState,

@@ -24,6 +24,7 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagChange,
+    FlagHistory,
     MetricBucket,
     PinAutoscaler,
     PinToAccelerator,
@@ -669,9 +670,13 @@ def fetch_recent_flag_changes(
     fetch: FlagChangesSince,
     now: Clock = utc_now,
     onset: datetime | None = None,
-) -> list[FlagChange]:
+) -> FlagHistory:
     """The flag toggles recorded over the configured lookback, oldest first -
-    excluding the ones Argus itself made.
+    excluding the ones Argus itself made - and the window they were read over.
+
+    The window is the one the changes were kept from, its end computed once and
+    used for the question and the cut alike, so that what is said of the read
+    is exactly what the list covers.
 
     A named function rather than `get_recent_flag_changes` passed directly,
     because the agent needs exactly one of that tool's calling shapes - a
@@ -707,16 +712,19 @@ def fetch_recent_flag_changes(
     """
     lookback = timedelta(minutes=settings.mitigation_change_lookback_minutes)
     window_ends_at = onset if onset is not None else now()
+    window_starts_at = window_ends_at - lookback
 
     changes = changes_not_made_by(
         settings.unleash_actor,
-        fetch(since=to_iso(window_ends_at - lookback)),
+        fetch(since=to_iso(window_starts_at)),
     )
 
-    return [
-        change for change in changes
-        if parse_iso(change.occurred_at) <= window_ends_at
-    ]
+    return FlagHistory(
+        changes=[change for change in changes
+                 if parse_iso(change.occurred_at) <= window_ends_at],
+        since=window_starts_at,
+        until=window_ends_at
+    )
 
 
 def fetch_recent_deployments(

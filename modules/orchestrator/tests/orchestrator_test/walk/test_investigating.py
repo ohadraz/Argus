@@ -32,6 +32,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import agent_investigator
 import pytest
+from argus_core import to_iso
 from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
@@ -49,6 +50,7 @@ from argus_core.models import (
     Disproof,
     EstablishedOnset,
     FlagChange,
+    FlagHistory,
     HowTheMinuteIsKnown,
     Hypothesis,
     IncidentStatus,
@@ -118,6 +120,10 @@ WHAT_THE_PROVIDER_RECORDED = [
     FlagChange(flag=ANOTHER_FLAG, enabled=True, occurred_at=DONT_CARE_MOMENT)
 ]
 
+# The window the provider was read over, as the read says it.
+SOME_HISTORY_START = datetime(2026, 8, 20, 10, 35, tzinfo=UTC)
+SOME_HISTORY_END = datetime(2026, 8, 20, 11, 5, tzinfo=UTC)
+
 # What the register says the alerting service calls. Non-empty for the reason
 # the flag history above is: an empty register is what an unreadable one looks
 # like, so a fixture answering nothing would make every case here indexes
@@ -169,7 +175,9 @@ def record_weighing() -> MagicMock:
 @pytest.fixture
 def fetch_flag_changes() -> MagicMock:
     fetch = cast(MagicMock, create_autospec(ports.FetchFlagChanges, instance=True))
-    fetch.return_value = list(WHAT_THE_PROVIDER_RECORDED)
+    fetch.return_value = FlagHistory(changes=list(WHAT_THE_PROVIDER_RECORDED),
+                                     since=SOME_HISTORY_START,
+                                     until=SOME_HISTORY_END)
 
     return fetch
 
@@ -1187,6 +1195,36 @@ def test_the_round_says_what_flag_history_it_reasoned_from(
 
 
 @pytest.mark.unit
+def test_the_round_says_the_window_its_flag_history_was_read_over(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # A history with no window says no flag moved "lately", and a write-up
+    # ruling flags out rules out a stretch nobody can see. The walk's window,
+    # which is not the Investigator's.
+    published: Kept[IncidentEvent] = Kept()
+    an_investigating_incident = _an_investigating_incident()
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(an_investigating_incident.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(an_investigating_incident,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies,
+                                      publisher=published.take)
+        ) \
+        .then(_the_history_published_over(to_iso(SOME_HISTORY_START), to_iso(SOME_HISTORY_END),
+                                          published))
+
+
+@pytest.mark.unit
 def test_a_flag_history_that_could_not_be_read_is_not_published_as_an_empty_one(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
@@ -1925,6 +1963,22 @@ def _the_history_published_is(expected: list[FlagChange],
                 f"Expected the history {expected} to be published, got "
                 f"{read[0].changes}"
             )
+
+        return True
+
+    return assertion
+
+
+def _the_history_published_over(start: str,
+                                end: str,
+                                published: Kept[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_delta: StateDelta) -> bool:
+        read = [(event.window_start, event.window_end) for event in published.taken
+                if isinstance(event, FlagChangesRetrieved)]
+
+        if read != [(start, end)]:
+            raise AssertionError(
+                f"Expected one history published over [{start}] to [{end}], got {read}.")
 
         return True
 

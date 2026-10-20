@@ -71,7 +71,7 @@ from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
 from argus_core.models.findings import Findings
 from argus_core.models.fix import FixOutcome, ProposedFix
-from argus_core.models.flag_change import FlagChange
+from argus_core.models.flag_change import FlagChange, FlagHistory
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
 from argus_core.models.incident_status import IncidentStatus
@@ -232,6 +232,7 @@ __all__ = [
     "Findings",
     "FixOutcome",
     "FlagChange",
+    "FlagHistory",
     "AutoscalerUndo",
     "AutoscalingRestored",
     "CacheEntriesDiscarded",

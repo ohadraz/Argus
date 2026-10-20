@@ -45,13 +45,14 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     DiscardCacheEntries,
     FlagChange,
+    FlagHistory,
     PinAutoscaler,
     PinToAccelerator,
     RollBackDeployment,
     RolloutProgress,
     ScaleOut,
 )
-from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 
 from agent_mitigation_test.framework.builders import (
     a_deployment,
@@ -259,7 +260,7 @@ def test_a_change_made_after_the_onset_is_not_in_the_window() -> None:
                 fetch=fetch,
                 now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
                 onset=an_onset
-            )
+            ).changes
         ) \
         .then(
             _it_returned_only(the_one_that_moved_at_the_onset)
@@ -284,10 +285,39 @@ def test_changes_argus_made_itself_are_left_out() -> None:
                 _some_mitigation_settings(),
                 fetch=fetch,
                 now=lambda: THE_MOMENT_IT_WAS_CLAIMED
-            )
+            ).changes
         ) \
         .then(
             _it_returned_only(somebody_elses)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("onset", [None, THE_MOMENT_IT_WAS_CLAIMED - timedelta(days=7)],
+                         ids=["ending-now", "ending-at-a-stated-onset"])
+def test_the_history_says_the_window_it_was_read_over(onset: datetime | None) -> None:
+    # What the walk says it read: none changed over these minutes, rather than
+    # "lately", which has no span. Ending where the filter ended it, so the
+    # window said is the one the changes were kept from.
+    some_lookback = timedelta(minutes=30)
+    window_ends_at = onset if onset is not None else THE_MOMENT_IT_WAS_CLAIMED
+
+    Scenario() \
+        .given(
+            fetch := _a_provider_reporting()
+        ) \
+        .when(
+            lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(lookback=some_lookback),
+                fetch=fetch,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
+                onset=onset
+            )
+        ) \
+        .then(
+            the_answer_was(FlagHistory(changes=[],
+                                       since=window_ends_at - some_lookback,
+                                       until=window_ends_at))
         )
 
 
