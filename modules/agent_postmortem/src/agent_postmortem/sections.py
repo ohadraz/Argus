@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from typing import Final
 
 from argus_core import parse_iso
-from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
+from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT, names_as_changed
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -259,11 +259,8 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
 
 def _it_changes_the_file(said: list[str], path: str) -> bool:
     """Whether a deploy's diff, as the read tier said it, names `path` among
-    the files it changed: on a line of its own, the file's status before it -
-    not set in, as each patch line under it is, where a comment can name any
-    file it likes."""
-    return any(not line.startswith(PATCH_LINE_INDENT) and line.split(" ")[-1] == path
-               for line in said)
+    the files it changed (`names_as_changed`)."""
+    return any(names_as_changed(line, path) for line in said)
 
 
 def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> bool:

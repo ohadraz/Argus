@@ -231,6 +231,25 @@ PATCH_LINE_INDENT: Final = "  "
 HUNK_HEADER: Final = "@@"
 
 
+def a_changed_file_line(status: str, path: str) -> str:
+    """The line of `DeploymentChangesRead.said` naming one file the diff
+    changed: the status the comparison gave it - one word, as `modified` - and
+    then its path."""
+    return f"{status} {path}"
+
+
+def names_as_changed(line: str, path: str) -> bool:
+    """Whether `line` is the one naming `path` among the files the diff
+    changed, as `a_changed_file_line` writes it: not set in, as each line under
+    a file is - that is the file's own text, and can name any other - and the
+    whole path after the one word of its status, so a longer path ending in
+    this one, or a sentence that does, is not it."""
+    status, space, named = line.partition(" ")
+
+    return (not line.startswith(PATCH_LINE_INDENT)
+            and bool(status) and bool(space) and named == path)
+
+
 class ChannelsUnread(_Event):
     """The channels an investigation never asked about.
 

@@ -24,7 +24,7 @@ from agent_postmortem.sections import (
     trigger_of,
 )
 from argus_core import parse_iso, to_iso
-from argus_core.events import PATCH_LINE_INDENT
+from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -734,7 +734,7 @@ def test_a_file_named_only_inside_a_deploys_patch_was_not_changed_by_it() -> Non
                 changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
                 deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
                     "@@ -1,1 +1,2 @@ ports:",
-                    "+# deploy/scrape.yaml selects this port by name",
+                    "+# selected by deploy/scrape.yaml",
                     "   portName: metrics"])])
         ) \
         .when(
@@ -1608,6 +1608,6 @@ def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesR
     return DeploymentChangesRecord(revision=revision, said=[
         f"Deployment of revision {revision} to io-shop, compared against "
         f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
-        "modified deploy/values-production.yaml",
+        a_changed_file_line("modified", "deploy/values-production.yaml"),
         *(f"{PATCH_LINE_INDENT}{line}" for line in changed)
     ])

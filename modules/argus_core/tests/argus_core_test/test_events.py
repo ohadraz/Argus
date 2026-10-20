@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 
 import pytest
 from argus_core.events import (
+    PATCH_LINE_INDENT,
     ActionRefused,
     AgentInvoked,
     CandidateSelected,
@@ -40,6 +41,8 @@ from argus_core.events import (
     StatusChanged,
     VerdictReached,
     WithdrawalOffered,
+    a_changed_file_line,
+    names_as_changed,
     parse_event,
     publish,
 )
@@ -69,7 +72,14 @@ from argus_core.models.reading import RetrievalChannel
 from argus_core.models.refusal import Refusal
 from argus_core.models.undone import Undone
 from argus_core.telemetry import ARGUS_INCIDENT_ID
-from argus_testkit import Assertion, Scenario, all_of, attempting, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    attempting,
+    one_record_was_logged,
+    the_answer_was,
+)
 from pydantic import ValidationError
 
 SOME_WINDOW_START = "2026-08-30T10:02:00Z"
@@ -177,6 +187,47 @@ def test_what_a_deployment_changed_reads_back_as_it_was_read() -> None:
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(_it_is(published))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("path", ["deploy/values-production.yaml", "docs/release notes.md"],
+                         ids=["a-path", "a-path-with-a-space"])
+def test_a_file_named_as_changed_is_read_back_as_the_file_it_names(path: str) -> None:
+    # The read tier writes the line and the write-up reads it back, so the two
+    # share one spelling of it - and the path is read back whole, a space in it
+    # included.
+    Scenario() \
+        .given(
+            line := a_changed_file_line("modified", path)
+        ) \
+        .when(
+            lambda: names_as_changed(line, path)
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("line", [
+    f"{PATCH_LINE_INDENT}+# selected by deploy/scrape.yaml",
+    "Deployment of revision 7c3ca00 to io-shop, compared against deploy/scrape.yaml",
+    "modified other/deploy/scrape.yaml"],
+    ids=["a-patch-line-ending-with-it", "a-header-ending-with-it", "a-longer-path-ending-with-it"])
+def test_a_line_that_only_mentions_a_file_does_not_name_it_as_changed(line: str) -> None:
+    # Only the line naming a changed file - its status, then its path - says the
+    # deploy changed it. A patch line set in under a file is that file's own
+    # text, and can name any other; a header can name anything at all.
+    Scenario() \
+        .given(
+            line
+        ) \
+        .when(
+            lambda: names_as_changed(line, "deploy/scrape.yaml")
+        ) \
+        .then(
+            the_answer_was(False)
+        )
 
 
 @pytest.mark.unit

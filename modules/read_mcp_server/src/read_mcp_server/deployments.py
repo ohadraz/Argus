@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import Final, Protocol
 
-from argus_core.events import PATCH_LINE_INDENT
+from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
 from argus_core.models import ChangeEvent
 from deployment_platform import DeploymentPlatformReads
 from repository_source import (
@@ -174,7 +174,7 @@ def _said(service: str, difference: SourceDifference) -> list[str]:
     unshown = 0
 
     for changed in named:
-        said.append(f"{changed.status} {changed.path}")
+        said.append(a_changed_file_line(changed.status, changed.path))
 
         if changed.patch is None:
             said.append(
