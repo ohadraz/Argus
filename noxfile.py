@@ -1874,6 +1874,12 @@ def _start_each_of(services: list[tuple[str, list[str], str | None]],
             _wait_for_http(name, ready_url)
 
 
+# Given after `--` to `e2e` or `e2e_replay`, holds the stack open once the
+# tests are done - `scripts/hold_the_stack.py` says how it is let go - so what
+# the run left behind can be looked at before the teardown destroys it.
+_HOLD: Final = "--hold"
+
+
 def _run_against_the_stack(
     session: nox.Session,
     test_paths: list[str],
@@ -2008,10 +2014,11 @@ def _run_against_the_stack(
         # Anything after `--` goes to pytest, so a single failing case can be
         # re-run against the stack (`-- -k fallback`) instead of the whole
         # suite. Bringing the stack up is the slow part of a green run and the
-        # cheap part of a debugging one.
+        # cheap part of a debugging one. All but `--hold`, which is this
+        # function's own and not pytest's.
         session.run(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
-            *session.posargs, external=True
+            *(given for given in session.posargs if given != _HOLD), external=True
         )
     except Exception:
         # What the containers said, and only when something went wrong. The
@@ -2026,6 +2033,14 @@ def _run_against_the_stack(
         _the_containers_said_this(session)
         raise
     finally:
+        # Held open after the tests, passed or failed, where `--hold` asks: the
+        # database, the page and the containers' state are the evidence of what
+        # a run did, and the teardown below is what destroys them. Before
+        # anything is cleaned up, so what is held is the stack as the tests
+        # left it.
+        if _HOLD in session.posargs:
+            session.run("uv", "run", "python", "scripts/hold_the_stack.py",
+                        external=True, success_codes=[0, 1])
         # Before the services stop, because the cleanup talks to the repository
         # over the network and not to anything in this stack - but after the
         # work, so a demo is cleaned up only once it is over.
