@@ -91,7 +91,11 @@ none was established.
 
 Resolution SHALL list every action taken, in order, with its time, the action
 in the narration's words, who took it, whether it can be undone, and what it
-came to, including whether it still stands. A person's resolution SHALL appear
+came to, including whether it still stands - and, in its place among them,
+every refusal to act, in the narration's words, with nothing to put back, as
+not taken, and under no label, since no prose cites it as an action. A
+refusal SHALL NOT be what the document says ended the incident: nothing was
+done in it. A person's resolution SHALL appear
 with their name, channel, time and note, read from the record when the
 document is shown, since it can arrive after the document was written.
 
@@ -99,6 +103,12 @@ document is shown, since it can arrive after the document was written.
 - **WHEN** Argus turned a flag off and the recovery was confirmed
 - **THEN** Resolution lists it as Argus's, reversible, recovered and still in
   place
+
+#### Scenario: A refusal to act
+- **WHEN** the gate refused the one action that would answer the cause, since
+  it would undo a change made on purpose
+- **THEN** Resolution lists the refusal in its place among the actions, as not
+  taken, and the head does not say it ended the incident
 
 #### Scenario: A person resolved it afterwards
 - **GIVEN** an escalated incident whose postmortem is written
