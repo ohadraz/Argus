@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+from collections.abc import Callable
 from typing import Final, Protocol
 
 from argus_core import Connections, SettingsSlice
@@ -170,18 +172,43 @@ class HeadOf(Protocol):
     def __call__(self, branch: str, /) -> str: ...
 
 
-def the_index_at(settings: IndexReadSettings) -> NearestPassages:
+def _a_client_at(url: str) -> QdrantClient:
+    return QdrantClient(url=url)
+
+
+def the_index_at(settings: IndexReadSettings,
+                 client_for: Callable[[str], QdrantClient] = _a_client_at) -> NearestPassages:
     """The real query, aimed at the store this deployment keeps its index in.
 
     A factory rather than a function taking the address, so what the tool is
     handed stays the two-argument `NearestPassages` a test can stand in for.
-    The client is built once, where the server is - opening one per call would
-    pay for a connection on every question a model asks.
+
+    The client is built once, on the first search rather than here - opening
+    one per call would pay for a connection on every question a model asks,
+    and building one reaches out: its version check runs on a thread of its own
+    and swallows every failure into a warning. So a server built and never
+    asked reaches nothing, as the embedder beside it loads nothing, and the
+    warning about the store's version arrives with the first search instead of
+    at startup.
+
+    Built under a lock, because FastMCP answers tools on a pool of threads and
+    two first searches would otherwise build two clients, one of them never
+    closed. A client that failed to build is not kept: the next search tries
+    again, so a store that was down for the first question is not down for the
+    life of the server.
     """
-    client = QdrantClient(url=settings.qdrant_url)
+    built: list[QdrantClient] = []
+    building = threading.Lock()
+
+    def the_client() -> QdrantClient:
+        with building:
+            if not built:
+                built.append(client_for(settings.qdrant_url))
+
+            return built[0]
 
     def find(vector: list[float], limit: int, /) -> list[Found]:
-        return nearest(client, settings.code_index_collection, vector, limit)
+        return nearest(the_client(), settings.code_index_collection, vector, limit)
 
     return find
 

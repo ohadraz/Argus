@@ -16,24 +16,29 @@ code".
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
-from unittest.mock import create_autospec
+from unittest.mock import Mock, create_autospec
 
 import pytest
+from argus_core.models import CodeSearch
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from code_index.chunking import Chunk
 from code_index.indexing import Embedder
 from code_index.store import Found
+from qdrant_client import QdrantClient
 from read_mcp_server.meaning import (
     NEAR_ENOUGH_TO_ANSWER,
     HeadOf,
     IndexedSha,
+    IndexReadSettings,
     IndexUnreachable,
     NearestPassages,
     search_repository_by_meaning,
+    the_index_at,
     the_index_notice,
 )
 from read_mcp_server.repository import RepositoryReadSettings
@@ -46,6 +51,10 @@ THE_BRANCH_DEPLOYED = "main"
 
 DONT_CARE_DESCRIPTION = "something the service does"
 SOME_VECTOR = [0.1, 0.2, 0.3]
+
+SOME_INDEX_SETTINGS = IndexReadSettings(qdrant_url="http://qdrant.invalid",
+                                        code_index_collection="dont-care-collection",
+                                        code_search=CodeSearch.MEANING)
 
 _THE_DIVISION = "def average_spend(purchases):\n    return total(purchases) / len(purchases)"
 
@@ -604,6 +613,64 @@ def test_a_branch_that_could_not_be_looked_up_is_logged_as_a_warning(
         )
 
 
+@pytest.mark.unit
+def test_an_index_nobody_has_searched_has_reached_for_no_store() -> None:
+    # A client reaches out as it is built - its version check runs on a thread
+    # of its own and swallows every failure into a warning - so a server built
+    # and never asked to search by meaning, a test's or a deployment's, reaches
+    # nothing, as the embedder beside it loads nothing until it is asked.
+    client_for = a_store_with_no_index()
+
+    Scenario() \
+        .when(lambda: the_index_at(SOME_INDEX_SETTINGS, client_for=client_for)) \
+        .then(_stores_reached_for(client_for, 0))
+
+
+@pytest.mark.unit
+def test_an_index_searched_twice_reaches_for_one_store() -> None:
+    # One client for the life of the server: a connection per question is one
+    # a model waits through on every search.
+    client_for = a_store_with_no_index()
+    find = the_index_at(SOME_INDEX_SETTINGS, client_for=client_for)
+
+    Scenario() \
+        .when(lambda: [find(SOME_VECTOR, 1), find(SOME_VECTOR, 1)]) \
+        .then(_stores_reached_for(client_for, 1))
+
+
+@pytest.mark.unit
+def test_a_store_that_could_not_be_reached_for_is_reached_for_again() -> None:
+    # A store down when the first search came is not down for the life of the
+    # server: what failed to be built is not kept, so the next search tries.
+    client_for = a_store_with_no_index()
+    client_for.side_effect = [ConnectionError("no route to qdrant"), client_for.return_value]
+    find = the_index_at(SOME_INDEX_SETTINGS, client_for=client_for)
+
+    Scenario() \
+        .when(lambda: _searched_again_after_a_failure(find)) \
+        .then(_stores_reached_for(client_for, 2))
+
+
+def _searched_again_after_a_failure(find: NearestPassages) -> list[Found]:
+    with contextlib.suppress(ConnectionError):
+        find(SOME_VECTOR, 1)
+
+    return find(SOME_VECTOR, 1)
+
+
+def _stores_reached_for(client_for: Mock, times: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if client_for.call_count != times:
+            raise AssertionError(
+                f"Expected a store reached for {times} time(s), and it was reached for "
+                f"{client_for.call_count}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _what_was_said_names(indexed: str, deployed: str) -> Assertion[str]:
     """Both commits, so a reader can judge the gap rather than fear it."""
     def assertion(said: str) -> bool:
@@ -811,6 +878,15 @@ def a_branch_nobody_can_look_up() -> Any:
     head_of.side_effect = ConnectionError("no route to the repository")
 
     return head_of
+
+
+def a_store_with_no_index() -> Mock:
+    """What builds a client, building one whose store holds no index - so a
+    search through it answers nothing, and reaches nowhere."""
+    client = create_autospec(QdrantClient, instance=True)
+    client.collection_exists.return_value = False
+
+    return Mock(return_value=client)
 
 
 def an_embedder_answering(vector: list[float]) -> Any:
