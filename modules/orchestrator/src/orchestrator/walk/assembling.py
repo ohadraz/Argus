@@ -27,6 +27,7 @@ from agent_investigator import (
     logs_over,
     metrics_over,
     placements_over,
+    read_tier_tools_over,
     rollouts_over,
 )
 from agent_investigator import investigate as _investigate
@@ -295,7 +296,10 @@ def against(connections: Connections,
             fetch_rollout=rollouts_over(read),
             # And the one the loop reads for itself after the onset, which no
             # model is offered: where each replica runs, over the read tier.
-            fetch_placements=placements_over(read)
+            fetch_placements=placements_over(read),
+            # The three channels above that are the read tier's, offered to the
+            # model as that tier declares them.
+            read_tier_tools=read_tier_tools_over(read)
         ),
         record_hypothesis=records.hypothesis,
         # The same channel the investigation reads, asked again by the walk -

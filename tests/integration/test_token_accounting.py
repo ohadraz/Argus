@@ -42,6 +42,7 @@ from tests.framework.investigating import (
     no_rollout_was_read,
     pods_that_never_moved,
     the_configured_thresholds,
+    what_the_read_tier_offers_the_investigator,
 )
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN, the_double_is_answering
 
@@ -90,6 +91,7 @@ def test_the_budget_charged_what_the_incident_is_shown_to_have_spent(
                     fetch_placements=pods_that_never_moved,
                     settings=InvestigationSettings.of(get_settings()),
                     thresholds=the_configured_thresholds(),
+                    read_tier_tools=what_the_read_tier_offers_the_investigator,
                     budget=the_budget,
                     recorder=calls_into(connect_from_env)
                 )

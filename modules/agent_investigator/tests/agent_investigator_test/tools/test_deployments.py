@@ -34,7 +34,6 @@ from agent_investigator.retrieval import DeploymentDiffFetcher
 from agent_investigator.tools.deployments import (
     DEPLOYMENT_DIFF_TOOL,
     REVISION_ARG,
-    deployment_diff_tool,
     read_what_a_deployment_changed,
 )
 from argus_core import new_id
@@ -272,19 +271,6 @@ def test_a_deployment_the_read_tier_had_nothing_to_say_about_publishes_nothing_r
         .then(_nothing_read_was_published(published))
 
 
-@pytest.mark.unit
-def test_the_tool_asks_for_a_revision_and_requires_it() -> None:
-    # The schema and what serves it have to agree, which is why both halves of a
-    # channel live in one module. An optional revision would be a tool the model
-    # could call with nothing, to be told off for it a turn later.
-    Scenario() \
-        .when(lambda: deployment_diff_tool()) \
-        .then(all_of(
-            _the_tool_takes(REVISION_ARG),
-            _the_tool_requires(REVISION_ARG)
-        ))
-
-
 def a_call_about(revision: str) -> ToolCall:
     return ToolCall(
         id="call-1",
@@ -437,32 +423,6 @@ def _nothing_was_asked_of(the_read_tier: Any) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected a call with no revision to cost no retrieval, and "
                 f"{the_read_tier.call_args_list} was asked for."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_tool_takes(argument: str) -> Assertion[Any]:
-    def assertion(tool: Any) -> bool:
-        if argument not in tool.properties:
-            raise AssertionError(
-                f"Expected the tool to offer [{argument}], and it offers "
-                f"{sorted(tool.properties)}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_tool_requires(argument: str) -> Assertion[Any]:
-    def assertion(tool: Any) -> bool:
-        if argument not in tool.required:
-            raise AssertionError(
-                f"Expected the tool to require [{argument}], and it requires "
-                f"{sorted(tool.required)}."
             )
 
         return True

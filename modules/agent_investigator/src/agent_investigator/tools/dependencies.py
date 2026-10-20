@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Final
 
 from argus_core.events import Narrator, ServiceRegisterRead
-from argus_core.models import ServiceDependency, ToolCall, ToolDefinition
+from argus_core.models import ServiceDependency, ToolCall
 
 from agent_investigator.retrieval import DependencyFetcher
 from agent_investigator.tools.results import Served, answered, could_not_be_read
@@ -32,25 +32,6 @@ _NOTHING_REGISTERED = (
     "knows, this service calls nothing - which is a fact about the register, and "
     "registers go out of date."
 )
-
-
-def dependencies_tool() -> ToolDefinition:
-    """The offer: find out whose the thing on the other end of a call is."""
-    return ToolDefinition(
-        name=DEPENDENCIES_TOOL,
-        description=(
-            "What this service calls, what each of those is for, and whether the "
-            "organisation owns it. Worth reading whenever the time a request "
-            "spends, or the failure it reports, points at something this service "
-            "does not run - because the response depends entirely on whose that "
-            "something is, and nothing else you can retrieve says. A host name "
-            "will not tell you: an internal-looking name is internal-looking "
-            "because somebody chose the spelling. Takes no arguments; it answers "
-            "about the service this incident is about."
-        ),
-        properties={},
-        required=[]
-    )
 
 
 def read_dependencies(call: ToolCall,

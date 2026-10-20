@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from agent_investigator.tools import READ_TIER_HELD
 from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.models import (
@@ -28,7 +29,10 @@ from argus_core.models import (
     PodPlacement,
     RolloutAccount,
     ServiceDependency,
+    ToolDefinition,
 )
+
+from tests.framework.read_tier import what_the_read_tier_offers
 
 # The minute the departure lands in, and so the onset every one of these suites
 # measures from. Named because two of them assert against it.
@@ -140,6 +144,12 @@ def pods_that_never_moved(dont_care_service: str) -> list[PodPlacement]:
         )
         for replica in range(3)
     ]
+
+
+def what_the_read_tier_offers_the_investigator() -> list[ToolDefinition]:
+    """The read tier's three reads the Investigator holds, as the tier declares
+    them - what a real investigation offers its model beside its own."""
+    return what_the_read_tier_offers(READ_TIER_HELD)
 
 
 def the_configured_thresholds() -> AnomalyThresholds:

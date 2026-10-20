@@ -37,7 +37,10 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 
 from tests.framework.assertions import the_cause_was_identified_as
-from tests.framework.investigating import the_configured_thresholds
+from tests.framework.investigating import (
+    the_configured_thresholds,
+    what_the_read_tier_offers_the_investigator,
+)
 from tests.framework.pooling import Configuration, a_digest_of, the_samples_taken
 
 # An eval judges the model's judgement, not Argus's plumbing, so it talks to the
@@ -2443,6 +2446,7 @@ def _the_real_model_investigates_repeatedly(incident: Incident) -> list[Run]:
             leads=lambda: list(incident.leads),
             settings=InvestigationSettings.of(get_settings()),
             thresholds=the_configured_thresholds(),
+            read_tier_tools=what_the_read_tier_offers_the_investigator,
             converse=speak,
             budget=spend
         )
@@ -2574,7 +2578,9 @@ def the_configuration_under_test() -> Configuration:
             # so the digest is about the content rather than about dictionary
             # order.
             "tools": json.dumps(
-                [offered.to_wire() for offered in investigator_tools()],
+                [offered.to_wire() for offered in investigator_tools(
+                    what_the_read_tier_offers_the_investigator()
+                )],
                 sort_keys=True
             )
         })

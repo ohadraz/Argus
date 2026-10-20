@@ -27,56 +27,23 @@ from __future__ import annotations
 from typing import Any, Final
 
 from argus_core.events import DeploymentChangesRead, Narrator
-from argus_core.models import ToolCall, ToolDefinition
+from argus_core.models import ToolCall
 
 from agent_investigator.retrieval import DeploymentDiffFetcher
 from agent_investigator.tools.results import Served, answered, could_not_be_read, could_not_serve
 
 DEPLOYMENT_DIFF_TOOL: Final = "get_what_a_deployment_changed"
 
-# The one argument, named once because the schema offers it and the code below
-# reads it back - and those two agreeing is the whole point of offering a strict
-# schema.
+# The one argument the model names, as the read tier declares it - read back
+# here, so the two have to agree, and an offer that renamed it would leave this
+# refusing every call.
 REVISION_ARG: Final = "revision"
-
-_STRING_TYPE: Final = "string"
 
 _NOTHING_CAME_BACK = (
     "The read tier answered about this deployment with nothing at all, which is "
     "not an answer it gives - treat what this deployment changed as unread rather "
     "than as empty."
 )
-
-
-def deployment_diff_tool() -> ToolDefinition:
-    """The offer: find out whether a deployment shipped code or configuration."""
-    return ToolDefinition(
-        name=DEPLOYMENT_DIFF_TOOL,
-        description=(
-            "What one deployment changed: the files that differ from the revision "
-            "deployed before it, and the change made to each. Read this before "
-            "saying which of two causes a deployment was - a deployment that "
-            "shipped bad code and one that shipped a broken configuration value "
-            "arrive identically, move the same signals, and are put right the same "
-            "way, and the only thing that separates them is what was in the "
-            "commit. Nothing else you can retrieve says: the path a deployment "
-            "syncs from is where its manifests live, and is the same directory "
-            "whatever the commit touched. Takes the deploy's own revision, exactly "
-            "as get_changes reported it."
-        ),
-        properties={
-            REVISION_ARG: {
-                "type": _STRING_TYPE,
-                "description": (
-                    "The deployment's revision, copied from the change this asks "
-                    "about. What it is compared against is not yours to name - the "
-                    "revision deployed before it is in the deployment history, "
-                    "which you cannot see."
-                )
-            }
-        },
-        required=[REVISION_ARG]
-    )
 
 
 def read_what_a_deployment_changed(

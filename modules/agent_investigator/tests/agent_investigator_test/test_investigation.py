@@ -28,6 +28,7 @@ from agent_investigator.retrieval import (
     RolloutFetcher,
 )
 from agent_investigator.tools import DEPENDENCIES_TOOL
+from agent_investigator.tools.offer import ReadTierTools
 from argus_core import new_id, parse_iso, to_iso, to_iso_minute
 from argus_core.anomaly import THE_JUDGED_SIGNALS
 from argus_core.events import (
@@ -68,6 +69,7 @@ from argus_core.models import (
     RuleReading,
     Standing,
     ThreadMessage,
+    ToolDefinition,
     Turn,
     Weighing,
     WorseWhen,
@@ -2403,6 +2405,44 @@ def test_an_investigation_shown_a_lead_is_offered_a_way_to_weigh_it() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_offered_what_the_read_tier_serves_on_every_turn() -> None:
+    # The read tier's reads are offered as it declares them, beside the loop's
+    # own - and a later turn is offered them as the first was.
+    some_served = ToolDefinition(name="some_read",
+                                 description="dont care what it reads",
+                                 properties={},
+                                 required=[])
+    investigation = an_investigation(a_model_that_says(
+        a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm())),
+               calling(investigation.the_read_tier_served([some_served]))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_offered_on_turn(investigation.model, 0, some_served.name, True),
+            _the_model_was_offered_on_turn(investigation.model, 1, some_served.name, True)
+        ))
+
+
+@pytest.mark.unit
+def test_the_read_tier_is_asked_what_it_serves_once_however_many_turns() -> None:
+    # What a tier serves does not change mid-investigation, and asking before
+    # every turn would be a request across the boundary per turn, for nothing.
+    investigation = an_investigation(a_model_that_says(
+        a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(_the_read_tier_was_asked_once(investigation.read_tier_tools))
+
+
+@pytest.mark.unit
 def test_a_lead_written_while_the_model_reads_reaches_it_with_its_next_result() -> None:
     # Written mid-investigation, which is when an expert watching it is most
     # likely to correct it. It rides on the next result rather than waiting
@@ -2752,6 +2792,19 @@ def _the_model_was_offered_on_turn(model: Mock,
             raise AssertionError(
                 f"Expected [{tool}] {'' if expected else 'not '}offered on turn {turn}, "
                 f"and it was offered {offered}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_read_tier_was_asked_once(read_tier_tools: Mock) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        if read_tier_tools.call_count != 1:
+            raise AssertionError(
+                f"Expected the read tier asked once what it serves, and it was asked "
+                f"{read_tier_tools.call_count} times."
             )
 
         return True
@@ -4596,6 +4649,7 @@ def _an_investigation_recording_to(recorded: Kept[ReplayEntry],
         ),
         settings=some_investigation_settings(),
         thresholds=some_thresholds(),
+        read_tier_tools=create_autospec(ReadTierTools, instance=True, return_value=[]),
         converse=a_model_that_says(a_turn_answering(an_explanation())),
         budget=a_budget(),
         recorder=recorded.take

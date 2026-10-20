@@ -119,6 +119,7 @@ from agent_investigator.tools import (
     HYPOTHESES_ARG,
     METRICS_TOOL,
     Dispatcher,
+    ReadTierTools,
     investigator_tools,
 )
 from agent_investigator.tools.weighing import (
@@ -270,6 +271,7 @@ def investigate(
     *,
     settings: InvestigationSettings,
     thresholds: AnomalyThresholds,
+    read_tier_tools: ReadTierTools,
     converse: Conversation | None = None,
     conversations: Conversations = a_conversation_recorded_for,
     budget: Budget | None = None,
@@ -334,6 +336,11 @@ def investigate(
     `sleep` is the wait between reads of the metrics while the minute the alert
     fired in has not been reported yet - real time in production, nothing at all
     in a test.
+
+    `read_tier_tools` is the three reads the read tier serves, as it declares
+    them. Asked once, where the model is first asked anything, and never by an
+    investigation that ends before then: nothing is offered to a model that is
+    never asked.
     """
     alert_time = to_iso(alert.started_at) if alert.started_at is not None else None
     narrator = Narrator(incident_id, publisher)
@@ -553,7 +560,7 @@ def investigate(
         fetch_rollout=fetch_rollout
     )
     spend = budget if budget is not None else a_budget_for(settings)
-    tools = investigator_tools()
+    tools = investigator_tools(read_tier_tools())
     # Every lead the model has been shown, in the order it was shown them -
     # which is the order they were written, and what their labels count by.
     shown = leads()

@@ -23,7 +23,12 @@ from agent_investigator.tools.deployments import DEPLOYMENT_DIFF_TOOL
 from agent_investigator.tools.dispatch import Dispatcher
 from agent_investigator.tools.logs import LOGS_TOOL
 from agent_investigator.tools.metrics import METRICS_TOOL
-from agent_investigator.tools.offer import investigator_tools
+from agent_investigator.tools.offer import (
+    READ_TIER_HELD,
+    ReadTierTools,
+    investigator_tools,
+    read_tier_tools_over,
+)
 from agent_investigator.tools.rollouts import ROLLOUT_TOOL
 
 __all__ = [
@@ -34,7 +39,10 @@ __all__ = [
     "HYPOTHESES_ARG",
     "LOGS_TOOL",
     "METRICS_TOOL",
+    "READ_TIER_HELD",
     "ROLLOUT_TOOL",
     "Dispatcher",
-    "investigator_tools"
+    "ReadTierTools",
+    "investigator_tools",
+    "read_tier_tools_over"
 ]

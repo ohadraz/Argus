@@ -34,6 +34,8 @@ from argus_core.llm.adapters.anthropic_adapter import (
 )
 from argus_testkit import Assertion, Scenario, all_of, calling
 
+from tests.framework.investigating import what_the_read_tier_offers_the_investigator
+
 # These spend real tokens on every run. That is the point - a contract test
 # that never talks to the third party is not a contract test - but it is why
 # they live behind their own marker and not in `test_all`.
@@ -83,6 +85,14 @@ TOOL_THE_MODEL_MUST_USE_TO_ANSWER: ToolParam = {
         "additionalProperties": False
     }
 }
+
+
+def _what_the_investigator_offers() -> list[ToolParam]:
+    """Every tool the loop offers, rendered by the `to_wire` the adapter sends."""
+    return [
+        cast(ToolParam, tool.to_wire())
+        for tool in investigator_tools(what_the_read_tier_offers_the_investigator())
+    ]
 
 
 def _recordings_that_stopped_for(reason: str) -> list[str]:
@@ -167,7 +177,7 @@ def test_the_real_api_accepts_every_tool_the_investigator_offers() -> None:
             lambda: real.messages.create(
                 model=MODEL,
                 max_tokens=ENOUGH_TO_SAY_ANYTHING,
-                tools=[cast(ToolParam, tool.to_wire()) for tool in investigator_tools()],
+                tools=_what_the_investigator_offers(),
                 messages=[{"role": "user", "content": "hi"}]
             )
         ) \
@@ -191,7 +201,7 @@ def test_the_real_api_still_serves_a_repeated_prefix_from_cache() -> None:
     # is the tool schemas that carry it past the model's minimum cacheable
     # size, which is why they are here rather than a shorter stand-in.
     real = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
-    offered = [cast(ToolParam, tool.to_wire()) for tool in investigator_tools()]
+    offered = _what_the_investigator_offers()
     # A prefix no earlier run can already have cached. Both calls below share
     # it, so the claim is unchanged - but a second run of this suite inside the
     # cache's lifetime would otherwise find the prefix warm, read where it

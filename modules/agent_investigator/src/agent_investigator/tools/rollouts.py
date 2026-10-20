@@ -27,35 +27,12 @@ from __future__ import annotations
 from typing import Final
 
 from argus_core.events import Narrator, RolloutRead
-from argus_core.models import ChangeEvent, RolloutAccount, ToolCall, ToolDefinition
+from argus_core.models import ChangeEvent, RolloutAccount, ToolCall
 
 from agent_investigator.retrieval import RolloutFetcher
 from agent_investigator.tools.results import Served, answered, could_not_be_read
 
 ROLLOUT_TOOL: Final = "get_rollout_state"
-
-
-def rollout_tool() -> ToolDefinition:
-    """The offer: find out whether the deployment that landed actually arrived."""
-    return ToolDefinition(
-        name=ROLLOUT_TOOL,
-        description=(
-            "Whether the deployment this service is running has finished "
-            "arriving: how many replicas are on the revision being rolled out, "
-            "how many are still on the one before it, and whether the rolling "
-            "update is paused. Read this before saying a deployment at the onset "
-            "is the fault - a revision that is wrong and a revision that reached "
-            "only half the fleet arrive identically in the change channel, and "
-            "the second fails only the requests that cross between the two "
-            "versions now serving. Nothing else you can retrieve says: a deploy "
-            "history records syncs that finished, and a rollout that has not "
-            "finished is not in it. A deployment that has converged is an answer "
-            "worth having too - it rules the split out. Takes no arguments; it "
-            "answers about the service this incident is about."
-        ),
-        properties={},
-        required=[]
-    )
 
 
 def read_the_rollout(call: ToolCall,
