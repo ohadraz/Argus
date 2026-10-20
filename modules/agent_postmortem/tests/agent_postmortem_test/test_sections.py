@@ -693,6 +693,59 @@ def test_a_setting_written_flat_is_carried_by_the_deploy_that_moved_it() -> None
 
 
 @pytest.mark.unit
+def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> None:
+    # The investigation blames a file, not a setting in it, and says no states:
+    # the file is what the diff names a deploy as changing. That deploy, made by
+    # the onset, is the change - dated and credited as it is, and suspected.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/values-production.yaml")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,1 +1,1 @@ ports:",
+                    "-  portName: metrics",
+                    "+  portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="deploy/values-production.yaml",
+                                   from_state=None,
+                                   to_state=None,
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_named_only_inside_a_deploys_patch_was_not_changed_by_it() -> None:
+    # A comment pointing at another file names it without changing it: only
+    # the line the diff names a changed file on says the deploy changed it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/scrape.yaml")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,1 +1,2 @@ ports:",
+                    "+# deploy/scrape.yaml selects this port by name",
+                    "   portName: metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 def test_resolution_lists_each_action_as_argus_took_it() -> None:
     # In the order taken, with what each came to and whether it still stands -
     # one sentence, because the reader of this table wants both at once.

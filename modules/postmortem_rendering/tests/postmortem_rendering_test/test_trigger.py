@@ -207,6 +207,27 @@ def test_a_setting_a_deploy_nobody_is_named_for_carried_names_the_deploy_alone()
 
 
 @pytest.mark.unit
+def test_a_file_a_deploy_carried_is_said_to_have_changed_in_that_deploy() -> None:
+    # A file moves between no states, but a deploy changing it is still a
+    # change: said as one, rather than as a name the time and the deploy hang
+    # off.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                trigger=Trigger(subject="deploy/values-production.yaml",
+                                from_state=None, to_state=None,
+                                changed_at=None, carried_by="P1"),
+                changes_read=[a_deploy_read("P1")])
+        ) \
+        .when(
+            lambda: the_trigger(some_postmortem, an_alert()).line
+        ) \
+        .then(
+            _it_reads(f"deploy/values-production.yaml changed, in the deploy of "
+                      f"{SOME_DEPLOYED_REVISION[:7]}."))
+
+
+@pytest.mark.unit
 def test_a_suspected_trigger_says_so_before_the_change_is_named() -> None:
     # Said first, so it is read before the change is.
     Scenario() \

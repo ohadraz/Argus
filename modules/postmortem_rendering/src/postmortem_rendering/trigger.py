@@ -52,6 +52,9 @@ def the_trigger(postmortem: PostmortemDocument, alert: Alert) -> TriggerSection:
     noun = " flag" if trigger.kind is ChangeKind.FLAG_TOGGLE else ""
     runs.append(Run(text=subject, role=Role.CODE))
 
+    carrier = next((cited for cited in postmortem.changes_read
+                    if cited.label == trigger.carried_by), None)
+
     if trigger.from_state or trigger.to_state:
         runs += [Run(text=f"{noun} {'was deployed' if deployed else 'went'} from "),
                  _a_state_of(trigger, trigger.from_state, Role.FROM_STATE, postmortem),
@@ -59,12 +62,14 @@ def the_trigger(postmortem: PostmortemDocument, alert: Alert) -> TriggerSection:
                  _a_state_of(trigger, trigger.to_state, Role.TO_STATE, postmortem)]
     elif noun:
         runs.append(Run(text=noun))
+    elif carrier is not None:
+        # A file a deploy changed moved between no states, and is still a
+        # change: said as one.
+        runs.append(Run(text=" changed"))
 
     if trigger.changed_at:
         runs += [Run(text=" at "), Run.a_moment(trigger.changed_at)]
 
-    carrier = next((cited for cited in postmortem.changes_read
-                    if cited.label == trigger.carried_by), None)
     if carrier is not None:
         # Whoever started the deploy, not whoever wrote the setting: the
         # deploy is the change the record holds.

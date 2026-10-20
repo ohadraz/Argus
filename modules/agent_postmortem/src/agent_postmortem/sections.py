@@ -232,18 +232,38 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
     onset - a change made after the incident began did not begin it. Two such
     deploys and the diffs cannot say which, and a trigger credited to either
     would be a guess said as a finding.
+
+    A candidate blaming a file and naming no states blames no setting in it:
+    what carried it is the deploy whose diff names that file among those it
+    changed (`_it_changes_the_file`).
     """
-    if blamed.subject is None or blamed.from_state is None or blamed.to_state is None:
+    subject, from_state, to_state = blamed.subject, blamed.from_state, blamed.to_state
+    if subject is None:
         return None
 
-    moved = {looked_into.revision for looked_into in evidence.deployment_changes
-             if _it_moves(looked_into.said, blamed.subject, blamed.from_state, blamed.to_state)}
+    if from_state is None and to_state is None:
+        moved = {looked_into.revision for looked_into in evidence.deployment_changes
+                 if _it_changes_the_file(looked_into.said, subject)}
+    elif from_state is None or to_state is None:
+        return None
+    else:
+        moved = {looked_into.revision for looked_into in evidence.deployment_changes
+                 if _it_moves(looked_into.said, subject, from_state, to_state)}
     carriers = [(position, change) for position, change in enumerate(evidence.changes, start=1)
                 if change.kind is ChangeKind.DEPLOY and change.reference in moved
                 and (evidence.onset_at is None
                      or parse_iso(change.occurred_at) <= evidence.onset_at)]
 
     return carriers[0] if len(carriers) == 1 else None
+
+
+def _it_changes_the_file(said: list[str], path: str) -> bool:
+    """Whether a deploy's diff, as the read tier said it, names `path` among
+    the files it changed: on a line of its own, the file's status before it -
+    not set in, as each patch line under it is, where a comment can name any
+    file it likes."""
+    return any(not line.startswith(PATCH_LINE_INDENT) and line.split(" ")[-1] == path
+               for line in said)
 
 
 def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> bool:
