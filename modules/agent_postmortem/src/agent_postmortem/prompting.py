@@ -75,6 +75,7 @@ from agent_postmortem.figures import (
     Figure,
     figures_of,
     named,
+    the_day_it_began,
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
@@ -761,7 +762,8 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     shown and not on it is one the check refuses and nothing writes in.
     """
     return figures_of(evidence, measured) | the_evidence_figures(
-        _the_evidence_listed(evidence, measured.unobserved_from))
+        _the_evidence_listed(evidence, measured.unobserved_from),
+        the_day_it_began(evidence, measured))
 
 
 def the_evidence_labelled(evidence: IncidentEvidence,

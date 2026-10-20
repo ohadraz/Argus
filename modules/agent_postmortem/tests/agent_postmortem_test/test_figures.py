@@ -17,7 +17,7 @@ quotes a figure from the incident the recording was made against.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
@@ -77,6 +77,14 @@ SOME_FINDING = ("240 of 240 shopper totals do not reconcile with the purchases b
                 "was recorded at 2026-10-05T16:10:00Z.")
 
 SOME_AMOUNT = Figure(given="1,297.31", written="1,297.31")
+
+# The day the finding's instant falls on, so the alert is read as one that
+# began that day and its instant is said without it.
+THE_FINDING_S_DAY = date(2026, 10, 5)
+
+# The day an incident began, where nothing read is an instant it could leave
+# unsaid.
+DONT_CARE_DAY = date(2026, 9, 2)
 
 # A log group as the model reads it: a setting, a count, a span and the minutes
 # it covers.
@@ -199,8 +207,8 @@ def test_the_ratio_of_two_shares_is_written_in_as_how_many_times() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("working", "written"), [
-    ("{began + duration}", "Sep 02, 2026, 12:10 UTC"),
-    ("{argus_stopped - held}", "Sep 02, 2026, 12:00 UTC"),
+    ("{began + duration}", "12:10 UTC"),
+    ("{argus_stopped - held}", "12:00 UTC"),
     ("{held + duration}", "40 minutes"),
     ("{held - duration}", "20 minutes"),
     ("{held / duration}", "3.0 times"),
@@ -223,6 +231,49 @@ def test_every_working_the_kinds_allow_is_written_in(working: str, written: str)
         ) \
         .then(
             the_answer_was(SubmittedPostmortem(root_cause=f"It was {written}."))
+        )
+
+
+@pytest.mark.unit
+def test_an_instant_worked_out_onto_another_day_than_the_one_it_began_says_its_day() -> None:
+    # The page dates the incident once, in its head; an instant on that day is
+    # said as a time, and one past midnight says which day it fell on.
+    some_figures = {
+        BEGAN_FIGURE: Figure(given="2026-09-02T23:50:00Z", written="dont care"),
+        DURATION_FIGURE: Figure(given="20 minutes", written="dont care")
+    }
+
+    Scenario() \
+        .given(
+            an_answer_naming_it := SubmittedPostmortem(root_cause="It was {began + duration}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_naming_it, some_figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause="It was Sep 03, 00:10 UTC."))
+        )
+
+
+@pytest.mark.unit
+def test_an_instant_worked_out_with_no_day_it_began_says_its_date_in_full() -> None:
+    # Nothing to leave unsaid: with no instant the incident is dated from, a
+    # time alone says no day at all.
+    some_figures = {
+        ARGUS_STOPPED_FIGURE: Figure(given="2026-09-02T12:30:00Z", written="dont care"),
+        HELD_FIGURE: Figure(given="30 minutes", written="dont care")
+    }
+
+    Scenario() \
+        .given(
+            an_answer_naming_it := SubmittedPostmortem(
+                root_cause="It was {argus_stopped - held}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_naming_it, some_figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause="It was Sep 02, 2026, 12:00 UTC."))
         )
 
 
@@ -291,14 +342,32 @@ def test_the_alerts_figures_are_named_in_the_order_it_states_them() -> None:
             some_finding := SOME_FINDING
         ) \
         .when(
-            lambda: the_alerts_figures(some_finding)
+            lambda: the_alerts_figures(some_finding, THE_FINDING_S_DAY)
         ) \
         .then(
             the_answer_was({
                 "A1": Figure(given="240", written="240"),
                 "A2": Figure(given="240", written="240"),
                 "A3": Figure(given="1,297.31", written="1,297.31"),
-                "A4": Figure(given="2026-10-05T16:10:00Z", written="Oct 05, 2026, 16:10 UTC")
+                "A4": Figure(given="2026-10-05T16:10:00Z", written="16:10 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_s_instant_on_another_day_than_the_incident_began_says_its_day() -> None:
+    # The year is the head's to say: a day of the incident's is never a year
+    # away from the one in its Date row.
+    Scenario() \
+        .given(
+            some_finding := SOME_FINDING
+        ) \
+        .when(
+            lambda: the_alerts_figures(some_finding, THE_FINDING_S_DAY + timedelta(days=1))
+        ) \
+        .then(
+            _the_figures_include({
+                "A4": Figure(given="2026-10-05T16:10:00Z", written="Oct 05, 16:10 UTC")
             })
         )
 
@@ -312,11 +381,11 @@ def test_an_instant_is_written_to_the_second_only_where_it_has_one() -> None:
             some_finding := "The oldest affected purchase was recorded at 2026-10-05T16:10:53Z."
         ) \
         .when(
-            lambda: the_alerts_figures(some_finding)
+            lambda: the_alerts_figures(some_finding, THE_FINDING_S_DAY)
         ) \
         .then(
             the_answer_was({
-                "A1": Figure(given="2026-10-05T16:10:53Z", written="Oct 05, 2026, 16:10:53 UTC")
+                "A1": Figure(given="2026-10-05T16:10:53Z", written="16:10:53 UTC")
             })
         )
 
@@ -351,7 +420,7 @@ def test_the_figures_in_a_piece_of_evidence_are_named_after_its_label() -> None:
             some_evidence := SOME_EVIDENCE
         ) \
         .when(
-            lambda: the_evidence_figures([some_evidence])
+            lambda: the_evidence_figures([some_evidence], DONT_CARE_DAY)
         ) \
         .then(
             the_answer_was({
@@ -387,7 +456,7 @@ def test_a_diffs_hunk_header_states_no_figure() -> None:
             some_diff := SOME_DIFF
         ) \
         .when(
-            lambda: the_evidence_figures([some_diff])
+            lambda: the_evidence_figures([some_diff], DONT_CARE_DAY)
         ) \
         .then(
             the_answer_was({
@@ -423,7 +492,7 @@ def test_a_figure_named_after_a_piece_of_evidence_is_written_in() -> None:
         ) \
         .when(
             lambda: with_figures_written(an_answer_quoting_the_evidence,
-                                         the_evidence_figures([SOME_EVIDENCE]))
+                                         the_evidence_figures([SOME_EVIDENCE], DONT_CARE_DAY))
         ) \
         .then(
             the_answer_was(SubmittedPostmortem(root_cause="The pool ran out at 20 connections."))
@@ -483,7 +552,8 @@ def test_the_span_between_two_instants_the_evidence_states_is_written_in() -> No
         .given(
             figures := the_evidence_figures([
                 CitedEvidence(label="T1", text="2026-09-02T12:00:00Z Investigator: dont care"),
-                CitedEvidence(label="T2", text="2026-09-02T12:07:30Z Mitigation: dont care")]),
+                CitedEvidence(label="T2", text="2026-09-02T12:07:30Z Mitigation: dont care")],
+                DONT_CARE_DAY),
             an_answer_working_from_the_narration := SubmittedPostmortem(
                 root_cause="Mitigation began {T2.1 - T1.1} in.")
         ) \
@@ -504,7 +574,7 @@ def test_a_word_mixing_letters_and_digits_is_a_name_and_not_a_figure() -> None:
             a_finding_naming_a_pod := "the pod io-shop-7d9c4f8b6-x2k9p restarted 3 times"
         ) \
         .when(
-            lambda: the_alerts_figures(a_finding_naming_a_pod)
+            lambda: the_alerts_figures(a_finding_naming_a_pod, DONT_CARE_DAY)
         ) \
         .then(
             the_answer_was({"A1": Figure(given="3", written="3")})
@@ -513,8 +583,9 @@ def test_a_word_mixing_letters_and_digits_is_a_name_and_not_a_figure() -> None:
 
 @pytest.mark.unit
 def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
-    # Instants as a reader says one, spans in words - and to the second,
-    # because what is written in is the measurement, not a rounding of it.
+    # Instants as a reader says one - a time, on the day the incident began -
+    # spans in words, and to the second, because what is written in is the
+    # measurement, not a rounding of it.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(),
@@ -525,15 +596,32 @@ def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
         ) \
         .then(
             the_answer_was({
-                ALERT_RAISED_FIGURE: Figure(given=to_iso(STARTED_AT),
-                                            written="Sep 02, 2026, 12:10 UTC"),
-                BEGAN_FIGURE: Figure(given=to_iso(ONSET), written="Sep 02, 2026, 12:00 UTC"),
-                BACK_TO_NORMAL_FIGURE: Figure(given=to_iso(RECOVERED_AT),
-                                         written="Sep 02, 2026, 12:10 UTC"),
+                ALERT_RAISED_FIGURE: Figure(given=to_iso(STARTED_AT), written="12:10 UTC"),
+                BEGAN_FIGURE: Figure(given=to_iso(ONSET), written="12:00 UTC"),
+                BACK_TO_NORMAL_FIGURE: Figure(given=to_iso(RECOVERED_AT), written="12:10 UTC"),
                 DURATION_FIGURE: Figure(given="10 minutes", written="10 minutes"),
                 HELD_FIGURE: Figure(given="30 minutes", written="30 minutes"),
-                ARGUS_STOPPED_FIGURE: Figure(given=to_iso(ENDED_AT),
-                                             written="Sep 02, 2026, 12:30 UTC")
+                ARGUS_STOPPED_FIGURE: Figure(given=to_iso(ENDED_AT), written="12:30 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_an_instant_argus_measured_on_another_day_than_the_incident_began_says_its_day() -> None:
+    some_stop_past_midnight = ONSET + timedelta(hours=13)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(ended_at=some_stop_past_midnight),
+            measured := a_measured_incident()
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                ARGUS_STOPPED_FIGURE: Figure(given=to_iso(some_stop_past_midnight),
+                                             written="Sep 03, 01:00 UTC")
             })
         )
 
@@ -573,7 +661,7 @@ def test_an_incident_with_no_onset_is_dated_from_its_alert() -> None:
         ) \
         .then(
             _the_figures_include({
-                BEGAN_FIGURE: Figure(given=to_iso(STARTED_AT), written="Sep 02, 2026, 12:10 UTC")
+                BEGAN_FIGURE: Figure(given=to_iso(STARTED_AT), written="12:10 UTC")
             })
         )
 
@@ -594,8 +682,7 @@ def test_the_alert_is_raised_when_its_sender_says_it_fired() -> None:
         ) \
         .then(
             _the_figures_include({
-                ALERT_RAISED_FIGURE: Figure(given=to_iso(some_firing),
-                                            written="Sep 02, 2026, 12:08 UTC")
+                ALERT_RAISED_FIGURE: Figure(given=to_iso(some_firing), written="12:08 UTC")
             })
         )
 
@@ -731,8 +818,7 @@ def test_a_service_back_before_the_action_credited_with_it_names_when_it_was_tak
         ) \
         .then(
             _the_figures_include({
-                ACTED_FIGURE: Figure(given=to_iso(some_action_taken),
-                                     written="Sep 02, 2026, 12:09 UTC")
+                ACTED_FIGURE: Figure(given=to_iso(some_action_taken), written="12:09 UTC")
             })
         )
 
@@ -769,7 +855,7 @@ def test_metrics_that_stopped_are_dated_from_where_they_stopped() -> None:
         .then(
             _the_figures_include({
                 UNOBSERVED_FROM_FIGURE: Figure(given=to_iso(some_minute_they_stopped),
-                                               written="Sep 02, 2026, 12:00 UTC")
+                                               written="12:00 UTC")
             })
         )
 
@@ -792,7 +878,7 @@ def test_how_far_the_logs_read_reach_into_a_metrics_gap_is_a_figure() -> None:
         .then(
             _the_figures_include({
                 LOGS_REACH_UNTIL_FIGURE: Figure(given=to_iso(some_minute_logged_inside),
-                                                written="Sep 02, 2026, 12:05 UTC")
+                                                written="12:05 UTC")
             })
         )
 
@@ -969,7 +1055,7 @@ def test_the_alerts_figures_are_among_the_incidents() -> None:
             lambda: figures_of(evidence, measured)
         ) \
         .then(
-            _the_figures_include(the_alerts_figures(SOME_FINDING))
+            _the_figures_include(the_alerts_figures(SOME_FINDING, ONSET.date()))
         )
 
 

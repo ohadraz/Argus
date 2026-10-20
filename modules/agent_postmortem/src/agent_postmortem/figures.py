@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
@@ -165,31 +165,32 @@ _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
 # A difference of two shares is in points rather than a share: "rose by 32.7%"
 # reads as a share of where it started. A difference of two levels is a level,
 # in whatever unit the paging rule watches.
-_WORKINGS: Final[dict[tuple[_Kind, str, _Kind], Callable[[Figure, Figure], str]]] = {
+_WORKINGS: Final[dict[tuple[_Kind, str, _Kind],
+                      Callable[[Figure, Figure, date | None], str]]] = {
     (_Kind.INSTANT, "-", _Kind.INSTANT):
-        lambda first, second: _said_of_a_span(parse_iso(first.given)
-                                              - parse_iso(second.given)),
+        lambda first, second, _: _said_of_a_span(parse_iso(first.given)
+                                                 - parse_iso(second.given)),
     (_Kind.INSTANT, "+", _Kind.SPAN):
-        lambda first, second: _as_a_reader_says(parse_iso(first.given)
-                                                + _span_shown(second)),
+        lambda first, second, day: _as_a_reader_says(parse_iso(first.given)
+                                                     + _span_shown(second), day),
     (_Kind.INSTANT, "-", _Kind.SPAN):
-        lambda first, second: _as_a_reader_says(parse_iso(first.given)
-                                                - _span_shown(second)),
+        lambda first, second, day: _as_a_reader_says(parse_iso(first.given)
+                                                     - _span_shown(second), day),
     (_Kind.SPAN, "+", _Kind.SPAN):
-        lambda first, second: _said_of_a_span(_span_shown(first) + _span_shown(second)),
+        lambda first, second, _: _said_of_a_span(_span_shown(first) + _span_shown(second)),
     (_Kind.SPAN, "-", _Kind.SPAN):
-        lambda first, second: _said_of_a_span(_span_shown(first) - _span_shown(second)),
+        lambda first, second, _: _said_of_a_span(_span_shown(first) - _span_shown(second)),
     (_Kind.SPAN, "/", _Kind.SPAN):
-        lambda first, second: _how_many_times(_seconds_shown(first) / _seconds_shown(second)),
+        lambda first, second, _: _how_many_times(_seconds_shown(first) / _seconds_shown(second)),
     (_Kind.SHARE, "-", _Kind.SHARE):
-        lambda first, second: (f"{_percent_shown(first) - _percent_shown(second)} "
-                               f"percentage points"),
+        lambda first, second, _: (f"{_percent_shown(first) - _percent_shown(second)} "
+                                  f"percentage points"),
     (_Kind.SHARE, "/", _Kind.SHARE):
-        lambda first, second: _how_many_times(_percent_shown(first) / _percent_shown(second)),
+        lambda first, second, _: _how_many_times(_percent_shown(first) / _percent_shown(second)),
     (_Kind.LEVEL, "-", _Kind.LEVEL):
-        lambda first, second: _a_difference_of_levels(first, second),
+        lambda first, second, _: _a_difference_of_levels(first, second),
     (_Kind.LEVEL, "/", _Kind.LEVEL):
-        lambda first, second: _how_many_times(_level_shown(first) / _level_shown(second))
+        lambda first, second, _: _how_many_times(_level_shown(first) / _level_shown(second))
 }
 
 # A level as the model was shown it: the number, and whatever unit follows it -
@@ -240,18 +241,17 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     cannot write in a number the incident never had. The alert's figures come
     last, after Argus's own.
     """
+    day = the_day_it_began(evidence, measured)
     figures = {
-        ALERT_RAISED_FIGURE: _an_instant(evidence.alerted_at),
-        # The onset where one was measured, and the alert where none was - the
-        # instant the incident is dated from either way.
-        BEGAN_FIGURE: _an_instant(measured.onset_at or evidence.started_at)
+        ALERT_RAISED_FIGURE: _an_instant(evidence.alerted_at, day),
+        BEGAN_FIGURE: _an_instant(_the_instant_it_began(evidence, measured), day)
     }
 
     if measured.back_to_normal_at is not None:
-        figures[BACK_TO_NORMAL_FIGURE] = _an_instant(measured.back_to_normal_at)
+        figures[BACK_TO_NORMAL_FIGURE] = _an_instant(measured.back_to_normal_at, day)
 
     if measured.unobserved_from is not None:
-        figures[UNOBSERVED_FROM_FIGURE] = _an_instant(measured.unobserved_from)
+        figures[UNOBSERVED_FROM_FIGURE] = _an_instant(measured.unobserved_from, day)
 
         # How far the logs read reach into the stretch the metrics did not
         # cover. Told only which lines reached in, a model wrote that nothing
@@ -260,11 +260,11 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         logged_until = the_last_minute_logged_inside(evidence.log_lines,
                                                      measured.unobserved_from)
         if logged_until is not None:
-            figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until)
+            figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until, day)
 
     figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)
-    figures[ARGUS_STOPPED_FIGURE] = _an_instant(evidence.ended_at)
+    figures[ARGUS_STOPPED_FIGURE] = _an_instant(evidence.ended_at, day)
 
     # A wait of nothing is said in words - the rule fires as soon as its
     # condition holds - and a span of no time is no figure to work with.
@@ -282,7 +282,7 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     # it, which the write-up cannot say without the action's time.
     credited = evidence.credited_action
     if measured.back_before_the_action and credited is not None:
-        figures[ACTED_FIGURE] = _an_instant(credited.taken_at)
+        figures[ACTED_FIGURE] = _an_instant(credited.taken_at, day)
 
     rates = measured.error_rates
     if rates is not None:
@@ -303,9 +303,21 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst, unit)
 
     if evidence.alert_finding:
-        figures.update(the_alerts_figures(evidence.alert_finding))
+        figures.update(the_alerts_figures(evidence.alert_finding, day))
 
     return figures
+
+
+def the_day_it_began(evidence: IncidentEvidence, measured: Measurements) -> date:
+    """The day the incident began, which every instant written on it leaves
+    unsaid - the page dates the incident once, in its head."""
+    return _the_instant_it_began(evidence, measured).astimezone(UTC).date()
+
+
+def _the_instant_it_began(evidence: IncidentEvidence, measured: Measurements) -> datetime:
+    """The onset where one was measured, and the alert where none was - the
+    instant the incident is dated from either way."""
+    return measured.onset_at or evidence.started_at
 
 
 def what_came_after_the_wait(evidence: IncidentEvidence,
@@ -323,13 +335,13 @@ def what_came_after_the_wait(evidence: IncidentEvidence,
     return evidence.alerted_at - measured.onset_at - measured.rule_waits
 
 
-def the_alerts_figures(finding: str) -> dict[str, Figure]:
+def the_alerts_figures(finding: str, day: date) -> dict[str, Figure]:
     """The figures the alert's sender wrote, named in the order it wrote them.
 
     Each written in exactly as the sender wrote it, except an instant, which is
-    written as a reader says one.
+    written as a reader says one, on the `day` the incident began.
     """
-    return _the_figures_in(finding, _ALERT_FIGURE_PREFIX)
+    return _the_figures_in(finding, _ALERT_FIGURE_PREFIX, day)
 
 
 def the_finding_named(finding: str) -> str:
@@ -342,7 +354,7 @@ def the_finding_named(finding: str) -> str:
     return _said_with_names(finding, _ALERT_FIGURE_PREFIX)
 
 
-def the_evidence_figures(cited: Sequence[CitedEvidence]) -> dict[str, Figure]:
+def the_evidence_figures(cited: Sequence[CitedEvidence], day: date) -> dict[str, Figure]:
     """The figures each piece of evidence states, named after its label and
     then in the order it states them: `Gbac1.1`, `Gbac1.2`.
 
@@ -353,7 +365,7 @@ def the_evidence_figures(cited: Sequence[CitedEvidence]) -> dict[str, Figure]:
     """
     return {name: figure
             for each in cited
-            for name, figure in _the_figures_in(each.text, f"{each.label}.").items()}
+            for name, figure in _the_figures_in(each.text, f"{each.label}.", day).items()}
 
 
 def the_evidence_named(cited: CitedEvidence) -> str:
@@ -362,10 +374,10 @@ def the_evidence_named(cited: CitedEvidence) -> str:
     return _said_with_names(cited.text, f"{cited.label}.")
 
 
-def _the_figures_in(text: str, prefix: str) -> dict[str, Figure]:
+def _the_figures_in(text: str, prefix: str, day: date) -> dict[str, Figure]:
     figures = [word for _, word in _the_words_of(text) if word is not None]
 
-    return {f"{prefix}{position}": _as_the_alert_gave_it(figure)
+    return {f"{prefix}{position}": _as_the_alert_gave_it(figure, day)
             for position, figure in enumerate(figures, start=1)}
 
 
@@ -501,7 +513,16 @@ def _worked_out(working: re.Match[str], figures: dict[str, Figure]) -> str | Non
     if kinds[0] is None or kinds[1] is None:
         return None
 
-    return _WORKINGS[(kinds[0], operation, kinds[1])](figures[first], figures[second])
+    return _WORKINGS[(kinds[0], operation, kinds[1])](figures[first], figures[second],
+                                                      _the_day_shown(figures))
+
+
+def _the_day_shown(figures: Mapping[str, Figure]) -> date | None:
+    """The day the incident began, as the model was shown the instant it is
+    dated from - or `None` where it was shown none."""
+    began = figures.get(BEGAN_FIGURE)
+
+    return parse_iso(began.given).astimezone(UTC).date() if began is not None else None
 
 
 def _kind_of(name: str, figures: Mapping[str, Figure]) -> _Kind | None:
@@ -609,26 +630,37 @@ def _the_words_of(text: str) -> Iterator[tuple[str, str | None]]:
             yield part, word if word and is_a_figure(word) else None
 
 
-def _as_the_alert_gave_it(figure: str) -> Figure:
+def _as_the_alert_gave_it(figure: str, day: date) -> Figure:
     if _AN_INSTANT.fullmatch(figure):
-        return Figure(given=figure, written=_as_a_reader_says(parse_iso(figure)))
+        return Figure(given=figure, written=_as_a_reader_says(parse_iso(figure), day))
 
     return Figure(given=figure, written=figure)
 
 
-def _an_instant(at: datetime) -> Figure:
-    return Figure(given=to_iso(at), written=_as_a_reader_says(at))
+def _an_instant(at: datetime, day: date) -> Figure:
+    return Figure(given=to_iso(at), written=_as_a_reader_says(at, day))
 
 
-def _as_a_reader_says(at: datetime) -> str:
+def _as_a_reader_says(at: datetime, day: date | None) -> str:
     """An instant as the page says one: to the minute, and to the second only
     where it has one - a minute said "20:45:00" claims a precision nothing
-    measured. The day too, so a sentence read away from the page still says
-    which."""
+    measured.
+
+    The day only where it is not the `day` the incident began: the page dates
+    the incident once, in its head, and "Oct 20, 2026, 22:45 UTC" said in every
+    sentence buries the time a reader is after. Never the year, which the head
+    says too. In full where there is no day it began to leave unsaid.
+    """
     at = at.astimezone(UTC)
     seconds = f":{at:%S}" if at.second else ""
 
-    return f"{at:%b %d, %Y, %H:%M}{seconds} UTC"
+    if day is None:
+        return f"{at:%b %d, %Y, %H:%M}{seconds} UTC"
+
+    if at.date() != day:
+        return f"{at:%b %d, %H:%M}{seconds} UTC"
+
+    return f"{at:%H:%M}{seconds} UTC"
 
 
 def _a_span(hours: float) -> Figure:
