@@ -531,6 +531,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "or review. A factor held before the incident began: what the response "
             "did, declined or left behind - an action taken or not, automatic sync "
             f"left off - is not one; where it went wrong, say it under {WENT_WRONG_FIELD}. "
+            "Not the root cause again in other words: a factor is something that, "
+            "had it been otherwise, would have stopped or shortened the incident "
+            f"even with what {ROOT_CAUSE_FIELD} says still true. "
             f"{_A_SAFEGUARD_NOBODY_SAW} Each names at least one action item that "
             "answers it."
         ),

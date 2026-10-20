@@ -1885,6 +1885,22 @@ def test_what_the_response_did_is_asked_for_under_what_went_wrong_rather_than_as
 
 
 @pytest.mark.unit
+def test_a_factor_is_asked_for_as_what_would_have_helped_with_the_root_cause_still_true() -> None:
+    # Told only that a factor "did not cause it alone", a write-up gave the
+    # root cause - no limit on the wait for an optional dependency - again as
+    # its first factor. Tested against the root cause as written, rather than
+    # against "the cause" - which the brief also uses of the trigger - a
+    # restatement contradicts itself.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("root cause again", ROOT_CAUSE_FIELD)
+        )
+
+
+@pytest.mark.unit
 def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_wrong() -> None:
     # Automatic sync left off so the rollback holds is said by the resolution
     # and undone by an item the record already holds. Listed under what went
