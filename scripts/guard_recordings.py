@@ -72,6 +72,11 @@ TOOL_USE_TYPE: Final = "tool_use"
 # Spelled rather than imported, for the reason the tool names above are.
 WALK_PREFIXES: Final = ("grep-", "meaning-", "both-")
 
+# What the question an answer was given to is stored under, beside the answer
+# (`anthropic_double.recordings`). A question is no answer, so no walk is made
+# of it. Spelled rather than imported, for the reason the tool names above are.
+QUESTION_SUFFIX: Final = ".request"
+
 
 def the_answers_of(corpus: str, stored: list[Path]) -> list[Path]:
     """Every file one walk's answers are stored across, in the order given.
@@ -102,7 +107,8 @@ def every_corpus() -> Iterator[tuple[str, list[Path]]]:
     tonight, and nothing here has to be edited for it. Only a walk is one,
     which is what its mode prefix says.
     """
-    stored = sorted(RECORDINGS_DIR.glob("*.json"))
+    stored = sorted(path for path in RECORDINGS_DIR.glob("*.json")
+                    if not path.stem.endswith(QUESTION_SUFFIX))
     openings = [
         path.stem for path in stored
         if path.stem.startswith(WALK_PREFIXES)
