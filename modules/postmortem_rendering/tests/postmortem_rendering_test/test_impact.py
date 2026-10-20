@@ -216,8 +216,9 @@ def test_an_incident_whose_metrics_stopped_says_what_its_duration_measures() -> 
             lambda: the_impact(some_postmortem, an_alert()).unobserved
         ) \
         .then(
-            the_answer_was("The metrics stop at the onset, so the duration is how long they were "
-                           "missing - not a stretch the service is known to have spent broken."))
+            the_answer_was("The metrics stop at the onset, so the duration is how long they had "
+                           "been missing by the close - not a stretch the service is known to "
+                           "have spent broken."))
 
 
 @pytest.mark.unit

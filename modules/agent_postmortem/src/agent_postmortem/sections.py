@@ -137,8 +137,8 @@ def impact_of(measured: Measurements) -> Impact:
     where that got worse.
 
     Unobserved before a lower bound: metrics that stopped also never show a
-    recovery, and a stretch nobody could see is not one the service is known
-    to have spent broken.
+    recovery, and a stretch the metrics carry nothing of is not one the
+    service is known to have spent broken.
     """
     if measured.unobserved_from is not None:
         extent = ImpactExtent.UNOBSERVED

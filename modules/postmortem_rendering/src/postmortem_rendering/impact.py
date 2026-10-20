@@ -20,8 +20,9 @@ from postmortem_rendering.formatting import as_money, as_span
 # Said under a duration the metrics carry no minute of: what was missing is
 # the metrics, not sight of the service - its logs and its takings may well
 # cover the stretch, and the cause and the loss say what they saw.
-_UNOBSERVED: Final = ("The metrics stop at the onset, so the duration is how long they were "
-                      "missing - not a stretch the service is known to have spent broken.")
+_UNOBSERVED: Final = ("The metrics stop at the onset, so the duration is how long they had "
+                      "been missing by the close - not a stretch the service is known to "
+                      "have spent broken.")
 
 # What a card's "this to that" compares, said once so the two cards that
 # compare levels say it alike.

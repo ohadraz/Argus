@@ -307,11 +307,13 @@ class Detection(BaseModel):
 
 
 class ImpactExtent(StrEnum):
-    """What a duration is: a measurement, a floor, or a stretch nobody saw.
+    """What a duration is: a measurement, a floor, or a stretch the metrics
+    carry nothing of.
 
     Three rather than a flag, because the two ways a duration falls short of a
     measurement are different facts: a service still failing when the metrics
-    ran out, and a service whose metrics stopped while it was failing.
+    ran out, and a service whose metrics stopped at the onset - which says
+    nothing of whether it was failing at all.
     """
 
     MEASURED = "measured"
