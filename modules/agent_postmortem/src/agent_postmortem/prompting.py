@@ -1193,7 +1193,7 @@ def _the_logs_reaching_into(evidence: IncidentEvidence,
 
 
 def _where_the_reading_ended(evidence: IncidentEvidence, figures: Mapping[str, Figure]) -> str:
-    """Where the last read of the logs ended, as a sentence to follow the
+    """Where the furthest read of the logs ended, as a sentence to follow the
     lines' own - and at the alert, where it ended there, which is where it
     ends unless the investigation asked for more. Nothing where no read is
     recorded."""

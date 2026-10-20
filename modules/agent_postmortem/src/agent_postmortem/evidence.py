@@ -166,7 +166,7 @@ class IncidentEvidence(BaseModel):
     candidates: list[CandidateRecord]
     actions: list[ActionRecord]
     log_lines: list[str]
-    # Where the last read of the logs ended - by default at the alert, though
+    # Where the furthest read of the logs ended - by default at the alert, though
     # the investigation picks its own windows. What the lines cannot say of
     # themselves: where they stop is where the reading stopped as often as
     # where the service did. `None` where no read is recorded.
