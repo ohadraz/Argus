@@ -646,6 +646,9 @@ def investigate(
         if isinstance(answered, list) and unweighed and not reached:
             answered = _an_answer_past(unweighed, turn)
 
+        if isinstance(answered, list) and not reached:
+            answered = _an_answer_naming_loosely(answered, turn) or answered
+
         if isinstance(answered, list):
             for candidate in answered:
                 _say_formed(narrator, candidate)
@@ -925,6 +928,38 @@ def _an_answer_past(unweighed: Sequence[str], turn: Turn) -> ToolResult:
         call_id=answering.id,
         content=(f"that answer was not taken: {', '.join(unweighed)} not weighed yet. Call "
                  f"{WEIGH_TOOL} for each, then {ANSWER_TOOL} again."),
+        failed=True
+    )
+
+
+def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolResult | None:
+    """The answer refused, because a candidate's subject is more than one name -
+    or `None` where every subject is one name or none.
+
+    Something acts on the subject, and a description is nothing it can act on:
+    "metrics port name" named no key a deploy could be matched to. Every subject
+    a recorded walk got wrong had whitespace in it and none it got right did - a
+    key, a flag, a revision, a service or a path is one name. Not "found
+    verbatim in the evidence", which refuses the right name for a nested key: a
+    YAML diff never spells `cache.port`.
+
+    Refused while a turn remains, and taken as it stands on the last one, as an
+    unweighed lead is: never quietly dropped, since a candidate shown with no
+    subject reads as one that blamed nothing.
+    """
+    loose = [(hypothesis.rank, hypothesis.subject) for hypothesis in answered
+             if hypothesis.subject is not None and len(hypothesis.subject.split()) != 1]
+    if not loose:
+        return None
+
+    answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
+    named = "; ".join(f"explanation {rank} names [{subject}]" for rank, subject in loose)
+
+    return ToolResult(
+        call_id=answering.id,
+        content=(f"that answer was not taken: {named}. A subject is the one key, flag, "
+                 f"revision, service or path the explanation blames, as a single name - "
+                 f"or null. Call {ANSWER_TOOL} again."),
         failed=True
     )
 

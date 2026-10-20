@@ -2490,6 +2490,53 @@ def test_a_lead_written_in_time_for_the_last_turn_does_not_cost_the_answer() -> 
 
 
 @pytest.mark.unit
+def test_an_answer_whose_subject_is_more_than_one_name_is_refused() -> None:
+    # Something acts on the subject, and a description is nothing it can act
+    # on: "metrics port name" named no key a deploy could be matched to. Every
+    # subject a recorded walk got wrong had a space in it and none it got right
+    # did - a key, a flag, a revision, a service or a path is one name.
+    some_key = "metrics.portName"
+    investigation = an_investigation(a_model_that_says(
+        a_turn_answering(an_explanation(subject="metrics port name")),
+        a_turn_answering(an_explanation(subject=some_key))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions="metrics port name"),
+            _the_subject_is(some_key)
+        ))
+
+
+@pytest.mark.unit
+def test_a_subject_of_more_than_one_name_on_the_last_turn_does_not_cost_the_answer() -> None:
+    # Refused there, an investigation that read plenty ends with nothing for a
+    # subject worded loosely. Taken as it stands, and never quietly dropped: a
+    # candidate shown with no subject reads as one that blamed nothing.
+    some_description = "metrics port name"
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            a_turn_answering(an_explanation(subject=some_description))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _the_subject_is(some_description)
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "a_turn_naming_no_cause",
     [
@@ -3295,6 +3342,19 @@ def _the_evidence_is(*cited: Evidence) -> Assertion[Findings]:
 
         if rested_on != list(cited):
             raise AssertionError(f"Expected the evidence {list(cited)}, got {rested_on}.")
+
+        return True
+
+    return assertion
+
+
+def _the_subject_is(expected: str | None) -> Assertion[Findings]:
+    """The specific thing the first candidate blamed."""
+    def assertion(findings: Findings) -> bool:
+        blamed = findings.candidates[0].subject
+
+        if blamed != expected:
+            raise AssertionError(f"Expected the subject [{expected}], got [{blamed}].")
 
         return True
 
