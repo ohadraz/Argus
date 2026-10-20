@@ -176,7 +176,8 @@ def _who_ended_it(postmortem: Postmortem,
     Argus's escalation and the last step taken - a walk that acted and then
     gave up ended by giving up, and one escalated and then walked again ended
     by what it did then; else that nothing is recorded - with whoever that
-    names."""
+    names. A refusal to act is no step taken: nothing was done in it, so it
+    ended nothing, and the step that did is the last action before it."""
     if resolution is not None:
         runs = [Run(text=resolution.by),
                 Run(text=f" from {resolution.channel}, "),
@@ -186,7 +187,8 @@ def _who_ended_it(postmortem: Postmortem,
 
         return Line(runs=tuple(runs)), resolution.by
 
-    last = postmortem.resolution[-1] if postmortem.resolution else None
+    # A refusal is the one step with no label: the labels count the actions.
+    last = next((step for step in reversed(postmortem.resolution) if step.label), None)
     if escalation is not None and (last is None or escalation.at > last.at):
         return _the_escalation(escalation, postmortem.pull_request), _ARGUS
 

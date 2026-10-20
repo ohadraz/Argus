@@ -346,6 +346,27 @@ def test_an_incident_argus_ended_was_ended_by_its_last_step() -> None:
 
 
 @pytest.mark.unit
+def test_a_refusal_after_the_last_action_is_not_what_ended_the_incident() -> None:
+    # Nothing was done in a refusal, so it ended nothing: the step that did is
+    # the last action taken, wherever a refusal falls after it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_ONSET, action="Turned monthly-spend-feature off",
+                               by="Argus", has_a_way_back=True,
+                               outcome="recovered, still in place", label="M1"),
+                ResolutionStep(at=SOME_ONSET + timedelta(minutes=5),
+                               action="Refused to act - dont care", by="Argus",
+                               has_a_way_back=False, outcome="not taken", label=None)])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: turned monthly-spend-feature off - recovered, still in place"))
+
+
+@pytest.mark.unit
 def test_whoever_ended_the_incident_is_named_on_its_own() -> None:
     # For a destination that marks who it was: the page tags the row with them.
     Scenario() \

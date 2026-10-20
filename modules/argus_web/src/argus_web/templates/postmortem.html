@@ -101,13 +101,12 @@
    where there is a document to make one of. #}
 {% set the_pdf = "/incidents/%s/postmortem.pdf" | format(incident.id) %}
 <div class="document-head" data-postmortem-of="{{ incident.id }}">
-  <p class="incident-id"><a href="{{ the_incident }}">{{ incident.id }}</a></p>
+  <p class="incident-id">{{ incident.id }}</p>
   <p class="download"><a class="download-pdf" href="{{ the_pdf }}" data-postmortem-pdf="{{ the_pdf }}" download>download pdf</a></p>
   <dl class="head">
   {% for key, line in rows %}
     <dt data-head="{{ key }}"{% if key == "date" %} data-time="incident"{% elif key == "written-by" %} data-time="written"{% endif %}>{{ head.labels[loop.index0] }}</dt>
-    <dd{% if key == "ended-by" and head.ended_by_whom %} data-ended-by="{{ head.ended_by_whom }}"{% endif %}>{{ said(line) }}
-      {%- if key == "incident" %} · <a href="{{ the_incident }}">incident page</a>{% endif %}</dd>
+    <dd{% if key == "ended-by" and head.ended_by_whom %} data-ended-by="{{ head.ended_by_whom }}"{% endif %}>{{ said(line) }}</dd>
   {% endfor %}
   </dl>
 </div>
@@ -235,7 +234,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <thead><tr>{% for heading in taken.headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead>
   <tbody>
   {% for step in taken.steps %}
-    <tr id="{{ step.label }}"><td class="label">{{ step.label or "" }}</td><td>{{ step.at }}</td><td>{{ said(step.action) }}</td><td>{{ step.by }}</td>
+    <tr{% if step.label %} id="{{ step.label }}"{% endif %}><td class="label">{{ step.label or "" }}</td><td>{{ step.at }}</td><td>{{ said(step.action) }}</td><td>{{ step.by }}</td>
       <td>{{ step.kind }}</td><td>{{ step.outcome_in_the_table }}</td></tr>
   {% endfor %}
   {% if taken.fix %}
@@ -441,8 +440,9 @@ document.addEventListener('DOMContentLoaded', function () {
 </section>
 {% endif %}
 
+{# The incident itself is linked by the title and, in full, under supporting
+   information - a third link here would say it again. #}
 <p class="links">
-  <a href="/history">all incidents</a> ·
-  <a href="/incidents/{{ incident.id }}">the walk</a>
+  <a href="/history">all incidents</a>
 </p>
 {% endblock %}

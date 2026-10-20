@@ -971,6 +971,54 @@ def test_the_postmortem_header_links_its_incident_in_full() -> None:
 
 
 @pytest.mark.component
+def test_the_postmortem_page_links_its_incident_by_its_title_and_in_full_alone() -> None:
+    # The title leads to the incident, and the supporting information writes
+    # its address out for a reader away from this screen. The id, an "incident
+    # page" beside it and a footer's "the walk" would each say it again.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        _a_postmortem_recorded_for(conn, incident_id, leads=[])
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _links_to_its_incident(incident_id, times=2)
+        )
+
+
+@pytest.mark.component
+def test_a_refusal_in_the_resolution_gives_its_row_no_anchor() -> None:
+    # A refusal has no label, so its row has nothing for a citation to land on
+    # - and an anchor of "None" on each refusal is an id two rows would share.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_refusal = ResolutionStep(at=datetime(2026, 10, 11, 14, 5, tzinfo=UTC),
+                                  action="Refused to act - dont care", by="Argus",
+                                  has_a_way_back=False, outcome="not taken", label=None)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with(resolution=[some_refusal]))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _gives_no_element_the_id("None")
+        )
+
+
+@pytest.mark.component
 def test_the_postmortem_header_answers_its_five_questions_in_order() -> None:
     # What a reader asks before reading any of it: which incident, when, how
     # finished the document is, who wrote it, and who ended the incident.
@@ -2612,3 +2660,31 @@ def _an_attempt_taken_for(conn: psycopg.Connection,
         outcome=outcome,
         undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True)
     )
+
+
+def _links_to_its_incident(incident_id: str, times: int) -> Assertion[str]:
+    """The page links to its incident's own page `times` times, by the page's
+    full address or by its path - and not to a page under it, as the PDF is."""
+    def assertion(page: str) -> bool:
+        linked = sum(page.count(f'href="{address}"')
+                     for address in (f"http://testserver/incidents/{incident_id}",
+                                     f"/incidents/{incident_id}"))
+
+        if linked != times:
+            raise AssertionError(f"Expected the page to link to its incident {times} times, "
+                                 f"it linked to it {linked}.")
+
+        return True
+
+    return assertion
+
+
+def _gives_no_element_the_id(value: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if f'id="{value}"' in page:
+            raise AssertionError(f"Expected no element of the page to have the id [{value}], "
+                                 f"one did.")
+
+        return True
+
+    return assertion
