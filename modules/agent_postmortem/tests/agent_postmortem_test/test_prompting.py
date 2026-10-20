@@ -1869,6 +1869,38 @@ def test_how_quickly_argus_acted_is_asked_for_as_a_working_of_two_rows() -> None
 
 
 @pytest.mark.unit
+def test_what_the_response_did_is_asked_for_under_what_went_wrong_rather_than_as_a_factor() -> None:
+    # Asked for conditions that had to hold, a write-up listed automatic sync
+    # left off by the rollback and "Argus could not act" as factors - things the
+    # response did, after the incident began. Told where they go instead, a
+    # failure to act is still said rather than dropped or bent into a condition.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("before the incident began", "left behind",
+                                      WENT_WRONG_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_wrong() -> None:
+    # Automatic sync left off so the rollback holds is said by the resolution
+    # and undone by an item the record already holds. Listed under what went
+    # wrong as well, one fact was spelled four times - and called a failure
+    # when it went as designed.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("on purpose", "did not go wrong")
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_what_people_told_the_incident_and_how_it_was_weighed() -> None:
     # What a person said and what the investigation made of it are one fact
     # about the incident: the words without the standing would read as advice

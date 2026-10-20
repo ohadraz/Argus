@@ -528,8 +528,11 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             [FACTOR_FIELD, ADDRESSED_BY_FIELD],
             "Conditions that had to hold for the incident to happen and did not "
             "cause it alone - a safeguard that did not stop it, a gap in detection "
-            f"or review. {_A_SAFEGUARD_NOBODY_SAW} Each names at least one action "
-            "item that answers it."
+            "or review. A factor held before the incident began: what the response "
+            "did, declined or left behind - an action taken or not, automatic sync "
+            f"left off - is not one; where it went wrong, say it under {WENT_WRONG_FIELD}. "
+            f"{_A_SAFEGUARD_NOBODY_SAW} Each names at least one action item that "
+            "answers it."
         ),
         ACTION_ITEMS_FIELD: _a_list_of(
             {ITEM_FIELD: {"type": "string"},
@@ -557,7 +560,19 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "words (\"within seconds\")."
                                )
                            },
-                           WENT_WRONG_FIELD: _SENTENCES,
+                           # Left off so a rollback holds, automatic sync was
+                           # listed here as well as in the resolution and the
+                           # record's own item - and called a failure when it
+                           # went as designed.
+                           WENT_WRONG_FIELD: {
+                               **_SENTENCES,
+                               "description": (
+                                   "A change the response left in place on purpose, "
+                                   "which one of the record's own action items undoes "
+                                   "(automatic sync left off), went as designed and "
+                                   "did not go wrong."
+                               )
+                           },
                            GOT_LUCKY_FIELD: _SENTENCES},
             "required": [WENT_WELL_FIELD, WENT_WRONG_FIELD, GOT_LUCKY_FIELD],
             "description": (
