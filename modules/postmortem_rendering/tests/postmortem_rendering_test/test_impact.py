@@ -84,7 +84,7 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
     (ImpactExtent.MEASURED, Card(value="40m 0s", label="onset until back to normal")),
     (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
                                  label="since onset, still not back to normal")),
-    (ImpactExtent.UNOBSERVED, Card(value="at least 40m 0s", label="since onset, unobserved"))],
+    (ImpactExtent.UNOBSERVED, Card(value="at least 40m 0s", label="since onset, metrics missing"))],
     ids=["measured", "at-least", "unobserved"])
 def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
     # Labelled "until back to normal", a duration that never got back names an
@@ -216,8 +216,8 @@ def test_an_incident_whose_metrics_stopped_says_what_its_duration_measures() -> 
             lambda: the_impact(some_postmortem, an_alert()).unobserved
         ) \
         .then(
-            the_answer_was("Unobserved after a point - the metrics stopped, so the duration "
-                           "is how long nobody could see."))
+            the_answer_was("The metrics stop at the onset, so the duration is how long they were "
+                           "missing - not a stretch the service is known to have spent broken."))
 
 
 @pytest.mark.unit

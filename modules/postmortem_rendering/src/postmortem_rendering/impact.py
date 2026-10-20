@@ -17,8 +17,11 @@ from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_money, as_span
 
-_UNOBSERVED: Final = ("Unobserved after a point - the metrics stopped, so the duration is how "
-                      "long nobody could see.")
+# Said under a duration the metrics carry no minute of: what was missing is
+# the metrics, not sight of the service - its logs and its takings may well
+# cover the stretch, and the cause and the loss say what they saw.
+_UNOBSERVED: Final = ("The metrics stop at the onset, so the duration is how long they were "
+                      "missing - not a stretch the service is known to have spent broken.")
 
 # What a card's "this to that" compares, said once so the two cards that
 # compare levels say it alike.
@@ -46,8 +49,9 @@ class Card(BaseModel):
 
 
 class ImpactSection(BaseModel):
-    """The cards, what the alert found, and what a duration nobody could see
-    measures - each of the last two `None` where there is nothing to say."""
+    """The cards, what the alert found, and what a duration the metrics carry
+    nothing of measures - each of the last two `None` where there is nothing
+    to say."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -84,8 +88,8 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
 
 def _the_duration(impact: Impact | None) -> Card:
     """How long, said by where it ends. Back to normal only where it got back:
-    a failure still going when the metrics ran out, and a blind spell still
-    going when the incident closed, are each a floor - labelled as ending back
+    a failure still going when the metrics ran out, and metrics still missing
+    when the incident closed, are each a floor - labelled as ending back
     to normal, they name an end the incident never had."""
     if impact is None:
         return Card(value="not measured", label=_UNTIL_BACK_TO_NORMAL)
@@ -97,7 +101,7 @@ def _the_duration(impact: Impact | None) -> Card:
         case ImpactExtent.AT_LEAST:
             return Card(value=f"at least {span}", label="since onset, still not back to normal")
         case ImpactExtent.UNOBSERVED:
-            return Card(value=f"at least {span}", label="since onset, unobserved")
+            return Card(value=f"at least {span}", label="since onset, metrics missing")
 
 
 _UNTIL_BACK_TO_NORMAL: Final = "onset until back to normal"
