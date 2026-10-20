@@ -203,14 +203,15 @@ class HypothesisConsidered(BaseModel):
 
 class ResolutionStep(BaseModel):
     """One thing done to end the incident, by whom, and what it came to -
-    under the label the document's prose cites it by (`M1`)."""
+    under the label the document's prose cites it by (`M1`). `None` on a
+    refusal to act: nothing was done, and no prose cites it as an action."""
 
     at: datetime
     action: str
     by: str
     has_a_way_back: bool
     outcome: str
-    label: str
+    label: str | None
     # Whether the action stopped the platform syncing the application from its
     # repository, and left it stopped while the change stands. Apart from the
     # outcome, which is cited wherever the action is: said inside it, the sync

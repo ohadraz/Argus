@@ -32,6 +32,7 @@ from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentE
 from argus_core import connect_from_env, new_id, parse_iso
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
+    ActionRefused,
     ActionTaken,
     AlertAcknowledged,
     ChangesRetrieved,
@@ -75,6 +76,7 @@ from argus_core.models import (
     PostmortemDocument,
     RecordedPlacement,
     Reference,
+    Refusal,
     Report,
     ReportChannel,
     RetrievalChannel,
@@ -1319,6 +1321,32 @@ def test_an_action_announced_twice_points_at_the_announcement_it_was_taken_by(
 
 
 @pytest.mark.component
+def test_the_evidence_points_at_each_line_saying_the_gate_refused_to_act(
+        a_clean_database: None) -> None:
+    # A refusal is a decision about how the incident ended, which the document
+    # lists beside the actions taken - by its line in the timeline, so it is
+    # dated and said as the timeline says it.
+    the_refusal = "2026-09-02T12:05:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    ActionRefused(incident_id=incident_id, hypothesis_id=None,
+                                  refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+                                  at=parse_iso(the_refusal))]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _points_at_refusals_dated([parse_iso(the_refusal)])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_fix_that_was_proposed(a_clean_database: None) -> None:
     # Read off the event rather than left in the timeline for the model to
     # notice. The walk opened the pull request and recorded where; a document
@@ -1853,6 +1881,22 @@ def _each_action_is_said_by_the_line_it_points_at() -> Assertion[IncidentEvidenc
                                for (at, words), line in zip(expected, pointed_at, strict=True)):
             raise AssertionError(
                 f"Expected each action to point at its own line, said as {expected}, "
+                f"and they point at {pointed_at}.")
+
+        return True
+
+    return assertion
+
+
+def _points_at_refusals_dated(expected: list[datetime]) -> Assertion[IncidentEvidence]:
+    """The lines the evidence points at as refusals are dated as `expected`."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        pointed_at = [evidence.timeline[line].at if 0 <= line < len(evidence.timeline) else None
+                      for line in evidence.refusals]
+
+        if pointed_at != expected:
+            raise AssertionError(
+                f"Expected the refusals to point at lines dated {expected}, "
                 f"and they point at {pointed_at}.")
 
         return True

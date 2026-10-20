@@ -178,6 +178,12 @@ class IncidentEvidence(BaseModel):
     # exactly this, and a summary is free to be written well without mentioning
     # it.
     recommended_action: str | None = None
+    # Where in `timeline` each line saying the gate refused to act sits. A
+    # refusal is a decision about how the incident ended - an action declined,
+    # or none there to take - and the resolution lists it beside the actions
+    # taken, said and dated as its line is. Empty where the gate refused
+    # nothing.
+    refusals: list[int] = []
     # What people told the incident in its thread, as leads, each with what the
     # investigation last made of it. Structured rather than left to the
     # timeline's one line per weighing: the document reports the words, the

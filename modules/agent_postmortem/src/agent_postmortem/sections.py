@@ -47,6 +47,8 @@ TAKEN_BY = "Argus"
 
 NEVER_TRIED = "never tried"
 NO_VERDICT_RECORDED = "no verdict recorded"
+# What a refusal to act came to, in the resolution's outcome column.
+NOT_TAKEN = "not taken"
 
 # How an action item is named in conversation: `AI-1`, `AI-2`.
 ACTION_ITEM_PREFIX = "AI-"
@@ -436,8 +438,13 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
     nothing merged reaches the service. Marked apart from the outcome, which is
     cited wherever the action is - said inside it, the sync would be said in
     every place that cites the action.
+
+    And every refusal to act, in its place among them: declining an action is
+    how an incident ended as much as taking one is. Said and dated as the
+    timeline's line says it, with nothing to put back, and under no label -
+    the labels count the actions, which is what the prose cites.
     """
-    return [
+    taken = [
         ResolutionStep(at=action.taken_at,
                        action=action.action,
                        by=TAKEN_BY,
@@ -447,6 +454,17 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        sync_left_off=action.paused_sync_of is not None)
         for position, action in enumerate(evidence.actions, start=1)
     ]
+    declined = [
+        ResolutionStep(at=evidence.timeline[line].at,
+                       action=evidence.timeline[line].text,
+                       by=TAKEN_BY,
+                       has_a_way_back=False,
+                       outcome=NOT_TAKEN,
+                       label=None)
+        for line in evidence.refusals
+    ]
+
+    return sorted([*taken, *declined], key=lambda step: step.at)
 
 
 def hypotheses_of(evidence: IncidentEvidence) -> list[HypothesisConsidered]:

@@ -31,6 +31,7 @@ from agent_postmortem import (
 from argus_core import Connections, parse_iso
 from argus_core.events import (
     ActionRecommended,
+    ActionRefused,
     ActionTaken,
     ChangesRetrieved,
     DeploymentChangesRead,
@@ -93,6 +94,8 @@ from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 # placement carries, for the same reason.
 _ACTION_TAKEN: Final[str] = ActionTaken.model_fields["kind"].default
 _PLACEMENT_RECORDED: Final[str] = PlacementRecorded.model_fields["kind"].default
+# And the kind a line telling the gate refusing to act carries.
+_ACTION_REFUSED: Final[str] = ActionRefused.model_fields["kind"].default
 
 
 def write_postmortem_for(incident_id: str,
@@ -182,6 +185,9 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         pull_request=_what_was_proposed(conn, incident_id),
         fix_explanation=_what_code_fix_said(conn, incident_id),
         recommended_action=_what_is_still_owed(conn, incident_id),
+        # By the line, as an action is found: the document says a refusal as
+        # the timeline does, and `told` is that timeline.
+        refusals=[position for position, line in enumerate(told) if line.kind == _ACTION_REFUSED],
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
         # together - the latest standing, which is the one the walk acted on.
