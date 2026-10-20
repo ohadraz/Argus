@@ -621,8 +621,14 @@ def _an_instant(at: datetime) -> Figure:
 
 
 def _as_a_reader_says(at: datetime) -> str:
-    """An instant as the page says one, to the second."""
-    return f"{at.astimezone(UTC):%b %d, %Y, %H:%M:%S} UTC"
+    """An instant as the page says one: to the minute, and to the second only
+    where it has one - a minute said "20:45:00" claims a precision nothing
+    measured. The day too, so a sentence read away from the page still says
+    which."""
+    at = at.astimezone(UTC)
+    seconds = f":{at:%S}" if at.second else ""
+
+    return f"{at:%b %d, %Y, %H:%M}{seconds} UTC"
 
 
 def _a_span(hours: float) -> Figure:

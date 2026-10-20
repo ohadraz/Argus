@@ -199,8 +199,8 @@ def test_the_ratio_of_two_shares_is_written_in_as_how_many_times() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("working", "written"), [
-    ("{began + duration}", "Sep 02, 2026, 12:10:00 UTC"),
-    ("{argus_stopped - held}", "Sep 02, 2026, 12:00:00 UTC"),
+    ("{began + duration}", "Sep 02, 2026, 12:10 UTC"),
+    ("{argus_stopped - held}", "Sep 02, 2026, 12:00 UTC"),
     ("{held + duration}", "40 minutes"),
     ("{held - duration}", "20 minutes"),
     ("{held / duration}", "3.0 times"),
@@ -272,7 +272,7 @@ def test_a_figure_is_shown_to_the_model_with_its_name_after_it() -> None:
     Scenario() \
         .given(
             some_figure := Figure(given="2026-10-05T16:10:00Z",
-                                  written="Oct 05, 2026, 16:10:00 UTC")
+                                  written="Oct 05, 2026, 16:10 UTC")
         ) \
         .when(
             lambda: named(BEGAN_FIGURE, some_figure)
@@ -298,7 +298,25 @@ def test_the_alerts_figures_are_named_in_the_order_it_states_them() -> None:
                 "A1": Figure(given="240", written="240"),
                 "A2": Figure(given="240", written="240"),
                 "A3": Figure(given="1,297.31", written="1,297.31"),
-                "A4": Figure(given="2026-10-05T16:10:00Z", written="Oct 05, 2026, 16:10:00 UTC")
+                "A4": Figure(given="2026-10-05T16:10:00Z", written="Oct 05, 2026, 16:10 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_an_instant_is_written_to_the_second_only_where_it_has_one() -> None:
+    # A minute said "16:10:00" claims a precision nothing measured; a second an
+    # alert reported is one it measured, and is kept.
+    Scenario() \
+        .given(
+            some_finding := "The oldest affected purchase was recorded at 2026-10-05T16:10:53Z."
+        ) \
+        .when(
+            lambda: the_alerts_figures(some_finding)
+        ) \
+        .then(
+            the_answer_was({
+                "A1": Figure(given="2026-10-05T16:10:53Z", written="Oct 05, 2026, 16:10:53 UTC")
             })
         )
 
@@ -508,14 +526,14 @@ def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
         .then(
             the_answer_was({
                 ALERT_RAISED_FIGURE: Figure(given=to_iso(STARTED_AT),
-                                            written="Sep 02, 2026, 12:10:00 UTC"),
-                BEGAN_FIGURE: Figure(given=to_iso(ONSET), written="Sep 02, 2026, 12:00:00 UTC"),
+                                            written="Sep 02, 2026, 12:10 UTC"),
+                BEGAN_FIGURE: Figure(given=to_iso(ONSET), written="Sep 02, 2026, 12:00 UTC"),
                 BACK_TO_NORMAL_FIGURE: Figure(given=to_iso(RECOVERED_AT),
-                                         written="Sep 02, 2026, 12:10:00 UTC"),
+                                         written="Sep 02, 2026, 12:10 UTC"),
                 DURATION_FIGURE: Figure(given="10 minutes", written="10 minutes"),
                 HELD_FIGURE: Figure(given="30 minutes", written="30 minutes"),
                 ARGUS_STOPPED_FIGURE: Figure(given=to_iso(ENDED_AT),
-                                             written="Sep 02, 2026, 12:30:00 UTC")
+                                             written="Sep 02, 2026, 12:30 UTC")
             })
         )
 
@@ -555,7 +573,7 @@ def test_an_incident_with_no_onset_is_dated_from_its_alert() -> None:
         ) \
         .then(
             _the_figures_include({
-                BEGAN_FIGURE: Figure(given=to_iso(STARTED_AT), written="Sep 02, 2026, 12:10:00 UTC")
+                BEGAN_FIGURE: Figure(given=to_iso(STARTED_AT), written="Sep 02, 2026, 12:10 UTC")
             })
         )
 
@@ -577,7 +595,7 @@ def test_the_alert_is_raised_when_its_sender_says_it_fired() -> None:
         .then(
             _the_figures_include({
                 ALERT_RAISED_FIGURE: Figure(given=to_iso(some_firing),
-                                            written="Sep 02, 2026, 12:08:00 UTC")
+                                            written="Sep 02, 2026, 12:08 UTC")
             })
         )
 
@@ -714,7 +732,7 @@ def test_a_service_back_before_the_action_credited_with_it_names_when_it_was_tak
         .then(
             _the_figures_include({
                 ACTED_FIGURE: Figure(given=to_iso(some_action_taken),
-                                     written="Sep 02, 2026, 12:09:00 UTC")
+                                     written="Sep 02, 2026, 12:09 UTC")
             })
         )
 
@@ -751,7 +769,7 @@ def test_metrics_that_stopped_are_dated_from_where_they_stopped() -> None:
         .then(
             _the_figures_include({
                 UNOBSERVED_FROM_FIGURE: Figure(given=to_iso(some_minute_they_stopped),
-                                               written="Sep 02, 2026, 12:00:00 UTC")
+                                               written="Sep 02, 2026, 12:00 UTC")
             })
         )
 
@@ -774,7 +792,7 @@ def test_how_far_the_logs_read_reach_into_a_metrics_gap_is_a_figure() -> None:
         .then(
             _the_figures_include({
                 LOGS_REACH_UNTIL_FIGURE: Figure(given=to_iso(some_minute_logged_inside),
-                                                written="Sep 02, 2026, 12:05:00 UTC")
+                                                written="Sep 02, 2026, 12:05 UTC")
             })
         )
 

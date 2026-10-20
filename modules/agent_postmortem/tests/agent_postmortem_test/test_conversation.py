@@ -230,7 +230,7 @@ def test_a_figure_the_evidence_states_is_written_in_as_the_evidence_gave_it() ->
         .then(
             all_of(
                 _answered_with(EXECUTIVE_SUMMARY_FIELD,
-                               "The deploy landed at Sep 02, 2026, 11:59:00 UTC."),
+                               "The deploy landed at Sep 02, 2026, 11:59 UTC."),
                 _found_no_fault()
             )
         )
