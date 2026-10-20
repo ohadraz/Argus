@@ -514,12 +514,16 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                            "merely happened at the same time.")}},
             [STEP_FIELD, CITES_FIELD],
             "The cause as the five whys, from the symptom down: the first step is "
-            "what users saw, and each step after it answers why the one before "
-            "happened. Every step cites at least one piece of evidence by its "
-            "label. At the step that ties the incident to the change that set it "
-            "off, say what else the record ruled out and why - an earlier "
-            "change, a flag the provider showed unchanged, a candidate refuted - "
-            "citing what ruled it out. Stop where the evidence stops."
+            "what users saw, and each step after it answers why the step directly "
+            "before it happened. The first why says why the symptom happened, not "
+            "the symptom again in more detail. Where the incident needed two things "
+            "at once - something going wrong, and nothing in place to contain it - "
+            "follow the one that leads to what set it off, and name the other at "
+            "the step where they meet. Every step cites at least one piece of "
+            "evidence by its label. At the step that ties the incident to the "
+            "change that set it off, say what else the record ruled out and why - "
+            "an earlier change, a flag the provider showed unchanged, a candidate "
+            "refuted - citing what ruled it out. Stop where the evidence stops."
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
             {FACTOR_FIELD: {"type": "string"},

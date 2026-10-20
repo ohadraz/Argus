@@ -1818,6 +1818,24 @@ def test_the_cause_is_asked_for_as_the_five_whys_from_the_symptom() -> None:
 
 
 @pytest.mark.unit
+def test_each_why_is_asked_to_answer_the_step_directly_before_it() -> None:
+    # One write-up's first why was its symptom in more detail. Another's
+    # incident needed two things at once - a dependency slowing and nothing
+    # limiting the wait - and its third why answered the first, braiding both
+    # into one line. Told which to follow - the one that reaches what set the
+    # incident off, where the chain has to arrive - the other is named where
+    # they meet.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("not the symptom again", "directly before",
+                                      "what set it off")
+        )
+
+
+@pytest.mark.unit
 def test_the_cause_is_asked_to_say_what_else_the_record_ruled_out() -> None:
     # A write-up once said, unasked, that the earlier deploy came hours before
     # the onset and no flag had changed, so neither explained it. Asked for
