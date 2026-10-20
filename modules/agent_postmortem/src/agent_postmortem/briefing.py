@@ -70,5 +70,7 @@ STANDING_BRIEF: Final = "\n\n".join([
 
 def postmortem_policy(model: str, effort: Effort) -> ModelPolicy:
     """The postmortem's model at the deployment's choice of model and effort,
-    asked under the agent's own brief."""
-    return ModelPolicy(model=model, effort=effort, brief=STANDING_BRIEF)
+    asked under the agent's own brief, for one tool call per turn - its one
+    tool ends the conversation, so a second call is never more work."""
+    return ModelPolicy(model=model, effort=effort, brief=STANDING_BRIEF,
+                       one_tool_call_per_turn=True)

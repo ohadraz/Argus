@@ -24,6 +24,7 @@ from anthropic.types import (
     OutputConfigParam,
     TextBlockParam,
     ThinkingConfigAdaptiveParam,
+    ToolChoiceAutoParam,
     ToolParam,
     ToolResultBlockParam,
     ToolUseBlockParam,
@@ -82,6 +83,15 @@ MESSAGE_TYPE: Final = "message"
 
 END_TURN_STOP_REASON: Final = "end_turn"
 TOOL_USE_STOP_REASON: Final = "tool_use"
+
+AUTO_TOOL_CHOICE: Final = "auto"
+
+# What an agent held to one tool call per turn asks for. `auto` rather than a
+# forced choice, which the current models refuse outright; with parallel use
+# off it lets the model call one tool or none, never two.
+AT_MOST_ONE_TOOL_CALL: Final[ToolChoiceAutoParam] = ToolChoiceAutoParam(
+    type=AUTO_TOOL_CHOICE, disable_parallel_tool_use=True
+)
 
 # What separates two text blocks of one turn when they are joined. A newline
 # rather than a space: the blocks are paragraphs of one account, and running
@@ -584,5 +594,11 @@ class AnthropicLLMClient:
 
         if self._policy.brief:
             asked["system"] = _the_standing_brief(self._policy.brief)
+
+        # Absent rather than set to the API's default for every other agent:
+        # the same meaning, but a different request, and every cached prefix
+        # and recording was made of the request as it was.
+        if self._policy.one_tool_call_per_turn:
+            asked["tool_choice"] = AT_MOST_ONE_TOOL_CALL
 
         return asked

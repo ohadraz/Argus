@@ -90,3 +90,9 @@ class ModelPolicy(BaseModel):
     # answer rather than an unset one: a brief written for the sake of having
     # one would buy a write premium against a prefix nothing needed.
     brief: str = ""
+    # Whether a turn may carry more than one tool call. An agent whose one tool
+    # ends the conversation has no use for a second call beside the first, and
+    # one that arrived anyway was a placeholder submission refused at the price
+    # of a whole turn. Off by default, because the agents that read evidence
+    # ask for several things at once on purpose.
+    one_tool_call_per_turn: bool = False

@@ -41,7 +41,24 @@ def test_the_postmortem_is_asked_under_its_brief() -> None:
         ) \
         .then(
             the_answer_was(ModelPolicy(model=some_model, effort=some_effort,
-                                       brief=STANDING_BRIEF))
+                                       brief=STANDING_BRIEF, one_tool_call_per_turn=True))
+        )
+
+
+@pytest.mark.unit
+def test_the_postmortem_is_asked_for_one_tool_call_per_turn() -> None:
+    # Its one tool ends the conversation, so a second call beside the first is
+    # never a second piece of work. One arrived anyway - a submission filled
+    # with placeholders - and refusing the pair cost a whole turn every walk.
+    dont_care_model = "dont care which model"
+    dont_care_effort: Effort = "low"
+
+    Scenario() \
+        .when(
+            lambda: postmortem_policy(dont_care_model, dont_care_effort).one_tool_call_per_turn
+        ) \
+        .then(
+            the_answer_was(True)
         )
 
 
