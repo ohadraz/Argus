@@ -175,16 +175,22 @@ Timeline SHALL be the incident's narration, in order, in UTC, with four
 markers placed by code: IMPACT BEGINS at the onset - METRICS STOP there
 instead, where the metrics carry no minute from the onset on, since the onset
 then dates the metrics stopping and not the service being hurt - DETECTED at the
-alert, MITIGATED at the first action whose recovery was confirmed, and IMPACT
-ENDS at the recovery. A marker whose time is unknown SHALL be left out.
+alert, MITIGATION APPLIED on the line that took the first action whose recovery
+was confirmed, and IMPACT ENDS at the recovery. A marker whose time is unknown
+SHALL be left out.
 
 #### Scenario: All four markers
 - **WHEN** a postmortem is written for an incident Argus mitigated
 - **THEN** its timeline carries the four markers at those times
 
-#### Scenario: An escalated incident has no MITIGATED
+#### Scenario: An escalated incident has no MITIGATION APPLIED
 - **WHEN** a postmortem is written for an incident nothing mitigated
-- **THEN** its timeline carries no MITIGATED marker
+- **THEN** its timeline carries no MITIGATION APPLIED marker
+
+#### Scenario: Metrics that stop at the onset are marked as stopping
+- **WHEN** a postmortem is written for an incident whose metrics carry no minute
+  from the onset on
+- **THEN** its timeline carries METRICS STOP at the onset, and no IMPACT BEGINS
 
 ### Requirement: Supporting information holds the links and the evidence
 
