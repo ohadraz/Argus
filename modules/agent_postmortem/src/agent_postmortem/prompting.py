@@ -32,6 +32,7 @@ from argus_core.models import (
     CitedChange,
     CitedEvidence,
     Lessons,
+    OpenedPullRequest,
     ThreadMessage,
     TimelineEntry,
     ToolDefinition,
@@ -666,6 +667,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         "",
         "Action items the record already holds:",
         *(_the_record_items(evidence) or [f"  - {NOTHING}"]),
+        *_what_the_record_holds_of_the_fix(evidence.pull_request),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label, and name action items "
         f"in {CONTRIBUTING_FACTORS_FIELD} by their number. Items you propose in "
@@ -830,6 +832,24 @@ def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:
 def _the_record_items(evidence: IncidentEvidence) -> list[str]:
     return [f"  - {item.number} ({item.type}, {item.status}): {item.text}"
             for item in record_action_items_of(evidence)]
+
+
+def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) -> list[str]:
+    """What Argus did with the fix it proposed, and that nothing after is known.
+
+    Told only "Review and merge the proposed fix", write-ups said the fix passed
+    review, and that a gap stayed open until a human reviewed it - neither in the
+    record. Nor is the opposite: Argus never reads a pull request after opening
+    it, and the incident went to a person with it in hand, so the claim it can
+    make is what it did. Both directions are refused, since either one is a state
+    nobody read. Nothing where no pull request was opened.
+    """
+    if pull_request is None:
+        return []
+
+    return [f"PR #{pull_request.number} is a draft Argus opened for a person to review "
+            f"and merge. The record holds nothing about it after that: do not say it "
+            f"was reviewed, approved or merged, or that it was not."]
 
 
 def _a_line_of_the_narration(entry: TimelineEntry) -> str:

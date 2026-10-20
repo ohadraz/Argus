@@ -819,6 +819,44 @@ def test_the_model_is_told_the_action_items_the_record_already_holds() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_the_record_holds_nothing_of_the_pull_request_after_it_opened() -> None:
+    # Told only "Review and merge the proposed fix", one write-up said the fix
+    # "passed through review" and another that a gap "stayed open until a human
+    # reviewed the PR" - neither in the record. Argus never reads the pull
+    # request after opening it, so it cannot say it is unreviewed either: what it
+    # knows is what it did, and that nothing after is recorded.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(
+                    number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                    branch="argus/fix-abc"))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("PR #7 is a draft Argus opened for a person to review and merge. "
+                  "The record holds nothing about it after that: do not say it was "
+                  "reviewed, approved or merged, or that it was not.")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_that_opened_no_pull_request_is_told_nothing_of_one() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(pull_request=None)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("The record holds nothing about it after that")
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_how_long_the_incident_ran() -> None:
     # The duration is context for the prose rather than a figure the model may
     # restate as its own. It is said the way a reader says it, because a summary
