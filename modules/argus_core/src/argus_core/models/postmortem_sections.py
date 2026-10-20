@@ -231,6 +231,33 @@ def whether_it_can_be_put_back(has_a_way_back: bool) -> str:
     return "can be put back" if has_a_way_back else "nothing to put back"
 
 
+def shorter_than_the_rules_wait(waits_said: str, held_before_the_onset: bool | None) -> str:
+    """An alert that came sooner after the onset than its rule's condition
+    must hold, said with what the series bore out - in the words every place
+    showing it uses.
+
+    `waits_said` is the wait as the place showing it says a span, which is the
+    one thing they do not share: the page writes its own, the brief the figure
+    with its name. `held_before_the_onset` is whether the rule's series was
+    past its line in every minute the wait reaches back to before the onset -
+    `None` where that was not read, which says nothing of it.
+
+    Here rather than with whoever shows it, because the page and the brief the
+    model writes from both say it, and two spellings of one fact read as two
+    facts.
+    """
+    shorter = f"shorter than the {waits_said} its rule's condition must hold before it fires"
+
+    if held_before_the_onset is True:
+        return f"{shorter}, so the condition held before the measured onset"
+
+    if held_before_the_onset is False:
+        return (f"{shorter}, though not every minute of that wait before the measured "
+                f"onset met it")
+
+    return shorter
+
+
 class Detection(BaseModel):
     """How the incident came to be known about.
 

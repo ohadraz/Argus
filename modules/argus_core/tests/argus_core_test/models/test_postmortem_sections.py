@@ -16,6 +16,7 @@ from argus_core.models import (
     CandidateConsidered,
     Detection,
     HypothesisConsidered,
+    shorter_than_the_rules_wait,
     whether_it_can_be_put_back,
 )
 from argus_testkit import Scenario, an_error_was_raised, attempting, the_answer_was
@@ -90,6 +91,27 @@ def test_whether_an_action_can_be_put_back_is_said_without_the_tier_s_words(
         ) \
         .then(
             the_answer_was(said)
+        )
+
+
+@pytest.mark.parametrize(("held", "said"), [
+    (True, ", so the condition held before the measured onset"),
+    (False, ", though not every minute of that wait before the measured onset met it"),
+    (None, "")
+], ids=["held", "did-not-hold", "unread"])
+@pytest.mark.unit
+def test_an_alert_sooner_than_its_rule_s_wait_is_said_with_what_the_series_bore_out(
+        held: bool | None, said: str) -> None:
+    # The page beside the gap and the brief the model writes from both say it,
+    # and two spellings of one fact read as two facts. The wait comes in as
+    # each says a span - the page's own way, the brief's with the figure's name.
+    Scenario() \
+        .when(
+            lambda: shorter_than_the_rules_wait("5m 0s", held)
+        ) \
+        .then(
+            the_answer_was(f"shorter than the 5m 0s its rule's condition must hold before it "
+                           f"fires{said}")
         )
 
 

@@ -17,12 +17,13 @@ quotes a figure from the incident the recording was made against.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.figures import (
     ACTED_FIGURE,
+    AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
@@ -578,6 +579,70 @@ def test_a_wait_for_nothing_or_one_never_read_is_no_figure(rule_waits: timedelta
         ) \
         .then(
             _the_figures_leave_out(RULE_WAITS_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_how_long_the_alert_came_after_its_rule_s_wait_is_named_from_a_minute_up() -> None:
+    # Told only that the wait is part of the gap, a write-up still called
+    # detection slow, unable to see what was left of the gap after the wait:
+    # the two figures it would have to work from take two operations.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                AFTER_THE_WAIT_FIGURE: Figure(given="1 minute 30 seconds",
+                                              written="1 minute 30 seconds")
+            })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("alerted_after_the_onset", "onset_at"), [
+    (timedelta(minutes=5, seconds=16), ONSET),
+    (timedelta(minutes=4, seconds=51), ONSET),
+    (timedelta(minutes=6, seconds=30), None)
+], ids=["under-a-minute", "sooner-than-the-wait", "no-measured-onset"])
+def test_what_came_after_the_wait_is_no_figure_below_a_minute_or_without_an_onset(
+        alerted_after_the_onset: timedelta, onset_at: datetime | None) -> None:
+    # A measured onset is a whole minute, so less than one after the wait is
+    # inside what the onset can tell - a lag named in seconds nobody measured.
+    # Sooner than the wait, the condition held before the onset, which is said
+    # in words; and with no onset measured there is no gap to take it from.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + alerted_after_the_onset),
+            measured := a_measured_incident(onset_at=onset_at, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(AFTER_THE_WAIT_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_what_came_after_the_wait_is_worked_with_as_a_span() -> None:
+    Scenario() \
+        .given(
+            figures := figures_of(
+                an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+                a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))),
+            an_answer_adding_the_two := SubmittedPostmortem(
+                root_cause=f"It paged {{{RULE_WAITS_FIGURE} + {AFTER_THE_WAIT_FIGURE}}} in.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_adding_the_two, figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause="It paged 6 minutes 30 seconds in."))
         )
 
 

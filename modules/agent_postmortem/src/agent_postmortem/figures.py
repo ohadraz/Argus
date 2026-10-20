@@ -54,6 +54,7 @@ UNOBSERVED_FROM_FIGURE: Final = "unobserved_from"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"
+AFTER_THE_WAIT_FIGURE: Final = "after_the_wait"
 CLOSED_FIGURE: Final = "closed"
 ACTED_FIGURE: Final = "acted"
 ERRORS_BEFORE_FIGURE: Final = "errors_before"
@@ -63,6 +64,10 @@ ERRORS_RISE_FIGURE: Final = "errors_rise"
 SERIES_BEFORE_FIGURE: Final = "series_before"
 SERIES_WHILE_BROKEN_FIGURE: Final = "series_while_broken"
 SERIES_AT_WORST_FIGURE: Final = "series_at_worst"
+
+# What a measured onset can tell an instant to: it is the first whole minute
+# that departed, so anything shorter is inside it.
+A_MINUTE: Final = timedelta(minutes=1)
 
 # The alert's own figures, which are the sender's words and have no meaning
 # Argus knows: numbered in the order the alert states them, which is the one
@@ -134,6 +139,7 @@ _KINDS: Final = {
     DURATION_FIGURE: _Kind.SPAN,
     HELD_FIGURE: _Kind.SPAN,
     RULE_WAITS_FIGURE: _Kind.SPAN,
+    AFTER_THE_WAIT_FIGURE: _Kind.SPAN,
     ERRORS_BEFORE_FIGURE: _Kind.SHARE,
     ERRORS_WHILE_BROKEN_FIGURE: _Kind.SHARE,
     ERRORS_AT_WORST_FIGURE: _Kind.SHARE,
@@ -249,6 +255,13 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     if measured.rule_waits:
         figures[RULE_WAITS_FIGURE] = _a_span(measured.rule_waits / timedelta(hours=1))
 
+    # Only from a minute up: a measured onset is a whole minute, so less than
+    # one after the wait is inside what the onset can tell, and a name for it
+    # would be a lag in seconds nobody measured.
+    after_the_wait = what_came_after_the_wait(evidence, measured)
+    if after_the_wait is not None and after_the_wait >= A_MINUTE:
+        figures[AFTER_THE_WAIT_FIGURE] = _a_span(after_the_wait / timedelta(hours=1))
+
     # Only where it is said: the service back before the action credited with
     # it, which the write-up cannot say without the action's time.
     credited = evidence.credited_action
@@ -276,6 +289,21 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         figures.update(the_alerts_figures(evidence.alert_finding))
 
     return figures
+
+
+def what_came_after_the_wait(evidence: IncidentEvidence,
+                             measured: Measurements) -> timedelta | None:
+    """How long after its rule's wait ended the alert came - below nothing
+    where it came sooner than the wait allows - or `None` where there is no
+    gap to take it from: no onset measured, or no wait.
+
+    One working for the figure and the brief's sentence alike, so the two
+    never say different things of the same alert.
+    """
+    if measured.onset_at is None or not measured.rule_waits:
+        return None
+
+    return evidence.alerted_at - measured.onset_at - measured.rule_waits
 
 
 def the_alerts_figures(finding: str) -> dict[str, Figure]:

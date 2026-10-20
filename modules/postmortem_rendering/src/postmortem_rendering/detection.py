@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from argus_core.models import Alert, Detection, PostmortemDocument
+from argus_core.models import Alert, Detection, PostmortemDocument, shorter_than_the_rules_wait
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
@@ -94,14 +94,7 @@ def _the_rules_wait(detection: Detection) -> str:
     if not waits:
         return " - its rule fires as soon as its condition holds"
 
-    shorter = (f" - shorter than the {as_span(waits)} its rule's condition must hold "
-               f"before it fires")
     if detection.gap is not None and timedelta(0) <= detection.gap < waits:
-        if detection.held_before_the_onset is True:
-            return f"{shorter}, so the condition held before the measured onset"
-        if detection.held_before_the_onset is False:
-            return (f"{shorter}, though not every minute of that wait before the measured "
-                    f"onset met it")
-        return shorter
+        return f" - {shorter_than_the_rules_wait(as_span(waits), detection.held_before_the_onset)}"
 
     return f" - its rule fires only once its condition has held for {as_span(waits)}"

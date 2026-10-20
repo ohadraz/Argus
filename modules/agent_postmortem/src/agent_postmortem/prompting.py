@@ -22,6 +22,7 @@ the second, either does the arithmetic or repeats the figure.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import timedelta
 from typing import Any, Final
 
 from argus_core import parse_iso, short_form, to_iso
@@ -44,6 +45,7 @@ from argus_core.models import (
     changes_not_listed,
     labelled,
     no_logs_listed,
+    shorter_than_the_rules_wait,
     whether_it_can_be_put_back,
 )
 from pydantic import BaseModel, field_validator
@@ -51,7 +53,9 @@ from pydantic import BaseModel, field_validator
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.evidence import ActionRecord, IncidentEvidence
 from agent_postmortem.figures import (
+    A_MINUTE,
     ACTED_FIGURE,
+    AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
@@ -73,6 +77,7 @@ from agent_postmortem.figures import (
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    what_came_after_the_wait,
 )
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements
@@ -581,7 +586,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "A change the response left in place on purpose, "
                                    "which one of the record's own action items undoes "
                                    "(automatic sync left off), went as designed and "
-                                   "did not go wrong."
+                                   "did not go wrong. Detection went wrong only by "
+                                   "what came after the alert rule's own wait."
                                )
                            },
                            # Told only that any list may be empty, write-ups
@@ -703,7 +709,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
            for cited in the_alert_labelled(evidence)]),
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
         _whether_anybody_was_paged(measured.engaged),
-        *_how_long_the_rule_waits(measured, figures),
+        *_how_long_the_rule_waits(evidence, measured, figures),
         *_how_long_it_was_broken(measured, evidence.credited_action, figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
         f"until {_shown(CLOSED_FIGURE, figures)}. That is how long the response took, "
@@ -1279,15 +1285,18 @@ def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None) -> s
     return f"{paged} An alert rule fires; a person is paged."
 
 
-def _how_long_the_rule_waits(measured: Measurements,
+def _how_long_the_rule_waits(evidence: IncidentEvidence,
+                             measured: Measurements,
                              figures: Mapping[str, Figure]) -> list[str]:
     """How long the alert rule waits with its condition holding before it
-    fires, which is part of the time from the onset to the alert.
+    fires, which is part of the time from the onset to the alert - and how the
+    alert came against that wait.
 
-    Not told it, a write-up called the rule's own wait slow detection. Said as
-    a rule that fires at once where it waits for nothing, and as unread where
-    nobody could read it - which is not the same rule. Nothing where no rule
-    fired.
+    Not told it, a write-up called the rule's own wait slow detection. Told it
+    and not what was left of the gap after it, another counted the wait and
+    called detection slow anyway. Said as a rule that fires at once where it
+    waits for nothing, and as unread where nobody could read it - which is not
+    the same rule. Nothing where no rule fired.
     """
     if measured.rule_wait_unread:
         return ["How long the alert rule waits before it fires could not be read."]
@@ -1300,7 +1309,44 @@ def _how_long_the_rule_waits(measured: Measurements,
 
     return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
             f"condition holding before it fires: that wait is part of the time from "
-            f"the onset to the alert - count it before calling detection slow."]
+            f"the onset to the alert - count it before calling detection slow."
+            f"{_the_alert_against_its_wait(evidence, measured, figures)}"]
+
+
+def _the_alert_against_its_wait(evidence: IncidentEvidence,
+                                measured: Measurements,
+                                figures: Mapping[str, Figure]) -> str:
+    """How the alert came against its rule's wait, as a sentence to follow the
+    wait's own - or nothing, where no onset was measured to take a gap from.
+
+    From a minute after the wait, by its figure. Under a minute, in words: a
+    measured onset is a whole minute, so seconds after the wait are inside
+    what it can tell, and named they read as a lag. Sooner than the wait, as
+    the page says it beside the gap - the condition held before the measured
+    onset, or the series did not bear that out. Before the onset, as the page
+    says that: no time from the onset is shorter than a wait when it is no
+    time at all.
+    """
+    after_the_wait = what_came_after_the_wait(evidence, measured)
+
+    if after_the_wait is None:
+        return ""
+
+    if measured.onset_at is not None and evidence.alerted_at < measured.onset_at:
+        return " The alert came before the measured onset."
+
+    if after_the_wait >= A_MINUTE:
+        return (f" The alert came {_shown(AFTER_THE_WAIT_FIGURE, figures)} after that "
+                f"wait ended.")
+
+    if after_the_wait >= timedelta(0):
+        return (" The alert came as soon as that wait allowed, as near as a measured "
+                "onset - a whole minute - can tell.")
+
+    shorter = shorter_than_the_rules_wait(_shown(RULE_WAITS_FIGURE, figures),
+                                          measured.rule_held_before_the_onset)
+
+    return f" The time from the onset to the alert is {shorter}."
 
 
 def _what_the_rules_series_did(levels: RuleSeriesLevels | None,

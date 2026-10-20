@@ -307,7 +307,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         rule_series: RuleSeriesLevels | None = None,
                         back_before_the_action: bool = False,
                         rule_waits: timedelta | None = None,
-                        rule_wait_unread: bool = False) -> Measurements:
+                        rule_wait_unread: bool = False,
+                        rule_held_before_the_onset: bool | None = None) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -344,7 +345,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         rule_series=rule_series,
         back_before_the_action=back_before_the_action,
         rule_waits=rule_waits,
-        rule_wait_unread=rule_wait_unread
+        rule_wait_unread=rule_wait_unread,
+        rule_held_before_the_onset=rule_held_before_the_onset
     )
 
 

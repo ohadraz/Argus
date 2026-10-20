@@ -113,6 +113,7 @@ from argus_core.models.postmortem_sections import (
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    shorter_than_the_rules_wait,
     whether_it_can_be_put_back,
 )
 from argus_core.models.pull_request import NOTHING_RECORDED_AFTER_IT_WAS_OPENED, OpenedPullRequest
@@ -279,6 +280,7 @@ __all__ = [
     "TimelineEntry",
     "TimelineMarker",
     "Trigger",
+    "shorter_than_the_rules_wait",
     "whether_it_can_be_put_back",
     "Postmortem",
     "PostmortemDocument",

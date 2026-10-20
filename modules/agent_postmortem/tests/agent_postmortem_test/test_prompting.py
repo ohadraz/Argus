@@ -32,6 +32,7 @@ import pytest
 from agent_postmortem import DeploymentChangesRecord, EngagementAnswer, NotPaged
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
+    AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
@@ -953,6 +954,106 @@ def test_a_rule_whose_wait_could_not_be_read_is_told_so() -> None:
         .then(
             _says(A_WAIT_NOBODY_COULD_READ)
         )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_how_long_the_alert_came_after_its_rule_s_wait() -> None:
+    # Told to count the wait before calling detection slow, a write-up counted
+    # it and called detection slow anyway: what was left after the wait was
+    # never shown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says(f"The alert came 1 minute 30 seconds {{{AFTER_THE_WAIT_FIGURE}}} after that "
+                  f"wait ended.")
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_under_a_minute_after_its_rule_s_wait_is_told_as_coming_when_it_allowed() -> None:
+    # A measured onset is a whole minute, so seconds after the wait are inside
+    # what it can tell. Named, they read as a lag.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=16)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("The alert came as soon as that wait allowed"),
+            _does_not_say(f"{{{AFTER_THE_WAIT_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("held", "said"), [
+    (True, ", so the condition held before the measured onset"),
+    (False, ", though not every minute of that wait before the measured onset met it"),
+    (None, "")
+], ids=["held", "did-not-hold", "unread"])
+def test_an_alert_sooner_than_its_rule_s_wait_is_told_as_the_page_says_it(
+        held: bool | None, said: str) -> None:
+    # Told it came "as soon as that wait ended", the model would read an alert
+    # sooner than the wait as one on time - when the condition held before the
+    # measured onset, which the page says beside the gap.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=4, seconds=51)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_held_before_the_onset=held)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says(f"The time from the onset to the alert is shorter than the 5 minutes "
+                  f"{{{RULE_WAITS_FIGURE}}} its rule's condition must hold before it fires"
+                  f"{said}.")
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_dated_before_the_onset_is_told_as_the_page_says_it() -> None:
+    # A gap below nothing is no time "shorter than" the wait - it is an alert
+    # before the measured onset, which is what the page says beside it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET - timedelta(seconds=40)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("The alert came before the measured onset."),
+            _does_not_say("shorter than")
+        ))
+
+
+@pytest.mark.unit
+def test_with_no_onset_measured_nothing_is_told_of_the_alert_against_its_wait() -> None:
+    # The gap is from the onset; without one there is nothing to weigh.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=None, rule_waits=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _does_not_say("after that wait ended"),
+            _does_not_say("as soon as that wait allowed"),
+            _does_not_say("The time from the onset to the alert")
+        ))
 
 
 @pytest.mark.unit
@@ -1948,6 +2049,21 @@ def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_w
         ) \
         .then(
             _the_description_mentions("on purpose", "did not go wrong")
+        )
+
+
+@pytest.mark.unit
+def test_detection_is_asked_to_go_wrong_only_by_what_came_after_the_rule_s_wait() -> None:
+    # Counted the rule's wait, a write-up still listed the whole gap under what
+    # went wrong. The wait is how the rule was made; only what came after it
+    # is detection going wrong.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("after the alert rule's own wait")
         )
 
 
