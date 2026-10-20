@@ -55,7 +55,7 @@ DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"
 AFTER_THE_WAIT_FIGURE: Final = "after_the_wait"
-CLOSED_FIGURE: Final = "argus_stopped"
+ARGUS_STOPPED_FIGURE: Final = "argus_stopped"
 ACTED_FIGURE: Final = "acted"
 ERRORS_BEFORE_FIGURE: Final = "errors_before"
 ERRORS_WHILE_BROKEN_FIGURE: Final = "errors_while_broken"
@@ -134,7 +134,7 @@ _KINDS: Final = {
     BEGAN_FIGURE: _Kind.INSTANT,
     BACK_TO_NORMAL_FIGURE: _Kind.INSTANT,
     UNOBSERVED_FROM_FIGURE: _Kind.INSTANT,
-    CLOSED_FIGURE: _Kind.INSTANT,
+    ARGUS_STOPPED_FIGURE: _Kind.INSTANT,
     ACTED_FIGURE: _Kind.INSTANT,
     DURATION_FIGURE: _Kind.SPAN,
     HELD_FIGURE: _Kind.SPAN,
@@ -248,7 +248,7 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
 
     figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)
-    figures[CLOSED_FIGURE] = _an_instant(evidence.ended_at)
+    figures[ARGUS_STOPPED_FIGURE] = _an_instant(evidence.ended_at)
 
     # A wait of nothing is said in words - the rule fires as soon as its
     # condition holds - and a span of no time is no figure to work with.

@@ -57,9 +57,9 @@ from agent_postmortem.figures import (
     ACTED_FIGURE,
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
+    ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
-    CLOSED_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -712,7 +712,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *_how_long_the_rule_waits(evidence, measured, figures),
         *_how_long_it_was_broken(measured, evidence.credited_action, figures),
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
-        f"until {_shown(CLOSED_FIGURE, figures)}. That is how long the response took, "
+        f"until {_shown(ARGUS_STOPPED_FIGURE, figures)}. That is how long the response took, "
         f"not how long the fault lasted - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                   measured.unobserved_from is not None, figures),
@@ -1122,7 +1122,7 @@ def _how_long_it_was_broken(measured: Measurements,
     if measured.back_to_normal_at is None:
         return [
             f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}). The service "
-            f"was not back to normal by {_shown(CLOSED_FIGURE, figures)}, when Argus "
+            f"was not back to normal by {_shown(ARGUS_STOPPED_FIGURE, figures)}, when Argus "
             f"stopped working on the incident, so it was broken for at least "
             f"{_shown(DURATION_FIGURE, figures)} - a lower bound, not a measurement, "
             f"and every impact figure below is bounded the same way."

@@ -25,9 +25,9 @@ from agent_postmortem.figures import (
     ACTED_FIGURE,
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
+    ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
-    CLOSED_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -486,7 +486,8 @@ def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
                                          written="Sep 02, 2026, 12:10:00 UTC"),
                 DURATION_FIGURE: Figure(given="10 minutes", written="10 minutes"),
                 HELD_FIGURE: Figure(given="30 minutes", written="30 minutes"),
-                CLOSED_FIGURE: Figure(given=to_iso(ENDED_AT), written="Sep 02, 2026, 12:30:00 UTC")
+                ARGUS_STOPPED_FIGURE: Figure(given=to_iso(ENDED_AT),
+                                             written="Sep 02, 2026, 12:30:00 UTC")
             })
         )
 
