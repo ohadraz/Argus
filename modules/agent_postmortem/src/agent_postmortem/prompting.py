@@ -655,7 +655,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"until {_shown(CLOSED_FIGURE, figures)}. That is how long the response took, "
         f"not how long the fault lasted - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
-                                  figures),
+                                  measured.unobserved_from is not None, figures),
         *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query, evidence,
                                     measured.error_rates, figures),
         *(line
@@ -1090,7 +1090,7 @@ def _back_before(credited: ActionRecord | None,
 # read alike as an absent figure and are not alike: a read that came back empty
 # is an outage of the metrics, and the other two are reads that answered - over
 # a shorter memory than the fault's, or over none of the stretch it broke.
-_WHY_NOT_KNOWN: Final[dict[Unmeasured, str]] = {
+_WHY_UNMEASURED: Final[dict[Unmeasured, str]] = {
     Unmeasured.NOTHING_READ: "the metrics for the incident could not be read",
     Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET: (
         "metrics were read, but none from the hour before the onset, so there is "
@@ -1098,6 +1098,11 @@ _WHY_NOT_KNOWN: Final[dict[Unmeasured, str]] = {
     Unmeasured.NO_MINUTE_WHILE_BROKEN: (
         "metrics were read, but none from while the service was broken")
 }
+
+# The same gap where the stretch after the onset is one nobody could see. Its
+# own sentence, because the line before it says that stretch is not known to
+# have been trouble, and "while the service was broken" would say it was.
+_NONE_WHILE_UNOBSERVED: Final = "none were collected while the service was unobserved"
 
 
 # Said of a figure the calm before the incident was too short to hold up to
@@ -1107,6 +1112,7 @@ _NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
 
 def _what_the_error_rate_did(rates: ErrorRates | None,
                              unmeasured: Unmeasured | None,
+                             unobserved: bool,
                              figures: Mapping[str, Figure]) -> list[str]:
     """The error rate at every level worth reporting, each named for itself.
 
@@ -1121,11 +1127,23 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     metrics that could not be read, about a read that had returned six hours of
     them - all after an onset a week earlier - and the write-up described a
     monitoring outage.
+
+    Said as the metrics' gap rather than the record's. Told the error rate was
+    not known, a model that had cited the shop's own warned rate from its logs
+    wrote that no error rate existed, and asked for the logs it had already read
+    to be reviewed. And where the stretch was unobserved, its minutes are not
+    called the ones the service was broken in: nothing says it was.
     """
     if rates is None:
-        why = f" - {_WHY_NOT_KNOWN[unmeasured]}" if unmeasured is not None else ""
+        reason = (
+            _NONE_WHILE_UNOBSERVED
+            if unobserved and unmeasured is Unmeasured.NO_MINUTE_WHILE_BROKEN
+            else _WHY_UNMEASURED[unmeasured] if unmeasured is not None
+            else None
+        )
+        why = f" - {reason}" if reason is not None else ""
 
-        return [f"Error rate: not known{why}."]
+        return [f"Error rate: not measured by the metrics{why}."]
 
     return [
         f"Error rate before it began: {_shown(ERRORS_BEFORE_FIGURE, figures)}.",

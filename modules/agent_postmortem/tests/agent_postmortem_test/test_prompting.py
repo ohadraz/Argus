@@ -1170,11 +1170,16 @@ def test_the_model_is_told_the_levels_as_well_as_the_rise() -> None:
 
 
 @pytest.mark.unit
-def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() -> None:
+def test_a_rise_nobody_could_measure_is_said_to_be_unmeasured_rather_than_flat() -> None:
     # The prompt has to say which of the two happened. An incident whose
     # metrics could not be read, described to the model as one where nothing
     # rose, gets prose explaining why a service that was fine had an outage -
     # and the prose will be fluent, because it always is.
+    #
+    # And said as the metrics' gap rather than the record's. Told the error rate
+    # was not known, a model that had cited the shop's own warned rate from its
+    # logs wrote that no error rate existed, and asked for the logs it had
+    # already read to be reviewed.
     Scenario() \
         .given(
             an_incident_whose_metrics_could_not_be_read := a_measured_incident(
@@ -1184,9 +1189,9 @@ def test_a_rise_nobody_could_measure_is_said_to_be_unknown_rather_than_flat() ->
             lambda: opening_ask(an_evidence_bundle(),
                                 an_incident_whose_metrics_could_not_be_read)
         ) \
-        .then(
-            _says("not known")
-        )
+        .then(all_of(
+            _says("Error rate: not measured by the metrics"),
+            _does_not_say("not known")))
 
 
 @pytest.mark.unit
@@ -1232,6 +1237,45 @@ def test_metrics_that_were_read_are_never_said_to_be_unreadable(why: Unmeasured)
         .then(
             _does_not_say(WHAT_AN_UNREAD_METRIC_IS_CALLED)
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("why", list(Unmeasured))
+def test_no_reason_an_error_rate_went_unmeasured_says_it_is_not_known(why: Unmeasured) -> None:
+    # Over every reason there is, so a reason added later cannot bring the
+    # phrase back: what is missing is the metrics' figure, and the record may
+    # hold the service's own word on its rate elsewhere.
+    Scenario() \
+        .given(
+            an_incident_measured_without_error_rates := a_measured_incident(
+                error_rates=None).model_copy(update={"error_rates_unmeasured": why})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_measured_without_error_rates)
+        ) \
+        .then(
+            _does_not_say("not known")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
+    # The line before this one says the stretch is one nobody could see, not one
+    # the service is known to have spent in trouble. A reason naming its minutes
+    # as the ones "while the service was broken" contradicts that, and hands the
+    # model an outage the evidence does not show.
+    Scenario() \
+        .given(
+            an_incident_nobody_could_see := a_measured_incident(
+                error_rates=None, back_to_normal_at=None, unobserved_from=ONSET
+            ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
+        ) \
+        .then(all_of(
+            _says("none were collected while the service was unobserved"),
+            _does_not_say("none from while the service was broken")))
 
 
 @pytest.mark.unit
