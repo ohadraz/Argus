@@ -166,6 +166,11 @@ class IncidentEvidence(BaseModel):
     candidates: list[CandidateRecord]
     actions: list[ActionRecord]
     log_lines: list[str]
+    # Where the last read of the logs ended - by default at the alert, though
+    # the investigation picks its own windows. What the lines cannot say of
+    # themselves: where they stop is where the reading stopped as often as
+    # where the service did. `None` where no read is recorded.
+    logs_read_until: datetime | None = None
     # What changed on the service, as the investigation read it - what dates
     # the change the confirmed candidate blamed.
     changes: list[ChangeEvent] = []

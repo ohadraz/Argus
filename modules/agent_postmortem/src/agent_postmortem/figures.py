@@ -53,6 +53,7 @@ BEGAN_FIGURE: Final = "began"
 BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
 UNOBSERVED_FROM_FIGURE: Final = "metrics_stopped_at"
 LOGS_REACH_UNTIL_FIGURE: Final = "logs_reach_until"
+LOG_READING_ENDED_FIGURE: Final = "log_reading_ended"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"
@@ -137,6 +138,7 @@ _KINDS: Final = {
     BACK_TO_NORMAL_FIGURE: _Kind.INSTANT,
     UNOBSERVED_FROM_FIGURE: _Kind.INSTANT,
     LOGS_REACH_UNTIL_FIGURE: _Kind.INSTANT,
+    LOG_READING_ENDED_FIGURE: _Kind.INSTANT,
     ARGUS_STOPPED_FIGURE: _Kind.INSTANT,
     ACTED_FIGURE: _Kind.INSTANT,
     DURATION_FIGURE: _Kind.SPAN,
@@ -261,6 +263,12 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
                                                      measured.unobserved_from)
         if logged_until is not None:
             figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until, day)
+
+        # And where the reading of them ended, which is as often where the
+        # lines stop as the service is: told only how far they reach, a model
+        # wrote that nothing was known of minutes nobody had read.
+        if evidence.logs_read_until is not None:
+            figures[LOG_READING_ENDED_FIGURE] = _an_instant(evidence.logs_read_until, day)
 
     figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)

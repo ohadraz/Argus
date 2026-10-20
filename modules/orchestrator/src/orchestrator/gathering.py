@@ -181,6 +181,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         candidates=_what_was_considered(considered),
         actions=_what_was_done(conn, incident_id, account, told),
         log_lines=_what_was_read(conn, incident_id),
+        logs_read_until=_how_far_the_logs_were_read(account),
         changes=_what_changed(conn, incident_id),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
@@ -739,6 +740,18 @@ def _what_became_of(taken_action: TakenAction) -> str:
         return "put back when it did not help"
 
     return "still in place"
+
+
+def _how_far_the_logs_were_read(account: list[IncidentEvent]) -> datetime | None:
+    """Where the furthest read of the logs ended - nothing after it was read -
+    or `None` where none was.
+
+    What the lines cannot say of themselves: where they stop is as often where
+    the reading stopped as where the service did.
+    """
+    ends = [parse_iso(event.window_end) for event in account if isinstance(event, LogsRetrieved)]
+
+    return max(ends, default=None)
 
 
 def _what_was_read(conn: psycopg.Connection, incident_id: str) -> list[str]:

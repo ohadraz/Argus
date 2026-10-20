@@ -34,6 +34,7 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
+    LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
@@ -896,6 +897,54 @@ def test_a_metrics_gap_no_log_line_reaches_into_names_no_reach() -> None:
         ) \
         .then(
             _the_figures_leave_out(LOGS_REACH_UNTIL_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_where_the_reading_of_the_logs_ended_is_a_figure_beside_a_metrics_gap() -> None:
+    # Where the lines stop inside the gap is where the reading stopped as often
+    # as where the service did. Told only how far the lines reach, a model
+    # wrote that nothing was known of the shop after them - of minutes nobody
+    # had read.
+    some_end_of_the_reading = ONSET + timedelta(minutes=5, seconds=53)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(
+                update={"logs_read_until": some_end_of_the_reading}),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                LOG_READING_ENDED_FIGURE: Figure(given=to_iso(some_end_of_the_reading),
+                                                 written="12:05:53 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("logs_read_until", "unobserved_from"), [
+    (None, ONSET),
+    (ONSET + timedelta(minutes=5), None)
+], ids=["no-reading-recorded", "no-metrics-gap"])
+def test_where_the_reading_of_the_logs_ended_is_no_figure_without_a_reading_and_a_gap(
+        logs_read_until: datetime | None, unobserved_from: datetime | None) -> None:
+    # Only beside a gap, where how far the lines reach is said: elsewhere the
+    # metrics say how the service was doing, and the end of a read says nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(
+                update={"logs_read_until": logs_read_until}),
+            measured := a_measured_incident(unobserved_from=unobserved_from)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(LOG_READING_ENDED_FIGURE)
         )
 
 

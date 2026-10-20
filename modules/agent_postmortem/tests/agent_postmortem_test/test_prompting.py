@@ -40,6 +40,7 @@ from agent_postmortem.figures import (
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
+    LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
     RULE_WAITS_FIGURE,
     Figure,
@@ -1904,6 +1905,120 @@ def test_an_unobserved_stretch_of_a_walk_that_read_no_logs_is_said_to_have_read_
         .then(all_of(
             _says("No logs were read"),
             _does_not_say("reaches into it")))
+
+
+@pytest.mark.unit
+def test_the_log_lines_reaching_into_an_unobserved_stretch_are_the_service_s_account_of_it(
+) -> None:
+    # Told which lines reach in and how far, a model still wrote that the shop's
+    # health could not be seen for the whole stretch - and in the next sentence
+    # quoted what those lines said of it. What they report there is what is
+    # known of the service, measured by the service rather than the metrics.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("reach into it until", "the service's own account of that stretch")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("log_lines", "pointed_to"), [
+    ([f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"], True),
+    ([f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"], False)
+], ids=["a-line-reaches-in", "no-line-reaches-in"])
+def test_an_error_rate_the_metrics_did_not_measure_over_a_gap_points_to_the_logs_in_it(
+        log_lines: list[str], pointed_to: bool) -> None:
+    # "Not measured by the metrics" alone, and a model wrote that the error rate
+    # over the gap could not be measured - of a gap the shop's own logged rate
+    # covered. Pointed to only where a line does reach in.
+    an_unobserved_stretch = a_measured_incident(
+        error_rates=None, back_to_normal_at=None, unobserved_from=ONSET
+    ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=log_lines)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, an_unobserved_stretch)
+        ) \
+        .then(
+            _says_on_one_line("Error rate: not measured by the metrics",
+                              "the log lines that reach into that stretch")
+            if pointed_to else
+            _does_not_say("the log lines that reach into that stretch")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("read_past_the_alert", "said"), [
+    (timedelta(0), "when the alert was raised - nothing after that was read"),
+    (timedelta(minutes=2), " - nothing after that was read")
+], ids=["at-the-alert", "past-the-alert"])
+def test_an_unobserved_stretch_says_where_the_reading_of_the_logs_ended(
+        read_past_the_alert: timedelta, said: str) -> None:
+    # The lines read reached 20:45, and the write-up said the shop's health was
+    # not known after that point - as though the shop went quiet, where the
+    # reading had ended there, at the alert.
+    some_evidence = an_evidence_bundle(
+        log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"])
+
+    Scenario() \
+        .given(
+            evidence := some_evidence.model_copy(
+                update={"logs_read_until": some_evidence.alerted_at + read_past_the_alert}),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("The logs were read up to", f"{{{LOG_READING_ENDED_FIGURE}}}", said)
+        )
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_read_past_the_alert_is_not_said_to_end_at_it() -> None:
+    some_evidence = an_evidence_bundle(
+        log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"])
+
+    Scenario() \
+        .given(
+            evidence := some_evidence.model_copy(
+                update={"logs_read_until": some_evidence.alerted_at + timedelta(minutes=2)}),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _does_not_say("when the alert was raised")
+        )
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_with_no_reading_recorded_says_nothing_of_where_one_ended(
+) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _does_not_say("were read up to")
+        )
 
 
 @pytest.mark.unit
