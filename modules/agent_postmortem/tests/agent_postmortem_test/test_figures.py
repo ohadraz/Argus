@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
@@ -28,6 +29,7 @@ from agent_postmortem.figures import (
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
+    CUSTOMER_LOSS_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -602,7 +604,8 @@ def test_the_figures_argus_measured_are_named_for_what_they_are() -> None:
                 BACK_TO_NORMAL_FIGURE: Figure(given=to_iso(RECOVERED_AT), written="12:10 UTC"),
                 DURATION_FIGURE: Figure(given="10 minutes", written="10 minutes"),
                 HELD_FIGURE: Figure(given="30 minutes", written="30 minutes"),
-                ARGUS_STOPPED_FIGURE: Figure(given=to_iso(ENDED_AT), written="12:30 UTC")
+                ARGUS_STOPPED_FIGURE: Figure(given=to_iso(ENDED_AT), written="12:30 UTC"),
+                CUSTOMER_LOSS_FIGURE: Figure(given="500.00 USD", written="500.00 USD")
             })
         )
 
@@ -945,6 +948,48 @@ def test_where_the_reading_of_the_logs_ended_is_no_figure_without_a_reading_and_
         ) \
         .then(
             _the_figures_leave_out(LOG_READING_ENDED_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_the_customer_loss_is_a_figure_to_the_cent_in_its_currency() -> None:
+    # Argus's one direct measure of who the incident affected, and the page
+    # says it; a write-up never told it said only that the shop "appears to
+    # have kept serving". To the cent and half up, as the page says it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(loss=Decimal("1297.315"))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                CUSTOMER_LOSS_FIGURE: Figure(given="1,297.32 USD", written="1,297.32 USD")
+            })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("loss", "baseline_revenue"), [
+    (Decimal(0), Decimal("1000")),
+    (None, None)
+], ids=["none-lost", "not-estimated"])
+def test_a_customer_loss_of_nothing_or_none_estimated_is_no_figure(
+        loss: Decimal | None, baseline_revenue: Decimal | None) -> None:
+    # Each is said in words: "0.00 USD" reads as a figure nobody filled in,
+    # and an estimate nobody made has no figure to name.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(loss=loss, baseline_revenue=baseline_revenue)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(CUSTOMER_LOSS_FIGURE)
         )
 
 

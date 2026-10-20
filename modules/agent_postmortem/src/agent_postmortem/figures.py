@@ -54,6 +54,7 @@ BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
 UNOBSERVED_FROM_FIGURE: Final = "metrics_stopped_at"
 LOGS_REACH_UNTIL_FIGURE: Final = "logs_reach_until"
 LOG_READING_ENDED_FIGURE: Final = "log_reading_ended"
+CUSTOMER_LOSS_FIGURE: Final = "customer_loss"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"
@@ -156,6 +157,9 @@ _KINDS: Final = {
 
 # What a ratio is written to: as far as a reader compares two levels by.
 _A_TENTH: Final = Decimal("0.1")
+
+# What money is written to.
+_A_CENT: Final = Decimal("0.01")
 
 # Each operation a working may ask for, as a sentence says it.
 _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
@@ -309,6 +313,11 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         figures[SERIES_BEFORE_FIGURE] = _a_level(levels.baseline, unit)
         figures[SERIES_WHILE_BROKEN_FIGURE] = _a_level(levels.while_broken, unit)
         figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst, unit)
+
+    # A loss of nothing is said in words, as the page says it: "0.00 USD"
+    # reads as a figure nobody filled in.
+    if measured.loss and measured.currency is not None:
+        figures[CUSTOMER_LOSS_FIGURE] = _an_amount(measured.loss, measured.currency)
 
     if evidence.alert_finding:
         figures.update(the_alerts_figures(evidence.alert_finding, day))
@@ -673,6 +682,14 @@ def _as_a_reader_says(at: datetime, day: date | None) -> str:
 
 def _a_span(hours: float) -> Figure:
     said = span_in_words(hours)
+
+    return Figure(given=said, written=said)
+
+
+def _an_amount(amount: Decimal, currency: str) -> Figure:
+    """Money to the cent, its thousands grouped and half a cent up, in its
+    currency - as the page says it."""
+    said = f"{amount.quantize(_A_CENT, rounding=ROUND_HALF_UP):,} {currency.upper()}"
 
     return Figure(given=said, written=said)
 

@@ -60,6 +60,7 @@ from agent_postmortem.figures import (
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
+    CUSTOMER_LOSS_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -723,6 +724,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
                                     measured.rule_series_unit, evidence,
                                     measured.error_rates, figures),
+        _what_customers_lost(measured, figures),
         *(line
           for heading, cited, beneath in _the_evidence_by_kind(evidence,
                                                                measured.unobserved_from)
@@ -1344,6 +1346,32 @@ def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
         case True:
             return (f"Rise above baseline: {_shown(ERRORS_RISE_FIGURE, figures)} of traffic "
                     f"failed that otherwise would not have.")
+
+
+def _what_customers_lost(measured: Measurements, figures: Mapping[str, Figure]) -> str:
+    """The customer loss, as the page says it, and how it was measured.
+
+    Argus's one direct measure of who the incident affected: never told it, a
+    write-up over a loss of nothing said the shop only "appears to have kept
+    serving". How it was measured, so it is weighed as a shortfall in takings
+    rather than as a count of shoppers. A floor where the service was not seen
+    back to normal, since the takings were counted with it still going.
+    """
+    if measured.loss is None:
+        return "Customer loss: not estimated."
+
+    unended = measured.back_to_normal_at is None
+    bound = "; a lower bound, counted with the service not seen back to normal" if unended else ""
+
+    if not measured.loss:
+        return (f"Customer loss: none{' so far' if unended else ''} - the shop's takings over "
+                f"the incident fell short of the same hours whole weeks earlier by no more "
+                f"than those hours vary on their own, if at all{bound}.")
+
+    return (f"Customer loss: {'at least ' if unended else ''}"
+            f"{_shown(CUSTOMER_LOSS_FIGURE, figures)} - how far the shop's takings over the "
+            f"incident fell short of the same hours whole weeks earlier, beyond how much "
+            f"those hours vary on their own{bound}.")
 
 
 def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None) -> str:

@@ -26,7 +26,8 @@ only shape left, and the one this file exists to keep distinct from the other.
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from agent_postmortem import DeploymentChangesRecord, EngagementAnswer, NotPaged
@@ -36,6 +37,7 @@ from agent_postmortem.figures import (
     ALERT_RAISED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
+    CUSTOMER_LOSS_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -1381,6 +1383,69 @@ def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
         .then(all_of(
             _says("none were collected after the metrics stopped"),
             _does_not_say("none from while the service was broken")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_to_normal_at", "said"), [
+    (RECOVERED_AT, "Customer loss:"),
+    (None, "Customer loss: at least")
+], ids=["measured", "a-lower-bound"])
+def test_the_model_is_told_the_customer_loss_and_how_it_was_measured(
+        back_to_normal_at: datetime | None, said: str) -> None:
+    # Argus's one direct measure of who the incident affected. Never told it,
+    # a write-up over a loss of nothing said the shop only "appears to have
+    # kept serving". With how it is measured, so it is weighed as a shortfall
+    # in takings and not as a count of shoppers - and as a floor where the
+    # service was not seen back to normal, as the page says it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(loss=Decimal("1297.31"),
+                                            back_to_normal_at=back_to_normal_at)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says_on_one_line(said, f"{{{CUSTOMER_LOSS_FIGURE}}}",
+                              "fell short of the same hours whole weeks earlier")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("back_to_normal_at", "said"), [
+    (RECOVERED_AT, "Customer loss: none - "),
+    (None, "Customer loss: none so far - ")
+], ids=["measured", "a-lower-bound"])
+def test_a_customer_loss_of_nothing_is_told_as_none(
+        back_to_normal_at: datetime | None, said: str) -> None:
+    # In words, as the page says it: "0.00 USD" reads as a figure nobody filled
+    # in. "So far" where the takings were counted with the service not seen back
+    # to normal.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(loss=Decimal(0),
+                                            back_to_normal_at=back_to_normal_at)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says_on_one_line(said, "no more than those hours vary on their own")
+        )
+
+
+@pytest.mark.unit
+def test_a_customer_loss_nobody_estimated_is_told_as_not_estimated() -> None:
+    Scenario() \
+        .given(
+            measured := a_measured_incident(baseline_revenue=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says("Customer loss: not estimated")
+        )
 
 
 @pytest.mark.unit
