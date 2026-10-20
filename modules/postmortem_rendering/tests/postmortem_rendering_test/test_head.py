@@ -237,6 +237,22 @@ def test_an_incident_with_no_impact_measured_says_it_was_not_seen_back_to_normal
 
 
 @pytest.mark.unit
+def test_an_incident_whose_metrics_stopped_is_dated_from_where_they_stopped() -> None:
+    # Not "not seen back to normal": a service nobody measured from there on
+    # may never have left normal.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("Oct 11, 2026, 14:03 UTC, metrics missing from then"))
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_onset_says_it_is_unknown() -> None:
     Scenario() \
         .given(

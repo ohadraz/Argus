@@ -116,9 +116,13 @@ class Lessons(BaseModel):
 
 
 class TimelineMarker(StrEnum):
-    """The four moments a reader looks for first in a timeline."""
+    """The four moments a reader looks for first in a timeline - the first of
+    them where the metrics stop at the onset said as that, since what the onset
+    dates then is the metrics stopping, and the service may never have been
+    hurt at all."""
 
     IMPACT_BEGINS = "impact begins"
+    METRICS_STOP = "metrics stop"
     DETECTED = "detected"
     MITIGATION_APPLIED = "mitigation applied"
     IMPACT_ENDS = "impact ends"

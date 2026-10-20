@@ -513,11 +513,12 @@
                                                              padding-right: 36px; }
   .postmortem-timeline tr.marker td { font-weight: 600; }
   .postmortem-timeline tr.marker td:nth-child(2) { opacity: 1; }
-  /* Coloured by what each marker means for the service: broken, seen, put
-     right, over. */
+  /* Coloured by what each marker means for the service: broken, unmeasured
+     or seen, put right, over. */
   .postmortem-timeline span.marker { font-family: ui-monospace, monospace;
                                           font-size: .85em; letter-spacing: .06em; margin-right: .5em; }
   .postmortem-timeline span.marker.impact-begins { color: var(--bad); }
+  .postmortem-timeline span.marker.metrics-stop,
   .postmortem-timeline span.marker.detected { color: var(--amber); }
   .postmortem-timeline span.marker.mitigation-applied,
   .postmortem-timeline span.marker.impact-ends { color: var(--good); }

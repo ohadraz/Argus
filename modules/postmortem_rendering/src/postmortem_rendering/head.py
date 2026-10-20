@@ -112,8 +112,11 @@ def a_head(postmortem: Postmortem,
 
 
 def _the_incident_s_window(postmortem: Postmortem) -> Line:
-    """From onset to back to normal, the day said once where both fall on it."""
-    began = _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS)
+    """From onset to back to normal, the day said once where both fall on it -
+    or, where the metrics stopped at the onset, from there with them missing:
+    a service nobody measured from then on may never have left normal."""
+    stopped = _the_marker(postmortem, TimelineMarker.METRICS_STOP)
+    began = stopped or _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS)
     if began is None:
         return Line(runs=(Run(text="onset unknown"),))
 
@@ -124,6 +127,9 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
                               role=Role.MOMENT, at=began, until=ended),))
 
     since = Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} UTC", role=Role.MOMENT, at=began)
+    if stopped is not None:
+        return Line(runs=(since, Run(text=", metrics missing from then")))
+
     impact = postmortem.impact
     if impact is None or impact.extent is not ImpactExtent.AT_LEAST:
         return Line(runs=(since, Run(text=", not seen back to normal")))

@@ -176,7 +176,8 @@ def write_postmortem(evidence: IncidentEvidence,
         hypotheses=hypotheses_of(evidence),
         # Ending at the measured recovery, where the duration beside it ends.
         timeline=timeline_of(evidence, measured.back_to_normal_at,
-                             back_before_the_action=measured.back_before_the_action),
+                             back_before_the_action=measured.back_before_the_action,
+                             metrics_stopped_at_onset=measured.unobserved_from is not None),
         # The model's sections. Each empty where unanswered - a section of many
         # has no list to be absent from - and the review says what that costs.
         causal_chain=_the_chain_as_cited(answer, shown),

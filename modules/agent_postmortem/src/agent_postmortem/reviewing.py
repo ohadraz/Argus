@@ -113,9 +113,14 @@ def _what_the_impact_lacks(document: PostmortemDocument) -> list[str]:
     """What it cost, and when it stopped costing. A duration with no end is a
     lower bound, and a lower bound is impact not yet measured."""
     ended = any(entry.marker is TimelineMarker.IMPACT_ENDS for entry in document.timeline)
+    # Where the metrics stopped, the end is unknown because nothing measured
+    # it - not because the service was seen staying broken.
+    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in document.timeline)
+    unended = ("the metrics stopped, so the service was never measured back to normal"
+               if stopped else "the service was never seen back to normal")
 
     return [*(["no loss was estimated"] if document.customer_loss_estimate is None else []),
-            *(["the service was never seen back to normal"] if not ended else [])]
+            *([unended] if not ended else [])]
 
 
 def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str], *,

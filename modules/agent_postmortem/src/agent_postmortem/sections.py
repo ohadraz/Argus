@@ -606,9 +606,14 @@ def record_action_items_of(evidence: IncidentEvidence,
 
 def timeline_of(evidence: IncidentEvidence,
                 back_to_normal_at: datetime | None,
-                back_before_the_action: bool = False) -> list[TimelineEntry]:
+                back_before_the_action: bool = False,
+                metrics_stopped_at_onset: bool = False) -> list[TimelineEntry]:
     """The narration in order, each line under the label the prompt cited it
     by, with the four markers placed by code.
+
+    The onset is marked as where the metrics stopped, where they carry no
+    minute from it on (`metrics_stopped_at_onset`): what it dates then is the
+    metrics stopping, and the service may have gone on serving as before.
 
     Three of the markers are rows of their own, because nobody said them: the
     onset and the end are properties of the metrics, and the alert is what the
@@ -635,8 +640,9 @@ def timeline_of(evidence: IncidentEvidence,
     again.
     """
     markers = [
-        *([_a_marker(evidence.onset_at, TimelineMarker.IMPACT_BEGINS,
-                     "the incident began")]
+        *([_a_marker(evidence.onset_at, TimelineMarker.METRICS_STOP, "the metrics stopped")
+           if metrics_stopped_at_onset else
+           _a_marker(evidence.onset_at, TimelineMarker.IMPACT_BEGINS, "the incident began")]
           if evidence.onset_at is not None else []),
         _a_marker(evidence.alerted_at, TimelineMarker.DETECTED,
                   f"{evidence.alert_title} fired"),

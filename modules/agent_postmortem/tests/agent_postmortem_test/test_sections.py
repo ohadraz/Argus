@@ -1375,6 +1375,25 @@ def test_the_onset_marker_says_the_incident_began_and_not_how() -> None:
 
 
 @pytest.mark.unit
+def test_an_onset_the_metrics_stopped_at_is_marked_as_where_they_stopped() -> None:
+    # Where the metrics carry no minute from the onset on, what the onset dates
+    # is the metrics stopping. The service may have gone on serving as before,
+    # and "impact begins" would say it was hurt from then.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, timeline=[])
+        ) \
+        .when(
+            lambda: [(entry.at, entry.marker, entry.text) for entry in
+                     timeline_of(evidence, back_to_normal_at=None, metrics_stopped_at_onset=True)
+                     if entry.marker is not TimelineMarker.DETECTED]
+        ) \
+        .then(
+            the_answer_was([(ONSET, TimelineMarker.METRICS_STOP, "the metrics stopped")])
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("back_before_the_action", "said"), [
     (False, "the service was back to normal"),
     (True, "the service was back to normal, before the action credited with it")

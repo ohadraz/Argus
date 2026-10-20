@@ -141,6 +141,27 @@ def test_impact_is_not_assessed_while_the_end_of_it_is_unknown() -> None:
 
 
 @pytest.mark.unit
+def test_impact_is_not_assessed_where_the_metrics_stopped_and_says_so() -> None:
+    # Still a lower bound, so still not assessed - but the end is unknown
+    # because nothing measured it, not because the service stayed broken.
+    Scenario() \
+        .given(
+            a_document_whose_metrics_stopped := _a_document(timeline=[
+                _a_marker(TimelineMarker.METRICS_STOP)
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_whose_metrics_stopped, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(IMPACT_ASSESSED, met=False,
+                          because="the metrics stopped, so the service was never measured "
+                                  "back to normal")
+        )
+
+
+@pytest.mark.unit
 def test_impact_short_twice_over_says_both() -> None:
     Scenario() \
         .given(
