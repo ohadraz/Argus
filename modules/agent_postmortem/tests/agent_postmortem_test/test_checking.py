@@ -36,7 +36,7 @@ liked least, which is rarely the part that was wrong.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TypedDict, Unpack
 
 import pytest
 from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
@@ -1090,11 +1090,32 @@ def _a_turn_calling(*tools: str) -> Turn:
                 output_tokens=0)
 
 
-def _an_answer(**overrides: Any) -> SubmittedPostmortem:
+class _WhatAnAnswerHolds(TypedDict, total=False):
+    """Every field of a submitted answer, each typed as the model types it.
+
+    Typed rather than `Any`, so mypy checks every name and value a case passes
+    against this list, and this list against the model's own constructor: a
+    field renamed in the model fails the typecheck here rather than being
+    dropped while the case goes on asserting against the default.
+    """
+
+    root_cause: str | None
+    executive_summary: str | None
+    symptom: str | None
+    assumptions: list[str]
+    lead_effects: dict[str, str]
+    causal_chain: list[SubmittedStep] | None
+    contributing_factors: list[SubmittedFactor] | None
+    action_items: list[SubmittedItem] | None
+    lessons: Lessons | None
+    reaches_a_cause: bool
+
+
+def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:
     """An answer that passes every check against `SOME_GIVEN`, but for what a
     test overrides: a chain of one step citing the first label, no factors, no
     proposals, and three empty lessons."""
-    complete: dict[str, Any] = {
+    complete: _WhatAnAnswerHolds = {
         "root_cause": DONT_CARE_PROSE,
         "executive_summary": SOME_SUMMARY_WITHOUT_A_NUMBER,
         "symptom": DONT_CARE_PROSE,
@@ -1104,7 +1125,7 @@ def _an_answer(**overrides: Any) -> SubmittedPostmortem:
         "lessons": Lessons()
     }
 
-    return SubmittedPostmortem(**{**complete, **overrides})
+    return SubmittedPostmortem(**(complete | overrides))
 
 
 def _given_figures(*names: str, figures: Mapping[str, Figure] = SOME_FIGURES) -> Given:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TypedDict, Unpack
 
 import pytest
 from agent_postmortem.reviewing import (
@@ -29,13 +29,22 @@ from argus_core.models import (
     ActionItemStatus,
     ActionItemType,
     ChainStep,
+    ChannelReading,
+    CitedChange,
     CitedEvidence,
+    ContributingFactor,
+    Detection,
     HypothesisConsidered,
+    Impact,
+    Lessons,
     OpenedPullRequest,
     PostmortemDocument,
+    PostmortemLead,
+    ResolutionStep,
     ReviewCriterion,
     TimelineEntry,
     TimelineMarker,
+    Trigger,
     Verdict,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
@@ -405,9 +414,55 @@ def _a_marker(marker: TimelineMarker) -> TimelineEntry:
     return TimelineEntry(at=SOME_MOMENT, who=None, text="dont care", marker=marker)
 
 
-def _a_document(**overrides: Any) -> PostmortemDocument:
+class _WhatADocumentHolds(TypedDict, total=False):
+    """Every field of a postmortem document, each typed as the model types it.
+
+    Typed rather than `Any`, so mypy checks every name and value a case passes
+    against this list, and this list against the model's own constructor: a
+    field renamed in the model fails the typecheck here rather than being
+    dropped while the case goes on asserting against the default.
+    """
+
+    root_cause: str | None
+    executive_summary: str | None
+    symptom: str | None
+    customer_loss_estimate: Decimal | None
+    estimate_currency: str | None
+    engineer_minutes: int | None
+    responders: int | None
+    responder_titles: list[str]
+    responder_cost_estimate: Decimal | None
+    responder_cost_minimum: Decimal | None
+    responder_cost_maximum: Decimal | None
+    responder_cost_currency: str | None
+    tokens_spent: int | None
+    assumptions: list[str]
+    pull_request: OpenedPullRequest | None
+    recommended_action: str | None
+    leads: list[PostmortemLead]
+    impact: Impact | None
+    detection: Detection | None
+    trigger: Trigger | None
+    resolution: list[ResolutionStep]
+    causal_chain: list[ChainStep]
+    contributing_factors: list[ContributingFactor]
+    hypotheses: list[HypothesisConsidered]
+    action_items: list[ActionItem]
+    lessons: Lessons | None
+    timeline: list[TimelineEntry]
+    changes_read: list[CitedChange]
+    log_messages_read: list[CitedEvidence]
+    deployment_changes_read: list[CitedEvidence]
+    code_read: list[CitedEvidence]
+    deploys_reading: ChannelReading | None
+    flags_reading: ChannelReading | None
+    logs_reading: ChannelReading | None
+    review: list[ReviewCriterion]
+
+
+def _a_document(**overrides: Unpack[_WhatADocumentHolds]) -> PostmortemDocument:
     """A document that meets every criterion it can, but for what a test says."""
-    complete: dict[str, Any] = {
+    complete: _WhatADocumentHolds = {
         "root_cause": "dont care",
         "executive_summary": "dont care",
         "customer_loss_estimate": Decimal("500"),
@@ -423,4 +478,4 @@ def _a_document(**overrides: Any) -> PostmortemDocument:
                                             result=Verdict.CONFIRMED, label="C1")]
     }
 
-    return PostmortemDocument(**{**complete, **overrides})
+    return PostmortemDocument(**(complete | overrides))

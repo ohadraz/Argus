@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import TypedDict, Unpack
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
@@ -25,6 +25,7 @@ from agent_mitigation.tools import (
     AcceleratorPinRestorer,
     AutoscalingRestorer,
     CapacityRestorer,
+    ChangedFromOutside,
     DeploymentRestorer,
     FlagSetter,
 )
@@ -999,17 +1000,35 @@ def test_a_flag_left_as_found_is_logged(caplog: pytest.LogCaptureFixture) -> Non
         )
 
 
-def _collaborators_with(**chosen: Any) -> dict[str, Any]:
+class _Collaborators(TypedDict, total=False):
+    """What an undo is handed, each typed as `undo_change` takes it.
+
+    Typed rather than `Any`, so mypy checks every name and value a case passes
+    against this list, and this list against the model's own constructor: a
+    field renamed in the model fails the typecheck here rather than being
+    dropped while the case goes on asserting against the default.
+    """
+
+    changed_from_outside: ChangedFromOutside
+    set_state: FlagSetter
+    restore_deployment: DeploymentRestorer
+    restore_capacity: CapacityRestorer
+    restore_autoscaling: AutoscalingRestorer
+    restore_accelerator_pin: AcceleratorPinRestorer
+
+
+def _collaborators_with(**chosen: Unpack[_Collaborators]) -> _Collaborators:
     """Every collaborator an undo is handed, none of them asked, but those named."""
-    return {
+    nobody_asked: _Collaborators = {
         "changed_from_outside": nobody_changed_it(),
         "set_state": _a_flag_setter(),
         "restore_deployment": a_restorer_nobody_calls(),
         "restore_capacity": a_capacity_restorer_nobody_calls(),
         "restore_autoscaling": an_autoscaling_restorer_nobody_calls(),
-        "restore_accelerator_pin": an_accelerator_pin_restorer_nobody_calls(),
-        **chosen
+        "restore_accelerator_pin": an_accelerator_pin_restorer_nobody_calls()
     }
+
+    return nobody_asked | chosen
 
 
 def _a_collaborator_raising(spec: type) -> MagicMock:
