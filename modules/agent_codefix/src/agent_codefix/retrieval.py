@@ -56,7 +56,7 @@ class FileReader(Protocol):
 
 
 class BranchMembership(Protocol):
-    """Whether the branch read holds the revision that ran.
+    """Whether the branch read contains the revision that ran.
 
     Asked once, before the conversation starts, like the index notice: a model
     that learns the files it read are not the files that ran has learned it

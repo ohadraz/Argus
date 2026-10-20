@@ -1,10 +1,10 @@
-"""Whether a branch holds a commit - whether the commit is in its history.
+"""Whether a branch contains a commit - whether the commit is in its history.
 
 What Code-Fix is told before it reads anything. It reads one branch, and the
 revision that was running when the incident began may never have been merged
 into it: deployed from a branch of its own, so the files Code-Fix opens are not
 the files that ran. Said where it is true and only there - a caveat on every
-incident would be one on the ordinary case, where the branch holds what ran.
+incident would be one on the ordinary case, where the branch contains what ran.
 
 GitHub answers it as part of a comparison, from where the second commit stands
 to the first: ahead of it or the same commit, and the first is in its history;
@@ -21,7 +21,7 @@ import pytest
 from argus_testkit.assertions import Assertion, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from repository_source import RepositoryUnreadable
-from repository_source.holding import the_branch_holds
+from repository_source.containing import the_branch_contains
 
 from repository_source_test.framework.settings import some_settings
 
@@ -33,12 +33,12 @@ DONT_CARE_REVISION = THE_REVISION_THAT_RAN
 
 
 @pytest.mark.unit
-def test_a_revision_the_branch_has_moved_past_is_held() -> None:
+def test_a_revision_the_branch_has_moved_past_is_contained() -> None:
     compared = a_comparison_standing("ahead")
 
     Scenario() \
         .when(
-            lambda: the_branch_holds(
+            lambda: the_branch_contains(
                 DONT_CARE_BRANCH, DONT_CARE_REVISION, some_settings(), get=compared
             )
         ) \
@@ -46,12 +46,12 @@ def test_a_revision_the_branch_has_moved_past_is_held() -> None:
 
 
 @pytest.mark.unit
-def test_the_revision_the_branch_points_at_is_held() -> None:
+def test_the_revision_the_branch_points_at_is_contained() -> None:
     compared = a_comparison_standing("identical")
 
     Scenario() \
         .when(
-            lambda: the_branch_holds(
+            lambda: the_branch_contains(
                 DONT_CARE_BRANCH, DONT_CARE_REVISION, some_settings(), get=compared
             )
         ) \
@@ -59,7 +59,7 @@ def test_the_revision_the_branch_points_at_is_held() -> None:
 
 
 @pytest.mark.unit
-def test_a_revision_deployed_from_another_branch_is_not_held() -> None:
+def test_a_revision_deployed_from_another_branch_is_not_contained() -> None:
     # THE ONE THE QUESTION EXISTS FOR. A revision on a branch that was never
     # merged shares history with the one read, and has commits of its own the
     # branch has never seen.
@@ -67,7 +67,7 @@ def test_a_revision_deployed_from_another_branch_is_not_held() -> None:
 
     Scenario() \
         .when(
-            lambda: the_branch_holds(
+            lambda: the_branch_contains(
                 DONT_CARE_BRANCH, DONT_CARE_REVISION, some_settings(), get=compared
             )
         ) \
@@ -75,12 +75,12 @@ def test_a_revision_deployed_from_another_branch_is_not_held() -> None:
 
 
 @pytest.mark.unit
-def test_a_revision_the_branch_has_not_reached_yet_is_not_held() -> None:
+def test_a_revision_the_branch_has_not_reached_yet_is_not_contained() -> None:
     compared = a_comparison_standing("behind")
 
     Scenario() \
         .when(
-            lambda: the_branch_holds(
+            lambda: the_branch_contains(
                 DONT_CARE_BRANCH, DONT_CARE_REVISION, some_settings(), get=compared
             )
         ) \
@@ -90,12 +90,12 @@ def test_a_revision_the_branch_has_not_reached_yet_is_not_held() -> None:
 @pytest.mark.unit
 def test_the_comparison_asked_for_runs_from_the_revision_to_the_branch() -> None:
     # Ordered, and it matters: reversed, "ahead" would mean the revision has
-    # moved past the branch - the opposite of holding it.
+    # moved past the branch - the opposite of containing it.
     compared = a_comparison_standing("ahead")
 
     Scenario() \
         .when(
-            lambda: the_branch_holds(
+            lambda: the_branch_contains(
                 THE_BRANCH_READ, THE_REVISION_THAT_RAN, some_settings(), get=compared
             )
         ) \
@@ -114,7 +114,7 @@ def test_a_comparison_that_could_not_be_made_raises() -> None:
     Scenario() \
         .when(
             attempting(
-                lambda: the_branch_holds(
+                lambda: the_branch_contains(
                     DONT_CARE_BRANCH, DONT_CARE_REVISION, some_settings(), get=refused
                 )
             )
@@ -123,11 +123,11 @@ def test_a_comparison_that_could_not_be_made_raises() -> None:
 
 
 def _the_answer_is(expected: bool) -> Assertion[bool]:
-    def assertion(held: bool) -> bool:
-        if held is not expected:
+    def assertion(contained: bool) -> bool:
+        if contained is not expected:
             raise AssertionError(
-                f"Expected the branch {'to' if expected else 'not to'} hold the "
-                f"revision, and the answer was {held}."
+                f"Expected the branch {'to' if expected else 'not to'} contain the "
+                f"revision, and the answer was {contained}."
             )
 
         return True

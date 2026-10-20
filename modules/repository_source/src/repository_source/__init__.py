@@ -13,13 +13,13 @@ from __future__ import annotations
 
 from repository_source.browsing import owner_and_name, where_to_read
 from repository_source.comparing import paths_changed_between
+from repository_source.containing import the_branch_contains
 from repository_source.differences import (
     ChangedFile,
     SourceDifference,
     the_difference_between,
 )
 from repository_source.heads import the_head_of
-from repository_source.holding import the_branch_holds
 from repository_source.reading import (
     RepositorySourceSettings,
     RepositoryUnreadable,
@@ -33,7 +33,7 @@ __all__ = [
     "SourceDifference",
     "owner_and_name",
     "paths_changed_between",
-    "the_branch_holds",
+    "the_branch_contains",
     "the_difference_between",
     "the_head_of",
     "the_source_at",

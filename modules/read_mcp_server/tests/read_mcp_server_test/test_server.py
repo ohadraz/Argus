@@ -51,9 +51,9 @@ THE_ALERT_RULE = "get_alert_rule"
 # Where each replica runs, which the Investigator reads on every incident before
 # its model is asked anything.
 THE_PLACEMENT = "get_placements"
-# Whether the branch Code-Fix reads holds the revision that ran, which Code-Fix
+# Whether the branch Code-Fix reads contains the revision that ran, which Code-Fix
 # is told before it reads anything.
-THE_BRANCH_HOLDING = "branch_holds_revision"
+THE_BRANCH_CONTAINING = "branch_contains_revision"
 
 # The tools a model is offered as this tier declares them (MCP, `tools/list`),
 # each with the arguments its caller fills in itself rather than asking the
@@ -145,7 +145,7 @@ def test_every_deployment_offers_where_the_replicas_run() -> None:
 
 
 @pytest.mark.unit
-def test_every_deployment_offers_whether_the_branch_read_holds_what_ran() -> None:
+def test_every_deployment_offers_whether_the_branch_read_contains_what_ran() -> None:
     # Above the index guard for the rollout counts' reason: whether a revision
     # is on the branch Code-Fix reads is not a search, and a tier offering it
     # under one mode only would leave Code-Fix told on half the deployments and
@@ -155,7 +155,7 @@ def test_every_deployment_offers_whether_the_branch_read_holds_what_ran() -> Non
             SEARCHING_BY_GREP_ALONE
         )) \
         .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
-        .then(_the_tools_include(THE_BRANCH_HOLDING))
+        .then(_the_tools_include(THE_BRANCH_CONTAINING))
 
 
 @pytest.mark.unit

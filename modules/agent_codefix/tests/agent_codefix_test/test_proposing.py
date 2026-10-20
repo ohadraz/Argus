@@ -1247,12 +1247,12 @@ def test_an_index_that_is_current_adds_nothing_to_what_the_model_is_told() -> No
 
 
 @pytest.mark.unit
-def test_a_revision_the_branch_read_does_not_hold_is_said_before_the_model_reads() -> None:
+def test_a_revision_the_branch_read_does_not_contain_is_said_before_the_model_reads() -> None:
     # Deployed from a branch that was never merged, so the files the model opens
     # are not the files that ran. Told first, it can say which of the two a
     # claim is about; left to read the branch as what ran, it states a layout
     # that was never running as the one that was.
-    repository = a_repository(holding_what_ran=False)
+    repository = a_repository(containing_what_ran=False)
     model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
 
     Scenario() \
@@ -1275,10 +1275,10 @@ def test_a_revision_the_branch_read_does_not_hold_is_said_before_the_model_reads
 
 
 @pytest.mark.unit
-def test_a_revision_the_branch_read_holds_adds_nothing_to_what_the_model_is_told() -> None:
+def test_a_revision_the_branch_read_contains_adds_nothing_to_what_the_model_is_told() -> None:
     # The ordinary case, where what ran was merged: a caveat said on every
     # incident is one nobody reads on the incident it is true of.
-    repository = a_repository(holding_what_ran=True)
+    repository = a_repository(containing_what_ran=True)
     model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
 
     Scenario() \
@@ -1299,7 +1299,7 @@ def test_a_revision_the_branch_read_holds_adds_nothing_to_what_the_model_is_told
 def test_with_no_revision_known_to_have_run_the_branch_is_not_asked() -> None:
     # An incident with no deploy before it has nothing to ask about - and asking
     # about nothing is a call the repository answers with an error.
-    repository = a_repository(holding_what_ran=False)
+    repository = a_repository(containing_what_ran=False)
     model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
 
     Scenario() \
@@ -1323,7 +1323,7 @@ def test_a_branch_that_could_not_be_asked_says_nothing_and_does_not_end_the_work
     # And nothing said rather than the caveat - told the files are not what ran,
     # the model hedges every claim on a fact nobody established.
     repository = a_repository()
-    repository.holds.side_effect = RuntimeError("the repository could not be reached")
+    repository.contains.side_effect = RuntimeError("the repository could not be reached")
     model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
 
     Scenario() \
@@ -1348,13 +1348,13 @@ def test_a_branch_that_could_not_be_asked_says_nothing_and_does_not_end_the_work
 def _the_branch_was_asked(repository: _Repository,
                           branch: str,
                           revision: str) -> Assertion[Any]:
-    """Whether the branch the fix is read from holds the revision that ran."""
+    """Whether the branch the fix is read from contains the revision that ran."""
     def assertion(dont_care_result: Any) -> bool:
-        asked = repository.holds.call_args
+        asked = repository.contains.call_args
 
         if asked is None or asked.args != (branch, revision):
             raise AssertionError(
-                f"Expected [{branch}] to be asked whether it holds [{revision}], "
+                f"Expected [{branch}] to be asked whether it contains [{revision}], "
                 f"got [{asked}]."
             )
 
@@ -1365,10 +1365,10 @@ def _the_branch_was_asked(repository: _Repository,
 
 def _the_branch_was_not_asked(repository: _Repository) -> Assertion[Any]:
     def assertion(dont_care_result: Any) -> bool:
-        if repository.holds.called:
+        if repository.contains.called:
             raise AssertionError(
-                f"Expected no branch to be asked whether it holds anything, and "
-                f"it was: {repository.holds.call_args_list}."
+                f"Expected no branch to be asked whether it contains anything, and "
+                f"it was: {repository.contains.call_args_list}."
             )
 
         return True
@@ -3327,7 +3327,7 @@ class _Repository:
                  found: list[str],
                  reading_like: list[str],
                  whose_index_says: str,
-                 holding_what_ran: bool) -> None:
+                 containing_what_ran: bool) -> None:
         self.list_files: Any = create_autospec(
             FileLister, instance=True, return_value=holding
         )
@@ -3343,8 +3343,8 @@ class _Repository:
         self.read_file: Any = create_autospec(
             FileReader, instance=True, return_value=whose_source_is
         )
-        self.holds: Any = create_autospec(
-            BranchMembership, instance=True, return_value=holding_what_ran
+        self.contains: Any = create_autospec(
+            BranchMembership, instance=True, return_value=containing_what_ran
         )
         self.write_branch: Any = create_autospec(
             BranchWriter, instance=True, return_value="a-branch"
@@ -3371,7 +3371,7 @@ class _Repository:
             "search": self.search,
             "search_by_meaning": self.search_by_meaning,
             "index_notice": self.index_notice,
-            "holds": self.holds,
+            "contains": self.contains,
             "read_file": self.read_file,
             "write_branch": self.write_branch,
             "open_pull_request": self.open_pull_request
@@ -3383,12 +3383,12 @@ def a_repository(holding: list[str] | None = None,
                  where: list[str] | None = None,
                  reading_like: list[str] | None = None,
                  whose_index_says: str = "",
-                 holding_what_ran: bool = True) -> _Repository:
+                 containing_what_ran: bool = True) -> _Repository:
     """The repository as the loop sees it - indexed, and current unless said.
 
     `whose_index_says` empty is an index describing the commit being fixed,
     which is the ordinary state and the one that must add nothing to what the
-    model is told. `holding_what_ran` is the same for the branch read: it holds
+    model is told. `containing_what_ran` is the same for the branch read: it contains
     the revision that ran unless said.
     """
     return _Repository(
@@ -3399,7 +3399,7 @@ def a_repository(holding: list[str] | None = None,
             f"{SOME_PATH}:4-9\n{SOME_SOURCE}"
         ],
         whose_index_says,
-        holding_what_ran
+        containing_what_ran
     )
 
 

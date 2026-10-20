@@ -6,7 +6,7 @@ whoever builds the client; nothing below this door learns an address.
 """
 
 from read_mcp_client.client import (
-    branch_holds_revision,
+    branch_contains_revision,
     get_alert_rule,
     get_change_events,
     get_enabled_flags,
@@ -28,7 +28,7 @@ from read_mcp_client.offering import NotServed, offered
 
 __all__ = [
     "NotServed",
-    "branch_holds_revision",
+    "branch_contains_revision",
     "get_alert_rule",
     "get_change_events",
     "get_enabled_flags",

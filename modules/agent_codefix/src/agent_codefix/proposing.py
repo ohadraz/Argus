@@ -60,7 +60,7 @@ from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 from read_mcp_client import (
-    branch_holds_revision,
+    branch_contains_revision,
     get_repository_index_freshness,
     list_repository_files,
     read_repository_file,
@@ -240,7 +240,7 @@ def fixes_over(read: McpClient,
         search_by_meaning=partial(search_repository_by_meaning, client=read),
         index_notice=partial(get_repository_index_freshness, client=read),
         list_files=partial(list_repository_files, client=read),
-        holds=partial(branch_holds_revision, client=read),
+        contains=partial(branch_contains_revision, client=read),
         read_file=partial(read_repository_file, client=read),
         write_branch=partial(commit_to_new_branch, client=write),
         open_pull_request=partial(open_pull_request, client=write),
@@ -256,7 +256,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                 search_by_meaning: MeaningSearcher,
                 index_notice: IndexNotice,
                 list_files: FileLister,
-                holds: BranchMembership,
+                contains: BranchMembership,
                 read_file: FileReader,
                 write_branch: BranchWriter,
                 open_pull_request: PullRequestOpener,
@@ -312,7 +312,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     the next result, and each is shown once.
 
     `deployed` is the revision running when the alert fired, where one is
-    known. `holds` is asked whether the branch read has it, and the opening
+    known. `contains` is asked whether the branch read has it, and the opening
     says so only where it does not.
     """
     submitted = _what_the_model_submitted(
@@ -322,7 +322,7 @@ def propose_fix(hypothesis: Hypothesis | None,
         search_by_meaning=search_by_meaning,
         index_notice=index_notice,
         list_files=list_files,
-        holds=holds,
+        contains=contains,
         deployed=deployed,
         read_file=read_file,
         converse=converse or conversations(
@@ -387,7 +387,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               search_by_meaning: MeaningSearcher,
                               index_notice: IndexNotice,
                               list_files: FileLister,
-                              holds: BranchMembership,
+                              contains: BranchMembership,
                               deployed: str | None,
                               read_file: FileReader,
                               converse: Conversation,
@@ -420,7 +420,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     transcript: list[Exchange] = [
         Ask(text=the_opening_message(
             hypothesis, settings, index_notice, list_files, shown,
-            deployed=deployed, holds=holds
+            deployed=deployed, contains=contains
         ))
     ]
     spend = a_budget_for(settings)

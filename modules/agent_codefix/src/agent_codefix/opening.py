@@ -74,13 +74,13 @@ def the_opening_message(hypothesis: Hypothesis | None,
                         leads: Sequence[ThreadMessage] = (),
                         *,
                         deployed: str | None,
-                        holds: BranchMembership) -> str:
+                        contains: BranchMembership) -> str:
     """The first thing the model is sent, built for this incident alone.
 
     Assembled rather than templated, because five of its paragraphs are
     conditional on what this deployment can do, what the investigation
     actually found, whether anybody wrote in the incident's thread and whether
-    the branch read holds what ran - and an empty heading tells a model there
+    the branch read contains what ran - and an empty heading tells a model there
     is something it has failed to see.
 
     The repository is listed once, for the two paragraphs that read it: the
@@ -100,7 +100,7 @@ def the_opening_message(hypothesis: Hypothesis | None,
         *_and_what_it_already_wrote(hypothesis),
         *_and_what_people_wrote(leads),
         *_what_the_repository_holds(listing),
-        *_whether_it_holds_what_ran(settings, deployed, holds),
+        *_whether_it_contains_what_ran(settings, deployed, contains),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
@@ -341,17 +341,17 @@ def _what_the_repository_holds(listing: Sequence[str]) -> list[str]:
     return ["", "The repository holds:", *(f"  {path}" for path in listing)]
 
 
-def _whether_it_holds_what_ran(settings: FixSettings,
-                               deployed: str | None,
-                               holds: BranchMembership) -> list[str]:
-    """That the branch read does not hold the revision that ran, or nothing.
+def _whether_it_contains_what_ran(settings: FixSettings,
+                                  deployed: str | None,
+                                  contains: BranchMembership) -> list[str]:
+    """That the branch read does not contain the revision that ran, or nothing.
 
     The revision may have been deployed from a branch never merged into the one
     read, and then the files the model opens are not the files that ran - a
     layout it describes from them is one that was never running. Told, it can
     say which of the two a claim is about.
 
-    Nothing where the branch holds it, which is the ordinary case: a caveat on
+    Nothing where the branch contains it, which is the ordinary case: a caveat on
     every incident is one nobody reads on the incident it is true of. Nothing
     where no revision is known to have run, since there is nothing to ask
     about. And nothing where the branch could not be asked, for the listing's
@@ -364,13 +364,13 @@ def _whether_it_holds_what_ran(settings: FixSettings,
     branch = settings.github_base_branch
 
     try:
-        held = holds(branch, deployed)
+        contained = contains(branch, deployed)
     except Exception:
-        logger.warning("could not tell whether the branch holds what ran", exc_info=True)
+        logger.warning("could not tell whether the branch contains what ran", exc_info=True)
 
         return []
 
-    if held:
+    if contained:
         return []
 
     return [

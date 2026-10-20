@@ -43,7 +43,7 @@ from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from metrics_source import MetricsSettings, MetricsSource, RuleSeries
 from metrics_source.prometheus_adapter import buckets_between
 from pydantic import Field
-from repository_source import the_branch_holds, the_head_of
+from repository_source import the_branch_contains, the_head_of
 
 from read_mcp_server import (
     alert_rules,
@@ -422,7 +422,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         return placements.where_the_service_runs(service, platform=platform)
 
     @mcp.tool()
-    def branch_holds_revision(branch: str, revision: str) -> bool:
+    def branch_contains_revision(branch: str, revision: str) -> bool:
         """Returns whether `revision` is in `branch`'s history.
 
         What Code-Fix is told before it reads anything: it reads one branch,
@@ -431,9 +431,9 @@ def build_server(endpoint: ReadMcpEndpoint,
         files that ran. Asked by code, never offered to a model.
 
         A repository that could not be reached raises rather than answering
-        that the branch does not hold it. The behavior lives in
-        `repository_source.the_branch_holds`; this is registration only."""
-        return the_branch_holds(
+        that the branch does not contain it. The behavior lives in
+        `repository_source.the_branch_contains`; this is registration only."""
+        return the_branch_contains(
             branch, revision, repository.the_source_settings(repository_settings)
         )
 

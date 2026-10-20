@@ -12,7 +12,7 @@ from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, RuleLine,
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
-    branch_holds_revision,
+    branch_contains_revision,
     get_change_events,
     get_log_lines,
     get_metrics_summary,
@@ -244,7 +244,7 @@ def test_where_the_replicas_run_reaches_the_caller_through_the_client(
 
 
 @pytest.mark.integration
-def test_whether_the_branch_holds_a_revision_reaches_the_caller_through_the_client(
+def test_whether_the_branch_contains_a_revision_reaches_the_caller_through_the_client(
     running_read_mcp: type[FakeTargetServiceHandler]
 ) -> None:
     # Held, rather than the `False` a lost answer would read as: Code-Fix is
@@ -256,12 +256,12 @@ def test_whether_the_branch_holds_a_revision_reaches_the_caller_through_the_clie
             }))
         ) \
         .when(
-            _asking_the_server(lambda client: branch_holds_revision(
+            _asking_the_server(lambda client: branch_contains_revision(
                 SOME_BRANCH, SOME_REVISION, client=client
             ))
         ) \
         .then(
-            _the_branch_holds_it()
+            _the_branch_contains_it()
         )
 
 
@@ -273,11 +273,11 @@ def _github_compares(handler: type[FakeTargetServiceHandler],
     return step
 
 
-def _the_branch_holds_it() -> Assertion[bool]:
-    def assertion(held: bool) -> bool:
-        if held is not True:
+def _the_branch_contains_it() -> Assertion[bool]:
+    def assertion(contained: bool) -> bool:
+        if contained is not True:
             raise AssertionError(
-                f"Expected the branch to hold the revision, and the caller got {held}."
+                f"Expected the branch to contain the revision, and the caller got {contained}."
             )
 
         return True

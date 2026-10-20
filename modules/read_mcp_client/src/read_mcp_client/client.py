@@ -33,7 +33,7 @@ _PLACEMENTS: Final = TypeAdapter(list[PodPlacement])
 _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
-_HELD: Final = TypeAdapter(bool)
+_CONTAINED: Final = TypeAdapter(bool)
 
 # Where the server's tools are served, under the address the endpoint names.
 # Here rather than at each call because it is the read tier's own spelling of
@@ -247,19 +247,20 @@ def get_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
     )
 
 
-def branch_holds_revision(branch: str, revision: str, *, client: McpClient) -> bool:
+def branch_contains_revision(branch: str, revision: str, *, client: McpClient) -> bool:
     """Reads whether `revision` is in `branch`'s history.
 
     What Code-Fix is told before it reads anything: the revision running when the
     alert fired may have been deployed from a branch never merged into the
     one it reads, and then the files it opens are not the files that ran.
 
-    Raises rather than answering that the branch does not hold it when the
+    Raises rather than answering that the branch does not contain it when the
     repository could not be reached: told so, Code-Fix hedges every claim it
     makes about the code, on a fact nobody established.
     """
     return client.call(
-        "branch_holds_revision", _HELD.validate_python, branch=branch, revision=revision
+        "branch_contains_revision", _CONTAINED.validate_python, branch=branch,
+        revision=revision
     )
 
 

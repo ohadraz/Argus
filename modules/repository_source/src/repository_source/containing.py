@@ -1,10 +1,11 @@
-"""Whether a branch holds a commit - whether the commit is in its history.
+"""Whether a branch contains a commit - whether the commit is in its history,
+in git's own word for it (`git branch --contains`).
 
 What Code-Fix is told before it reads anything. It reads one branch, and the
 revision running when the alert fired may never have been merged into it -
 deployed from a branch of its own, so the files read are not the files that
 ran. Asked rather than assumed either way: a caveat said on every incident is
-one said on the ordinary case, where the branch holds what ran.
+one said on the ordinary case, where the branch contains what ran.
 
 GitHub answers it as part of a comparison, from where the second commit stands
 to the first. Beside `comparing.py` rather than inside it, because that one
@@ -33,13 +34,13 @@ STATUS_FIELD: Final = "status"
 AHEAD_STATUS: Final = "ahead"
 IDENTICAL_STATUS: Final = "identical"
 
-HOLDING_TIMEOUT_SECONDS: Final = 10.0
+CONTAINING_TIMEOUT_SECONDS: Final = 10.0
 
 
-def the_branch_holds(branch: str,
-                     revision: str,
-                     settings: RepositorySourceSettings,
-                     get: HttpGet = httpx2.get) -> bool:
+def the_branch_contains(branch: str,
+                        revision: str,
+                        settings: RepositorySourceSettings,
+                        get: HttpGet = httpx2.get) -> bool:
     """Whether `revision` is in `branch`'s history.
 
     Compared from the revision to the branch, and the order is the answer:
@@ -55,12 +56,12 @@ def the_branch_holds(branch: str,
     )
 
     try:
-        response = get(url, headers=_headers(settings), timeout=HOLDING_TIMEOUT_SECONDS)
+        response = get(url, headers=_headers(settings), timeout=CONTAINING_TIMEOUT_SECONDS)
         response.raise_for_status()
         compared: dict[str, Any] = response.json()
     except Exception as error:
         raise RepositoryUnreadable(
-            f"could not tell whether [{branch}] holds [{revision}] in "
+            f"could not tell whether [{branch}] contains [{revision}] in "
             f"[{settings.github_repository}]: {error}"
         ) from error
 
