@@ -2019,12 +2019,14 @@ def _run_against_the_stack(
         # cheap part of a debugging one. All but `--hold`, which is this
         # function's own and not pytest's: it is told to the suite instead,
         # which holds each case before putting its world back - after pytest
-        # exits, the case's tables are already empty.
+        # exits, the case's tables are already empty. In its place pytest is
+        # given `-s`, because the holder's banner saying how to let the stack go
+        # is otherwise captured until the case ends, which is after it is let go.
         if _HOLD in session.posargs:
             os.environ[_THE_HOLD_VARIABLE] = "1"
         session.run(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
-            *(given for given in session.posargs if given != _HOLD), external=True
+            *("-s" if given == _HOLD else given for given in session.posargs), external=True
         )
     except Exception:
         # What the containers said, and only when something went wrong. The
