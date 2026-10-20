@@ -75,7 +75,7 @@ def _the_opening(question: str, story: Sequence[NarrationLine]) -> Transcript:
         "",
         "This is everything Argus has recorded about the incident, oldest first:",
         "",
-        *(f"- {to_iso(line.at)} {line.who}: {line.text}" for line in story),
+        *(said for line in story for said in _the_line_and_its_aside(line)),
         "",
         "Answer only from these lines. Where they do not hold the answer, say "
         "that the record does not say, rather than guessing. Do not say Argus "
@@ -83,6 +83,14 @@ def _the_opening(question: str, story: Sequence[NarrationLine]) -> Transcript:
         "",
         f"Call {ANSWER_TOOL_NAME} with your answer."
     ]))]
+
+
+def _the_line_and_its_aside(line: NarrationLine) -> list[str]:
+    """One line of the timeline, and what it says beside itself indented under
+    it - which already says whose reading it is."""
+    said = [f"- {to_iso(line.at)} {line.who}: {line.text}"]
+
+    return [*said, f"  {line.aside}"] if line.aside else said
 
 
 def _the_answer_in(turn: Turn) -> str | None:

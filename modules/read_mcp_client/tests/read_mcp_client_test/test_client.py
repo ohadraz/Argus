@@ -12,6 +12,7 @@ from argus_core.models import ChangeEvent, MetricBucket, PodPlacement, RuleLine,
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
 from read_mcp_client import (
+    branch_holds_revision,
     get_change_events,
     get_log_lines,
     get_metrics_summary,
@@ -43,6 +44,9 @@ from read_mcp_client_test.framework.builders import (
     a_metric_at,
     an_iso_minute,
 )
+
+SOME_BRANCH = "main"
+SOME_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
 
 
 @pytest.mark.integration
@@ -237,6 +241,48 @@ def test_where_the_replicas_run_reaches_the_caller_through_the_client(
                 started_at=datetime(2026, 10, 7, 21, 40, 30, tzinfo=UTC)
             )])
         )
+
+
+@pytest.mark.integration
+def test_whether_the_branch_holds_a_revision_reaches_the_caller_through_the_client(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    # Held, rather than the `False` a lost answer would read as: Code-Fix is
+    # told the files it reads are not the files that ran only when they are not.
+    Scenario() \
+        .given(
+            calling(_github_compares(running_read_mcp, {
+                f"{SOME_REVISION}...{SOME_BRANCH}": "ahead"
+            }))
+        ) \
+        .when(
+            _asking_the_server(lambda client: branch_holds_revision(
+                SOME_BRANCH, SOME_REVISION, client=client
+            ))
+        ) \
+        .then(
+            _the_branch_holds_it()
+        )
+
+
+def _github_compares(handler: type[FakeTargetServiceHandler],
+                     comparisons: dict[str, str]) -> Callable[[], None]:
+    def step() -> None:
+        handler.comparisons = comparisons
+
+    return step
+
+
+def _the_branch_holds_it() -> Assertion[bool]:
+    def assertion(held: bool) -> bool:
+        if held is not True:
+            raise AssertionError(
+                f"Expected the branch to hold the revision, and the caller got {held}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_platform_places(handler: type[FakeTargetServiceHandler],

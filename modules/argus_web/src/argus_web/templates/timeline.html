@@ -52,6 +52,11 @@
         {% if line.repeated > 1 %}
           <span class="repeated">&times;{{ line.repeated }}</span>
         {% endif %}
+        {# What a line says beside itself - Code-Fix's reading of the code,
+           where no pull request holds it - under the sentence, not in it. #}
+        {% if line.aside %}
+          <p class="aside">{{ line.aside }}</p>
+        {% endif %}
 
         {# The explanations, ranked, each with what it was formed from. The
            findings sit under the claim they support, because a reader asking

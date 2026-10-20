@@ -14,6 +14,7 @@ import pytest
 from argus_core import connect_from_env
 from argus_core.events import (
     AlertAcknowledged,
+    FixAttempted,
     HypothesisFormed,
     IncidentEvent,
     LogsRetrieved,
@@ -23,6 +24,7 @@ from argus_core.events import (
 from argus_core.models import (
     Alert,
     FailureMode,
+    FixOutcome,
     IncidentStatus,
     MetricBucket,
     RuleReading,
@@ -315,6 +317,32 @@ def test_the_evidence_shown_is_the_evidence_that_was_read() -> None:
         ) \
         .then(
             the_page_says(a_line_that_was_read)
+        )
+
+
+@pytest.mark.component
+def test_what_code_fix_said_of_the_code_is_shown_with_the_line_about_it() -> None:
+    # "Found no code-level fix" alone sends a reader nowhere. What Code-Fix
+    # said would have to change instead is the one lead the line has.
+    some_explanation = "scrape.yaml would have to name the port http-metrics"
+
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"))
+        _recorded(conn, FixAttempted(incident_id=incident_id,
+                                     outcome=FixOutcome.NOT_WARRANTED,
+                                     detail="dont care what the node said",
+                                     explanation=some_explanation))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(
+            the_page_says(some_explanation)
         )
 
 

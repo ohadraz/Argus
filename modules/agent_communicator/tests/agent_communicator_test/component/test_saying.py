@@ -31,6 +31,7 @@ from argus_core.events import (
     CandidateSelected,
     ChangesRetrieved,
     CommunicationFailed,
+    FixAttempted,
     IncidentEvent,
     OfferExpired,
     OnsetDetected,
@@ -45,6 +46,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    FixOutcome,
     IncidentStatus,
     Reference,
     Report,
@@ -224,6 +226,31 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
                 _that_message_names(slack, "Mitigation Agent"),
                 _that_message_marks(slack, "monthly-spend-feature")
             ))
+
+
+@pytest.mark.component
+def test_what_code_fix_said_of_the_code_reaches_the_thread_with_its_line(
+        slack: str, a_clean_database: None) -> None:
+    # Somebody following the thread is owed what somebody on the page reads:
+    # no code-level fix here, and what Code-Fix says would have to change.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_explanation = "scrape.yaml would have to name the port http-metrics"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_no_fix_found_on(incident_id,
+                                                                    some_explanation)),
+                                  Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack, some_explanation)
+            )
 
 
 @pytest.mark.component
@@ -888,6 +915,13 @@ def _the_write_up_of(incident_id: str) -> IncidentEvent:
     )
 
 
+def _no_fix_found_on(incident_id: str, explanation: str) -> IncidentEvent:
+    return FixAttempted(incident_id=incident_id,
+                        outcome=FixOutcome.NOT_WARRANTED,
+                        detail="dont care what the node said",
+                        explanation=explanation)
+
+
 def _a_candidate_quoting_names_on(incident_id: str) -> IncidentEvent:
     return CandidateSelected(incident_id=incident_id,
                              hypothesis_id=new_id(),
@@ -1058,6 +1092,17 @@ def _that_message_names(base_url: str, who: str) -> Assertion[Any]:
         said = messages_posted_to(base_url)[-1]["text"]
         if who not in said:
             raise AssertionError(f"Expected [{who}] named in [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _that_message_says(base_url: str, words: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        said = messages_posted_to(base_url)[-1]["text"]
+        if words not in said:
+            raise AssertionError(f"Expected [{words}] said in [{said}].")
 
         return True
 

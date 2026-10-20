@@ -1584,6 +1584,39 @@ def test_a_rules_series_that_did_not_get_worse_is_not_reported_as_the_harm(
 
 
 @pytest.mark.unit
+def test_a_rules_series_in_no_unit_anybody_named_is_said_to_be_so() -> None:
+    # Left unsaid, a model writes a bare number beside an alert in percent - or
+    # supplies a unit nothing measured. Told, it says the levels as numbers.
+    Scenario() \
+        .given(
+            an_incident_whose_series_names_no_unit := a_measured_incident(
+                rule_series=SOME_RULE_SERIES, rule_series_unit=None)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_series_names_no_unit)
+        ) \
+        .then(
+            _says("does not say what unit its series is in")
+        )
+
+
+@pytest.mark.unit
+def test_a_rules_series_in_a_named_unit_is_not_said_to_be_in_none() -> None:
+    Scenario() \
+        .given(
+            an_incident_whose_series_is_in_milliseconds := a_measured_incident(
+                rule_series=SOME_RULE_SERIES, rule_series_unit="ms")
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(),
+                                an_incident_whose_series_is_in_milliseconds)
+        ) \
+        .then(
+            _does_not_say("does not say what unit its series is in")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_rules_series_is_told_nothing_of_one() -> None:
     # Not a line saying the series sat at nothing: an incident paged by a rule
     # watching no series of its own has none to report.

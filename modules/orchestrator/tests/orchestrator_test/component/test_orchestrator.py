@@ -1050,7 +1050,8 @@ def _a_fix_channel_whose_question_is_traced(asked: list[str],
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -1068,7 +1069,8 @@ def _a_fix_channel_noting_what_it_was_told(told: list[list[ThreadMessage]]
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
         told.append(leads())
 
         return ProposedFix(pull_request=None, explanation=None)

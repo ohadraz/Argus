@@ -110,6 +110,10 @@ _INTENT = "Intent Agent"
 # been handed a chore rather than a person.
 _A_PERSON = "A person"
 
+# How what Code-Fix said of the code is introduced beside its line: a static
+# reading, which no test or run confirmed, and Code-Fix's rather than Argus's.
+_A_READING_NOTHING_RAN = "Code-Fix's reading of the code, which nothing ran"
+
 _AGENTS = {
     Actor.ORCHESTRATOR: _ARGUS,
     Actor.INVESTIGATOR: _INVESTIGATOR,
@@ -268,6 +272,11 @@ class NarrationLine(BaseModel):
     # attempt the marked word is the refusal, so a destination that linked
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
+    # A sentence to show under the line rather than in it - so far, what
+    # Code-Fix said of the code where no pull request holds its explanation,
+    # labelled as a reading nothing ran so it is not taken for a plan of
+    # Argus's. Left out of `said_in_full`: the postmortem carries it already.
+    aside: str = ""
     # Each word of the line as it is shown that opens somewhere, and where - so
     # far, a revision the incident read, said short and leading to its commit.
     # Set where a line is shown (`shown`) and nowhere else: the record and what
@@ -773,6 +782,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_to=moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
+        aside=_what_it_says_beside_itself(event),
         asks_to_confirm=(event.message
                          if isinstance(event, ResolutionOffered | WithdrawalOffered)
                          else None),
@@ -1022,6 +1032,23 @@ def _the_address_it_names(event: IncidentEvent) -> str:
         return event.pull_request.url
 
     return ""
+
+
+def _what_it_says_beside_itself(event: IncidentEvent) -> str:
+    """What Code-Fix said of the code, where no pull request holds it.
+
+    By whether a pull request holds the explanation rather than by a list of
+    outcomes: a proposal's explanation is in the pull request it opened, and
+    every other outcome that carries one - nothing to change, a fix held back,
+    a model that declined and said why - is the one place a reader learns what
+    would have to change instead.
+    """
+    if (not isinstance(event, FixAttempted)
+            or event.outcome is FixOutcome.PROPOSED
+            or not event.explanation):
+        return ""
+
+    return f"{_A_READING_NOTHING_RAN}: {event.explanation}"
 
 
 def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:

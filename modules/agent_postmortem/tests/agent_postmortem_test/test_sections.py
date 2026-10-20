@@ -1498,6 +1498,25 @@ def test_impact_carries_the_rules_series_where_it_got_worse() -> None:
 
 
 @pytest.mark.unit
+def test_impact_carries_the_unit_of_the_rules_series() -> None:
+    # The page says the levels in it, as the brief does.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=120.0, while_broken=640.0,
+                                             at_its_worst=910.0, worse_when="above"),
+                rule_series_unit="ms")
+        ) \
+        .when(
+            lambda: impact_of(measured).rule_series_harm
+        ) \
+        .then(
+            the_answer_was(RuleSeriesHarm(before=120.0, while_broken=640.0,
+                                          at_its_worst=910.0, worse_when="above", unit="ms"))
+        )
+
+
+@pytest.mark.unit
 def test_impact_carries_no_rules_series_that_held() -> None:
     # Nothing is not a harm, and a series no worse than before carried as one
     # would put a card for it on the page.

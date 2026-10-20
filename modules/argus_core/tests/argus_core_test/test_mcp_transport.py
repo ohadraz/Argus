@@ -37,6 +37,7 @@ from argus_core.mcp_transport import (
     PlatformUnreachable,
     TracedFastMCP,
     an_unreachable_platform,
+    every_tool_listed,
     serving_a_tool_call,
     what_was_left_behind,
 )
@@ -48,9 +49,10 @@ from argus_core.telemetry import (
     MCP_CLIENT_OPERATION_DURATION,
     MCP_METHOD_NAME,
 )
-from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from mcp.types import ListToolsResult, Tool
 from opentelemetry import baggage
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanContext, SpanKind, StatusCode
@@ -117,6 +119,56 @@ def test_one_session_answers_every_call_made_over_it(
         ) \
         .then(
             _every_call_answered(["something"], times=3)
+        )
+
+
+@pytest.mark.component
+def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
+    running_double: RunningDouble
+) -> None:
+    # The server owns its tools' definitions, and a client reads them rather
+    # than keeping copies - every one, as declared: which of them anybody offers
+    # a model, and whether it can be, is the offer's to decide.
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, lambda client: client.list_tools())
+        ) \
+        .then(
+            all_of(
+                _the_tools_listed_are([
+                    "say_something", "refuse", "times_refused", "refuse_as_exhausted",
+                    "refuse_as_unreachable_platform",
+                    "refuse_as_unreachable_platform_mid_action", "dawdle",
+                    "the_trace_i_am_in"
+                ]),
+                _the_tool_listed_requires("dawdle", ["seconds"]),
+                _the_tool_listed_is_described("refuse_as_exhausted",
+                                              "Refuses the way a tier refuses")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_list_of_tools_in_pages_is_read_to_its_last_page() -> None:
+    # MCP pages `tools/list`: an answer naming a next cursor has more to come,
+    # and a client stopping at the first page offers the model a part of what
+    # the server serves.
+    some_pages = {
+        None: ListToolsResult(tools=[_a_listed_tool("first"), _a_listed_tool("second")],
+                              nextCursor="after-second"),
+        "after-second": ListToolsResult(tools=[_a_listed_tool("third")])
+    }
+
+    async def page(cursor: str | None) -> ListToolsResult:
+        return some_pages[cursor]
+
+    Scenario() \
+        .when(
+            lambda: [tool.name for tool in asyncio.run(every_tool_listed(page))]
+        ) \
+        .then(
+            the_answer_was(["first", "second", "third"])
         )
 
 
@@ -690,6 +742,60 @@ def test_a_tool_that_raised_is_logged_as_a_warning_by_the_server(
                                   values={"tool": some_tool},
                                   failure=RuntimeError)
         )
+
+
+def _a_listed_tool(name: str) -> Tool:
+    return Tool(name=name, description="dont care what it does",
+                inputSchema={"type": "object", "properties": {}})
+
+
+def _the_tools_listed_are(expected: list[str]) -> Assertion[list[Tool]]:
+    def assertion(listed: list[Tool]) -> bool:
+        names = [tool.name for tool in listed]
+
+        if names != expected:
+            raise AssertionError(f"Expected the server's tools listed as {expected}, "
+                                 f"got {names}.")
+
+        return True
+
+    return assertion
+
+
+def _the_tool_listed_requires(name: str, required: list[str]) -> Assertion[list[Tool]]:
+    def assertion(listed: list[Tool]) -> bool:
+        declared = _the_tool_named(listed, name).inputSchema.get("required")
+
+        if declared != required:
+            raise AssertionError(
+                f"Expected [{name}] to require {required}, got {declared}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_tool_listed_is_described(name: str, words: str) -> Assertion[list[Tool]]:
+    def assertion(listed: list[Tool]) -> bool:
+        described = _the_tool_named(listed, name).description or ""
+
+        if words not in described:
+            raise AssertionError(f"Expected [{name}] described with [{words}], got "
+                                 f"[{described}].")
+
+        return True
+
+    return assertion
+
+
+def _the_tool_named(listed: list[Tool], name: str) -> Tool:
+    found = [tool for tool in listed if tool.name == name]
+
+    if len(found) != 1:
+        raise AssertionError(f"Expected one tool named [{name}], got {len(found)}.")
+
+    return found[0]
 
 
 def _served_raising(observed: Observed, tool: str, error: Exception) -> None:

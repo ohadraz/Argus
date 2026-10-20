@@ -226,6 +226,33 @@ def test_every_working_the_kinds_allow_is_written_in(working: str, written: str)
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("unit", "before", "at_worst", "working", "written"), [
+    ("ms", 900.0, 300.0, "{series_before - series_at_worst}", "600 ms"),
+    ("percentunit", 0.899, 0.446, "{series_before - series_at_worst}", "45.3 percentage points"),
+    ("ms", 900.0, 300.0, "{series_before / series_at_worst}", "3.0 times")
+], ids=["a-difference-in-milliseconds", "a-difference-of-two-percentages", "a-ratio"])
+def test_a_working_of_two_levels_is_written_in_their_unit(unit: str, before: float,
+                                                          at_worst: float, working: str,
+                                                          written: str) -> None:
+    # A level less a level is a level in the same unit - and two percentages
+    # differ by points, as two shares of traffic do. How many times is no unit.
+    Scenario() \
+        .given(
+            figures := figures_of(an_evidence_bundle(), a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=before, while_broken=at_worst,
+                                             at_its_worst=at_worst, worse_when="below"),
+                rule_series_unit=unit)),
+            an_answer_naming_it := SubmittedPostmortem(root_cause=f"It was {working}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_naming_it, figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause=f"It was {written}."))
+        )
+
+
+@pytest.mark.unit
 def test_the_names_a_sentence_uses_in_the_order_it_uses_them() -> None:
     Scenario() \
         .given(
@@ -837,6 +864,33 @@ def test_a_level_is_written_as_a_person_says_it_and_given_as_measured(
             measured := a_measured_incident(
                 rule_series=RuleSeriesLevels(baseline=level, while_broken=0.41,
                                              at_its_worst=0.12, worse_when="below"))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)[SERIES_BEFORE_FIGURE]
+        ) \
+        .then(
+            the_answer_was(Figure(given=given, written=written))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("unit", "level", "given", "written"), [
+    ("ms", 600.0, "600 ms", "600 ms"),
+    ("percentunit", 0.899, "89.9%", "89.9%"),
+    ("percentunit", 0.4456789, "44.56789%", "44.6%")
+], ids=["milliseconds", "a-share-of-one", "a-share-given-exactly-and-written-short"])
+def test_the_paging_rules_series_is_given_and_written_in_its_unit(
+        unit: str, level: float, given: str, written: str) -> None:
+    # Beside an alert saying "below 80%", a series written 0.899 is a second
+    # scale on one page. In its unit, and given exactly: a share of one moves
+    # its point and keeps every digit it was measured to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=level, while_broken=0.41,
+                                             at_its_worst=0.12, worse_when="below"),
+                rule_series_unit=unit)
         ) \
         .when(
             lambda: figures_of(evidence, measured)[SERIES_BEFORE_FIGURE]

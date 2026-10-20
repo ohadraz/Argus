@@ -162,7 +162,8 @@ def impact_of(measured: Measurements) -> Impact:
                                                   while_broken=series.while_broken,
                                                   at_its_worst=series.at_its_worst,
                                                   worse_when=series.worse_when,
-                                                  line=series.line)
+                                                  line=series.line,
+                                                  unit=measured.rule_series_unit)
                   if series is not None and series.got_worse else None)
 
 

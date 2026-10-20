@@ -37,6 +37,11 @@ FIELD_ASKED_BY = {query: field for field, query in QUERIES.items()}
 GRAFANA_PREFIX = "/grafana"
 RULE_DEFINITION_PREFIX = f"{GRAFANA_PREFIX}{RULE_DEFINITION_PATH.removesuffix('{rule}')}"
 
+# Where the fake answers as GitHub, under a prefix for the reason Prometheus is,
+# and the part of a comparison's path that names its two commits.
+GITHUB_PREFIX = "/github"
+COMPARISON_MARK = "/compare/"
+
 
 class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     logs: list[str] = []
@@ -58,6 +63,9 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     # One application's resource tree, in Argo CD's own wire shape: its pods
     # with the node each runs on, and the nodes with their labels.
     tree: dict[str, object] = {}
+    # How the second commit of each comparison stands to the first, by the
+    # `base...head` the comparison names, in GitHub's own words.
+    comparisons: dict[str, str] = {}
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
@@ -71,6 +79,14 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
 
             if rule in self.rules:
                 self._respond_with(self.rules[rule])
+            else:
+                self.send_response(404)
+                self.end_headers()
+        elif url.path.startswith(GITHUB_PREFIX) and COMPARISON_MARK in url.path:
+            basehead = url.path.partition(COMPARISON_MARK)[2]
+
+            if basehead in self.comparisons:
+                self._respond_with({"status": self.comparisons[basehead], "files": []})
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -128,12 +144,13 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     """Starts a fake Target Service (stdlib http.server, background thread,
-    serving canned `/logs`, Prometheus's range query, Grafana's rule definitions
-    and `/argocd/<application>` JSON) plus a real `read_mcp_server` subprocess
-    pointed at it - proves `read_mcp_client` reaches a real server without
-    Docker or a real Target Service. Yields the handler class so a test can set
-    `.logs`, `.metrics`, `.deploys`, `.rules`, `.rule_queries` and `.tree` before
-    calling through the client."""
+    serving canned `/logs`, Prometheus's range query, Grafana's rule definitions,
+    GitHub's comparisons and `/argocd/<application>` JSON) plus a real
+    `read_mcp_server` subprocess pointed at it - proves `read_mcp_client` reaches
+    a real server without Docker or a real Target Service. Yields the handler
+    class so a test can set `.logs`, `.metrics`, `.deploys`, `.rules`,
+    `.rule_queries`, `.tree` and `.comparisons` before calling through the
+    client."""
     fake_target_service = HTTPServer(
         ("127.0.0.1", FAKE_TARGET_SERVICE_PORT), FakeTargetServiceHandler
     )
@@ -153,6 +170,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     env["ARGOCD_BASE_URL"] = fake_target_service_url
     env["PROMETHEUS_BASE_URL"] = f"{fake_target_service_url}{PROMETHEUS_PREFIX}"
     env["GRAFANA_BASE_URL"] = f"{fake_target_service_url}{GRAFANA_PREFIX}"
+    env["GITHUB_API_URL"] = f"{fake_target_service_url}{GITHUB_PREFIX}"
     env["READ_MCP_HOST"] = "127.0.0.1"
     env["READ_MCP_PORT"] = str(READ_MCP_TEST_PORT)
     read_mcp_process = subprocess.Popen([sys.executable, "-m", "read_mcp_server.server"], env=env)
@@ -176,6 +194,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         FakeTargetServiceHandler.rules = {}
         FakeTargetServiceHandler.rule_queries = {}
         FakeTargetServiceHandler.tree = {}
+        FakeTargetServiceHandler.comparisons = {}
         del os.environ["READ_MCP_HOST"]
         del os.environ["READ_MCP_PORT"]
         get_settings.cache_clear()

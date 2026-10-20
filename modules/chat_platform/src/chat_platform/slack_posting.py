@@ -89,6 +89,12 @@ def as_slack_says_it(line: Line) -> str:
 
     Every part is said as text before any link is written in: Slack reads &,
     < and > as markup, and escaped afterwards, the links would be escaped too.
+
+    An aside is a paragraph of its own between the sentence and the link, in
+    the text rather than in a block: a section block holds 3,000 characters
+    and what Code-Fix says of the code runs longer, where a message's text is
+    cut only past 40,000 (docs.slack.dev, "Section block", "chat.postMessage").
+    No line with a button carries one, so the blocks never repeat it.
     """
     def as_said(part: str) -> str:
         return _linked(_escaped(part), line.links)
@@ -96,10 +102,11 @@ def as_slack_says_it(line: Line) -> str:
     said = (f"{as_said(line.before_emphasis)}{_BOLD}{as_said(line.emphasis)}{_BOLD}"
             f"{as_said(line.after_emphasis)}"
             if line.emphasis else as_said(line.text))
+    aside = f"\n\n{as_said(line.aside)}" if line.aside else ""
     linked = (f"\n{_LINK.format(url=line.link.url, label=line.link.label)}"
               if line.link is not None else "")
 
-    return f"{line.who}: {said}{linked}"
+    return f"{line.who}: {said}{aside}{linked}"
 
 
 def _escaped(text: str) -> str:

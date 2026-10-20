@@ -392,12 +392,13 @@ def _the_first_deploy_was_made_by(expected_actor: str) -> Assertion[list[ChangeE
 
 def _the_first_deploy_came_from(expected_repo_url: str) -> Assertion[list[ChangeEvent]]:
     def assertion(deploys: list[ChangeEvent]) -> bool:
-        source = deploys[0].source
+        source = deploys[0].revision_source
+        repository = source.repository_address if source is not None else None
 
-        if source is None or expected_repo_url not in source:
+        if repository != expected_repo_url:
             raise AssertionError(
                 f"Expected the deploy to come from [{expected_repo_url}], got "
-                f"[{source}]."
+                f"[{repository}]."
             )
 
         return True
@@ -409,8 +410,7 @@ def _the_first_deploy_says_it_shipped(expected_path: str) -> Assertion[list[Chan
     """That the summary names what the deployment touched, not only that one
     happened.
 
-    Against `summary` rather than `source`, and that is the point of the test:
-    the path already reached the model as a suffix on a URL, and the field it
+    Against `summary`, and that is the point of the test: the field the model
     reads said "deployed revision <sha>" - which is true of every deployment
     there has ever been.
     """

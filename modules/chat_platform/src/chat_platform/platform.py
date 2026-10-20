@@ -99,9 +99,10 @@ class Line(BaseModel):
     the channel should find without reading the line - the flag, the status,
     the verdict - with what comes before and after it, so the adapter marks it
     in its own platform's way; empty where nothing is set apart, and `text` is
-    the line whole. `link` is a page that holds more than the line does;
-    `links` are words of the line that each open somewhere of their own - a
-    revision, at its commit - and are linked where they are said.
+    the line whole. `aside` is a sentence said under the line rather than in
+    it, empty where there is none. `link` is a page that holds more than the
+    line does; `links` are words of the line that each open somewhere of their
+    own - a revision, at its commit - and are linked where they are said.
     """
 
     who: str
@@ -109,6 +110,7 @@ class Line(BaseModel):
     emphasis: str = ""
     before_emphasis: str = ""
     after_emphasis: str = ""
+    aside: str = ""
     link: Link | None = None
     links: dict[str, str] = Field(default_factory=dict)
 

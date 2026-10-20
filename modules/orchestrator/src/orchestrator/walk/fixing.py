@@ -6,8 +6,9 @@ import logging
 from functools import partial
 
 from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
+from argus_core import parse_iso
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
-from argus_core.models import FixOutcome, OpenedPullRequest, ThreadMessage
+from argus_core.models import ChangeKind, FixOutcome, OpenedPullRequest, ThreadMessage
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -78,7 +79,8 @@ def codefix_node(state: IncidentState,
             state.hypothesis,
             state.incident_id,
             still_wanted=partial(still_wanted, state.incident_id),
-            leads=partial(leads_of, state.incident_id)
+            leads=partial(leads_of, state.incident_id),
+            deployed=_what_was_running(state)
         )
     except FixStopped:
         # Logged by the agent where it stopped, which is the one place that
@@ -166,6 +168,34 @@ def codefix_node(state: IncidentState,
         detail=f"a draft pull request is open at {proposed.pull_request.url}",
         explanation=proposed.explanation
     )
+
+
+def _what_was_running(state: IncidentState) -> str | None:
+    """The revision that was running when the alert fired: the newest deploy
+    the alert came after, or `None` where none is known.
+
+    Bounded by the alert rather than by the onset. A deploy that stopped a
+    series' rows lands after the last row, so the onset would name the
+    revision before it; and anything deployed since the alert - a rollback of
+    Argus's own among them - is not what the incident is about.
+
+    `None` where the alert dated nothing, as well as where no deploy was read:
+    with no instant to bound it, the newest deploy could be the walk's own
+    rollback, and Code-Fix would be told something about a revision that
+    never caused anything.
+    """
+    fired_at = state.alert.started_at
+
+    if fired_at is None or not state.deployments:
+        return None
+
+    before = [deploy for deploy in state.deployments
+              if deploy.kind is ChangeKind.DEPLOY and parse_iso(deploy.occurred_at) <= fired_at]
+
+    if not before:
+        return None
+
+    return max(before, key=lambda deploy: parse_iso(deploy.occurred_at)).reference
 
 
 def _what_went_wrong(error: Exception) -> str:

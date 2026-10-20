@@ -60,6 +60,7 @@ from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 from read_mcp_client import (
+    branch_holds_revision,
     get_repository_index_freshness,
     list_repository_files,
     read_repository_file,
@@ -88,6 +89,7 @@ from agent_codefix.prompting import (
     the_paths_whose_content_is_not_source,
 )
 from agent_codefix.retrieval import (
+    BranchMembership,
     FileLister,
     FileReader,
     IndexNotice,
@@ -187,7 +189,8 @@ class Fixer(Protocol):
                  incident_id: str, /,
                  *,
                  still_wanted: StillWanted = ...,
-                 leads: Leads = ...) -> ProposedFix: ...
+                 leads: Leads = ...,
+                 deployed: str | None = ...) -> ProposedFix: ...
 
 
 # What the model is told when one call is all that is left, ridden in on the
@@ -237,6 +240,7 @@ def fixes_over(read: McpClient,
         search_by_meaning=partial(search_repository_by_meaning, client=read),
         index_notice=partial(get_repository_index_freshness, client=read),
         list_files=partial(list_repository_files, client=read),
+        holds=partial(branch_holds_revision, client=read),
         read_file=partial(read_repository_file, client=read),
         write_branch=partial(commit_to_new_branch, client=write),
         open_pull_request=partial(open_pull_request, client=write),
@@ -252,6 +256,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                 search_by_meaning: MeaningSearcher,
                 index_notice: IndexNotice,
                 list_files: FileLister,
+                holds: BranchMembership,
                 read_file: FileReader,
                 write_branch: BranchWriter,
                 open_pull_request: PullRequestOpener,
@@ -259,7 +264,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                 recorder: Recorder = records_nothing,
                 conversations: Conversations = a_conversation_recorded_for,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads
+                leads: Leads = no_leads,
+                deployed: str | None = None
                 ) -> ProposedFix:
     """Proposes a fix for `hypothesis` as a draft pull request, or nothing -
     with what the model said of the code either way.
@@ -304,6 +310,10 @@ def propose_fix(hypothesis: Hypothesis | None,
     standing the Investigator gave it or none. Asked before the conversation,
     for the opening, and again after every turn: a lead written since rides on
     the next result, and each is shown once.
+
+    `deployed` is the revision running when the alert fired, where one is
+    known. `holds` is asked whether the branch read has it, and the opening
+    says so only where it does not.
     """
     submitted = _what_the_model_submitted(
         hypothesis,
@@ -312,6 +322,8 @@ def propose_fix(hypothesis: Hypothesis | None,
         search_by_meaning=search_by_meaning,
         index_notice=index_notice,
         list_files=list_files,
+        holds=holds,
+        deployed=deployed,
         read_file=read_file,
         converse=converse or conversations(
             incident_id,
@@ -375,6 +387,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               search_by_meaning: MeaningSearcher,
                               index_notice: IndexNotice,
                               list_files: FileLister,
+                              holds: BranchMembership,
+                              deployed: str | None,
                               read_file: FileReader,
                               converse: Conversation,
                               still_wanted: StillWanted,
@@ -405,7 +419,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     shown = leads()
     transcript: list[Exchange] = [
         Ask(text=the_opening_message(
-            hypothesis, settings, index_notice, list_files, shown
+            hypothesis, settings, index_notice, list_files, shown,
+            deployed=deployed, holds=holds
         ))
     ]
     spend = a_budget_for(settings)

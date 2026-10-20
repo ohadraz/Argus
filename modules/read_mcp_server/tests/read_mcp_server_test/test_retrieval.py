@@ -745,15 +745,13 @@ def _a_mock_change_source() -> Any:
 def _a_deploy_of(revision: str, at: str) -> ChangeEvent:
     some_summary = f"deployed revision {revision}"
     some_actor = "kukibuki"
-    some_source = "https://github.com/kukibuki/k8s-configs/apps/target-service/production"
 
     return ChangeEvent(
         kind=ChangeKind.DEPLOY,
         occurred_at=at,
         reference=revision,
         summary=some_summary,
-        actor=some_actor,
-        source=some_source
+        actor=some_actor
     )
 
 

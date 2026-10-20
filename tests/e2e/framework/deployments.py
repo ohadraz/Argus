@@ -6,56 +6,95 @@ compare it with the revision before. The double holds the fixture and nothing
 else, so a pair nobody staged is a 404 - and the walk reads that as a repository
 it could not reach, not as the diff that is the diagnosis.
 
-Staged by the case rather than held by the double, for the reason the two
-blind-spot cases give: these are the scenarios' facts, and a double that named
-them would be keeping a copy of another repository's history. Kept here rather
-than in each case because two of them are seeded by more than one file.
+Staged by the case rather than held by the double, because these are the
+scenarios' facts and nothing else's. The double depends on nothing in the
+workspace, so it cannot derive a real commit of the Target Service - and a
+double that named these pairs would be keeping a copy of another repository's
+history, right until the next scenario named two other commits and 404'd on the
+comparison. Kept here rather than in each case because two of them are seeded by
+more than one file.
 
-Each pair is a hand-written excerpt of the real one: the lines either side of
-each change, as `Argus-Demo-Target-App` has them at the two commits. Not the
-whole file - the double compares the two texts it was given, so an excerpt
-answers with the real change and nothing else. Source files only: the tests a
-commit carried beside its change are left out.
+Each commit is staged with every file the real comparison lists, whole and as
+`Argus-Demo-Target-App` holds it at that commit - stored under
+`tests/e2e/committed/<sha7>/`, written there by `scripts/snapshot_the_commits.py`.
+Whole rather than an excerpt, because a recording is captured against the real
+repository: GitHub's patch numbers its hunks from where the change sits in the
+file and heads each with the line above it, and an excerpt starts every file at
+line one, so the walk a replay reads would not be the walk its recording read.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
 
 import httpx2
+from argus_core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 
 from tests.e2e.framework.argus import REQUEST_TIMEOUT_SECONDS
 
+# Where each commit's files are kept, one directory per commit named by its
+# first seven characters, each file under its path in the repository with a
+# suffix that keeps this repository's tools from reading it as code - the
+# convention the GitHub double's own fixture keeps.
+COMMITTED: Final = Path(__file__).parents[1] / "committed"
+STORED_AS: Final = ".txt"
+
 
 @dataclass(frozen=True)
 class DeploymentPair:
-    """A revision the shop's history names, the one before it, and what changed.
+    """A revision the shop's history names, and the one before it - its parent.
 
-    `files` maps each path to its text at the earlier commit and at the later one.
+    `on_main` is whether the shop's `main` holds `after`. Most scenarios ship a
+    revision from a branch of its own that was never merged, and Code-Fix reads
+    `main` - so whether what ran is there is a fact of the scenario, staged with
+    the rest of it, and what Code-Fix is told turns on it.
     """
 
     before: str
     after: str
-    files: dict[str, tuple[str, str]]
+    on_main: bool
+
+
+def as_committed(sha: str) -> dict[str, str]:
+    """Every file stored for `sha`, by its path in the repository.
+
+    Each was taken with `git show <sha>:<path>` in `Argus-Demo-Target-App`, by
+    `uv run python scripts/snapshot_the_commits.py`. A commit cannot change, so
+    a file stored once stays true.
+    """
+    held = COMMITTED / sha[:7]
+
+    return {
+        stored.relative_to(held).as_posix().removesuffix(STORED_AS):
+            stored.read_text(encoding="utf-8")
+        for stored in sorted(held.rglob(f"*{STORED_AS}"))
+    }
 
 
 def the_deployment_was_staged(pair: DeploymentPair) -> Callable[[], bool]:
-    """Puts both commits of a pair into the repository double.
+    """Puts both commits of a pair into the repository double, the later made
+    on the earlier, and says where `main` stands to them.
 
     Raises rather than answering `False`, for the reason `a_scenario_was_seeded`
     does: `calling` discards what a step returns, so a commit the double refused
     would go unnoticed until the walk read a 404 as the deployment's diff.
     """
     def stage_them() -> bool:
-        for sha, side in ((pair.before, 0), (pair.after, 1)):
+        for sha, parents in ((pair.before, []), (pair.after, [pair.before])):
             httpx2.post(
                 f"{GITHUB_DOUBLE_BASE_URL}/double-control/stage-commit",
-                json={
-                    "sha": sha,
-                    "files": {path: texts[side] for path, texts in pair.files.items()}
-                },
+                json={"sha": sha, "files": as_committed(sha), "parents": parents},
+                timeout=REQUEST_TIMEOUT_SECONDS
+            ).raise_for_status()
+
+        if pair.on_main:
+            httpx2.post(
+                f"{GITHUB_DOUBLE_BASE_URL}/double-control/stage-head",
+                json={"branch": get_settings().github_base_branch, "parents": [pair.after]},
                 timeout=REQUEST_TIMEOUT_SECONDS
             ).raise_for_status()
 
@@ -64,20 +103,27 @@ def the_deployment_was_staged(pair: DeploymentPair) -> Callable[[], bool]:
     return stage_them
 
 
+# `monitoring-blind-spot`: the metrics port renamed, and the scrape configuration
+# still selecting it by its old name.
+THE_METRICS_PORT_RENAMED = DeploymentPair(
+    before="e283ba3af732fc4285166a060b827b1305cd30d9",
+    after="9f4ad14582c99c497eb6c2d2af87566cd4493020",
+    on_main=True
+)
+
+# `monitoring-configuration-drift`: every port named for the protocol it
+# carries, the platform's convention, and the scrape configuration not following.
+THE_PORTS_NAMED_FOR_THEIR_PROTOCOL = DeploymentPair(
+    before="f061a97b221b57258899d4b3d82998815008d7bf",
+    after="53f02e9f6cb774f7f5869637bcc879941dcbc82d",
+    on_main=False
+)
+
 # `cache-misconfigured`: the cache's port moved in the values the shop ships.
 THE_CACHE_PORT_MOVED = DeploymentPair(
     before="544cef36a8eaf45c5b030c3d5c21473d8176cef3",
     after="0d8e826225f0de73958a8a8dd3d867b2ae249e72",
-    files={
-        "deploy/values-production.yaml": (
-            "cache:\n"
-            "  host: cache.io-shop.svc.cluster.local\n"
-            "  port: 6379\n",
-            "cache:\n"
-            "  host: cache.io-shop.svc.cluster.local\n"
-            "  port: 6380\n"
-        )
-    }
+    on_main=True
 )
 
 # `bad-deployment`: the lifetime average derived from the purchases, once per
@@ -85,34 +131,7 @@ THE_CACHE_PORT_MOVED = DeploymentPair(
 THE_AVERAGE_SLOWED = DeploymentPair(
     before="70dbcfde2b549d110a3817d92d60b6dd9786e78b",
     after="5e07d73148d0a704b8fefe5f379bc652bb773655",
-    files={
-        "src/io_shop/spend_summary.py": (
-            '''\
-    Live for years. Its divisor is empty only for an account that has never
-    bought anything at all, which no real shopper is.
-    """
-    return account.total_cents // len(account.purchases)
-''',
-            '''\
-    Live for years. Its divisor is empty only for an account that has never
-    bought anything at all, which no real shopper is.
-
-    Derives the total from the purchases rather than reading the one the account
-    carries, taking each purchase in and recomputing what has been spent by
-    then, so that the figure agrees with the list the shopper is looking at even
-    where the totals the query returned have drifted from it.
-    """
-    spent_by_then = 0
-
-    for index, _ in enumerate(account.purchases):
-        spent_by_then = sum(
-            earlier.price_cents for earlier in account.purchases[:index + 1]
-        )
-
-    return spent_by_then // len(account.purchases)
-'''
-        )
-    }
+    on_main=True
 )
 
 # `control-plane-unreachable`: which purchases fall in this month, decided from
@@ -121,54 +140,7 @@ THE_AVERAGE_SLOWED = DeploymentPair(
 THE_MONTH_BOUNDARY_MOVED = DeploymentPair(
     before="65279ee05d2cfae49802712847428bc55e794bb3",
     after="383534e9bb182bb778e01fd22ba63f88885362e3",
-    files={
-        "src/io_shop/spend_summary.py": (
-            '''\
-from __future__ import annotations
-
-from io_shop.accounts import Account
-from io_shop.typical_spend import typical_spend_per_item
-
-    show what a shopper is spending now rather than what they averaged over
-    three years.
-
-    A shopper who has bought nothing this month averages zero, rather than
-    dividing by an empty month.
-    """
-    bought_this_month = [
-        purchase for purchase in account.purchases if purchase.in_current_month
-    ]
-    if not bought_this_month:
-        return 0
-    return account.total_this_month_cents // len(bought_this_month)
-''',
-            '''\
-from __future__ import annotations
-
-from datetime import UTC, datetime
-
-from io_shop.accounts import Account
-from io_shop.typical_spend import typical_spend_per_item
-
-    show what a shopper is spending now rather than what they averaged over
-    three years.
-
-    This month is decided from when the purchase was recorded rather than from
-    the flag the writer set, so that a record which sat in a queue over a month
-    boundary counts against the month it happened in.
-    """
-    now = datetime.now(UTC)
-    bought_this_month = [
-        purchase
-        for purchase in account.purchases
-        if purchase.recorded_at is not None
-        and purchase.recorded_at.month == now.month
-        and purchase.recorded_at.year == now.year
-    ]
-    return account.total_this_month_cents // len(bought_this_month)
-'''
-        )
-    }
+    on_main=False
 )
 
 # `half-finished-rollout`: what the summary cache stores changed shape, with no
@@ -176,98 +148,7 @@ from io_shop.typical_spend import typical_spend_per_item
 THE_CACHE_ENTRY_RESHAPED = DeploymentPair(
     before="5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e",
     after="696c33a68b36aed6456cdc5b3806f33038488515",
-    files={
-        "src/io_shop/account_page.py": (
-            '''\
-    if found is not None:
-        return found, True, cache_failure
-''',
-            '''\
-    if found is not None:
-        return found.amount_cents, True, cache_failure
-'''
-        ),
-        "src/io_shop/summary_cache.py": (
-            '''\
-_ENDPOINT_FORMAT = "redis://{host}:{port}"
-
-
-@dataclass(frozen=True)
-class CacheAnswer:
-    reached: bool
-    summary_cents: int | None = None
-
-
-def cached_summary(shopper_id: str,
-                   look_up: LookUpSummary,
-                   endpoint: CacheEndpoint) -> int | None:
-    """The figure the cache holds for this shopper, or `None` where it holds
-    none.
-
-        raise CacheUnreachable(f"connection refused to {endpoint}")
-
-    return answer.summary_cents
-''',
-            '''\
-_ENDPOINT_FORMAT = "redis://{host}:{port}"
-
-# How an entry is written down, and what separates the two things it holds.
-_ENTRY_FORMAT = "{amount_cents}/{items_counted}"
-_ENTRY_SEPARATOR = "/"
-
-
-@dataclass(frozen=True)
-class SummaryEntry:
-    """What the cache holds for one shopper: the figure, and what it covers."""
-
-    amount_cents: int
-    items_counted: int
-
-    def __str__(self) -> str:
-        return _ENTRY_FORMAT.format(
-            amount_cents=self.amount_cents, items_counted=self.items_counted
-        )
-
-
-def summary_entry_in(written: str) -> SummaryEntry | None:
-    """The entry this text holds, or `None` where it holds none.
-
-    The shape above and no other. Text that does not carry the two fields an
-    entry has is text this revision has nothing to do with, and passing over it
-    is what the shop's fallback is for.
-    """
-    amount, separator, items = written.partition(_ENTRY_SEPARATOR)
-
-    if not separator:
-        return None
-
-    try:
-        return SummaryEntry(amount_cents=int(amount), items_counted=int(items))
-    except ValueError:
-        return None
-
-
-@dataclass(frozen=True)
-class CacheAnswer:
-    reached: bool
-    entry: str | None = None
-
-
-def cached_summary(shopper_id: str,
-                   look_up: LookUpSummary,
-                   endpoint: CacheEndpoint) -> SummaryEntry | None:
-    """The entry the cache holds for this shopper, or `None` where it holds
-    none.
-
-        raise CacheUnreachable(f"connection refused to {endpoint}")
-
-    if answer.entry is None:
-        return None
-
-    return summary_entry_in(answer.entry)
-'''
-        )
-    }
+    on_main=True
 )
 
 # `monthly-totals-falling-behind`: a purchase no longer moves its shopper's
@@ -275,67 +156,24 @@ def cached_summary(shopper_id: str,
 THE_MONTH_STOPPED_BEING_CARRIED = DeploymentPair(
     before="4c810f22894e612ced87f5ee3f3062dfeb785050",
     after="26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2",
-    files={
-        "src/io_shop/purchase_ledger.py": (
-            '''\
-def record_purchase(account: Account, purchase: Purchase) -> Account:
-    """The account with this purchase written into it, and both totals moved.
-
-    How a purchase has always been recorded. Each total is added to rather than
-    worked out again: the account already carries what has been spent, and a sale
-    changes it by exactly the price of the thing sold.
-
-    The month is the part worth reading twice. A purchase counts towards the
-    month's total only if it falls in the month being counted, so that addition is
-    conditional where the lifetime one is not - and a shopper backfilling an older
-    order leaves this month's figure exactly where it was.
-    """
-    return replace(
-        account,
-        purchases=(*account.purchases, purchase),
-        total_cents=account.total_cents + purchase.price_cents,
-        total_this_month_cents=(
-            account.total_this_month_cents + purchase.price_cents
-            if purchase.in_current_month
-            else account.total_this_month_cents
-        )
-    )
-''',
-            '''\
-def record_purchase(account: Account, purchase: Purchase) -> Account:
-    """The account with this purchase written into it, and its total moved.
-
-    How a purchase is recorded. The lifetime total is added to rather than worked
-    out again: the account already carries what has been spent, and a sale changes
-    it by exactly the price of the thing sold.
-
-    The month is no longer carried. Every purchase says whether it falls in the
-    current month, so what a shopper has spent this month adds up from the history
-    whenever anybody wants it - exactly as the lifetime average is derived from the
-    purchases rather than read off the account. A second copy of a figure the
-    purchases already hold is a copy that has to be kept in step, and the cheapest
-    way to keep it in step is not to keep it.
-    """
-    return replace(
-        account,
-        purchases=(*account.purchases, purchase),
-        total_cents=account.total_cents + purchase.price_cents
-    )
-'''
-        )
-    }
+    on_main=False
 )
 
 # `categoriser-model-upgraded`: the categoriser moved from model v1 to v2.
 THE_CATEGORISER_UPGRADED = DeploymentPair(
     before="d268103129978816ce705c50c14cd42c7c5fe46e",
     after="7c3ca00c7528df68d533f6e87acd4f23a55ab342",
-    files={
-        "deploy/values-production.yaml": (
-            "categoriser:\n"
-            "  model: v1\n",
-            "categoriser:\n"
-            "  model: v2\n"
-        )
-    }
+    on_main=False
+)
+
+# Every pair above, for the script that stores their files.
+EVERY_PAIR: Final = (
+    THE_METRICS_PORT_RENAMED,
+    THE_PORTS_NAMED_FOR_THEIR_PROTOCOL,
+    THE_CACHE_PORT_MOVED,
+    THE_AVERAGE_SLOWED,
+    THE_MONTH_BOUNDARY_MOVED,
+    THE_CACHE_ENTRY_RESHAPED,
+    THE_MONTH_STOPPED_BEING_CARRIED,
+    THE_CATEGORISER_UPGRADED
 )

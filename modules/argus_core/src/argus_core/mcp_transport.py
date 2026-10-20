@@ -43,7 +43,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager, suppress
 from types import TracebackType
@@ -54,7 +54,14 @@ import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, ContentBlock, TextContent
+from mcp.types import (
+    CallToolResult,
+    ContentBlock,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
 from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
@@ -74,6 +81,9 @@ from argus_core.telemetry import (
 )
 
 logger = logging.getLogger(__name__)
+
+# MCP's method for listing a server's tools, as a refusal names what was asked.
+_TOOLS_LIST_METHOD: Final = "tools/list"
 
 # Reading the clock a call's duration is measured on, so a test can hand over
 # one that reads exactly what it says.
@@ -415,6 +425,21 @@ class McpClient:
 
         return returns(answer)
 
+    def list_tools(self) -> list[Tool]:
+        """Every tool the server serves, as it declares them, in its own order.
+
+        The server owns a tool's definition (MCP, `tools/list`) and a caller
+        offers what it declares rather than keeping a copy. Every tool, as
+        declared: which of them anybody offers a model, and whether one can be,
+        is the offer's to decide - a server may serve a tool no offer could
+        carry, and reading it into one here would make the whole list
+        unreadable. Every page is read; a list stopped at its first is a part
+        of what is served.
+        """
+        return asyncio.run_coroutine_threadsafe(
+            self._listed(), self._running_loop()
+        ).result()
+
     @contextmanager
     def _a_tool_call(self, name: str) -> Iterator[dict[str, Any]]:
         """One call's span and duration, and the `_meta` that carries it across.
@@ -638,6 +663,35 @@ class McpClient:
                    arguments: dict[str, object],
                    meta: dict[str, Any]) -> object:
         """Calls the tool over whatever session is currently published."""
+        session = await self._the_session_for(name)
+
+        return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
+
+    async def _listed(self) -> list[Tool]:
+        """Every tool listed, and the one retry a held session needs - for
+        `_asked_again_if_the_connection_failed`'s reason."""
+        try:
+            return await self._every_tool_listed_now()
+        except McpUnreachable:
+            raise
+        except Exception:
+            logger.warning("tools listed again over a new session", exc_info=True,
+                           extra={"url": self._url})
+            await self._rebuilt()
+            return await self._every_tool_listed_now()
+
+    async def _every_tool_listed_now(self) -> list[Tool]:
+        """Every tool listed over whatever session is currently published."""
+        session = await self._the_session_for(_TOOLS_LIST_METHOD)
+
+        return await every_tool_listed(
+            lambda cursor: session.list_tools(
+                params=PaginatedRequestParams(cursor=cursor) if cursor else None
+            )
+        )
+
+    async def _the_session_for(self, asking: str) -> ClientSession:
+        """The session currently published, once there is one to use."""
         async with self._cycled:
             await self._cycled.wait_for(
                 lambda: self._generation > 0 or self._closing
@@ -646,13 +700,13 @@ class McpClient:
 
         if self._closing:
             raise McpUnreachable(
-                f"the client for [{self._url}] closed while [{name}] was in flight"
+                f"the client for [{self._url}] closed while [{asking}] was in flight"
             )
 
         if session is None:
             raise McpUnreachable(f"no session to [{self._url}]") from failure
 
-        return _answered(name, await session.call_tool(name, arguments=arguments, meta=meta))
+        return session
 
     async def _rebuilt(self) -> None:
         """Asks the holder for a new session and waits until it has one.
@@ -675,6 +729,26 @@ class McpClient:
             await self._cycled.wait_for(
                 lambda: self._generation != stale or self._closing
             )
+
+
+async def every_tool_listed(
+    page: Callable[[str | None], Awaitable[ListToolsResult]]
+) -> list[Tool]:
+    """Every tool a server lists, page after page, in the order it lists them.
+
+    MCP pages `tools/list`: an answer naming a next cursor has more to come,
+    and `page` is asked for the page after it until one names none.
+    """
+    listed: list[Tool] = []
+    cursor: str | None = None
+
+    while True:
+        answered = await page(cursor)
+        listed.extend(answered.tools)
+        cursor = answered.nextCursor
+
+        if not cursor:
+            return listed
 
 
 def _answered(name: str, result: CallToolResult) -> object:

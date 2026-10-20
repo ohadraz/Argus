@@ -74,6 +74,28 @@ def test_the_model_is_shown_every_line_of_the_timeline_with_when_and_who() -> No
 
 
 @pytest.mark.unit
+def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
+    # Where Code-Fix found nothing to change, what it said would have to change
+    # elsewhere is the thread's likeliest question - and the answer is on the
+    # line, beside its sentence rather than in it.
+    asked: Kept[Transcript] = Kept()
+    some_aside = "Code-Fix's reading of the code, which nothing ran: scrape.yaml names the old port"
+    some_timeline = [
+        NarrationLine(at=datetime(2026, 10, 11, 12, 9, tzinfo=UTC),
+                      kind="fix-attempted",
+                      who="Code-Fix Agent",
+                      text="Read the code and found no code-level fix to make",
+                      aside=some_aside)
+    ]
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
+        .then(_the_model_was_shown(asked, some_aside))
+
+
+@pytest.mark.unit
 def test_the_model_is_held_to_the_timeline() -> None:
     asked: Kept[Transcript] = Kept()
 

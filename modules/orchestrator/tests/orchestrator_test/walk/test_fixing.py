@@ -15,6 +15,7 @@ human it was on its way to, and the investigation behind it would be lost.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -23,6 +24,8 @@ from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import (
     Alert,
+    ChangeEvent,
+    ChangeKind,
     FixOutcome,
     Hypothesis,
     IncidentStatus,
@@ -49,6 +52,11 @@ from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead
 
 DONT_CARE_ALERT = Alert(service="kuki", alert_name="HighErrorRate")
 DONT_CARE_INCIDENT_ID = "buki-123"
+
+THE_ALERT_FIRED_AT = datetime(2026, 9, 27, 9, 20, tzinfo=UTC)
+AN_EARLIER_REVISION = "65279ee05d2cfae49802712847428bc55e794bb3"
+THE_REVISION_THAT_RAN = "383534e9bb182bb778e01fd22ba63f88885362e3"
+A_LATER_REVISION = "4c810f22894e612ced87f5ee3f3062dfeb785050"
 
 
 @pytest.mark.unit
@@ -512,6 +520,76 @@ def test_the_agent_is_told_which_incident_it_is_fixing() -> None:
 
 
 @pytest.mark.unit
+def test_the_agent_is_told_the_revision_running_when_the_alert_fired() -> None:
+    # Code-Fix reads one branch, and is told when that branch does not hold
+    # what ran. What ran is the newest deploy the alert came after - not one
+    # made since, which a rollback or anybody else may have put out, and not
+    # the newest before the onset: a deploy that stopped a series' rows lands
+    # after its last row, and is still the one that ran.
+    Scenario() \
+        .given(
+            an_incident_after_three_deploys := _an_incident_in(
+                IncidentStatus.FIXING,
+                alert=Alert(service="kuki", alert_name="HighErrorRate",
+                            started_at=THE_ALERT_FIRED_AT),
+                deployments=[
+                    _a_deploy(AN_EARLIER_REVISION, "2026-09-27T09:00:00Z"),
+                    _a_deploy(THE_REVISION_THAT_RAN, "2026-09-27T09:14:00Z"),
+                    _a_deploy(A_LATER_REVISION, "2026-09-27T09:30:00Z")
+                ]
+            ),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_after_three_deploys, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_told_what_ran(the_agent, THE_REVISION_THAT_RAN)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_deploy_recorded_tells_the_agent_of_none() -> None:
+    # Nothing known to have run is nothing to ask the branch about - and a
+    # history nobody could read is not one in which something was deployed.
+    Scenario() \
+        .given(
+            an_incident_with_no_deploys_read := _an_incident_in(
+                IncidentStatus.FIXING, deployments=None
+            ),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_with_no_deploys_read, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_told_what_ran(the_agent, None)
+        )
+
+
+@pytest.mark.unit
+def test_an_alert_that_dated_nothing_tells_the_agent_of_none() -> None:
+    # With no instant to bound it, the newest deploy could be the walk's own
+    # rollback - and Code-Fix would be told of a revision that never caused
+    # anything. Silence loses a caveat; the guess could state something false.
+    Scenario() \
+        .given(
+            an_incident_whose_alert_dated_nothing := _an_incident_in(
+                IncidentStatus.FIXING,
+                alert=Alert(service="kuki", alert_name="HighErrorRate", started_at=None),
+                deployments=[_a_deploy(THE_REVISION_THAT_RAN, "2026-09-27T09:14:00Z")]
+            ),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_whose_alert_dated_nothing, the_agent.propose)
+        ) \
+        .then(
+            _the_agent_was_told_what_ran(the_agent, None)
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_hypothesis_is_still_asked_about() -> None:
     # A walk can reach here having concluded nothing. Code-Fix is asked anyway,
     # about nothing, because "I looked and found nothing" and "I never looked"
@@ -611,17 +689,20 @@ class _AnAgentRememberingWhatItWasAsked:
         self.incident_id: str | None = None
         self.still_wanted: StillWanted | None = None
         self.leads: Leads | None = None
+        self.deployed: str | None = None
 
     def propose(self,
                 hypothesis: Hypothesis | None,
                 incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
         self.still_wanted = still_wanted
         self.leads = leads
+        self.deployed = deployed
 
         return ProposedFix(pull_request=None, explanation=None)
 
@@ -633,7 +714,8 @@ def _an_agent_offering(proposal: OpenedPullRequest | None,
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=proposal, explanation=explaining)
 
     return propose
@@ -646,7 +728,8 @@ def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=None, explanation=explaining,
                            needs_code_outside=True)
 
@@ -665,7 +748,8 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
                 dont_care_incident_id: str,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
-                leads: Leads = no_leads) -> ProposedFix:
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
         raise failure
 
     return propose
@@ -677,11 +761,36 @@ def a_pull_request(url: str = "https://github.invalid/dont-care/dont-care/pull/1
 
 
 def _an_incident_in(status: IncidentStatus,
-                    hypothesis: Hypothesis | None = None) -> IncidentState:
+                    hypothesis: Hypothesis | None = None,
+                    alert: Alert = DONT_CARE_ALERT,
+                    deployments: list[ChangeEvent] | None = None) -> IncidentState:
     return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
-                         alert=DONT_CARE_ALERT,
+                         alert=alert,
                          status=status,
-                         hypothesis=hypothesis)
+                         hypothesis=hypothesis,
+                         deployments=deployments)
+
+
+def _a_deploy(revision: str, at: str) -> ChangeEvent:
+    return ChangeEvent(kind=ChangeKind.DEPLOY,
+                       occurred_at=at,
+                       reference=revision,
+                       summary="dont-care-summary")
+
+
+def _the_agent_was_told_what_ran(
+    agent: _AnAgentRememberingWhatItWasAsked, revision: str | None
+) -> Assertion[StateDelta]:
+    def assertion(_updates: StateDelta) -> bool:
+        if agent.deployed != revision:
+            raise AssertionError(
+                f"Expected Code-Fix to be told [{revision}] was running, it was "
+                f"told [{agent.deployed}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_agent_was_asked_about(
@@ -761,7 +870,8 @@ def _an_agent_raising(error: Exception) -> ProposeFix:
                dont_care_incident_id: str,
                *,
                still_wanted: StillWanted = wanted_throughout,
-               leads: Leads = no_leads) -> Any:
+               leads: Leads = no_leads,
+               deployed: str | None = None) -> Any:
         raise error
 
     return refuse

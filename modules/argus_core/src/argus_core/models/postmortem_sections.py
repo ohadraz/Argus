@@ -341,6 +341,10 @@ class RuleSeriesHarm(BaseModel):
     reader bridge the levels to the alert's words, which may say "80%" of a
     series read as 0.8, without anything guessing a unit. `None` where it could
     not be read.
+
+    `unit` is the unit the levels and the line are in, as Grafana names it, and
+    `None` where nothing said one - which a document written before the unit was
+    carried reads as.
     """
 
     before: float
@@ -348,6 +352,7 @@ class RuleSeriesHarm(BaseModel):
     at_its_worst: float
     worse_when: WorseWhen
     line: float | None = None
+    unit: str | None = None
 
 
 class Impact(BaseModel):

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import said_as_a_level
+from argus_core import level_said_in
 from argus_core.models import AlarmClaim, Alert, Impact, ImpactExtent, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
@@ -139,9 +139,10 @@ def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     order says which way it went, whichever way is worse. Said as what the
     alert watches, since only the rule knows what the series measures - the
     alert's name is the document's title, and in a card too narrow for it the
-    PDF breaks it mid-word. In plain numbers, since only the rule knows its
-    unit; each written as the prose writes a level, so the card and the
-    sentence beside it are one figure. On average while broken, as the error
+    PDF breaks it mid-word. In the unit the rule's panel or its metric's name
+    says, and in plain numbers where neither says one; each written as the
+    prose writes a level, so the card and the sentence beside it are one
+    figure. On average while broken, as the error
     rate is, with the worst minute in the note: one minute alone overstates
     the stretch.
 
@@ -154,13 +155,14 @@ def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     if harm is None:
         return ()
 
-    line = (f"; the rule's line is {said_as_a_level(harm.line)}"
-            if harm.line is not None else "")
+    def said(level: float) -> str:
+        return level_said_in(level, harm.unit)
 
-    return (Card(value=f"{said_as_a_level(harm.before)} to "
-                       f"{said_as_a_level(harm.while_broken)}",
+    line = f"; the rule's line is {said(harm.line)}" if harm.line is not None else ""
+
+    return (Card(value=f"{said(harm.before)} to {said(harm.while_broken)}",
                  label=f"what the alert watches, {_BEFORE_AND_WHILE_BROKEN}",
-                 note=f"worst minute {said_as_a_level(harm.at_its_worst)}{line}"),)
+                 note=f"worst minute {said(harm.at_its_worst)}{line}"),)
 
 
 def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:

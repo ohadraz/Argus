@@ -13,25 +13,37 @@ change itself, written the way GitHub writes it. A double that sent the name
 alone put a `KeyError` where an investigation's evidence should have been, and
 no case noticed.
 
+And whether each deployment a scenario stages reads exactly as GitHub reads
+it. A recording is captured against GitHub and replayed against the double, so a
+staged pair whose patch differs by one hunk header is a replay whose model input
+differs from its recording's - which the double's divergence check reports, for
+a reason that has nothing to do with the recording.
+
 Read-only against a public repository, so this is behind the free contract
 session (`nox -s contract`) and needs only a read token.
 """
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 from uuid import uuid4
 
 import httpx2
 import pytest
 from argus_core import get_settings
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 from github_double.repository import DEFAULT_BASE_BRANCH, DEFAULT_FILES
 from github_double.server import DEFAULT_BASE_URL
 from repository_source import (
     RepositorySourceSettings,
     SourceDifference,
     the_difference_between,
+)
+
+from tests.e2e.framework.deployments import (
+    EVERY_PAIR,
+    DeploymentPair,
+    the_deployment_was_staged,
 )
 
 # Every status GitHub documents for a file in a comparison (its "diff-entry").
@@ -69,6 +81,111 @@ def test_a_comparison_reads_the_same_from_the_double_as_from_github() -> None:
         )) \
         .when(lambda: the_difference_between(THE_COMMIT_BEFORE_MAIN, MAIN, at_github)) \
         .then(all_of(_it_names_some_file(), _it_reads_as(_the_double_compared())))
+
+
+@pytest.mark.contract
+@needs_a_real_repository
+@pytest.mark.parametrize("pair", EVERY_PAIR, ids=lambda pair: pair.after[:7])
+def test_every_staged_deployment_reads_exactly_as_github_compares_it(
+    pair: DeploymentPair
+) -> None:
+    # Exactly, unlike the case above: the same two commits, so the same files
+    # in the same order with the same statuses and patches, and the same
+    # standing of one commit to the other. Anything less is a replay reading a
+    # diff its recording never read.
+    Scenario() \
+        .given(calling(lambda: _the_double_holds(pair))) \
+        .when(lambda: _github_compares(pair.before, pair.after)) \
+        .then(_it_is_what_the_double_compares(pair))
+
+
+@pytest.mark.contract
+@needs_a_real_repository
+@pytest.mark.parametrize("pair", EVERY_PAIR, ids=lambda pair: pair.after[:7])
+def test_every_staged_deployment_stands_to_main_as_it_does_at_github(
+    pair: DeploymentPair
+) -> None:
+    # The fact Code-Fix is told turns on: whether `main` holds what ran. Staged
+    # per case as `on_main`, and checked here against the repository it is a
+    # fact about. The standing alone - real `main` moves, so how many commits
+    # lie between is GitHub's to know and no case's to stage.
+    Scenario() \
+        .given(calling(lambda: _the_double_holds(pair))) \
+        .when(lambda: _github_compares(pair.after, MAIN)["status"]) \
+        .then(_it_is_how_the_double_stands(pair))
+
+
+def _it_is_how_the_double_stands(pair: DeploymentPair) -> Assertion[str]:
+    def assertion(at_github: str) -> bool:
+        at_the_double = _compared_at(DEFAULT_BASE_URL, "some-owner/some-repository",
+                                     pair.after, DEFAULT_BASE_BRANCH, {})["status"]
+
+        if at_github != at_the_double:
+            raise AssertionError(
+                f"Expected [{pair.after[:7]}] to stand to main at the double as it does "
+                f"at GitHub, [{at_github}], and the double says [{at_the_double}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_double_holds(pair: DeploymentPair) -> None:
+    httpx2.post(f"{DEFAULT_BASE_URL}/double-control/reset", timeout=10.0).raise_for_status()
+    the_deployment_was_staged(pair)()
+
+
+def _github_compares(base: str, head: str) -> dict[str, Any]:
+    return _compared_at(
+        get_settings().github_api_url,
+        get_settings().github_repository,
+        base,
+        head,
+        {"Authorization": f"Bearer {get_settings().github_read_token}"}
+    )
+
+
+def _it_is_what_the_double_compares(pair: DeploymentPair) -> Assertion[dict[str, Any]]:
+    def assertion(from_github: dict[str, Any]) -> bool:
+        real = _as_compared(from_github)
+        stood_in = _as_compared(_compared_at(
+            DEFAULT_BASE_URL, "some-owner/some-repository", pair.before, pair.after, {}
+        ))
+
+        if real != stood_in:
+            raise AssertionError(
+                f"Expected the double to compare [{pair.before[:7]}...{pair.after[:7]}] "
+                f"exactly as GitHub does, {real}, and it compared {stood_in}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _compared_at(api_url: str,
+                 repository: str,
+                 base: str,
+                 head: str,
+                 headers: dict[str, str]) -> dict[str, Any]:
+    answered = httpx2.get(
+        f"{api_url}/repos/{repository}/compare/{base}...{head}",
+        headers=headers,
+        timeout=30.0
+    )
+    answered.raise_for_status()
+    compared: dict[str, Any] = answered.json()
+
+    return compared
+
+
+def _as_compared(compared: dict[str, Any]) -> tuple[str, list[tuple[str, str, str | None]]]:
+    """The standing of the two commits, and each file as a reader is handed it."""
+    return (
+        str(compared["status"]),
+        [(each["filename"], each["status"], each.get("patch")) for each in compared["files"]]
+    )
 
 
 def _the_double_compared() -> SourceDifference:

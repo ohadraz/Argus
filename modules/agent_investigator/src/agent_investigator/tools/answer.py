@@ -190,8 +190,9 @@ def _one_explanation() -> dict[str, Any]:
                     "a feature flag, a revision or a service copied verbatim from the "
                     "evidence, a file by its path in the repository, or a key nested "
                     "in a configuration file by its full dotted path, `section.key`. "
-                    "Null when the cause names nothing specific, and null when you "
-                    "named no cause at all."
+                    "An explanation that reads a change another explanation blames "
+                    "another way still names that change. Null only when the cause "
+                    "names nothing specific at all, and null when you named no cause."
                 )
             },
             "from_state": _a_state(

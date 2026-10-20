@@ -1010,6 +1010,23 @@ def test_the_query_of_the_rules_series_is_read_off_the_rule_that_paged() -> None
 
 
 @pytest.mark.unit
+def test_the_unit_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
+    # Only the rule's panel or its metric's name says what unit its levels are
+    # in, and both are read where the rule is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(300, series_unit="ms"))).rule_series_unit
+        ) \
+        .then(
+            the_answer_was("ms")
+        )
+
+
+@pytest.mark.unit
 def test_whether_the_rule_held_before_the_onset_is_read_off_the_minutes_its_wait_reaches() -> None:
     # The alert 4m 34s after the onset, from a rule that waits five, and the
     # minute before the onset short of the rule's line: the record a page said

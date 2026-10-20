@@ -35,6 +35,10 @@ class AlertRuleStanding(BaseModel):
     `series_query` is the query of the series the rule's condition is evaluated
     over - what the series is, where the alert's words say only when it pages -
     and `None` where no one series could be followed to.
+
+    `series_unit` is the unit that series is in, as Grafana names a unit
+    (`ms`, `s`, `percentunit`), and `None` where nothing said one: unknown,
+    never guessed, since a level said in the wrong unit is wrong by its scale.
     """
 
     rule: str
@@ -45,3 +49,4 @@ class AlertRuleStanding(BaseModel):
     keep_firing_for_seconds: int = Field(ge=0)
     pending_seconds: int = Field(ge=0)
     series_query: str | None = None
+    series_unit: str | None = None

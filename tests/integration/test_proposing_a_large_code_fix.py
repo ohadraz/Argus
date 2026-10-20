@@ -115,6 +115,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     search_by_meaning=_nothing_found,
                     index_notice=_nothing_to_say,
                     list_files=_no_files,
+                    holds=_held,
                     read_file=_an_empty_file,
                     write_branch=partial(commit_to_new_branch, client=write),
                     open_pull_request=partial(open_pull_request, client=write)
@@ -160,6 +161,10 @@ def _nothing_to_say(_ref: str, /) -> str:
 
 def _no_files(_ref: str, /) -> list[str]:
     return []
+
+
+def _held(_branch: str, _revision: str, /) -> bool:
+    return True
 
 
 def _an_empty_file(_path: str, _ref: str, /) -> str:

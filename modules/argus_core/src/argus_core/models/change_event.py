@@ -73,7 +73,6 @@ class ChangeEvent(BaseModel):
     # named for is still a real change; dropping it for want of a name would
     # lose the evidence.
     actor: str | None = None
-    source: str | None = None
     # Where a deploy's revision can be opened. `None` for a flag toggle, and for
     # a deploy from a repository whose host's pages Argus does not know.
     revision_source: RevisionSource | None = None

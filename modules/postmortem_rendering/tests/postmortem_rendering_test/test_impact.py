@@ -336,6 +336,35 @@ def test_a_series_card_names_the_line_its_rule_pages_past() -> None:
             the_answer_was("worst minute 0.391; the rule's line is 0.8"))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(("harm", "value", "note"), [
+    (RuleSeriesHarm(before=120.0, while_broken=640.0, at_its_worst=910.0,
+                    worse_when="above", line=600.0, unit="ms"),
+     "120 ms to 640 ms", "worst minute 910 ms; the rule's line is 600 ms"),
+    (RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                    worse_when="below", line=0.8, unit="percentunit"),
+     "89.9% to 45.9%", "worst minute 39.1%; the rule's line is 80%")
+], ids=["milliseconds", "a-share-of-one"])
+def test_a_series_card_says_its_levels_in_their_unit(harm: RuleSeriesHarm, value: str,
+                                                     note: str) -> None:
+    # Beside an alert saying "below 80%", a card reading 0.899 to 0.459 is a
+    # second scale - in its unit, the card and the alert read as one.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=None, rule_series_harm=harm))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("CategorisationConfidenceLow")).cards[3]
+        ) \
+        .then(
+            the_answer_was(Card(value=value,
+                                label="what the alert watches, before onset and while broken "
+                                      "on average",
+                                note=note)))
+
+
 def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:
     def assertion(cards: tuple[Card, ...]) -> bool:
         values = tuple(card.value for card in cards)

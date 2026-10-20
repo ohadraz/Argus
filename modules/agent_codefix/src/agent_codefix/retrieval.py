@@ -53,3 +53,14 @@ class FileLister(Protocol):
 
 class FileReader(Protocol):
     def __call__(self, path: str, ref: str, /) -> str: ...
+
+
+class BranchMembership(Protocol):
+    """Whether the branch read holds the revision that ran.
+
+    Asked once, before the conversation starts, like the index notice: a model
+    that learns the files it read are not the files that ran has learned it
+    after it described them.
+    """
+
+    def __call__(self, branch: str, revision: str, /) -> bool: ...

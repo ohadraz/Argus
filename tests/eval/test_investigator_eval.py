@@ -2074,8 +2074,7 @@ def a_deploy_at(offset_minutes: int, revision: str, summary: str) -> ChangeEvent
         occurred_at=_minute(offset_minutes),
         reference=revision,
         summary=summary,
-        actor="release-bot",
-        source="https://github.com/acme/k8s-configs/apps/checkout/production"
+        actor="release-bot"
     )
 
 
@@ -2914,9 +2913,7 @@ def a_flag_switched_off_at(offset_minutes: int, flag: str) -> ChangeEvent:
         occurred_at=_minute(offset_minutes),
         reference=flag,
         summary=f"feature flag '{flag}' switched from 'on' to 'off'",
-        actor="ops-console",
-        source="https://flags.acme.internal/projects/default/features/"
-               f"{flag}"
+        actor="ops-console"
     )
 
 
@@ -2932,9 +2929,7 @@ def a_flag_change_at(offset_minutes: int, flag: str) -> ChangeEvent:
         occurred_at=_minute(offset_minutes),
         reference=flag,
         summary=f"feature flag '{flag}' switched from 'off' to 'on'",
-        actor="ops-console",
-        source="https://flags.acme.internal/projects/default/features/"
-               f"{flag}"
+        actor="ops-console"
     )
 
 

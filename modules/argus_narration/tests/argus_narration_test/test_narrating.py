@@ -116,6 +116,10 @@ from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 
 SOME_MINUTE = "2026-08-30T10:14:00Z"
+
+# What Code-Fix said of the code it read, where a fix is no pull request.
+SOME_EXPLANATION = ("The scrape selects the metrics port by its old name, so "
+                    "scrape.yaml would have to name http-metrics instead.")
 AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
 SOME_ONSET = datetime(2026, 8, 30, 10, 13, tzinfo=UTC)
@@ -2124,6 +2128,88 @@ def test_a_fix_that_could_not_be_proposed_says_what_stopped_it() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("outcome", [
+    FixOutcome.NOT_WARRANTED, FixOutcome.NOT_OPENED, FixOutcome.DECLINED
+])
+def test_what_code_fix_said_of_the_code_travels_beside_a_fix_no_pull_request_holds(
+        outcome: FixOutcome) -> None:
+    # What the model said would have to change somewhere else reached the
+    # postmortem alone: the page and the thread said "found no code-level fix"
+    # and nothing of where to look instead. Labelled as a reading nothing ran,
+    # so it is not taken for a plan of Argus's.
+    some_fix = FixAttempted(
+        incident_id=new_id(),
+        outcome=outcome,
+        pull_request=None,
+        detail="dont care what the node said",
+        explanation=SOME_EXPLANATION
+    )
+
+    Scenario() \
+        .given(some_fix) \
+        .when(lambda: build_narration([some_fix])) \
+        .then(_the_only_lines_aside_says(SOME_EXPLANATION, "nothing ran"))
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_carries_no_aside_as_its_pull_request_holds_the_explanation() -> None:
+    some_proposal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.PROPOSED,
+        pull_request=OpenedPullRequest(
+            number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"
+        ),
+        detail="dont care what the node said",
+        explanation=SOME_EXPLANATION
+    )
+
+    Scenario() \
+        .given(some_proposal) \
+        .when(lambda: build_narration([some_proposal])) \
+        .then(_the_only_line_carries_no_aside())
+
+
+@pytest.mark.unit
+def test_a_fix_attempt_that_said_nothing_of_the_code_carries_no_aside() -> None:
+    could_not = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_POSSIBLE,
+        pull_request=None,
+        detail="the repository refused the branch"
+    )
+
+    Scenario() \
+        .given(could_not) \
+        .when(lambda: build_narration([could_not])) \
+        .then(_the_only_line_carries_no_aside())
+
+
+@pytest.mark.unit
+def test_a_line_said_in_full_leaves_its_aside_out() -> None:
+    # Said in full is how the postmortem's model reads the timeline, and the
+    # document already carries what Code-Fix said in a finding of its own:
+    # said here as well, the same paragraph would reach it twice.
+    some_fix = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.NOT_WARRANTED,
+        pull_request=None,
+        detail="dont care what the node said",
+        explanation=SOME_EXPLANATION
+    )
+
+    Scenario() \
+        .given(
+            some_line := _the_only(build_narration([some_fix]))
+        ) \
+        .when(
+            lambda: said_in_full(some_line)
+        ) \
+        .then(
+            _does_not_say(SOME_EXPLANATION)
+        )
+
+
+@pytest.mark.unit
 def test_a_rollback_is_said_as_a_rollback_when_it_is_taken() -> None:
     # Words for the third kind of action. Without them the line rendered as
     # the tag's own identifier - "roll-back-deployment" - which reads as a
@@ -2910,6 +2996,44 @@ def _the_only_line_names_the_address(expected: str) -> Assertion[list[NarrationL
             raise AssertionError(
                 f"Expected the line to name [{expected}], got [{line.names_url}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_only_lines_aside_says(*expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+        missing = [one for one in expected if one not in line.aside]
+
+        if missing:
+            raise AssertionError(
+                f"Expected the line's aside to say {missing}, and it said [{line.aside}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_carries_no_aside() -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.aside:
+            raise AssertionError(f"Expected the line to carry no aside, and it carried "
+                                 f"[{line.aside}].")
+
+        return True
+
+    return assertion
+
+
+def _does_not_say(unwanted: str) -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        if unwanted in said:
+            raise AssertionError(f"Expected no [{unwanted}] in [{said}].")
 
         return True
 

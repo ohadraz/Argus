@@ -233,6 +233,7 @@ def _the_chat_line(line: NarrationLine,
                 emphasis=said.emphasis,
                 before_emphasis=said.before_emphasis,
                 after_emphasis=said.after_emphasis,
+                aside=said.aside,
                 link=link,
                 links=said.links)
 

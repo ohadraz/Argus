@@ -25,7 +25,7 @@ from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage
 from agent_codefix.budget import FixSettings
 from agent_codefix.naming import files_named_in
 from agent_codefix.prompting import SUBMIT_TOOL_NAME
-from agent_codefix.retrieval import FileLister, IndexNotice
+from agent_codefix.retrieval import BranchMembership, FileLister, IndexNotice
 from agent_codefix.tools import SEARCH_BY_MEANING_TOOL, SEARCH_TOOL
 
 logger = logging.getLogger(__name__)
@@ -71,13 +71,17 @@ def the_opening_message(hypothesis: Hypothesis | None,
                         settings: FixSettings,
                         index_notice: IndexNotice,
                         list_files: FileLister,
-                        leads: Sequence[ThreadMessage] = ()) -> str:
+                        leads: Sequence[ThreadMessage] = (),
+                        *,
+                        deployed: str | None,
+                        holds: BranchMembership) -> str:
     """The first thing the model is sent, built for this incident alone.
 
-    Assembled rather than templated, because four of its paragraphs are
+    Assembled rather than templated, because five of its paragraphs are
     conditional on what this deployment can do, what the investigation
-    actually found and whether anybody wrote in the incident's thread - and an
-    empty heading tells a model there is something it has failed to see.
+    actually found, whether anybody wrote in the incident's thread and whether
+    the branch read holds what ran - and an empty heading tells a model there
+    is something it has failed to see.
 
     The repository is listed once, for the two paragraphs that read it: the
     files the evidence names are checked against the same listing the model
@@ -96,6 +100,7 @@ def the_opening_message(hypothesis: Hypothesis | None,
         *_and_what_it_already_wrote(hypothesis),
         *_and_what_people_wrote(leads),
         *_what_the_repository_holds(listing),
+        *_whether_it_holds_what_ran(settings, deployed, holds),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
@@ -334,6 +339,47 @@ def _what_the_repository_holds(listing: Sequence[str]) -> list[str]:
         return []
 
     return ["", "The repository holds:", *(f"  {path}" for path in listing)]
+
+
+def _whether_it_holds_what_ran(settings: FixSettings,
+                               deployed: str | None,
+                               holds: BranchMembership) -> list[str]:
+    """That the branch read does not hold the revision that ran, or nothing.
+
+    The revision may have been deployed from a branch never merged into the one
+    read, and then the files the model opens are not the files that ran - a
+    layout it describes from them is one that was never running. Told, it can
+    say which of the two a claim is about.
+
+    Nothing where the branch holds it, which is the ordinary case: a caveat on
+    every incident is one nobody reads on the incident it is true of. Nothing
+    where no revision is known to have run, since there is nothing to ask
+    about. And nothing where the branch could not be asked, for the listing's
+    reason - a raise here spends the whole attempt on one call - and because the
+    caveat would then be a claim nobody established.
+    """
+    if deployed is None:
+        return []
+
+    branch = settings.github_base_branch
+
+    try:
+        held = holds(branch, deployed)
+    except Exception:
+        logger.warning("could not tell whether the branch holds what ran", exc_info=True)
+
+        return []
+
+    if held:
+        return []
+
+    return [
+        "",
+        f"You are reading {branch}. The revision that was running when the alert "
+        f"fired, {deployed}, is not in {branch}'s history - it was deployed from "
+        f"another branch - so what {branch} holds may differ from what ran. Say "
+        f"which of the two each claim about the code is about."
+    ]
 
 
 def _what_is_known_about_the_index(settings: FixSettings,

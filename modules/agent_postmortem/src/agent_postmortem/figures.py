@@ -31,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from argus_core import parse_iso, said_as_a_level, to_iso
+from argus_core import level_given_in, level_said_in, parse_iso, said_as_a_level, to_iso
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
 from argus_core.models import CitedEvidence
 from pydantic import BaseModel
@@ -184,11 +184,15 @@ _WORKINGS: Final[dict[tuple[_Kind, str, _Kind], Callable[[Figure, Figure], str]]
     (_Kind.SHARE, "/", _Kind.SHARE):
         lambda first, second: _how_many_times(_percent_shown(first) / _percent_shown(second)),
     (_Kind.LEVEL, "-", _Kind.LEVEL):
-        lambda first, second: _a_level(float(Decimal(first.given)
-                                             - Decimal(second.given))).written,
+        lambda first, second: _a_difference_of_levels(first, second),
     (_Kind.LEVEL, "/", _Kind.LEVEL):
-        lambda first, second: _how_many_times(Decimal(first.given) / Decimal(second.given))
+        lambda first, second: _how_many_times(_level_shown(first) / _level_shown(second))
 }
+
+# A level as the model was shown it: the number, and whatever unit follows it -
+# a space and the unit's name, or a percent sign straight after.
+_A_LEVEL_SHOWN: Final = re.compile(r"^(?P<number>-?[\d.]+)(?P<unit>.*)$")
+_PERCENT_SHOWN: Final = "%"
 
 # A span as `span_in_words` says one, a count and its unit at a time.
 _A_COUNT_OF_A_UNIT: Final = re.compile(r"(\d+) (day|hour|minute|second)s?")
@@ -281,9 +285,10 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
 
     levels = measured.rule_series
     if levels is not None:
-        figures[SERIES_BEFORE_FIGURE] = _a_level(levels.baseline)
-        figures[SERIES_WHILE_BROKEN_FIGURE] = _a_level(levels.while_broken)
-        figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst)
+        unit = measured.rule_series_unit
+        figures[SERIES_BEFORE_FIGURE] = _a_level(levels.baseline, unit)
+        figures[SERIES_WHILE_BROKEN_FIGURE] = _a_level(levels.while_broken, unit)
+        figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst, unit)
 
     if evidence.alert_finding:
         figures.update(the_alerts_figures(evidence.alert_finding))
@@ -460,7 +465,7 @@ def _magnitude_shown(figure: Figure, kind: _Kind) -> Decimal:
         case _Kind.SHARE:
             return _percent_shown(figure)
         case _Kind.LEVEL:
-            return Decimal(figure.given)
+            return _level_shown(figure)
 
 
 def _said_as_a_kind(name: str, kind: _Kind | None) -> str:
@@ -499,6 +504,26 @@ def _kind_of(name: str, figures: Mapping[str, Figure]) -> _Kind | None:
         return _Kind.INSTANT
 
     return None
+
+
+def _level_shown(level: Figure) -> Decimal:
+    """A level as the model was shown it, without the unit it was shown in."""
+    shown = _A_LEVEL_SHOWN.match(level.given)
+
+    return Decimal(shown["number"]) if shown is not None else Decimal(level.given)
+
+
+def _a_difference_of_levels(first: Figure, second: Figure) -> str:
+    """One level less another, in their unit - two percentages differing by
+    points, as two shares of traffic do."""
+    said = said_as_a_level(float(_level_shown(first) - _level_shown(second)))
+    shown = _A_LEVEL_SHOWN.match(first.given)
+    unit = shown["unit"] if shown is not None else ""
+
+    if unit == _PERCENT_SHOWN:
+        return f"{said} percentage points"
+
+    return f"{said}{unit}"
 
 
 def _percent_shown(share: Figure) -> Decimal:
@@ -600,7 +625,7 @@ def _a_share(rate: float) -> Figure:
     return Figure(given=said, written=said)
 
 
-def _a_level(level: float) -> Figure:
-    """A level plain, in whatever unit the paging rule watches - only the rule
-    knows it - given as measured, and written as a person says it."""
-    return Figure(given=f"{Decimal(str(level)).normalize():f}", written=said_as_a_level(level))
+def _a_level(level: float, unit: str | None) -> Figure:
+    """A level in the unit the paging rule's series is in, where anything named
+    one - given as measured, and written as a person says it."""
+    return Figure(given=level_given_in(level, unit), written=level_said_in(level, unit))

@@ -169,6 +169,9 @@ class Measurements(BaseModel):
     # where the rule could not be read, or where no one series could be
     # followed in it.
     rule_series_query: str | None = None
+    # The unit that series is in, as Grafana names a unit - read off the rule's
+    # panel or its metric's name - and `None` where neither said one.
+    rule_series_unit: str | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -274,6 +277,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
         rule_wait_unread=evidence.rule is not None and waits is None,
         rule_series_query=alert_rule.series_query if alert_rule is not None else None,
+        rule_series_unit=alert_rule.series_unit if alert_rule is not None else None,
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))

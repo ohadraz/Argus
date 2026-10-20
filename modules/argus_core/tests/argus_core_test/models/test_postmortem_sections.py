@@ -16,6 +16,7 @@ from argus_core.models import (
     CandidateConsidered,
     Detection,
     HypothesisConsidered,
+    RuleSeriesHarm,
     shorter_than_the_rules_wait,
     whether_it_can_be_put_back,
 )
@@ -112,6 +113,21 @@ def test_an_alert_sooner_than_its_rule_s_wait_is_said_with_what_the_series_bore_
         .then(
             the_answer_was(f"shorter than the 5m 0s its rule's condition must hold before it "
                            f"fires{said}")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("unit", ["ms", None], ids=["named", "unnamed"])
+def test_the_harm_to_the_paging_rule_s_series_carries_its_unit(unit: str | None) -> None:
+    # The page says the levels in it, as the brief does; unnamed is unknown,
+    # which a document written before the unit was carried reads as.
+    Scenario() \
+        .when(
+            lambda: RuleSeriesHarm(before=120.0, while_broken=640.0, at_its_worst=910.0,
+                                   worse_when="above", unit=unit).unit
+        ) \
+        .then(
+            the_answer_was(unit)
         )
 
 

@@ -371,7 +371,8 @@ class ProposeFix(Protocol):
                  incident_id: str, /,
                  *,
                  still_wanted: StillWanted = ...,
-                 leads: Leads = ...) -> ProposedFix: ...
+                 leads: Leads = ...,
+                 deployed: str | None = ...) -> ProposedFix: ...
 
 
 class WritePostmortem(Protocol):

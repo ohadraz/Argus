@@ -6,6 +6,10 @@ that moment forward, to before the rule could have seen a recovery - and a
 mitigation that worked would be refuted for it. The fourth, how long the rule's
 condition holds before it fires, is part of the time from an onset to its alert,
 and a negative one would make a late alert read as an early one.
+
+And what unit the rule's series is in, which is what lets a level be said as a
+level rather than as a bare number - and which is unknown unless something says
+it, rather than guessed.
 """
 from __future__ import annotations
 
@@ -43,7 +47,24 @@ def test_a_duration_of_nothing_is_accepted(duration: str) -> None:
         .then(_it_holds(duration, 0))
 
 
-def a_standing(**overrides: int) -> dict[str, Any]:
+@pytest.mark.unit
+def test_a_standing_that_names_no_unit_leaves_the_unit_unknown() -> None:
+    # Unknown rather than defaulted: a level said in a unit nobody named is a
+    # level said wrongly the first time the series is not in that unit.
+    Scenario() \
+        .when(lambda: AlertRuleStanding.model_validate(a_standing())) \
+        .then(_its_unit_is(None))
+
+
+@pytest.mark.unit
+def test_the_unit_a_standing_names_is_the_unit_it_holds() -> None:
+    Scenario() \
+        .given(in_milliseconds := {"series_unit": "ms"}) \
+        .when(lambda: AlertRuleStanding.model_validate(a_standing(**in_milliseconds))) \
+        .then(_its_unit_is("ms"))
+
+
+def a_standing(**overrides: Any) -> dict[str, Any]:
     return {
         "rule": "some-rule",
         "is_normal": True,
@@ -54,6 +75,18 @@ def a_standing(**overrides: int) -> dict[str, Any]:
         "pending_seconds": 300,
         **overrides
     }
+
+
+def _its_unit_is(expected: str | None) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_unit != expected:
+            raise AssertionError(
+                f"Expected the series' unit to be [{expected}], got [{standing.series_unit}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_holds(duration: str, expected: int) -> Assertion[AlertRuleStanding]:

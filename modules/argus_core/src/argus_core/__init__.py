@@ -35,7 +35,7 @@ from argus_core.config import (
 )
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
-from argus_core.levels import said_as_a_level
+from argus_core.levels import level_given_in, level_said_in, said_as_a_level
 from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
 from argus_core.timestamps import (
     in_real_time,
@@ -62,6 +62,8 @@ __all__ = [
     "connect_from_env",
     "get_settings",
     "in_real_time",
+    "level_given_in",
+    "level_said_in",
     "new_id",
     "open_pool",
     "parse_iso",

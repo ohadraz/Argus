@@ -9,16 +9,20 @@ Held in memory and reset between runs. Nothing here is durable on purpose: a
 double that remembered yesterday's branches would answer the question "did this
 run open a pull request" with the accumulated answer of every run before it,
 which is precisely the failure the real API had.
+
+Needs the `git` binary on the path, 2.32 or later: a comparison's patches are
+git's own, as GitHub's are.
 """
 
 from __future__ import annotations
 
-import difflib
 import hashlib
 import io
-import itertools
+import os
+import subprocess
 import tarfile
-from pathlib import Path
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Final
 
 from pydantic import BaseModel
@@ -68,10 +72,27 @@ ADDED_STATUS: Final = "added"
 REMOVED_STATUS: Final = "removed"
 MODIFIED_STATUS: Final = "modified"
 
-# GitHub's patch shape: three lines of context around each change, and none of
-# the two file-header lines a unified diff opens with.
+# GitHub's own words for how two commits of a comparison stand to each other,
+# read from where `head` stands: past `base`, short of it, the same commit, or
+# on another line from it.
+AHEAD_STATUS: Final = "ahead"
+BEHIND_STATUS: Final = "behind"
+IDENTICAL_STATUS: Final = "identical"
+DIVERGED_STATUS: Final = "diverged"
+
+# GitHub's patch is git's: three lines of context around each change, each hunk
+# headed with the line above it that git's diff driver for the file's language
+# picks, and none of the header lines before the first hunk. So it is asked of
+# git, with the drivers GitHub switches on - a hand-made diff aligns a block
+# among blank lines its own way, and heads a Python hunk with a docstring line
+# where GitHub heads it with the `def` it sits in.
 _CONTEXT_LINES: Final = 3
-_FILE_HEADER_LINES: Final = 2
+_DRIVERS: Final = "*.py diff=python\n"
+_HUNK_MARK: Final = "@@"
+
+# What `git diff --no-index` exits with when it has answered: the two sides are
+# the same, or they differ.
+_GIT_DIFF_ANSWERED: Final = (0, 1)
 
 
 class Proposal(BaseModel):
@@ -125,6 +146,7 @@ class Repository:
         """
         self._trees: dict[str, dict[str, str]] = {}
         self._commits: dict[str, str] = {}
+        self._parents: dict[str, list[str]] = {}
         self._refs: dict[str, str] = {}
         self.proposals: list[Proposal] = []
 
@@ -148,10 +170,13 @@ class Repository:
         """Stores a commit pointing at a tree, and answers with its sha."""
         sha = _sha_of("commit", [tree, *parents])
         self._commits[sha] = tree
+        self._parents[sha] = list(parents)
 
         return sha
 
-    def stage_commit(self, sha: str, files: dict[str, str]) -> None:
+    def stage_commit(self, sha: str,
+                     files: dict[str, str],
+                     parents: list[str] | None = None) -> None:
         """Registers a commit under a sha somebody else chose.
 
         The one place a sha is taken rather than derived, and it exists for the
@@ -164,8 +189,56 @@ class Repository:
 
         The fixture's own files are underneath, so a comparison answers with
         the paths that differ and not with the whole tree.
+
+        `parents` is the commit's history, as the case knows it: which commit
+        it was made on is as much a fact of the scenario as what it holds, and
+        it is what a comparison reads to say how two commits stand.
         """
         self._commits[sha] = self.write_tree({**DEFAULT_FILES, **files})
+        self._parents[sha] = list(parents or [])
+
+    def stage_history_of(self, branch: str, parents: list[str]) -> None:
+        """Puts these commits in the history of a branch's head, which keeps
+        its sha and its files.
+
+        How a case says a commit it staged is on a branch. The head is not
+        moved: the index's catch-up reads where a branch points, and a head
+        that moved mid-run would have it catch up to a tree that did not
+        change. Only the history the head reaches back through grows.
+        """
+        head = self.head_of(branch)
+        self._parents[head] = [*self._parents.get(head, []), *parents]
+
+    def relation_between(self, base: str, head: str) -> str:
+        """How `head` stands to `base`, in GitHub's words - read from history,
+        as GitHub reads it, and never from what the two trees hold."""
+        was = self._refs.get(base, base)
+        now = self._refs.get(head, head)
+
+        if was == now:
+            return IDENTICAL_STATUS
+
+        if was in self._history_of(now):
+            return AHEAD_STATUS
+
+        if now in self._history_of(was):
+            return BEHIND_STATUS
+
+        return DIVERGED_STATUS
+
+    def _history_of(self, commit: str) -> set[str]:
+        """The commit and every commit it reaches back through."""
+        seen: set[str] = set()
+        waiting = [commit]
+
+        while waiting:
+            each = waiting.pop()
+
+            if each not in seen:
+                seen.add(each)
+                waiting.extend(self._parents.get(each, []))
+
+        return seen
 
     def create_ref(self, branch: str, at: str) -> None:
         """Points a new branch at a commit.
@@ -238,7 +311,7 @@ class Repository:
             ChangedPath(
                 path=path,
                 status=_status_of(path, was, now),
-                patch=_patch_between(was.get(path, ""), now.get(path, ""))
+                patch=_patch_between(path, was.get(path, ""), now.get(path, ""))
             )
             for path in sorted({*was, *now})
             if was.get(path) != now.get(path)
@@ -335,20 +408,51 @@ def _status_of(path: str, was: dict[str, str], now: dict[str, str]) -> str:
     return MODIFIED_STATUS
 
 
-def _patch_between(was: str, now: str) -> str:
-    """The change as GitHub writes it: unified hunks, from the first `@@`.
+def _patch_between(path: str, was: str, now: str) -> str:
+    """The change as GitHub writes it: git's unified hunks, from the first `@@`.
 
-    GitHub omits the `---`/`+++` file headers a unified diff starts with - the
-    entry already names the file - so they are dropped here. Kept, every walk
-    would read a patch shaped like no patch the real API sends. Dropped by
-    position rather than by prefix, because a removed line whose own text
-    begins `--` starts with `---` too.
+    GitHub omits the header lines a diff starts with - the entry already names
+    the file - so everything before the first hunk is dropped here. Kept, every
+    walk would read a patch shaped like no patch the real API sends.
+
+    The two sides are written under the file's own suffix, which is what git
+    picks a diff driver by. Bytes in and out, so a line ending is compared as
+    the commit holds it rather than as this platform would translate it.
+
+    Hermetic: no system or global git configuration is read and no external
+    diff tool runs, so a developer's `diff.algorithm` cannot make this double
+    answer differently on their machine. Exit 1 is git saying the two differ;
+    anything above it is git failing, and is raised rather than answered as an
+    empty patch - a file that changed with no change shown.
     """
-    diff = difflib.unified_diff(
-        was.splitlines(), now.splitlines(), lineterm="", n=_CONTEXT_LINES
-    )
+    suffix = PurePosixPath(path).suffix
 
-    return "\n".join(itertools.islice(diff, _FILE_HEADER_LINES, None))
+    with tempfile.TemporaryDirectory() as scratch:
+        held = Path(scratch)
+        (held / "drivers").write_text(_DRIVERS, encoding="utf-8")
+        (held / f"was{suffix}").write_bytes(was.encode())
+        (held / f"now{suffix}").write_bytes(now.encode())
+
+        diffed = subprocess.run(
+            ["git", "-c", f"core.attributesFile={(held / 'drivers').as_posix()}",
+             "diff", "--no-index", "--no-ext-diff", "--no-color", f"-U{_CONTEXT_LINES}",
+             f"was{suffix}", f"now{suffix}"],
+            capture_output=True,
+            cwd=held,
+            env={**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+        )
+
+    if diffed.returncode not in _GIT_DIFF_ANSWERED:
+        raise RuntimeError(
+            f"git could not diff [{path}] (exit {diffed.returncode}): "
+            f"{diffed.stderr.decode(errors='replace')}"
+        )
+
+    lines = diffed.stdout.decode().split("\n")
+    first = next((at for at, line in enumerate(lines) if line.startswith(_HUNK_MARK)),
+                 len(lines))
+
+    return "\n".join(lines[first:]).rstrip("\n")
 
 
 repository = Repository()

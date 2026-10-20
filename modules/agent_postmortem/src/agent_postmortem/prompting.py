@@ -716,7 +716,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"not how long the fault lasted - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                   measured.unobserved_from is not None, figures),
-        *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query, evidence,
+        *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
+                                    measured.rule_series_unit, evidence,
                                     measured.error_rates, figures),
         *(line
           for heading, cited, beneath in _the_evidence_by_kind(evidence)
@@ -1351,6 +1352,7 @@ def _the_alert_against_its_wait(evidence: IncidentEvidence,
 
 def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
                                query: str | None,
+                               unit: str | None,
                                evidence: IncidentEvidence,
                                rates: ErrorRates | None,
                                figures: Mapping[str, Figure]) -> list[str]:
@@ -1372,8 +1374,10 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
     words say which percentile, which share. Their figures carry the names the
     alert's line shows them by, being the same figures.
 
-    Plain numbers rather than percentages: the series is in whatever unit its
-    rule watches, and only the rule knows what that is.
+    In the unit the rule's panel or its metric's name says, which the figures
+    carry - a share of one as a percentage. Where neither says one, that is said
+    rather than left for the model to fill: a bare number beside an alert in
+    percent reads as a second scale, and a unit supplied is one nobody measured.
 
     A series that got worse is asked what that meant for the people using the
     service, whatever the failed requests did: the failed requests are a share
@@ -1394,12 +1398,15 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
     named = (f", `{query}` - {alert_said} -" if query is not None
              else f" - {alert_said} -")
     in_words = " Say what it measures in words, not by its query." if query is not None else ""
+    no_unit = (" The rule does not say what unit its series is in, so give these as "
+               "numbers alone, with no unit." if unit is None else "")
 
     return [
         f"The series behind the alert{named} which its alert rule evaluates "
         f"and calls {worse}: {_shown(SERIES_BEFORE_FIGURE, figures)} before it began, "
         f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
-        f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst.{in_words}",
+        f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst."
+        f"{no_unit}{in_words}",
         *_what_it_meant(levels, rates)
     ]
 

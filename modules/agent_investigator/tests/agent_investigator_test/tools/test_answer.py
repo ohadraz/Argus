@@ -133,6 +133,22 @@ def test_the_summary_says_what_happened_and_leaves_what_to_do_to_others() -> Non
         )
 
 
+@pytest.mark.unit
+def test_an_alternative_reading_of_a_change_still_names_the_change() -> None:
+    # The second of two readings of one deploy came back with no subject: read
+    # another way, the change seemed to name nothing specific. So nothing could
+    # tell it was the same change - the postmortem listed it as a cause of its
+    # own - though it was the one alternative whose action differed, a rollback
+    # where the first reading declines one.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _the_field("subject").says("still names that change")
+        )
+
+
 def _an_explanation(tool: ToolDefinition) -> dict[str, Any]:
     """One entry of the ranked list, as the model is asked to fill it in."""
     explanation: dict[str, Any] = tool.properties[HYPOTHESES_ARG]["items"]
