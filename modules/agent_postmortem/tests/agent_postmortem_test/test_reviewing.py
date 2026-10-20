@@ -240,16 +240,27 @@ def test_an_analysis_that_tried_no_candidate_is_not_complete() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("refusal", [Refusal.WOULD_UNDO_A_MEANT_CHANGE,
-                                     Refusal.NOT_A_GENERIC_MITIGATION,
-                                     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-                                     Refusal.SOMEBODY_ELSES_SERVICE,
-                                     Refusal.NOTHING_COULD_CONFIRM_IT])
-def test_an_analysis_whose_one_test_was_not_argus_s_to_take_is_left_for_a_person(
-        refusal: Refusal) -> None:
-    # Nothing was tried because the gate refused the test as not Argus's to
-    # take. The analysis went as far as Argus may, and what is left - taking
-    # the test, or judging the cause without it - is a person's.
+@pytest.mark.parametrize(("refusal", "because"), [
+    (Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+     "the one action that would test the cause undoes a change that was made on purpose"),
+    (Refusal.NOT_A_GENERIC_MITIGATION,
+     "the one action that would test the cause is not a mitigation Argus may take unasked"),
+    (Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
+     "the one action that would test the cause is addressed to a service outside the "
+     "estate Argus may act on"),
+    (Refusal.SOMEBODY_ELSES_SERVICE,
+     "the cause is in a service another company runs, which nothing Argus can do reaches"),
+    (Refusal.NOTHING_COULD_CONFIRM_IT,
+     "nothing would say in time whether the one action that would test the cause worked, "
+     "so it is recommended rather than taken")],
+    ids=["would-undo-a-meant-change", "not-a-generic-mitigation",
+         "outside-what-argus-may-touch", "somebody-elses-service", "nothing-could-confirm-it"])
+def test_an_analysis_whose_leader_was_not_argus_s_to_test_says_why_and_is_left_for_a_person(
+        refusal: Refusal, because: str) -> None:
+    # Nothing was tried because the gate held the leading candidate back at a
+    # boundary of Argus's. The analysis went as far as Argus may, and what is
+    # left is a person's - which each refusal says in its own words, since
+    # each sends a reader to a different next step.
     Scenario() \
         .given(
             a_document_refused_its_test := _a_document(
@@ -261,9 +272,60 @@ def test_an_analysis_whose_one_test_was_not_argus_s_to_take_is_left_for_a_person
             lambda: review_of(a_document_refused_its_test, faults=[], reaches_a_cause=True)
         ) \
         .then(
+            _says_because(ANALYSIS_COMPLETE, met=None, because=because)
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_whose_leader_s_test_is_recommended_names_the_item_it_is_done_under() -> None:
+    # The person's step is the recommended action, and the review says which
+    # item that is, as it names the proposed fix's.
+    some_recommendation = "Roll back io-shop"
+
+    Scenario() \
+        .given(
+            a_document_recommending_its_test := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(Refusal.NOTHING_COULD_CONFIRM_IT)],
+                recommended_action=some_recommendation,
+                action_items=[ActionItem(number="AI-1", text=some_recommendation,
+                                         type=ActionItemType.MITIGATE, owner=None,
+                                         tracking=None, status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_recommending_its_test, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
-                          because="the one test of the cause was refused at the gate, as not "
-                                  "Argus's to take")
+                          because="nothing would say in time whether the one action that "
+                                  "would test the cause worked, so it is recommended rather "
+                                  "than taken (AI-1)")
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_whose_leader_was_short_of_evidence_is_not_complete_whatever_came_after(
+) -> None:
+    # The walk tests the leading candidate first. With no mitigation proposed
+    # for it, it moves on, and a later candidate held back at a boundary does
+    # not make the leader's shortfall a person's.
+    Scenario() \
+        .given(
+            a_document_short_on_its_leader := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1"),
+                            HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C2")],
+                resolution=[_a_refusal(Refusal.NO_MITIGATION_PROPOSED),
+                            _a_refusal(Refusal.NOT_A_GENERIC_MITIGATION)])
+        ) \
+        .when(
+            lambda: review_of(a_document_short_on_its_leader, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="no candidate was confirmed - none was tried")
         )
 
 
@@ -289,8 +351,9 @@ def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm
         ) \
         .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
-                          because="the one test of the cause was refused at the gate, as not "
-                                  "Argus's to take; the proposed fix would confirm it (AI-1)")
+                          because="the one action that would test the cause undoes a change "
+                                  "that was made on purpose; the proposed fix would confirm it "
+                                  "(AI-1)")
         )
 
 

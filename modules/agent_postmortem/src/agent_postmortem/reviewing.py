@@ -63,9 +63,9 @@ def review_of(document: PostmortemDocument,
     if unrun:
         analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
                                    because=_what_would_confirm(document, unrun))
-    elif short == [NONE_TRIED] and _its_test_was_not_argus_s_to_take(document):
+    elif short == [NONE_TRIED] and (held := _the_leader_s_refusal(document)) is not None:
         analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
-                                   because=_what_would_confirm_a_refused_test(document))
+                                   because=_what_would_confirm_a_held_test(document, held))
     else:
         analysis = _a_criterion(ANALYSIS_COMPLETE, short)
 
@@ -78,34 +78,64 @@ def review_of(document: PostmortemDocument,
     ]
 
 
-# The refusals that stop a test because it is not Argus's to take: a boundary
-# held, and the next step a person's. Not `NO_MITIGATION_PROPOSED`, which is
-# evidence missing - an analysis short of what it needed - nor
-# `ALREADY_TRIED_ENOUGH`, which follows a test rather than standing in for one.
-_NOT_ARGUS_S_TO_TAKE: Final = frozenset({
-    Refusal.WOULD_UNDO_A_MEANT_CHANGE,
-    Refusal.NOT_A_GENERIC_MITIGATION,
-    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,
-    Refusal.SOMEBODY_ELSES_SERVICE,
-    Refusal.NOTHING_COULD_CONFIRM_IT
-})
+# The refusals that hold the leading candidate's test back at a boundary of
+# Argus's, each said as its own next step - the refusals send a reader to
+# different people, and one sentence for all of them misstates most. Not
+# `NO_MITIGATION_PROPOSED`, which is evidence missing - an analysis short of
+# what it needed - nor `ALREADY_TRIED_ENOUGH`, which follows a test rather than
+# standing in for one.
+_HELD_AT_A_BOUNDARY: Final[dict[Refusal, str]] = {
+    Refusal.WOULD_UNDO_A_MEANT_CHANGE:
+        "the one action that would test the cause undoes a change that was made on purpose",
+    Refusal.NOT_A_GENERIC_MITIGATION:
+        "the one action that would test the cause is not a mitigation Argus may take unasked",
+    Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH:
+        "the one action that would test the cause is addressed to a service outside the "
+        "estate Argus may act on",
+    Refusal.SOMEBODY_ELSES_SERVICE:
+        "the cause is in a service another company runs, which nothing Argus can do reaches",
+    Refusal.NOTHING_COULD_CONFIRM_IT:
+        "nothing would say in time whether the one action that would test the cause "
+        "worked, so it is recommended rather than taken"
+}
 
 NONE_TRIED: Final = "no candidate was confirmed - none was tried"
 
 
-def _its_test_was_not_argus_s_to_take(document: PostmortemDocument) -> bool:
-    """Whether the gate refused a test as not Argus's to take - which, where
-    nothing was tried, is the leading candidate's: the walk tests it first."""
-    return any(step.refused in _NOT_ARGUS_S_TO_TAKE for step in document.resolution)
+def _the_leader_s_refusal(document: PostmortemDocument) -> Refusal | None:
+    """The refusal that held the leading candidate's test back at a boundary,
+    or `None` where it was not held back at one.
+
+    The first refusal: the walk takes the candidates best first, so where
+    nothing was tried the first one the gate refused was the leader's. A later
+    candidate held back does not make the leader's own refusal any less what
+    it was.
+    """
+    refused = next((step.refused for step in document.resolution if step.refused), None)
+
+    return refused if refused in _HELD_AT_A_BOUNDARY else None
 
 
-def _what_would_confirm_a_refused_test(document: PostmortemDocument) -> str:
-    """That the test was refused as not Argus's, and - where a fix was
-    proposed - that it would confirm the cause, and the item it is done under."""
-    refused = "the one test of the cause was refused at the gate, as not Argus's to take"
-    item = _the_fix_s_item(document)
+def _what_would_confirm_a_held_test(document: PostmortemDocument, held: Refusal) -> str:
+    """Why the leader's test was held back, in that refusal's words, and the
+    item the next step is done under: the recommended action, where the test
+    itself is what was recommended, and the proposed fix, which would confirm
+    the cause, where there is one."""
+    said = _HELD_AT_A_BOUNDARY[held]
+    recommended = (_the_item_saying(document, document.recommended_action)
+                   if held is Refusal.NOTHING_COULD_CONFIRM_IT else None)
+    if recommended:
+        said = f"{said} ({recommended})"
 
-    return f"{refused}; the proposed fix would confirm it ({item})" if item else refused
+    fix = _the_fix_s_item(document)
+
+    return f"{said}; the proposed fix would confirm it ({fix})" if fix else said
+
+
+def _the_item_saying(document: PostmortemDocument, text: str | None) -> str | None:
+    """The number of the action item saying `text`, or `None` where none does."""
+    return next((item.number for item in document.action_items
+                 if text is not None and item.text == text), None)
 
 
 def _the_impact_assessed(document: PostmortemDocument) -> ReviewCriterion:
