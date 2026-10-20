@@ -39,7 +39,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from agent_postmortem.checking import Given, faults_in
+from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
 from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.figures import Figure, figures_of
 from agent_postmortem.prompting import (
@@ -49,13 +49,14 @@ from agent_postmortem.prompting import (
     EXECUTIVE_SUMMARY_FIELD,
     LESSONS_FIELD,
     ROOT_CAUSE_FIELD,
+    SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
     SubmittedStep,
 )
-from argus_core.models import ActionItemType, Lessons
+from argus_core.models import ActionItemType, Lessons, ToolCall, Turn
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
@@ -1044,6 +1045,49 @@ def test_a_factor_may_name_an_item_on_the_record_or_one_the_answer_proposes() ->
         .then(
             _found_nothing_wrong()
         )
+
+
+@pytest.mark.unit
+def test_a_turn_submitting_twice_is_named() -> None:
+    # Two calls do not say which is the answer. In the turn that showed it the
+    # real one came first and a placeholder second, but a model revising its
+    # answer puts the real one second - so keeping either is a guess.
+    Scenario() \
+        .given(
+            a_turn_submitting_twice := _a_turn_calling(SUBMIT_TOOL_NAME, SUBMIT_TOOL_NAME)
+        ) \
+        .when(
+            lambda: faults_in_the_turn(a_turn_submitting_twice)
+        ) \
+        .then(
+            all_of(
+                _found(1),
+                _named(f"{SUBMIT_TOOL_NAME} 2 times")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_turn_submitting_once_has_nothing_wrong_with_it() -> None:
+    Scenario() \
+        .given(
+            a_turn_submitting_once := _a_turn_calling(SUBMIT_TOOL_NAME)
+        ) \
+        .when(
+            lambda: faults_in_the_turn(a_turn_submitting_once)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+def _a_turn_calling(*tools: str) -> Turn:
+    """A turn calling each of these tools once, in order, with no arguments."""
+    return Turn(text="",
+                tool_calls=[ToolCall(id=f"call_{position}", name=tool, arguments={})
+                            for position, tool in enumerate(tools, start=1)],
+                input_tokens=0,
+                output_tokens=0)
 
 
 def _an_answer(**overrides: Any) -> SubmittedPostmortem:

@@ -50,7 +50,7 @@ from itertools import pairwise
 from typing import Final
 
 from argus_core import the_revision_named
-from argus_core.models import ThreadMessage, labelled
+from argus_core.models import ThreadMessage, Turn, labelled
 from pydantic import BaseModel
 
 from agent_postmortem.figures import (
@@ -65,6 +65,7 @@ from agent_postmortem.prompting import (
     CAUSAL_CHAIN_FIELD,
     LEAD_EFFECTS_FIELD,
     REQUIRED_FIELDS,
+    SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
@@ -154,6 +155,25 @@ def faults_in(answer: SubmittedPostmortem,
             + _figures_nobody_gave(answer, given)
             + _workings_that_make_no_sense(answer, given)
             + _revisions_nobody_read(answer, given))
+
+
+def faults_in_the_turn(turn: Turn) -> list[str]:
+    """Everything about the turn the answer came in that has to be put right,
+    or nothing: a turn that submitted more than once.
+
+    Refused rather than read, because two calls do not say which is the
+    answer. In the turn that showed it the real one came first and a
+    placeholder second, but a model revising its answer puts the real one
+    second - so keeping either is a guess, and a refusal costs one more call
+    only in a turn that is already malformed. Whoever reads the turn still
+    reads its first call, for the attempt that has no second after it.
+    """
+    submitted = sum(1 for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME)
+    if submitted <= 1:
+        return []
+
+    return [f"your turn called {SUBMIT_TOOL_NAME} {submitted} times - call it once, "
+            f"with the whole answer"]
 
 
 def _leads_left_unanswered(answer: SubmittedPostmortem,

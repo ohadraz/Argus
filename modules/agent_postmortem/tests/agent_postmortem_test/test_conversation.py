@@ -54,6 +54,7 @@ from agent_postmortem_test.framework.builders import (
     a_model_answering_in_prose_then,
     a_model_answering_in_turn,
     a_model_calling,
+    a_model_submitting_two_answers_at_once,
     an_answer,
     an_answer_without,
     an_evidence_bundle,
@@ -342,6 +343,36 @@ def test_an_answer_calling_some_other_tool_is_read_as_no_answer() -> None:
             all_of(
                 _was_asked(asks, times=2),
                 _answered_nothing(),
+                _found_a_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_submitted_twice_in_one_turn_is_asked_for_again() -> None:
+    # Two calls do not say which is the answer, so the turn is refused through
+    # both. Asked again and calling twice again, the first is read - the fault
+    # on record, as any fault left after the second attempt is.
+    some_root_cause = "the checkout fallback was disabled"
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_submitting_twice := a_model_submitting_two_answers_at_once(
+                an_answer(root_cause=some_root_cause),
+                an_answer(root_cause="placeholder"),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_submitting_twice,
+                                         an_evidence_bundle(),
+                                         a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "2 times"),
+                _answered_with(ROOT_CAUSE_FIELD, some_root_cause),
                 _found_a_fault()
             )
         )

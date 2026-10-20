@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from argus_core.llm import LLMClient
 from argus_core.models import ThreadMessage, Transcript, Turn
 
-from agent_postmortem.checking import Given, faults_in
+from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import Figure, with_figures_written
 from agent_postmortem.measuring import Measurements
@@ -114,6 +114,7 @@ def _reading_of(turn: Turn,
 
     The leads go with it, because whether every one was answered is a fault of
     the turn too, and what was given, because a citation is checked against it.
+    A turn that submitted twice is a fault of its own (`faults_in_the_turn`).
     A revision a few characters off is written as the real one first, since
     code knows which it was; only one starting like none is left to refuse.
 
@@ -122,7 +123,8 @@ def _reading_of(turn: Turn,
     """
     answer = with_revisions_corrected(_answer_from(turn), given.revisions)
 
-    return with_figures_written(answer, figures), faults_in(answer, leads, given=given)
+    return (with_figures_written(answer, figures),
+            faults_in_the_turn(turn) + faults_in(answer, leads, given=given))
 
 
 def _answer_from(turn: Turn) -> SubmittedPostmortem:

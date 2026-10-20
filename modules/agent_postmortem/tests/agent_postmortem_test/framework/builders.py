@@ -916,6 +916,31 @@ def a_model_calling(tool_name: str,
     return WrongTool()
 
 
+def a_model_submitting_two_answers_at_once(real: dict[str, Any],
+                                           placeholder: dict[str, Any],
+                                           recording_into: Kept[Transcript] | None = None
+                                           ) -> LLMClient:
+    """A model that called the tool twice in one turn - its answer, and then a
+    placeholder - and does it again however often it is asked."""
+    class Twice:
+        def converse(self,
+                     transcript: Transcript,
+                     tools: list[ToolDefinition],
+                     max_tokens: int | None = None) -> Turn:
+            if recording_into is not None:
+                recording_into.take(transcript)
+
+            return Turn(
+                text="",
+                tool_calls=[ToolCall(id="call_1", name=tools[0].name, arguments=real),
+                            ToolCall(id="call_2", name=tools[0].name, arguments=placeholder)],
+                input_tokens=0,
+                output_tokens=0
+            )
+
+    return Twice()
+
+
 def a_submission_of(arguments: dict[str, Any], tool_name: str) -> Turn:
     return Turn(
         text="",
