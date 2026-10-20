@@ -32,6 +32,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from argus_core import parse_iso, said_as_a_level, to_iso
+from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
 from argus_core.models import CitedEvidence
 from pydantic import BaseModel
 
@@ -525,10 +526,22 @@ def _said_of_a_span(span: timedelta) -> str:
 
 def _the_words_of(text: str) -> Iterator[tuple[str, str | None]]:
     """Every stretch of the text in order, each with the figure it is - or
-    `None` for the spaces between words and for every word that is no figure."""
-    for part in re.split(r"(\s+)", text):
-        word = part.strip(AROUND_A_WORD)
-        yield part, word if word and is_a_figure(word) else None
+    `None` for the spaces between words and for every word that is no figure.
+
+    A diff's hunk header states none: where in a file a hunk sits is no figure
+    of the incident's, and named as one it is offered as one. Found by the
+    layout the read tier sets a diff out in, so a patch line whose own text
+    begins with `@@` keeps its figures. The values the diff changed are
+    figures, since one of them can be the cause.
+    """
+    for line in text.splitlines(keepends=True):
+        if line.startswith(PATCH_LINE_INDENT + HUNK_HEADER):
+            yield line, None
+            continue
+
+        for part in re.split(r"(\s+)", line):
+            word = part.strip(AROUND_A_WORD)
+            yield part, word if word and is_a_figure(word) else None
 
 
 def _as_the_alert_gave_it(figure: str) -> Figure:

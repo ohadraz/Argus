@@ -24,6 +24,8 @@ from typing import Final
 
 from argus_core.models import CitedEvidence
 
+from agent_postmortem.figures import AROUND_A_WORD, is_a_figure
+
 # How a group's label begins. The rest is the start of a digest of the message,
 # so a message keeps its label in every run that read it.
 LOG_GROUP_PREFIX: Final = "G"
@@ -50,7 +52,13 @@ def grouped(log_lines: Sequence[str]) -> list[CitedEvidence]:
     said with the numbers that held every time written in and a `#` where they
     varied, then how many times it was logged over how many minutes, first to
     last - and, for each number that varied, how far it ranged, what it
-    typically read, and the minute it was highest.
+    typically read, and the minute it was highest. A number inside a name - an
+    id, an address, a port - is no quantity, by the rule the figures are told
+    apart by (`is_a_figure`): a name whose numbers varied is said by how many
+    different ones there were. It still keys the group by everything but its
+    numbers, punctuation included (`io-pricing:#`), so one dependency's lines
+    stay apart from another's and a shopper per minute is one message, not one
+    a minute.
     """
     groups: dict[str, list[tuple[datetime | None, list[str]]]] = {}
     for line in log_lines:
@@ -91,11 +99,52 @@ def _said_once(occurrences: list[tuple[datetime | None, list[str]]]) -> str:
         part if index % 2 == 0 else (part if held[index // 2] else "#")
         for index, part in enumerate(first)
     )
-    varied = [_how_it_ranged([(logged_at, each[position])
-                              for (logged_at, _), each in zip(occurrences, numbers, strict=True)])
-              for position, kept in enumerate(held) if not kept]
+    in_word = _the_word_each_number_is_in(first)
+    first_words, said_words = "".join(first).split(), message.split()
+    varied: list[str] = []
+    names_said: set[int] = set()
+
+    for position, kept in enumerate(held):
+        word = in_word[position]
+
+        if kept or word in names_said:
+            continue
+
+        if is_a_figure(first_words[word].strip(AROUND_A_WORD)):
+            varied.append(_how_it_ranged(
+                [(logged_at, each[position])
+                 for (logged_at, _), each in zip(occurrences, numbers, strict=True)]))
+            continue
+
+        names_said.add(word)
+        slots = [slot for slot, its_word in enumerate(in_word) if its_word == word]
+        varied.append(_how_many_names(said_words[word].strip(AROUND_A_WORD),
+                                      [[each[slot] for slot in slots] for each in numbers]))
 
     return "; ".join([f"{message} - {_how_often(occurrences)}", *varied])
+
+
+def _the_word_each_number_is_in(parts: list[str]) -> list[int]:
+    """For each number in a message split around its numbers, which of the
+    message's words - counted from 0, split on whitespace - it sits in."""
+    indexes = []
+    before = ""
+
+    for index, part in enumerate(parts):
+        if index % 2:
+            words = before.split()
+            indexes.append(len(words) if not before or before[-1].isspace() else len(words) - 1)
+
+        before += part
+
+    return indexes
+
+
+def _how_many_names(said: str, names: list[list[str]]) -> str:
+    """A name whose numbers varied - an id, an address - by how many different
+    ones there were: its numbers are no quantity, and a range and a typical
+    value of them would be statistics of nothing."""
+    return f"{said} took {len({tuple(name) for name in names})} different values"
 
 
 def _how_often(occurrences: list[tuple[datetime | None, list[str]]]) -> str:

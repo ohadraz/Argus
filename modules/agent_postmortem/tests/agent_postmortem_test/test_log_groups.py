@@ -20,6 +20,8 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 
 SOME_ERROR = "ERROR io-shop: account page request failed - ZeroDivisionError at spend_summary.py:47"
 SOME_RATE = "WARN io-shop: account page error rate at {}% over the last minute"
+SOME_SLOW_CALL = ("WARN io-shop: slow upstream call - io-pricing:8080 took {}ms for "
+                  "/baskets/shopper-{} ({} of 40 requests)")
 
 
 @pytest.mark.unit
@@ -210,6 +212,29 @@ def test_a_group_label_is_its_prefix_and_a_short_digest() -> None:
         ) \
         .then(
             _labels_are_shaped(rf"{LOG_GROUP_PREFIX}[0-9a-f]{{4}}")
+        )
+
+
+@pytest.mark.unit
+def test_a_number_inside_a_name_that_varied_is_said_by_how_many_names_there_were() -> None:
+    # A shopper's id is a name, not a quantity: its parts' range and typical
+    # value were statistics of nothing. What varied about it is how many there
+    # were. A number that is a figure - the milliseconds, the count - still
+    # ranges, and the key the message is grouped by is the same as ever.
+    Scenario() \
+        .given(
+            some_lines := [f"2026-10-11T23:37:00Z {SOME_SLOW_CALL.format('2300', '1-2-3', '5')}",
+                           f"2026-10-11T23:38:00Z {SOME_SLOW_CALL.format('900', '4-5-6', '7')}",
+                           f"2026-10-11T23:39:00Z {SOME_SLOW_CALL.format('1200', '1-2-3', '6')}"]
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_SLOW_CALL.format('#', '#-#-#', '#')} - 3 occurrences in "
+                            f"3 minutes, 23:37–23:39; # was 900 to 2300, typically 1200, "
+                            f"highest at 23:37; /baskets/shopper-#-#-# took 2 different values; "
+                            f"# was 5 to 7, typically 6, highest at 23:38"])
         )
 
 

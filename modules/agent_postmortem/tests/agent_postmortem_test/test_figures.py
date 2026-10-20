@@ -82,6 +82,11 @@ SOME_EVIDENCE = CitedEvidence(
     label="Gbac1",
     text="pool exhausted at 20 connections - 29 occurrences in 32 minutes, 15:11–15:42")
 
+SOME_DIFF = CitedEvidence(label="D1", text="modified deploy/values-production.yaml\n"
+                                           "  @@ -12,7 +12,7 @@\n"
+                                           "  -  timeout: 30\n"
+                                           "  +  timeout: 5")
+
 
 @pytest.mark.unit
 def test_a_figure_the_prose_names_is_written_in() -> None:
@@ -323,6 +328,42 @@ def test_a_piece_of_evidence_is_shown_with_each_figure_named_after_it() -> None:
         .then(
             the_answer_was("pool exhausted at 20 {Gbac1.1} connections - 29 {Gbac1.2} "
                            "occurrences in 32 {Gbac1.3} minutes, 15:11–15:42 {Gbac1.4}")
+        )
+
+
+@pytest.mark.unit
+def test_a_diffs_hunk_header_states_no_figure() -> None:
+    # Where in a file a hunk sits is no figure of the incident's, and tagged it
+    # is offered as one. A value the diff changed is - it can be the cause.
+    Scenario() \
+        .given(
+            some_diff := SOME_DIFF
+        ) \
+        .when(
+            lambda: the_evidence_figures([some_diff])
+        ) \
+        .then(
+            the_answer_was({
+                "D1.1": Figure(given="30", written="30"),
+                "D1.2": Figure(given="5", written="5")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_a_diff_is_shown_with_its_hunk_header_as_it_was_read() -> None:
+    Scenario() \
+        .given(
+            some_diff := SOME_DIFF
+        ) \
+        .when(
+            lambda: the_evidence_named(some_diff)
+        ) \
+        .then(
+            the_answer_was("modified deploy/values-production.yaml\n"
+                           "  @@ -12,7 +12,7 @@\n"
+                           "  -  timeout: 30 {D1.1}\n"
+                           "  +  timeout: 5 {D1.2}")
         )
 
 
