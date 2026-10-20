@@ -348,6 +348,21 @@ def test_the_explanation_says_what_the_test_is_written_to_show_never_that_it_fai
         )
 
 
+@pytest.mark.unit
+def test_the_explanation_says_what_a_file_says_only_of_that_file() -> None:
+    # An explanation said "the comments in both files say nothing checks that the
+    # two names agree", where one file said it and the other said nothing of the
+    # kind. A postmortem then repeated it three times as a reading of the source.
+    # What a comment says is nothing a check can verify afterwards, so the
+    # explanation is told to tie each such claim to the one file it comes from.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            _the_description_of(EXPLANATION_FIELD,
+                                mentions="only of the file that says it, naming it by its path")
+        )
+
+
 def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         said = offered["input_schema"]["properties"][field]["description"]

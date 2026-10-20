@@ -507,7 +507,8 @@ SUBMIT_FIX = ToolDefinition(
                 "who has to approve it. Nothing will have run your test or your "
                 "fix when this is read: say what the test is written to show and "
                 "what the change should do, never that the test fails or that the "
-                "fix works."
+                "fix works. Say what a file says only of the file that says it, "
+                "naming it by its path."
             )
         },
         FILES_FIELD: {
