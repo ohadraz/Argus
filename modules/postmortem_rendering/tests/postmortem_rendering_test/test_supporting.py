@@ -520,7 +520,8 @@ def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran() -> None:
                 dont_care_postmortem, SOME_INCIDENT_ADDRESS).code_read_heading
         ) \
         .then(
-            the_answer_was("What Code-Fix read in the source - a static reading, nothing ran it"))
+            the_answer_was("What Code-Fix read in the source and proposed - "
+                           "nothing ran its test or its fix"))
 
 
 @pytest.mark.unit

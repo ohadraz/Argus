@@ -762,7 +762,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence
         ("Actions it took:", actions, None if actions else NOTHING),
         *([("What each deployment it looked into changed:", looked_into, None)]
           if looked_into else []),
-        *([("What Code-Fix read in the source - a static reading, nothing ran it:",
+        *([("What Code-Fix read in the source and proposed - nothing ran its test or its fix:",
             read_in_the_source, None)] if read_in_the_source else [])
     ]
 

@@ -504,7 +504,10 @@ SUBMIT_FIX = ToolDefinition(
             "description": (
                 "Why this is the fix: what the fault was, why the code behaved "
                 "that way, and why this change ends it. Written for the person "
-                "who has to approve it."
+                "who has to approve it. Nothing will have run your test or your "
+                "fix when this is read: say what the test is written to show and "
+                "what the change should do, never that the test fails or that the "
+                "fix works."
             )
         },
         FILES_FIELD: {
@@ -537,13 +540,13 @@ SUBMIT_FIX = ToolDefinition(
                 "the test. Bring the test that exposes the bug: the case that "
                 "was failing, asserted to pass, alongside the service's other "
                 "tests. A fix without one is a claim; a fix with one is "
-                "evidence. The test has to fail against the code as it stands "
-                "now, or it proves nothing: where the fault is slowness, assert "
-                "a bound on how long the work takes or how much of it is done, "
-                "because a test that only checks the answer passes against the "
-                "slow code too. At least one file: this tool is how a patch is "
-                "sent, and an incident traced to a cause in this service "
-                "usually has one."
+                "evidence. Write the test so that it would fail against the "
+                "code as it stands now, or it proves nothing: where the fault "
+                "is slowness, assert a bound on how long the work takes or how "
+                "much of it is done, because a test that only checks the answer "
+                "passes against the slow code too. At least one file: this tool "
+                "is how a patch is sent, and an incident traced to a cause in "
+                "this service usually has one."
             )
         }
     },

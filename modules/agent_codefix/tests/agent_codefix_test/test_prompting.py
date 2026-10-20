@@ -328,6 +328,26 @@ def test_the_patch_field_says_a_test_for_slowness_has_to_bound_something() -> No
         )
 
 
+@pytest.mark.unit
+def test_the_explanation_says_what_the_test_is_written_to_show_never_that_it_failed() -> None:
+    # Nothing runs a test or a fix Code-Fix writes. Asked for a test that "has
+    # to fail against the code as it stands", an explanation said "Against the
+    # current code those tests fail" and "This makes v2 safe to turn back on" -
+    # an instruction mirrored back as an outcome, and a postmortem repeated
+    # both as fact. So the request is worded as one about the writing, and the
+    # explanation is told what it may claim.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            all_of(
+                _the_description_of(FILES_FIELD,
+                                    mentions="so that it would fail against the code"),
+                _the_description_of(EXPLANATION_FIELD,
+                                    mentions="never that the test fails or that the fix works")
+            )
+        )
+
+
 def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         said = offered["input_schema"]["properties"][field]["description"]

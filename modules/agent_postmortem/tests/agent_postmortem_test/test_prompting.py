@@ -633,7 +633,11 @@ def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothin
         ) \
         .then(all_of(
             _says_on_one_line("[F1]", some_reading),
-            _says("nothing ran it")
+            # Nothing ran the test or the fix either, and an explanation that
+            # said its test fails was repeated as fact - so the heading says so
+            # of both, not of "it".
+            _says("What Code-Fix read in the source and proposed - "
+                  "nothing ran its test or its fix:")
         ))
 
 

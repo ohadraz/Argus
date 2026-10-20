@@ -1990,7 +1990,7 @@ def test_what_code_fix_read_the_root_cause_names_links_to_its_row() -> None:
         .then(all_of(
             the_page_links_to("#F1"),
             the_page_says('id="F1"'),
-            the_page_says("nothing ran it")
+            the_page_says("nothing ran its test or its fix")
         ))
 
 

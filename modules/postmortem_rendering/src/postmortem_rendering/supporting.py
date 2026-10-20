@@ -63,9 +63,9 @@ class SupportingSection(BaseModel):
     its diff, a line of the document to each line of it, and is no row at all
     where no deployment was looked into - most incidents look into none, and
     "none read" under a heading for them would say a read was missed. What
-    Code-Fix read in the source is a row of its own for the same reason, and
-    headed as a reading nothing ran, which is how a cause resting on it is
-    weighed. The log messages' heading names the zone their times are in,
+    Code-Fix read in the source and proposed is a row of its own for the same
+    reason, and headed as one whose test and fix nothing ran, which is how a
+    cause resting on it is weighed. The log messages' heading names the zone their times are in,
     since each row says a time as the model was shown it; a change's row says
     its moment with its zone.
 
@@ -87,7 +87,8 @@ class SupportingSection(BaseModel):
     log_messages_absent: str | None
     deployment_changes_heading: str = "What each deployment looked into changed"
     deployment_changes: tuple[EvidenceRow, ...] = ()
-    code_read_heading: str = "What Code-Fix read in the source - a static reading, nothing ran it"
+    code_read_heading: str = ("What Code-Fix read in the source and proposed - "
+                              "nothing ran its test or its fix")
     code_read: tuple[EvidenceRow, ...] = ()
     assumptions_heading: str = "Assumptions"
     assumptions: tuple[Line, ...]
