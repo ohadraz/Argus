@@ -65,7 +65,7 @@ type Metrics = Callable[[datetime, datetime, str | None], list[MetricBucket]]
 # before it fires, and the query of the series it watches - or `None` if nobody
 # could say. The rule as it is defined when the document is written, minutes
 # after it paged - the same rule the metrics are read for.
-type PagingRule = Callable[[str], AlertRuleStanding | None]
+type AlertRule = Callable[[str], AlertRuleStanding | None]
 
 
 class EngagedResponder(BaseModel):
@@ -192,7 +192,7 @@ class Sources:
     engagement: Engagement
     bands: PayBands
     metrics: Metrics
-    paging_rule: PagingRule
+    alert_rule: AlertRule
     # Where the algorithm draws its lines, on the same terms as
     # `working_hours_a_year` below: a number rather than a port, read from the
     # deployment at the same moment as the source it is applied to. It decides

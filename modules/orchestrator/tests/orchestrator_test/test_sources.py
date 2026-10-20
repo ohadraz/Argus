@@ -143,7 +143,7 @@ def test_the_paging_rule_is_asked_of_the_read_tier() -> None:
             read := _a_session_answering_the_rule(some_standing)
         ) \
         .when(
-            lambda: _the_sources_over(read).paging_rule(some_rule)
+            lambda: _the_sources_over(read).alert_rule(some_rule)
         ) \
         .then(
             all_of(
@@ -165,7 +165,7 @@ def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
     # could read are told to the model differently.
     Scenario() \
         .given(read := _a_session_whose_tool_fails(failure)) \
-        .when(lambda: _the_sources_over(read).paging_rule("dont-care-rule")) \
+        .when(lambda: _the_sources_over(read).alert_rule("dont-care-rule")) \
         .then(
             all_of(
                 the_answer_was(None),

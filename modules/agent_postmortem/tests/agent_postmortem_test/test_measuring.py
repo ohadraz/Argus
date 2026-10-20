@@ -43,9 +43,9 @@ from agent_postmortem_test.framework.builders import (
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
     a_bucket,
-    a_paging_rule,
     a_revenue_source_that_cannot_answer,
     an_action,
+    an_alert_rule,
     an_engagement_source_reporting_each,
     an_engagement_source_that_cannot_answer,
     an_evidence_bundle,
@@ -944,7 +944,7 @@ def test_how_long_the_paging_rule_waits_is_read_for_the_rule_that_paged() -> Non
         ) \
         .when(
             lambda: measure(evidence, some_sources(
-                paging_rule=a_paging_rule(300, asked=rules_asked_about)))
+                alert_rule=an_alert_rule(300, asked=rules_asked_about)))
         ) \
         .then(
             all_of(
@@ -963,7 +963,7 @@ def test_a_rule_whose_wait_could_not_be_read_is_measured_as_unread() -> None:
             evidence := an_evidence_bundle(rule="dont-care-rule")
         ) \
         .when(
-            lambda: measure(evidence, some_sources(paging_rule=a_paging_rule(None)))
+            lambda: measure(evidence, some_sources(alert_rule=an_alert_rule(None)))
         ) \
         .then(
             _the_rule_wait_was_unread()
@@ -980,7 +980,7 @@ def test_an_incident_no_rule_paged_for_asks_no_rule_how_long_it_waits() -> None:
         ) \
         .when(
             lambda: measure(evidence, some_sources(
-                paging_rule=a_paging_rule(300, asked=rules_asked_about)))
+                alert_rule=an_alert_rule(300, asked=rules_asked_about)))
         ) \
         .then(
             all_of(
@@ -1002,7 +1002,7 @@ def test_the_query_of_the_rules_series_is_read_off_the_rule_that_paged() -> None
         ) \
         .when(
             lambda: measure(evidence, some_sources(
-                paging_rule=a_paging_rule(300, series_query=some_query))).rule_series_query
+                alert_rule=an_alert_rule(300, series_query=some_query))).rule_series_query
         ) \
         .then(
             the_answer_was(some_query)
@@ -1029,7 +1029,7 @@ def test_whether_the_rule_held_before_the_onset_is_read_off_the_minutes_its_wait
         ) \
         .when(
             lambda: measure(evidence, some_sources(metrics=metrics_between,
-                                                   paging_rule=a_paging_rule(300))
+                                                   alert_rule=an_alert_rule(300))
                             ).rule_held_before_the_onset
         ) \
         .then(

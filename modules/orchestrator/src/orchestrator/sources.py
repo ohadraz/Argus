@@ -121,7 +121,7 @@ def the_real_sources(settings: Settings,
                       settings=ResponderRateSettings.of(settings)),
         metrics=partial(_metrics_between, client=read,
                         served=timedelta(minutes=settings.metrics_window_minutes)),
-        paging_rule=partial(_the_paging_rule, client=read),
+        alert_rule=partial(_the_alert_rule, client=read),
         working_hours_a_year=settings.working_hours_a_year,
         reporting_currency=settings.reporting_currency,
         metrics_reporting_lag_minutes=settings.metrics_reporting_lag_minutes
@@ -309,7 +309,7 @@ def _what_a_title_is_worth(*,
             for title, band in read.items()}
 
 
-def _the_paging_rule(rule: str, *, client: McpClient) -> AlertRuleStanding | None:
+def _the_alert_rule(rule: str, *, client: McpClient) -> AlertRuleStanding | None:
     """`rule` as the read tier reads it off its definition - how long it waits
     with its condition holding before it fires, and the series it watches -
     over the session the metrics are read on.

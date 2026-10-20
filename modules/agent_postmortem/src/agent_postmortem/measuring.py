@@ -237,8 +237,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
             if evidence.onset_at is not None else None)
     engaged = sources.engagement(evidence.incident_id)
     bands = sources.bands()
-    paging_rule = sources.paging_rule(evidence.rule) if evidence.rule is not None else None
-    waits = paging_rule.pending_seconds if paging_rule is not None else None
+    alert_rule = sources.alert_rule(evidence.rule) if evidence.rule is not None else None
+    waits = alert_rule.pending_seconds if alert_rule is not None else None
 
     return Measurements(
         duration_in_hours=duration,
@@ -273,7 +273,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at),
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
         rule_wait_unread=evidence.rule is not None and waits is None,
-        rule_series_query=paging_rule.series_query if paging_rule is not None else None,
+        rule_series_query=alert_rule.series_query if alert_rule is not None else None,
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))

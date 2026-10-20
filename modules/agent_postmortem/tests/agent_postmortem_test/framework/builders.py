@@ -49,11 +49,11 @@ from agent_postmortem.prompting import (
 )
 from agent_postmortem.responder_cost import ResponderCost
 from agent_postmortem.sources import (
+    AlertRule,
     EngagedResponder,
     Engagement,
     EngagementAnswer,
     Metrics,
-    PagingRule,
     PayBand,
     PayBands,
     Rates,
@@ -357,7 +357,7 @@ def some_sources(revenue: Revenue | None = None,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
                  reporting_currency: str = SOME_CURRENCY,
                  metrics_reporting_lag_minutes: int = DONT_CARE_REPORTING_LAG_MINUTES,
-                 paging_rule: PagingRule | None = None) -> Sources:
+                 alert_rule: AlertRule | None = None) -> Sources:
     """Everything the postmortem reads, with each source answering plainly.
 
     A test names only the source it is about and leaves the other five alone,
@@ -381,7 +381,7 @@ def some_sources(revenue: Revenue | None = None,
         working_hours_a_year=working_hours_a_year,
         reporting_currency=reporting_currency,
         metrics_reporting_lag_minutes=metrics_reporting_lag_minutes,
-        paging_rule=paging_rule if paging_rule is not None else a_paging_rule(300)
+        alert_rule=alert_rule if alert_rule is not None else an_alert_rule(300)
     )
 
 
@@ -701,9 +701,9 @@ def metrics_recording_the_rule_into(rules: Kept[str | None]) -> Metrics:
     return metrics_between
 
 
-def a_paging_rule(waits_seconds: int | None,
+def an_alert_rule(waits_seconds: int | None,
                   series_query: str | None = None,
-                  asked: Kept[str] | None = None) -> PagingRule:
+                  asked: Kept[str] | None = None) -> AlertRule:
     """A rule source answering for the rule that paged: how long it waits before
     it fires, and the query of the series it watches - nothing at all where the
     rule could not be read - and noting each rule it was asked about."""

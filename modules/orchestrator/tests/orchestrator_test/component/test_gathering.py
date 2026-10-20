@@ -1594,7 +1594,7 @@ def _sources_recording_into(
         working_hours_a_year=DONT_CARE_WORKING_YEAR,
         reporting_currency="USD",
         metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES,
-        paging_rule=lambda dont_care_rule: None
+        alert_rule=lambda dont_care_rule: None
     )
 
 
