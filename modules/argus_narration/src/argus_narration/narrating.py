@@ -124,12 +124,18 @@ _AGENTS = {
 # with one enum is one of them eventually disagreeing.
 _WHY_IT_WAS_REFUSED = {
     Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed",
-    # Said as what it is rather than as an absence. This one is Argus having
-    # understood the incident and having nothing that reaches it - a reader who
-    # took it for a thin investigation would go looking for evidence instead of
-    # for whoever can call the third party.
-    Refusal.NOTHING_ANSWERS_THIS_MODE: "nothing Argus can do answers this kind "
-                                       "of failure",
+    # Said as what it is rather than as an absence. These two are Argus having
+    # understood the incident and taking nothing for it - a reader who took
+    # either for a thin investigation would go looking for evidence instead of
+    # for whoever can act. And each says its own reason, because the two send a
+    # reader to different people: whoever can call the third party, or whoever
+    # owns the monitoring that did not follow a change somebody meant. Said of
+    # the second as "nothing Argus can do", it was false - a rollback reaches it
+    # and was declined - and a model reading it wrote that Argus could not act.
+    Refusal.SOMEBODY_ELSES_SERVICE: "the failure is in a service another company "
+                                    "runs, and nothing Argus can do reaches it",
+    Refusal.WOULD_UNDO_A_MEANT_CHANGE: "the only action that would answer it "
+                                       "undoes a change that was made on purpose",
     Refusal.NOT_A_GENERIC_MITIGATION: "is not a mitigation Argus may take unasked",
     # The cap, said as the count it is rather than as a failure. A reader who
     # took this for something going wrong would look for a fault; what happened

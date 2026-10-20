@@ -20,10 +20,10 @@ from agent_mitigation import (
     RestartServiceStrategy,
     ScaleOutStrategy,
     Strategies,
-    a_mitigation_answers,
     propose_action,
+    why_no_mitigation_answers,
 )
-from agent_mitigation.strategies import DEFAULT_STRATEGIES
+from agent_mitigation.strategies import DEFAULT_STRATEGIES, NO_MITIGATION_BECAUSE
 from argus_core.models import (
     PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
@@ -37,6 +37,7 @@ from argus_core.models import (
     PinToAccelerator,
     PodPlacement,
     RecordedPlacement,
+    Refusal,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -262,52 +263,72 @@ def test_nothing_answers_monitoring_configuration_drift_though_a_revision_is_the
 
 
 @pytest.mark.unit
-def test_a_mode_nothing_answers_says_so_when_asked() -> None:
+def test_nothing_answers_an_upstream_failure_because_the_service_is_somebody_elses() -> None:
     # Asked of the policy that holds the mapping, because the gate has to tell
     # two silences apart - a mode with no mitigation at all, and a mode whose
     # mitigation could not identify what to act on - and a gate holding its own
     # copy of the set would be a second place for the answer to drift.
     Scenario() \
         .given(
-            the_mode_nothing_answers := FailureMode.UPSTREAM_DEPENDENCY_FAILURE
+            an_upstream_failure := FailureMode.UPSTREAM_DEPENDENCY_FAILURE
         ) \
         .when(
-            lambda: a_mitigation_answers(the_mode_nothing_answers)
+            lambda: why_no_mitigation_answers(an_upstream_failure)
         ) \
         .then(
-            _the_answer_is(False)
+            _the_refusal_is(Refusal.SOMEBODY_ELSES_SERVICE)
         )
 
 
 @pytest.mark.unit
-def test_a_mode_with_a_strategy_is_answered() -> None:
+def test_argus_takes_nothing_for_drift_because_the_only_answer_undoes_a_meant_change() -> None:
+    # Not the upstream failure's reason, and the difference is what a reader
+    # does next. There nothing Argus has reaches the fault; here a rollback
+    # reaches it and would bring the sight back, and is declined because the
+    # revision it returns is somebody's intended work. Said as "nothing can be
+    # done", it sent a model to write that Argus could not act.
+    Scenario() \
+        .given(
+            drift := FailureMode.MONITORING_CONFIGURATION_DRIFT
+        ) \
+        .when(
+            lambda: why_no_mitigation_answers(drift)
+        ) \
+        .then(
+            _the_refusal_is(Refusal.WOULD_UNDO_A_MEANT_CHANGE)
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_with_a_strategy_has_no_reason_to_lack_one() -> None:
     Scenario() \
         .given(
             the_mode_a_revert_answers := FailureMode.FEATURE_FLAG_TOGGLE
         ) \
         .when(
-            lambda: a_mitigation_answers(the_mode_a_revert_answers)
+            lambda: why_no_mitigation_answers(the_mode_a_revert_answers)
         ) \
         .then(
-            _the_answer_is(True)
+            _the_refusal_is(None)
         )
 
 
 @pytest.mark.unit
-def test_no_mode_at_all_is_answered_by_nothing() -> None:
-    # A candidate that named no cause has nothing to look a strategy up by,
-    # which is not the same as a cause whose answer is "nothing can be done" -
-    # and the two must not end up reading the same way to whoever picks the
-    # incident up.
+def test_every_mode_has_a_strategy_or_a_reason_it_has_none() -> None:
+    # Over the whole set, because a new mode is added to the enum and to
+    # whichever table its author remembered. In neither, the gate has no
+    # sentence for it and the walk raises; in both, the gate refuses a mode a
+    # strategy stands ready to answer.
     Scenario() \
         .given(
-            no_mode_was_determined := None
+            every_mode := list(FailureMode)
         ) \
         .when(
-            lambda: a_mitigation_answers(no_mode_was_determined)
+            lambda: [mode for mode in every_mode
+                     if (mode in DEFAULT_STRATEGIES) == (mode in NO_MITIGATION_BECAUSE)]
         ) \
         .then(
-            _the_answer_is(False)
+            _no_mode_is_in_neither_table_or_both()
         )
 
 
@@ -345,10 +366,9 @@ def test_a_bad_deployment_is_answered_by_rolling_the_deployment_back() -> None:
 def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it() -> None:
     # The fourth mode reaching a strategy it does not own, and the only one that
     # maps to an action Argus will not be allowed to take. That is the gate's
-    # judgement and not this lookup's: a mode with no strategy answers `None`,
-    # which is refused as "nothing answers this kind of failure" and escalates
-    # with nothing named - so the incident would end saying a person is needed
-    # and not saying what for.
+    # judgement and not this lookup's: a mode with no strategy proposes `None`,
+    # so the incident would end saying a person is needed and not saying what
+    # for.
     #
     # The action is the flag toggle's exactly, because the cause is a flag that
     # moved and putting it back is what stops the drift. What differs is
@@ -940,10 +960,10 @@ def test_the_registry_argus_ships_answers_state_divergence() -> None:
             the_mode_a_discard_answers := FailureMode.STATE_DIVERGENCE
         ) \
         .when(
-            lambda: a_mitigation_answers(the_mode_a_discard_answers)
+            lambda: why_no_mitigation_answers(the_mode_a_discard_answers)
         ) \
         .then(
-            _the_answer_is(True)
+            _the_refusal_is(None)
         )
 
 
@@ -1011,11 +1031,24 @@ def _the_service_to_restart_is(service: str) -> Assertion[Action | None]:
     return assertion
 
 
-def _the_answer_is(expected: bool) -> Assertion[bool]:
-    def assertion(answered: bool) -> bool:
-        if answered is not expected:
+def _the_refusal_is(expected: Refusal | None) -> Assertion[Refusal | None]:
+    def assertion(refusal: Refusal | None) -> bool:
+        if refusal is not expected:
             raise AssertionError(
-                f"Expected [{expected}], got [{answered}]."
+                f"Expected the refusal [{expected}], got [{refusal}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_mode_is_in_neither_table_or_both() -> Assertion[list[FailureMode]]:
+    def assertion(misplaced: list[FailureMode]) -> bool:
+        if misplaced:
+            raise AssertionError(
+                f"Expected every failure mode to have a strategy or a reason it has "
+                f"none, and never both - [{', '.join(misplaced)}] had neither or both."
             )
 
         return True

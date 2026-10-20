@@ -371,7 +371,7 @@ stateDiagram-v2
     mitigating --> escalated: action could not be taken at all
     mitigating --> fixing: no mitigation left to try
     mitigating --> fixing: nothing could confirm the action, so it is recommended
-    mitigating --> fixing: no mitigation answers the cause in hand
+    mitigating --> fixing: Argus takes no mitigation for the cause in hand
     fixing --> resolved: PR opened + target repo's test suite passes against it
     fixing --> recommended: an action nobody took is what the incident leaves behind
     fixing --> escalated: no code-level fix found after N iterations
@@ -932,16 +932,18 @@ which is every kind but one. It is read off the evidence, not off a list of
 modes, and an action that answers for itself simply never reaches it.
 
 This refusal ends the mitigation phase rather than reaching for the next
-candidate, and so does the refusal of a mode nothing answers (§10). The other
-four reject a particular action and leave the rest of the list worth trying;
-this one rejects the possibility of confirming *any* action on this incident, so
-the next candidate would be refused for the same reason and would overwrite the
-recommendation with its own on the way past. The action is kept and published as
-what somebody else should do, which is what no other refusal does: passing on an
-action Argus was stopped from taking would be telling a person to go and do the
-thing Argus was stopped from doing. The walk still continues to Code-Fix -
-nobody is taking the mitigation, so the fault it would have held off is the only
-thing anybody gets.
+candidate, and so do the two refusals of a mode Argus takes nothing for (§10) -
+the fault is in a service another company runs, or the one action that reaches
+it would undo a change somebody meant. The other four reject a particular
+action and leave the rest of the list worth trying; this one rejects the
+possibility of confirming *any* action on this incident, so the next candidate
+would be refused for the same reason and would overwrite the recommendation
+with its own on the way past. The action is kept and published as what somebody
+else should do, which is what no other refusal does: passing on an action Argus
+was stopped from taking would be telling a person to go and do the thing Argus
+was stopped from doing. The walk still continues to Code-Fix - nobody is taking
+the mitigation, so the fault it would have held off is the only thing anybody
+gets.
 
 **An action Argus may take unasked is one it can reach the platform for, and a
 platform that is not answering removes every action through it rather than one

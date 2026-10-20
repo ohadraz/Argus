@@ -2194,24 +2194,35 @@ def test_a_restart_of_the_service_that_alerted_says_nothing_about_dependencies()
 
 
 @pytest.mark.unit
-def test_a_failure_nothing_answers_says_so_rather_than_saying_nothing_was_proposed() -> None:
-    # The line a person reads when Argus knew exactly what happened and could
-    # do nothing about it. "No mitigation was proposed" would read as an
-    # investigation that came up short, which is the opposite of this: the
-    # cause is named, and what it needs is somebody who can reach the thing
-    # that is broken.
+@pytest.mark.parametrize(("refusal", "said"), [
+    (Refusal.SOMEBODY_ELSES_SERVICE,
+     "the failure is in a service another company runs, and nothing Argus can do "
+     "reaches it"),
+    (Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+     "the only action that would answer it undoes a change that was made on purpose")
+], ids=["somebody-elses-service", "would-undo-a-meant-change"])
+def test_a_failure_argus_takes_nothing_for_says_why_rather_than_saying_nothing_was_proposed(
+    refusal: Refusal,
+    said: str
+) -> None:
+    # The line a person reads when Argus knew what happened and took nothing
+    # for it. "No mitigation was proposed" would read as an investigation that
+    # came up short, which is the opposite of this: the cause is named. And the
+    # reason is said, because the two send a reader to different people -
+    # whoever can call the other company, or whoever owns the monitoring that
+    # did not follow a change somebody meant. "Nothing Argus can do" said of
+    # both was false of the second, where a rollback reaches the fault.
     some_refusal = ActionRefused(
         incident_id=new_id(),
         hypothesis_id=new_id(),
-        refusal=Refusal.NOTHING_ANSWERS_THIS_MODE
+        refusal=refusal
     )
 
     Scenario() \
         .given(some_refusal) \
         .when(lambda: build_narration([some_refusal])) \
         .then(all_of(
-            _the_only_line_marks(
-                "nothing Argus can do answers this kind of failure"),
+            _the_only_line_marks(said),
             _the_lines_are_credited_to(["Argus"])))
 
 

@@ -35,12 +35,19 @@ class Refusal(StrEnum):
     # changes and no way to choose. Not a failure of the gate: there was never
     # an action for it to judge, and what is missing is evidence.
     NO_MITIGATION_PROPOSED = "no-mitigation-proposed"
-    # The cause is known and nothing in the closed set answers it at all. The
-    # other silence that reaches the gate with no action, and a different thing
-    # to say to whoever picks the incident up: not "work out what to do" but
-    # "this is not ours to do anything about". An upstream dependency's outage
-    # is the case it was named for.
-    NOTHING_ANSWERS_THIS_MODE = "nothing-answers-this-mode"
+    # The cause is known and the fault is in a service another company runs, which
+    # nothing Argus may do reaches. The other silence that reaches the gate with
+    # no action, and a different thing to say to whoever picks the incident up:
+    # not "work out what to do" but "this is not ours to do anything about".
+    SOMEBODY_ELSES_SERVICE = "somebody-elses-service"
+    # The cause is known and an action reaches it - and taking that action would
+    # undo a change somebody meant. A rollback of a deliberate rename brings the
+    # monitoring's sight back by taking the rename away, and what is owed instead
+    # is the monitoring brought up to the change. Not one refusal with the one
+    # above, though both reach the gate with no action: said as "nothing Argus
+    # can do", this one is false - there is something, and it was declined - and
+    # a reader who believed it would write that Argus could not act.
+    WOULD_UNDO_A_MEANT_CHANGE = "would-undo-a-meant-change"
     # There is something to do and nobody has pre-authorised doing it. The one
     # refusal that is the autonomy boundary doing its job (spec §13): the set of
     # generic mitigations is closed, and a kind absent from it is one nobody has
@@ -78,7 +85,7 @@ class Refusal(StrEnum):
     # answer is days away. An action reported as taken and never judged is worse
     # than one not taken, because the incident looks handled.
     #
-    # Distinct from the five above in where it leaves the walk. Each of those
+    # Distinct from the three above it in where it leaves the walk. Each of those
     # rejects a particular action, so the next candidate is worth reaching for;
     # this rejects the possibility of confirming any action on this incident, and
     # a second candidate is no better placed than the first.

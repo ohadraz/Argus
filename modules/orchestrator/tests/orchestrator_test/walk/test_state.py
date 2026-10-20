@@ -329,7 +329,7 @@ def test_a_mode_nothing_answers_is_looking_for_a_fix_with_its_candidate_still_in
             an_incident_nothing_answers := _an_incident(
                 candidates=[_a_candidate()],
                 candidate_index=0,
-                nothing_answers_the_mode=True
+                the_mode_has_no_mitigation=True
             )
         ) \
         .when(
@@ -352,7 +352,7 @@ def test_a_mode_nothing_answers_escalates_once_code_fix_has_answered() -> None:
             an_incident_code_fix_answered := _an_incident(
                 candidates=[_a_candidate()],
                 candidate_index=0,
-                nothing_answers_the_mode=True,
+                the_mode_has_no_mitigation=True,
                 fix_found=False
             )
         ) \

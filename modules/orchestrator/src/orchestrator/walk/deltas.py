@@ -134,7 +134,7 @@ class StateDelta(BaseModel):
     recommended_action: Action | None = None
     # Set by the gate alone, when the candidate in hand names a mode no
     # mitigation answers - which ends the mitigation phase.
-    nothing_answers_the_mode: bool | None = None
+    the_mode_has_no_mitigation: bool | None = None
     nothing_worth_trying: bool | None = None
     # The window that contradicted what the alarm claimed, where it did. Set by
     # the investigating node alone, and the one thing that ends a walk without

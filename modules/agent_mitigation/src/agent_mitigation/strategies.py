@@ -15,11 +15,11 @@ strategy says what would help, and has no business also saying what is
 permitted.
 
 A second question is asked of the registry rather than of any strategy, and
-`a_mitigation_answers` is it: whether this kind of failure has an answer here
-at all. The gate needs it to tell two silences apart - a mitigation that could
-not identify what to act on, and a mode nothing in the set addresses - and
-asking it here is what keeps the gate from holding its own copy of what Argus
-can do.
+`why_no_mitigation_answers` is it: whether this kind of failure is left without
+an answer on purpose, and why. The gate needs it to tell two silences apart - a
+mitigation that could not identify what to act on, and a mode Argus takes
+nothing for - and asking it here is what keeps the gate from holding its own
+copy of what Argus can do.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from argus_core.models import (
     Hypothesis,
     PinAutoscaler,
     PinToAccelerator,
+    Refusal,
     RestartService,
     RevertFeatureFlag,
     RollBackDeployment,
@@ -55,6 +56,7 @@ from agent_mitigation.accelerators import the_accelerator_to_pin_to
 
 __all__ = [
     "DEFAULT_STRATEGIES",
+    "NO_MITIGATION_BECAUSE",
     "DiscardCacheEntriesStrategy",
     "MitigationStrategy",
     "PinAutoscalerStrategy",
@@ -66,7 +68,8 @@ __all__ = [
     "ScaleOutStrategy",
     "Strategies",
     "UndoTheRecordedChangeStrategy",
-    "a_mitigation_answers"
+    "Reasons",
+    "why_no_mitigation_answers"
 ]
 
 
@@ -523,14 +526,11 @@ class PinToAcceleratorStrategy:
 
 
 Strategies = Mapping[FailureMode, MitigationStrategy]
+Reasons = Mapping[FailureMode, Refusal]
 
 # Which mitigation answers which cause. A mode absent from this is one Argus
-# has nothing to offer for, and `UPSTREAM_DEPENDENCY_FAILURE` is absent
-# deliberately rather than pending: every mitigation here acts on Argus's own
-# deployment, and another company's outage is reachable by none of them. The
-# day something is registered for it, that will be a claim that Argus can shed
-# load or fail over - which is a mitigation somebody has to build and defend,
-# not a gap to be filled in.
+# takes nothing for, and each of those is absent deliberately rather than
+# pending - `NO_MITIGATION_BECAUSE` below says why, one mode at a time.
 #
 # Many-to-one, and the three deployment modes are where that shows: a revision
 # carries the code and the configuration it shipped with, so returning the
@@ -582,10 +582,9 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy(),
     # Whichever change the record holds at the onset, undone - and the one entry
     # here whose action the gate will decline. That refusal is the gate's
-    # judgement and not this table's: a mode absent from this mapping answers
-    # `None`, which is refused as nothing answering the kind of failure at all,
-    # and the incident then ends saying a person is needed without saying what
-    # for. Named here so there is something to recommend.
+    # judgement and not this table's: a mode absent from this mapping proposes
+    # `None`, and the incident then ends saying a person is needed without
+    # saying what for. Named here so there is something to recommend.
     FailureMode.SILENT_DATA_CORRUPTION: UndoTheRecordedChangeStrategy(),
     # The fourth mode returning a deployment, and the only one where what comes
     # back is the sight of the service rather than its behaviour. Nothing about
@@ -614,25 +613,54 @@ DEFAULT_STRATEGIES: Strategies = {
 }
 
 
-def a_mitigation_answers(failure_mode: FailureMode | None,
-                         strategies: Strategies = DEFAULT_STRATEGIES) -> bool:
-    """Whether anything Argus knows how to do answers this kind of failure.
+# Why each mode with no strategy has none. A table beside the one above rather
+# than a value inside it, because a mapping named for strategies that also held
+# refusals would be the word meaning two things - and every mode is in exactly
+# one of the two, which a test asks of the whole set.
+#
+# Two reasons, and they send a reader to different people. Every mitigation
+# above acts on Argus's own deployment, and another company's outage is
+# reachable by none of them: the day something is registered for it, that will
+# be a claim that Argus can shed load or fail over, which is a mitigation
+# somebody has to build and defend rather than a gap to be filled in. The drift
+# is the opposite case - a rollback reaches it and would bring the sight back,
+# and is declined because the revision it returns is a change somebody meant.
+NO_MITIGATION_BECAUSE: Reasons = {
+    FailureMode.UPSTREAM_DEPENDENCY_FAILURE: Refusal.SOMEBODY_ELSES_SERVICE,
+    FailureMode.MONITORING_CONFIGURATION_DRIFT: Refusal.WOULD_UNDO_A_MEANT_CHANGE
+}
+
+
+def why_no_mitigation_answers(failure_mode: FailureMode,
+                              strategies: Strategies = DEFAULT_STRATEGIES,
+                              because: Reasons = NO_MITIGATION_BECAUSE
+                              ) -> Refusal | None:
+    """Why Argus takes nothing for this kind of failure, or `None` where a
+    mitigation answers it.
 
     Asked by the gate, which has to tell two silences apart: an incident that
-    reached it with no action because nothing answers the mode at all, and one
+    reached it with no action because Argus takes nothing for the mode, and one
     that reached it with no action because the mitigation that does answer the
     mode could not identify what to act on. Both end the same way and mean
-    different things to whoever picks the incident up.
+    different things to whoever picks the incident up - and the first has two
+    reasons, which mean different things again.
 
-    Answered here rather than by the gate reading this mapping itself, for the
-    reason the mapping is here at all: which cause has an answer is policy, and
-    policy kept in two places is policy that comes to differ.
+    Answered here rather than by the gate reading these mappings itself, for the
+    reason the mappings are here at all: which cause has an answer is policy,
+    and policy kept in two places is policy that comes to differ.
 
-    A candidate that determined no mode is not answered either. There is
-    nothing to look up, which is a gap in the investigation rather than a
-    statement about what can be done - and the refusal that follows says so.
+    A subscript rather than a `get`: a mode in neither table is one nobody has
+    decided about, and saying "nothing answers this" of it would be inventing
+    the decision. It raises instead, before anything is tried or said.
+
+    A mode, never `None`. A candidate that determined no mode has nothing to look
+    up, which is a gap in the investigation rather than a statement about what
+    can be done - and the gate settles that before it asks.
     """
-    return failure_mode is not None and failure_mode in strategies
+    if failure_mode in strategies:
+        return None
+
+    return because[failure_mode]
 
 
 def _the_change_to_undo(subject: str | None,

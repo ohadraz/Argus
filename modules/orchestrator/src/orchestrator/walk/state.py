@@ -149,7 +149,7 @@ class IncidentState(BaseModel):
     # candidate: the candidate in hand is the likeliest explanation still
     # standing, and where it says no mitigation applies, acting on a less likely
     # one is acting against the diagnosis.
-    nothing_answers_the_mode: bool = False
+    the_mode_has_no_mitigation: bool = False
     # Whether the round that just ran found any candidate worth acting on. The
     # Investigator's own answer, recorded because it is the one thing that
     # distinguishes an investigation with nothing to offer from a walk that has
@@ -263,7 +263,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # The gate ended the mitigation phase with its candidate still in hand, so
     # the index below would read as a candidate under test. Nothing is: no
     # mitigation answers the mode, and the walk is on its way to Code-Fix.
-    if state.nothing_answers_the_mode:
+    if state.the_mode_has_no_mitigation:
         return IncidentStatus.FIXING
 
     # Not a third opinion on the hypothesis: nothing was changed and nothing was
