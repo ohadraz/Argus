@@ -40,6 +40,7 @@ from agent_postmortem.figures import (
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
+    LOGS_REACH_UNTIL_FIGURE,
     RULE_WAITS_FIGURE,
     Figure,
     figures_of,
@@ -1786,7 +1787,8 @@ def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> 
     # The metrics stopping is not nobody seeing. Told the stretch was one
     # "nobody could see", and the service "unobserved", a model holding the
     # shop's own warned rate through it wrote that the record could not say how
-    # the shop was doing.
+    # the shop was doing. Told only which lines reached in, one wrote that
+    # nothing was known after the onset - so how far they reach is said too.
     some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
 
     Scenario() \
@@ -1798,7 +1800,8 @@ def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> 
             lambda: opening_ask(evidence, measured)
         ) \
         .then(all_of(
-            _says_on_one_line("reach into it", f"[{grouped([some_line_inside])[0].label}]"),
+            _says_on_one_line("reach into it until", f"{{{LOGS_REACH_UNTIL_FIGURE}}}",
+                              f"[{grouped([some_line_inside])[0].label}]"),
             _does_not_say("nobody could see"),
             _does_not_say("unobserved")))
 

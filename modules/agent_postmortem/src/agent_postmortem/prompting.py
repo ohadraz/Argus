@@ -66,6 +66,7 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
+    LOGS_REACH_UNTIL_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
@@ -1123,7 +1124,7 @@ def _how_long_it_was_broken(measured: Measurements,
             f"incident. That is {_shown(DURATION_FIGURE, figures)} the metrics did "
             f"not cover, not a stretch the service is known to have spent in "
             f"trouble, and the error rates below cover none of it.",
-            _the_logs_reaching_into(log_lines, measured.unobserved_from)
+            _the_logs_reaching_into(log_lines, measured.unobserved_from, figures)
         ]
 
     if measured.back_to_normal_at is None:
@@ -1145,11 +1146,18 @@ def _how_long_it_was_broken(measured: Measurements,
     ]
 
 
-def _the_logs_reaching_into(log_lines: Sequence[str], metrics_stopped_at: datetime) -> str:
-    """Which log lines read reach into the stretch the metrics did not cover -
-    or that none do, said rather than left out, since an absent list reads the
-    same as one nobody looked for. And where no logs were read, that: told none
-    reached in, a model is told logs were looked at and said nothing of it."""
+def _the_logs_reaching_into(log_lines: Sequence[str],
+                            metrics_stopped_at: datetime,
+                            figures: Mapping[str, Figure]) -> str:
+    """Which log lines read reach into the stretch the metrics did not cover,
+    and how far - or that none do, said rather than left out, since an absent
+    list reads the same as one nobody looked for. And where no logs were read,
+    that: told none reached in, a model is told logs were looked at and said
+    nothing of it.
+
+    How far as a figure: told only which lines reached in, a model wrote that
+    nothing was known after the onset.
+    """
     if not log_lines:
         return "No logs were read."
 
@@ -1157,7 +1165,8 @@ def _the_logs_reaching_into(log_lines: Sequence[str], metrics_stopped_at: dateti
     if not labels:
         return "No log line read reaches into it."
 
-    return f"Log lines read that reach into it: {', '.join(f'[{label}]' for label in labels)}."
+    return (f"Log lines read reach into it until {_shown(LOGS_REACH_UNTIL_FIGURE, figures)}: "
+            f"{', '.join(f'[{label}]' for label in labels)}.")
 
 
 def _back_before(credited: ActionRecord | None,

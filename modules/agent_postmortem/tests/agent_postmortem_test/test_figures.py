@@ -34,6 +34,7 @@ from agent_postmortem.figures import (
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     HELD_FIGURE,
+    LOGS_REACH_UNTIL_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
@@ -752,6 +753,45 @@ def test_metrics_that_stopped_are_dated_from_where_they_stopped() -> None:
                 UNOBSERVED_FROM_FIGURE: Figure(given=to_iso(some_minute_they_stopped),
                                                written="Sep 02, 2026, 12:00:00 UTC")
             })
+        )
+
+
+@pytest.mark.unit
+def test_how_far_the_logs_read_reach_into_a_metrics_gap_is_a_figure() -> None:
+    # A figure rather than the logs' own spans, so a write-up saying nothing is
+    # known after the onset contradicts an instant it was handed by name.
+    some_minute_logged_inside = ONSET + timedelta(minutes=5)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(some_minute_logged_inside)} WARN io-shop: some warning"]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                LOGS_REACH_UNTIL_FIGURE: Figure(given=to_iso(some_minute_logged_inside),
+                                                written="Sep 02, 2026, 12:05:00 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_a_metrics_gap_no_log_line_reaches_into_names_no_reach() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(LOGS_REACH_UNTIL_FIGURE)
         )
 
 

@@ -19,12 +19,13 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Final
 
 from argus_core.models import CitedEvidence
 
 from agent_postmortem.figures import AROUND_A_WORD, is_a_figure
+from agent_postmortem.stamps import stamped, the_minute_inside
 
 # How a group's label begins. The rest is the start of a digest of the message,
 # so a message keeps its label in every run that read it.
@@ -33,9 +34,6 @@ LOG_GROUP_PREFIX: Final = "G"
 # How much of the digest the label carries. Four hex characters is one name in
 # sixty-five thousand, for an incident reading a few dozen distinct messages.
 _DIGEST_LENGTH: Final = 4
-
-# The minute a log line opens with, in the service's own wire format.
-_STAMPED: Final = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d)?Z?)\s+")
 
 # Between the first minute of a span and its last.
 _TO: Final = "–"
@@ -62,7 +60,7 @@ def grouped(log_lines: Sequence[str]) -> list[CitedEvidence]:
     """
     groups: dict[str, list[tuple[datetime | None, list[str]]]] = {}
     for line in log_lines:
-        logged_at, message = _split(line)
+        logged_at, message = stamped(line)
         groups.setdefault(_key_of(message), []).append((logged_at, _A_NUMBER.split(message)))
 
     return [CitedEvidence(label=_label_for(key), text=_said_once(occurrences))
@@ -73,46 +71,26 @@ def labels_reaching_into(log_lines: Sequence[str], since: datetime) -> list[str]
     """The labels of the groups with a line logged inside a stretch that began
     at `since` and has not ended, in the order they were first logged.
 
-    A line is stamped with its minute, and is taken as the whole of it: one
-    from the minute `since` falls in reaches into the stretch. Exact for the
-    stretch it is asked about, whose start is the first minute the metrics did
-    not cover. No end is asked for because that stretch had none - it was still
-    running when Argus stopped. A line with no stamp reaches into nothing,
-    since naming it would say it was logged inside.
+    Inside by `the_minute_inside`, the rule how far they reach is told by, so a
+    group named here always has a last minute to say.
     """
-    first_minute = since.replace(second=0, microsecond=0)
     keys: list[str] = []
     reaching: set[str] = set()
     for line in log_lines:
-        logged_at, message = _split(line)
+        logged_at, message = stamped(line)
         key = _key_of(message)
         if key not in keys:
             keys.append(key)
 
-        # The stamp's `Z` is optional, and a stamp without it is the same clock.
-        if logged_at is not None and (
-                _in_utc(logged_at).replace(second=0, microsecond=0) >= first_minute):
+        if the_minute_inside(logged_at, since) is not None:
             reaching.add(key)
 
     return [_label_for(key) for key in keys if key in reaching]
 
 
-def _split(line: str) -> tuple[datetime | None, str]:
-    """When a line was logged, and what it said."""
-    stamped = _STAMPED.match(line)
-    if stamped is None:
-        return None, line
-
-    return datetime.fromisoformat(stamped.group(1)), line[stamped.end():]
-
-
 def _key_of(message: str) -> str:
     """What a group is keyed by: everything in the message but its numbers."""
     return "#".join(_A_NUMBER.split(message)[0::2])
-
-
-def _in_utc(logged_at: datetime) -> datetime:
-    return logged_at if logged_at.tzinfo is not None else logged_at.replace(tzinfo=UTC)
 
 
 def _label_for(key: str) -> str:

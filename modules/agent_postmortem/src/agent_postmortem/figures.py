@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
+from agent_postmortem.stamps import the_last_minute_logged_inside
 
 if TYPE_CHECKING:
     from agent_postmortem.prompting import SubmittedPostmortem
@@ -51,6 +52,7 @@ ALERT_RAISED_FIGURE: Final = "alert_raised"
 BEGAN_FIGURE: Final = "began"
 BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
 UNOBSERVED_FROM_FIGURE: Final = "metrics_stopped_at"
+LOGS_REACH_UNTIL_FIGURE: Final = "logs_reach_until"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"
@@ -134,6 +136,7 @@ _KINDS: Final = {
     BEGAN_FIGURE: _Kind.INSTANT,
     BACK_TO_NORMAL_FIGURE: _Kind.INSTANT,
     UNOBSERVED_FROM_FIGURE: _Kind.INSTANT,
+    LOGS_REACH_UNTIL_FIGURE: _Kind.INSTANT,
     ARGUS_STOPPED_FIGURE: _Kind.INSTANT,
     ACTED_FIGURE: _Kind.INSTANT,
     DURATION_FIGURE: _Kind.SPAN,
@@ -249,6 +252,15 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
 
     if measured.unobserved_from is not None:
         figures[UNOBSERVED_FROM_FIGURE] = _an_instant(measured.unobserved_from)
+
+        # How far the logs read reach into the stretch the metrics did not
+        # cover. Told only which lines reached in, a model wrote that nothing
+        # was known after the onset; given the instant by name, saying so
+        # contradicts a figure it was handed.
+        logged_until = the_last_minute_logged_inside(evidence.log_lines,
+                                                     measured.unobserved_from)
+        if logged_until is not None:
+            figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until)
 
     figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)
