@@ -14,14 +14,16 @@ pass.
 Some of this is one agent's advice, because one agent holds the tool: Code-Fix
 alone reads the repository, and the Investigator alone the deployment and the
 register. Whoever offers a tool to another agent next reads its words first.
+
+One description is shared by every agent and every way of finding source that
+offers the tool, so it names another tool only where each of them offers that
+one too. Advice to "prefer search_repository" read in a deployment that
+searches by meaning alone points the model at a tool it does not have.
 """
 
 from __future__ import annotations
 
 from typing import Final
-
-# The read tier's own names for the tools these words point a model between.
-SEARCH_REPOSITORY_TOOL: Final = "search_repository"
 
 SERVICE_DEPENDENCIES: Final = (
     "What this service calls, what each of those is for, and whether the "
@@ -85,8 +87,8 @@ SEARCH_REPOSITORY_QUERY: Final = (
 LIST_REPOSITORY_FILES: Final = (
     "List every file in the service's repository, as paths from its root. "
     "A fallback for when searching found nothing and you need to see the "
-    f"shape of the repository - prefer {SEARCH_REPOSITORY_TOOL}, which tells you "
-    "which file to open rather than leaving you to guess from names. A "
+    "shape of the repository - prefer a search, which tells you which file "
+    "to open rather than leaving you to guess from names. A "
     "repository that could not be listed whole is reported as a failure, "
     "never as a shorter list."
 )
@@ -109,12 +111,13 @@ SEARCH_REPOSITORY_BY_MEANING: Final = (
     "Find code by describing what it does, when you have no exact text to "
     "search for. Answers with passages of the service's source - each one "
     "'path:start-end' and the lines themselves - nearest in meaning to "
-    f"your description. Use this where {SEARCH_REPOSITORY_TOOL} cannot help: the "
-    "investigation described a behaviour ('the discount is divided by a "
+    "your description. Use this where searching for exact text cannot help: "
+    "the investigation described a behaviour ('the discount is divided by a "
     "count that can be zero') and the repository may not contain any of "
     "those words. Describe the behaviour and the mistake, not an "
-    "identifier. Worth using alongside the other search rather than "
-    "instead of it - one matches characters, this matches meaning."
+    "identifier. Where you can also search for exact text, do both rather "
+    "than one instead of the other - one matches characters, this matches "
+    "meaning."
 )
 SEARCH_REPOSITORY_BY_MEANING_DESCRIPTION: Final = (
     "What the code you are looking for does, in a sentence - the "

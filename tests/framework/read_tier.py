@@ -51,6 +51,12 @@ def what_the_read_tier_offers(held: Mapping[str, Collection[str]],
     return offered(held, client=the_read_tier)
 
 
+def every_tool_the_read_tier_lists(mode: CodeSearch = SEARCHING_BY_GREP_ALONE) -> list[str]:
+    """Every tool one deployment's read tier lists, by name - offered to a
+    model or asked only by code."""
+    return [tool.name for tool in asyncio.run(_a_read_tier(mode).list_tools())]
+
+
 def _a_read_tier(mode: CodeSearch) -> FastMCP:
     """One deployment's read tier, reaching nothing."""
     return build_server(
