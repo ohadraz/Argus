@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from argus_core import to_iso, utc_now
+from argus_core import to_iso
 
 # The words the shop's own monitoring pages with wherever its other rules do not
 # fire: its error-rate rule's summary (`_BY_DEFAULT` in the demo app's
@@ -19,19 +19,22 @@ def a_grafana_style_alert_with(service: str = "some-service",
                                 summary: str = THE_ERROR_RATE_RULES_WORDS) -> dict[str, Any]:
     """A Grafana webhook payload, as Grafana would send it.
 
-    `startsAt` defaults to now, and that default matters: retrieval is
-    anchored on the alert time, and the Target Service seeds a scenario
-    relative to the moment it was seeded. A hardcoded timestamp puts the
-    metrics window somewhere the fixture's minutes are not, so Argus
+    `startsAt` is left to whoever sends it, which stamps it with the moment it
+    is sent, unless `started_at` is given. That default matters twice over:
+    retrieval is anchored on the alert time, and the Target Service seeds a
+    scenario relative to the moment it was seeded. A hardcoded timestamp puts
+    the metrics window somewhere the fixture's minutes are not, so Argus
     retrieves nothing and honestly reports that it found nothing - a green
-    test turning red for a reason that has nothing to do with Argus.
+    test turning red for a reason that has nothing to do with Argus. And a
+    stamp taken here is taken before the case seeds, by however long the seed
+    waited, which can put the alert before the rule could have fired.
 
     `summary` is the words the alert was sent with, which Argus reads as the
     sender's own account of what it measured and names the paging rule's
     series by. Three latency rules share one alert name, so the words are the
     only thing in the page that says which percentile moved.
     """
-    alert_time = started_at if started_at is not None else utc_now()
+    starts_at = {"startsAt": to_iso(started_at)} if started_at is not None else {}
 
     return {
         "receiver": "argus-webhook",
@@ -47,7 +50,7 @@ def a_grafana_style_alert_with(service: str = "some-service",
                 "annotations": {
                     "summary": summary,
                 },
-                "startsAt": to_iso(alert_time),
+                **starts_at,
                 "endsAt": "0001-01-01T00:00:00Z",
                 "generatorURL": f"http://grafana.local/alerting/grafana/{service}/view",
                 "fingerprint": "abc123def456",

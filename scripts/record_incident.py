@@ -109,6 +109,7 @@ from tests.e2e.framework.argus import (
     the_anchor_file_for,
     the_held_call_arrived,
     the_model_answers_from,
+    the_rule_is_firing,
 )
 from tests.e2e.framework.builders import THE_ERROR_RATE_RULES_WORDS
 from tests.e2e.framework.chat import (
@@ -329,6 +330,11 @@ class _Recording(NamedTuple):
     anything could confirm an action taken on it; a payload built from
     `alert_name` alone states none, so the walk would be recorded reaching a
     different ending than the case replaying it arranges.
+
+    `a_false_alarm` is for the recording whose alert no rule would send - the
+    alarm the walk is meant to find the metrics contradict. It goes out at once,
+    where every other posted alert waits for its rule to fire, as the case
+    replaying it does.
     """
     name: str
     scenario: str | None
@@ -340,6 +346,7 @@ class _Recording(NamedTuple):
     resolved_by: Callable[[str], None] | None = None
     walk_from: str | None = None
     may_take_seconds: float = A_WHOLE_INVESTIGATION_SECONDS
+    a_false_alarm: bool = False
 
 
 # How long one candidate is watched under the burn-rate rule the flap pages on:
@@ -798,7 +805,8 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         "HighErrorRate",
         IncidentStatus.DISPROVEN,
         (),
-        and_then=_the_shop_is_reporting
+        and_then=_the_shop_is_reporting,
+        a_false_alarm=True
     ),
     # The one incident whose alert is not written here. The shop's own weekly
     # check finds stored totals that stopped keeping up with the purchases
@@ -1264,7 +1272,8 @@ def _write_the_anchor(stored: str, seeded_at: str | None) -> None:
 def _an_incident_was_opened_by(service: str,
                                alert_name: str | None,
                                rule_uid: str | None,
-                               scenario: str | None) -> str:
+                               scenario: str | None,
+                               a_false_alarm: bool) -> str:
     """Fires the alert and returns the incident the webhook wrote down.
 
     Two ways in, and which one is used is the recording's to say. A named alert
@@ -1283,6 +1292,10 @@ def _an_incident_was_opened_by(service: str,
     Split from the wait so the caller holds the id *before* the walk can fail.
     A walk that does not finish is the one whose account is worth reading, and
     a wait that owned the id took it down with it.
+
+    A posted alert waits for its rule to fire first, unless it is a false alarm
+    on purpose - Grafana sends nothing sooner, and the case replaying it waits
+    the same way.
     """
     if alert_name is None:
         # The shop holds this open until Argus's webhook answers, which it does
@@ -1295,6 +1308,9 @@ def _an_incident_was_opened_by(service: str,
         raised.raise_for_status()
 
         return str(raised.json().get("incident_id") or "unknown")
+
+    if rule_uid is not None and not a_false_alarm:
+        the_rule_is_firing(rule_uid)
 
     response = httpx2.post(
         f"{ARGUS_WEB_BASE_URL}/webhooks/alerts",
@@ -1732,7 +1748,8 @@ def _capture(recording: _Recording,
         recording.and_then()
 
     incident_id = _an_incident_was_opened_by(
-        service, recording.alert_name, staged.rule_uid, recording.scenario
+        service, recording.alert_name, staged.rule_uid, recording.scenario,
+        recording.a_false_alarm
     )
 
     print(f"incident [{incident_id}] drove scenario [{recording.scenario or 'none'}]")

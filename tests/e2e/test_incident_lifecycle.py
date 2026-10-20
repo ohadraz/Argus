@@ -112,7 +112,7 @@ def test_an_alarm_the_metrics_contradict_is_closed_as_disproven() -> None:
             calling(the_model_answers_from(RECORDED_ALARM_DISPROVEN))
         ) \
         .when(
-            argus_is_triggered_with_alert(some_alert)
+            argus_is_triggered_with_alert(some_alert, a_false_alarm=True)
         ) \
         .then(all_of(
             argus_returns_status(HttpStatus.ACCEPTED),
