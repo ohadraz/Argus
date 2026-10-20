@@ -457,6 +457,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "span between two instants, how far one share is above another, how "
         "many times one is the other - is written as that working, braces and "
         f"all: {{{BACK_TO_NORMAL_FIGURE} - {BEGAN_FIGURE}}}, "
+        f"{{T3.1 - {ALERT_RAISED_FIGURE}}}, "
         f"{{{ERRORS_AT_WORST_FIGURE} / {ERRORS_BEFORE_FIGURE}}}. The document "
         "works it out from the figures as you were shown them. Say any other "
         "size with no number in it, not even in a word - \"most requests\", "
@@ -542,7 +543,19 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         ),
         LESSONS_FIELD: {
             "type": "object",
-            "properties": {WENT_WELL_FIELD: _SENTENCES,
+            # Said in the list the praise is written in: told how to work a
+            # span out only in the tool's description, a write-up praised Argus
+            # for acting "within seconds" when it took 41.
+            "properties": {WENT_WELL_FIELD: {
+                               **_SENTENCES,
+                               "description": (
+                                   "Where one says how quickly Argus did something, "
+                                   "write the span as a working of two instants - a "
+                                   "T or P row's instant is its first figure, as T3.1 "
+                                   f"is T3's: {{T3.1 - {ALERT_RAISED_FIGURE}}}, not in "
+                                   "words (\"within seconds\")."
+                               )
+                           },
                            WENT_WRONG_FIELD: _SENTENCES,
                            GOT_LUCKY_FIELD: _SENTENCES},
             "required": [WENT_WELL_FIELD, WENT_WRONG_FIELD, GOT_LUCKY_FIELD],

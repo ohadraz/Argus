@@ -32,6 +32,7 @@ import pytest
 from agent_postmortem import DeploymentChangesRecord, EngagementAnswer, NotPaged
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
+    ALERT_RAISED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     DURATION_FIGURE,
@@ -1722,13 +1723,16 @@ def test_the_model_is_told_to_name_a_figure_rather_than_write_one() -> None:
 def test_the_model_is_told_to_name_a_working_rather_than_do_one() -> None:
     # A figure the incident never measured as one - how long until it
     # recovered, how many times worse it got - is named as what to work out,
-    # and code works it out from the figures as shown.
+    # and code works it out from the figures as shown. A row's instant among
+    # them: shown only Argus's own figures worked, no recorded walk worked a
+    # span out of a timeline row.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.description
         ) \
         .then(
             _the_description_mentions(f"{{{BACK_TO_NORMAL_FIGURE} - {BEGAN_FIGURE}}}",
+                                      f"{{T3.1 - {ALERT_RAISED_FIGURE}}}",
                                       f"{{{ERRORS_AT_WORST_FIGURE} / {ERRORS_BEFORE_FIGURE}}}")
         )
 
@@ -1847,6 +1851,21 @@ def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: st
             _the_description_mentions(what_an_unseen_check_is_written_as),
             _the_description_avoids("missing safeguard")
         ))
+
+
+@pytest.mark.unit
+def test_how_quickly_argus_acted_is_asked_for_as_a_working_of_two_rows() -> None:
+    # Told how to work a span out only in the tool's description, 20 recorded
+    # walks praised Argus for acting "within seconds" - one of them for 41
+    # seconds. Said in the list the praise is written in.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("how quickly", f"{{T3.1 - {ALERT_RAISED_FIGURE}}}")
+        )
 
 
 @pytest.mark.unit
