@@ -62,7 +62,7 @@ from orchestrator_test.framework.assertions import the_route_is
 from orchestrator_test.framework.builders import (
     a_determined_hypothesis,
     a_random_id,
-    an_incident_state,
+    an_undetermined_hypothesis,
 )
 
 DONT_CARE_FLAG = "dont-care-flag"
@@ -248,8 +248,9 @@ def test_an_incident_whose_mode_nothing_answers_stops_trying_candidates() -> Non
     # may make, and a proposal is the only thing anybody gets.
     Scenario() \
         .given(
-            an_incident_nothing_answers := _a_mitigating_incident()
-            .model_copy(update={"the_mode_has_no_mitigation": True})
+            an_incident_nothing_answers := _a_mitigating_incident(
+                whose_mode_has_no_mitigation=True
+            )
         ) \
         .when(lambda: route_after_gate(an_incident_nothing_answers)) \
         .then(the_route_is(FIXING_ROUTE))
@@ -846,23 +847,26 @@ def _a_mitigating_incident(proposing: Action | None = None,
                            already_tried: list[Attempt] | None = None,
                            listing: list[ServiceDependency] | None = None,
                            dated_by_the_alert: datetime | None = None,
-                           whose_minutes_were_read: bool = True
+                           whose_minutes_were_read: bool = True,
+                           whose_mode_has_no_mitigation: bool = False
                            ) -> IncidentState:
+    some_incident_id = a_random_id()
     some_alert = Alert(
         service="kuki-service",
         alert_name="HighErrorRate",
         stated_onset=dated_by_the_alert
     )
-    state = an_incident_state(some_alert, IncidentStatus.MITIGATING)
 
-    return state.model_copy(
-        update={
-            "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing,
-            "attempts": already_tried or [],
-            "dependencies": listing or [],
-            "readings_cover_the_incident": whose_minutes_were_read
-        }
+    return IncidentState(
+        incident_id=some_incident_id,
+        alert=some_alert,
+        status=IncidentStatus.MITIGATING,
+        hypothesis=about or a_determined_hypothesis(some_incident_id),
+        proposed_action=proposing,
+        attempts=already_tried or [],
+        dependencies=listing or [],
+        readings_cover_the_incident=whose_minutes_were_read,
+        the_mode_has_no_mitigation=whose_mode_has_no_mitigation
     )
 
 
@@ -1228,11 +1232,7 @@ def _a_cause_with_no_mitigation(mode: FailureMode) -> Hypothesis:
     second full builder would be a second place for a candidate's shape to
     drift.
     """
-    state_id = a_random_id()
-
-    return a_determined_hypothesis(state_id).model_copy(
-        update={"failure_mode": mode}
-    )
+    return a_determined_hypothesis(a_random_id(), failure_mode=mode)
 
 
 def _what_the_row_would_say_about(refusal: Refusal) -> str:
@@ -1285,6 +1285,4 @@ def _a_cause_nobody_named() -> Hypothesis:
     this node, and a candidate whose mode this version cannot spell arrives
     here looking exactly like one.
     """
-    return a_determined_hypothesis(a_random_id()).model_copy(
-        update={"failure_mode": None}
-    )
+    return an_undetermined_hypothesis(a_random_id())

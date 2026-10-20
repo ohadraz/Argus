@@ -48,17 +48,21 @@ def a_random_id() -> str:
     return f"{letters}-{digits}"
 
 
-def a_determined_hypothesis(incident_id: str, confidence: float = 0.75) -> Hypothesis:
+def a_determined_hypothesis(incident_id: str,
+                            confidence: float = 0.75,
+                            failure_mode: FailureMode = FailureMode.FEATURE_FLAG_TOGGLE
+                            ) -> Hypothesis:
     """A hypothesis that named a cause, which is all the walk asks of one.
 
     The confidence has a default because nothing decides on it any more - it is
     reported and never read - so a test that is not about it should not have to
-    pick a number.
+    pick a number. The mode has one because most of the walk never reads it; a
+    test about a part that does names it here rather than copying it in after.
     """
     return Hypothesis(
         incident_id=incident_id,
         summary="kukibuki hypothesis",
-        failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+        failure_mode=failure_mode,
         confidence=confidence,
         supporting_evidence=[Evidence(claim="some log line", at=None)]
     )
