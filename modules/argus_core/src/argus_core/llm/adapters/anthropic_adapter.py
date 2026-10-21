@@ -227,10 +227,12 @@ def to_turn(message: Message) -> Turn:
     Anthropic's guidance is to echo thinking blocks unchanged while a
     conversation continues on the same model, and `SUMMARISED_THINKING` means
     the blocks hold real reasoning text rather than empty shells - so something
-    is genuinely being dropped. Against that: on Sonnet 5 they are not
-    load-bearing, so dropping them is neither an error nor a repriced turn; the
-    benefit is below the investigator eval's resolution, where five of six cases
-    already sit at 50/50; and the cost is not linear, since every turn's
+    is genuinely being dropped. Against that: on Sonnet 5 they were not
+    load-bearing, so dropping them was neither an error nor a repriced turn -
+    and whether that holds on Sonnet 5.5 and Opus 5.5, which the agents now run
+    on, is unmeasured; nothing is replayed, so the history-editing check has
+    nothing to refuse. The benefit is below the investigator eval's resolution,
+    where five of six cases already sit at 50/50; and the cost is not linear, since every turn's
     reasoning would be resent by every turn after it - quadratic across a walk
     of up to twelve rounds per investigation. `measure_spend` can price that
     side exactly, which is the measurement to take when the eval grows a case

@@ -413,7 +413,12 @@ class Trigger(BaseModel):
     where that is not the trigger itself: a setting that moved in a deploy is
     dated and credited as the deploy is, and the deploy is named by its row.
     `None` wherever the trigger is a change of its own, or nothing says what
-    carried it."""
+    carried it.
+
+    `dated_by` is the label of the change read that is the trigger itself and
+    dates it - carried out of where it was chosen, since a second search for
+    it, by its instant, finds whichever change of that instant is listed first.
+    `None` where it is carried by a deploy, or no change read is it."""
 
     subject: str
     from_state: str | None
@@ -423,6 +428,7 @@ class Trigger(BaseModel):
     actor: str | None = None
     suspected: bool = False
     carried_by: str | None = None
+    dated_by: str | None = None
 
 
 class ReviewCriterion(BaseModel):

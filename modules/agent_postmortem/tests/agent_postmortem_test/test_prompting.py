@@ -986,6 +986,54 @@ def test_a_trigger_nothing_tested_is_named_as_suspected() -> None:
 
 
 @pytest.mark.unit
+def test_the_brief_names_the_trigger_s_own_change_where_another_shares_its_instant() -> None:
+    # The decoy's row is listed first. Matched by instant, the brief told the
+    # model the document's trigger was the decoy - in the one case built to
+    # test that confusion.
+    the_instant = "2026-09-02T11:59:52Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE, occurred_at=the_instant,
+                                     reference="some-decoy-flag", summary="dont care"),
+                         ChangeEvent(kind=ChangeKind.FLAG_TOGGLE, occurred_at=the_instant,
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off", "the change [P2]")
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_no_change_read_dates_is_named_by_its_move() -> None:
+    # The change feed read nothing, and the Trigger section still says the
+    # flag went from one state to the other. Said nothing of, the model is not
+    # told the document states it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off",
+                              "the move of checkout-v2 from off to on")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_that_opened_no_pull_request_is_told_nothing_of_one() -> None:
     Scenario() \
         .given(

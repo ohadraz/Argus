@@ -27,6 +27,7 @@ import logging
 from decimal import Decimal
 
 import pytest
+from agent_postmortem import DeploymentChangesRecord
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.prompting import (
     CITES_FIELD,
@@ -36,6 +37,7 @@ from agent_postmortem.prompting import (
     STEP_FIELD,
     SubmittedPostmortem,
 )
+from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
 from argus_core.models import (
     Ask,
     ChangeEvent,
@@ -549,6 +551,45 @@ def test_a_root_cause_naming_the_deploy_that_set_it_off_is_asked_for_again() -> 
                     changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
                                          occurred_at="2026-09-02T11:59:00Z",
                                          reference=the_trigger, summary="dont care")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, the_trigger[:7]),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_naming_the_deploy_that_carried_it_is_asked_for_again() -> None:
+    # c2's own shape: the leading candidate blames a file and names no states,
+    # and the deploy whose diff changed that file is what the document states
+    # set it off. Its revision in the root cause is the trigger said again.
+    the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_naming_the_carrier := a_model_answering_in_turn(
+                an_answer(root_cause=f"Revision {the_trigger[:7]} renamed the port."),
+                an_answer(root_cause="The scrape still asks for a port nothing has."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_naming_the_carrier,
+                an_evidence_bundle(
+                    candidates=[a_candidate("dont care",
+                                            subject="deploy/values-production.yaml")],
+                    changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                                         occurred_at="2026-09-02T11:58:00Z",
+                                         reference=the_trigger, summary="dont care")],
+                    deployment_changes=[DeploymentChangesRecord(revision=the_trigger, said=[
+                        a_changed_file_line("modified", "deploy/values-production.yaml"),
+                        f"{PATCH_LINE_INDENT}-  portName: metrics",
+                        f"{PATCH_LINE_INDENT}+  portName: http-metrics"])]),
                 a_measured_incident())
         ) \
         .then(

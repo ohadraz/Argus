@@ -1077,15 +1077,26 @@ def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:
     change the document names, so the sentence pointed at nothing.
     """
     trigger = trigger_of(evidence)
-    change = the_change_that_set_it_off(evidence)
-    if trigger is None or change is None:
+    if trigger is None:
         return []
 
+    change = the_change_that_set_it_off(evidence)
+    named = (f"the change [{change.label}]" if change is not None
+             else _the_move_of(trigger.subject, trigger.from_state, trigger.to_state))
     suspected = " - suspected, not confirmed" if trigger.suspected else ""
 
-    return [f"The document already states what set it off, in a section of its own: the "
-            f"change [{change.label}]{suspected}. Do not open {ROOT_CAUSE_FIELD} with it: start "
-            f"from what that change ran into, and why that broke the service."]
+    return [f"The document already states what set it off, in a section of its own: "
+            f"{named}{suspected}. Do not open {ROOT_CAUSE_FIELD} with it: start from what that "
+            f"change ran into, and why that broke the service."]
+
+
+def _the_move_of(subject: str, from_state: str | None, to_state: str | None) -> str:
+    """A trigger no change read dates, said as the move its candidate names -
+    as the document's Trigger section says it."""
+    if from_state and to_state:
+        return f"the move of {subject} from {from_state} to {to_state}"
+
+    return f"the move of {subject} to {to_state}" if to_state else f"the change to {subject}"
 
 
 def the_change_that_set_it_off(evidence: IncidentEvidence) -> CitedChange | None:
@@ -1101,12 +1112,11 @@ def the_change_that_set_it_off(evidence: IncidentEvidence) -> CitedChange | None
     if trigger is None:
         return None
 
-    changes = the_changes_labelled(evidence)
-    if trigger.carried_by is not None:
-        return next((cited for cited in changes if cited.label == trigger.carried_by), None)
+    label = trigger.carried_by or trigger.dated_by
+    if label is None:
+        return None
 
-    return next((cited for cited in changes
-                 if parse_iso(cited.change.occurred_at) == trigger.changed_at), None)
+    return next((cited for cited in the_changes_labelled(evidence) if cited.label == label), None)
 
 
 def _a_line_of_the_narration(entry: TimelineEntry) -> str:

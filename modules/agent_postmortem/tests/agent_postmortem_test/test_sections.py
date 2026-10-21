@@ -225,7 +225,8 @@ def test_the_trigger_is_the_change_the_confirmed_candidate_blamed() -> None:
                                    from_state="off",
                                    to_state="on",
                                    changed_at=parse_iso(the_change),
-                                   kind=ChangeKind.FLAG_TOGGLE))
+                                   kind=ChangeKind.FLAG_TOGGLE,
+                                   dated_by="P2"))
         )
 
 
@@ -436,7 +437,32 @@ def test_a_leading_candidate_never_tested_names_a_suspected_trigger() -> None:
                                    to_state="on",
                                    changed_at=parse_iso(the_change),
                                    kind=ChangeKind.FLAG_TOGGLE,
-                                   suspected=True))
+                                   suspected=True,
+                                   dated_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_names_its_own_change_where_another_shares_its_instant() -> None:
+    # A decoy flag moved at the same instant. Found again by its instant, the
+    # trigger's change was whichever of the two was listed first - so the
+    # change chosen is carried out under its row's label.
+    the_instant = "2026-09-02T11:59:52Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to("some-decoy-flag", at=the_instant),
+                         _a_change_to(SOME_FLAG, at=the_instant)])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "dated_by", None)
+        ) \
+        .then(
+            the_answer_was("P2")
         )
 
 

@@ -200,10 +200,12 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
     if blamed is None or blamed.subject is None:
         return None
 
-    to_the_subject = [change for change in evidence.changes
+    to_the_subject = [(position, change)
+                      for position, change in enumerate(evidence.changes, start=1)
                       if change.reference == blamed.subject
                       or _a_word_of(blamed.to_state, change.reference)]
-    latest = max(to_the_subject, key=lambda change: parse_iso(change.occurred_at), default=None)
+    found = max(to_the_subject, key=lambda each: parse_iso(each[1].occurred_at), default=None)
+    latest = found[1] if found is not None else None
 
     carrier = _the_deploy_that_carried(blamed, evidence) if latest is None else None
     moved = bool(blamed.from_state or blamed.to_state)
@@ -220,7 +222,9 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
                    actor=dated.actor if dated else None,
                    suspected=suspect is not None,
                    carried_by=(label_of(PRODUCTION_CHANGE_PREFIX, carrier[0])
-                               if carrier is not None else None))
+                               if carrier is not None else None),
+                   dated_by=(label_of(PRODUCTION_CHANGE_PREFIX, found[0])
+                             if found is not None else None))
 
 
 def _the_deploy_that_carried(blamed: CandidateRecord,
