@@ -130,6 +130,9 @@ WHAT_FIELD: Final = "what"
 # The conditions that had to hold, each naming the action items that answer it.
 CONTRIBUTING_FACTORS_FIELD: Final = "contributing_factors"
 FACTOR_FIELD: Final = "factor"
+# What a factor, had it been otherwise, would have changed with the root cause
+# still true - the question a restatement of the root cause cannot answer.
+HAD_IT_BEEN_OTHERWISE_FIELD: Final = "had_it_been_otherwise"
 ADDRESSED_BY_FIELD: Final = "addressed_by"
 # What the model proposes be done, each of one of the four kinds.
 ACTION_ITEMS_FIELD: Final = "action_items"
@@ -179,9 +182,12 @@ class SubmittedStep(BaseModel):
 
 
 class SubmittedFactor(BaseModel):
-    """One contributing factor as the model wrote it, and the items it named."""
+    """One contributing factor as the model wrote it, what it would have
+    changed had it been otherwise, and the items it named. `None` where it did
+    not say, which `checking` names."""
 
     factor: str
+    had_it_been_otherwise: str | None = None
     addressed_by: list[str]
 
 
@@ -252,7 +258,10 @@ class SubmittedPostmortem(BaseModel):
         for step in self.causal_chain or []:
             yield step.step
             yield from (ruled.what for ruled in step.ruled_out)
-        yield from (factor.factor for factor in self.contributing_factors or [])
+        for factor in self.contributing_factors or []:
+            yield factor.factor
+            if factor.had_it_been_otherwise is not None:
+                yield factor.had_it_been_otherwise
         yield from (item.item for item in self.action_items or [])
 
         if self.lessons is not None:
@@ -282,6 +291,8 @@ class SubmittedPostmortem(BaseModel):
                                   for step in self.causal_chain]),
             CONTRIBUTING_FACTORS_FIELD: (None if self.contributing_factors is None else
                                          [SubmittedFactor(factor=rewrite(factor.factor),
+                                                          had_it_been_otherwise=rewritten(
+                                                              factor.had_it_been_otherwise),
                                                           addressed_by=factor.addressed_by)
                                           for factor in self.contributing_factors]),
             ACTION_ITEMS_FIELD: (None if self.action_items is None else
@@ -391,6 +402,8 @@ class SubmittedPostmortem(BaseModel):
         return [
             entry if isinstance(entry, SubmittedFactor)
             else SubmittedFactor(factor=entry[FACTOR_FIELD],
+                                 had_it_been_otherwise=_a_string_or_none(
+                                     entry.get(HAD_IT_BEEN_OTHERWISE_FIELD)),
                                  addressed_by=_the_strings_in(entry.get(ADDRESSED_BY_FIELD)))
             for entry in value
             if isinstance(entry, SubmittedFactor)
@@ -452,6 +465,11 @@ def _the_strings_in(value: Any) -> list[str]:
         return []
 
     return [each for each in value if isinstance(each, str)]
+
+
+def _a_string_or_none(value: Any) -> str | None:
+    """A sentence, or unanswered where what arrived is not one."""
+    return value if isinstance(value, str) else None
 
 
 def _what_was_ruled_out(value: Any) -> list[SubmittedRuledOut]:
@@ -521,11 +539,14 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "type": "string",
             "description": (
                 "What caused the incident, in one or two sentences, written "
-                "for an engineer who was not on the call. Not the change that "
-                "set it off - the document states the trigger itself. Say why "
-                "that change broke the service, as far as the evidence goes. "
-                f"Not one of the {CONTRIBUTING_FACTORS_FIELD}: a check or safeguard "
-                "that did not stop it is said there, not here."
+                "for an engineer who was not on the call: the mechanism - why the "
+                "change that set it off broke the service, as far as the evidence "
+                "goes, a missing protection or not. Not the trigger, how it was "
+                "confirmed, what resolved it or what was ruled out - the document "
+                f"states each of those itself. Not one of the {CONTRIBUTING_FACTORS_FIELD}: "
+                "a safeguard that would have stopped it with this mechanism unchanged "
+                "is said there, not here. Where the mechanism rests on a reading "
+                "nothing ran, say so once."
             )
         },
         EXECUTIVE_SUMMARY_FIELD: {
@@ -601,9 +622,18 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
             {FACTOR_FIELD: {"type": "string"},
+             HAD_IT_BEEN_OTHERWISE_FIELD: {
+                 "type": "string",
+                 "description": (
+                     "What would have gone differently had this been otherwise - "
+                     "stopped, shortened or caught sooner - with what "
+                     f"{ROOT_CAUSE_FIELD} says still true. A factor that only says the "
+                     "root cause again cannot answer this: leave it out of the list."
+                 )
+             },
              ADDRESSED_BY_FIELD: {**_SENTENCES,
                                   "description": "The action items that answer it: AI-2."}},
-            [FACTOR_FIELD, ADDRESSED_BY_FIELD],
+            [FACTOR_FIELD, HAD_IT_BEEN_OTHERWISE_FIELD, ADDRESSED_BY_FIELD],
             "Conditions that had to hold for the incident to happen and did not "
             "cause it alone - a safeguard that did not stop it, a gap in detection "
             "or review. A factor held before the incident began: what the response "

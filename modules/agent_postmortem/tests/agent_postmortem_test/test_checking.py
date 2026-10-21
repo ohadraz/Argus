@@ -47,6 +47,7 @@ from agent_postmortem.prompting import (
     CAUSAL_CHAIN_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
+    HAD_IT_BEEN_OTHERWISE_FIELD,
     LESSONS_FIELD,
     ROOT_CAUSE_FIELD,
     SUBMIT_TOOL_NAME,
@@ -1075,7 +1076,8 @@ def test_a_contributing_factor_nothing_answers_is_named() -> None:
     Scenario() \
         .given(
             an_answer_with_an_unanswered_factor := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="the canary started large", addressed_by=[])
+                SubmittedFactor(factor="the canary started large",
+                                had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=[])
             ])
         ) \
         .when(
@@ -1090,11 +1092,60 @@ def test_a_contributing_factor_nothing_answers_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_a_factor_not_saying_what_it_would_have_changed_is_named() -> None:
+    # A factor that only says the root cause again cannot say what it would
+    # have changed with the root cause still true - and one left unsaid is the
+    # question skipped.
+    Scenario() \
+        .given(
+            an_answer_with_an_unweighed_factor := _an_answer(contributing_factors=[
+                SubmittedFactor(factor="the canary started large", addressed_by=["AI-1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_an_unweighed_factor, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("the canary started large"),
+                _named(HAD_IT_BEEN_OTHERWISE_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("blank", ["", "   "], ids=["empty", "spaces"])
+def test_a_factor_answering_what_it_would_have_changed_with_nothing_is_named(
+        blank: str) -> None:
+    # A strict tool guarantees the field arrives, as a string - not that it
+    # says anything. Blank is the question skipped as surely as absent is.
+    Scenario() \
+        .given(
+            an_answer_with_a_blank_otherwise := _an_answer(contributing_factors=[
+                SubmittedFactor(factor="the canary started large",
+                                had_it_been_otherwise=blank, addressed_by=["AI-1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_blank_otherwise, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("the canary started large"),
+                _named(HAD_IT_BEEN_OTHERWISE_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_factor_naming_an_item_that_does_not_exist_is_named() -> None:
     Scenario() \
         .given(
             an_answer_naming_a_ghost_item := _an_answer(contributing_factors=[
                 SubmittedFactor(factor="no test covered an empty month",
+                                had_it_been_otherwise=DONT_CARE_PROSE,
                                 addressed_by=["AI-9"])
             ])
         ) \
@@ -1117,6 +1168,7 @@ def test_a_factor_may_name_an_item_on_the_record_or_one_the_answer_proposes() ->
             an_answer_naming_both := _an_answer(
                 contributing_factors=[
                     SubmittedFactor(factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE,
                                     addressed_by=["AI-1", "AI-2"])
                 ],
                 action_items=[SubmittedItem(item="add a test for an empty month",
@@ -1178,7 +1230,9 @@ def test_a_symptom_of_one_sentence_is_accepted() -> None:
 def test_a_root_cause_saying_a_check_is_missing_is_named(missing_check: str) -> None:
     # A missing check is a contributing factor. Told so in the root cause's
     # own description, three write-ups said one there anyway, in the words of
-    # the reading of the code they cited.
+    # the reading of the code they cited. Where the missing check is itself
+    # the mechanism - a read path that does not check what it loaded - moving
+    # it out would empty the root cause, so the fault says what to say instead.
     Scenario() \
         .given(
             an_answer_blaming_a_missing_check := _an_answer(root_cause=missing_check)
@@ -1190,6 +1244,7 @@ def test_a_root_cause_saying_a_check_is_missing_is_named(missing_check: str) -> 
             all_of(
                 _named(missing_check),
                 _named(CONTRIBUTING_FACTORS_FIELD),
+                _named("say what the code does rather than what it lacks"),
                 _found(1)
             )
         )
@@ -1253,6 +1308,7 @@ def test_a_factor_saying_a_check_is_missing_is_accepted() -> None:
             an_answer_with_a_factor_naming_a_missing_check := _an_answer(
                 contributing_factors=[SubmittedFactor(
                     factor="Nothing checks that the two names agree.",
+                    had_it_been_otherwise=DONT_CARE_PROSE,
                     addressed_by=["AI-1"])])
         ) \
         .when(

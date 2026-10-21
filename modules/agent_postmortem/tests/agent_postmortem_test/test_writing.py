@@ -742,6 +742,7 @@ def test_the_factors_and_lessons_the_model_wrote_are_the_ones_published() -> Non
                 a_submitted_answer().model_copy(update={
                     "contributing_factors": [SubmittedFactor(
                         factor="the canary started at full traffic",
+                        had_it_been_otherwise="a smaller canary would have failed fewer",
                         addressed_by=["AI-1"])],
                     "lessons": some_lessons
                 }))

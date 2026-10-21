@@ -66,6 +66,7 @@ from agent_postmortem.prompting import (
     EXECUTIVE_SUMMARY_FIELD,
     FACTOR_FIELD,
     GOT_LUCKY_FIELD,
+    HAD_IT_BEEN_OTHERWISE_FIELD,
     ITEM_FIELD,
     ITEM_TYPE_FIELD,
     LEAD_EFFECTS_FIELD,
@@ -2336,7 +2337,9 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
         causal_chain=[SubmittedStep(step="a step", cites=["T1"],
                                     ruled_out=[SubmittedRuledOut(what="what it ruled out",
                                                                  cites=["T2"])])],
-        contributing_factors=[SubmittedFactor(factor="a factor", addressed_by=["AI-1"])],
+        contributing_factors=[SubmittedFactor(factor="a factor",
+                                              had_it_been_otherwise="had it been otherwise",
+                                              addressed_by=["AI-1"])],
         action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT)],
         lessons=Lessons(went_well=["went well"], went_wrong=["went wrong"],
                         got_lucky=["got lucky"]))
@@ -2348,7 +2351,8 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
         .then(
             the_answer_was(["the root cause", "the summary", "the symptom", "an assumption",
                             "a lead's effect", "a step", "what it ruled out", "a factor",
-                            "an item", "went well", "went wrong", "got lucky"])
+                            "had it been otherwise", "an item", "went well", "went wrong",
+                            "got lucky"])
         )
 
 
@@ -2370,6 +2374,45 @@ def test_what_a_step_ruled_out_is_rewritten_as_every_other_sentence_is() -> None
                                           ruled_out=[SubmittedRuledOut(
                                               what="WHAT IT RULED OUT", cites=["T2"])])])
         )
+
+
+@pytest.mark.unit
+def test_what_a_factor_would_have_changed_is_rewritten_as_every_other_sentence_is() -> None:
+    # Read by the same fields `sentences` reads: a figure named in what a
+    # factor would have changed is written in like one named anywhere else.
+    some_answer = SubmittedPostmortem(
+        contributing_factors=[SubmittedFactor(factor="a factor",
+                                              had_it_been_otherwise="had it been otherwise",
+                                              addressed_by=["AI-1"])])
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).contributing_factors
+        ) \
+        .then(
+            the_answer_was([SubmittedFactor(factor="A FACTOR",
+                                            had_it_been_otherwise="HAD IT BEEN OTHERWISE",
+                                            addressed_by=["AI-1"])])
+        )
+
+
+@pytest.mark.unit
+def test_each_factor_is_asked_what_it_would_have_changed_with_the_root_cause_still_true(
+) -> None:
+    # Told in the list's description that a factor is not the root cause again
+    # in other words, five write-ups' first factor said their root cause again.
+    # Asked of each factor, what it would have changed with the root cause
+    # still true is a question a restatement cannot answer without saying so.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]
+        ) \
+        .then(all_of(
+            _requires_of_each_item(HAD_IT_BEEN_OTHERWISE_FIELD),
+            lambda factors: _the_description_mentions(
+                f"with what {ROOT_CAUSE_FIELD} says still true")(
+                factors["items"]["properties"][HAD_IT_BEEN_OTHERWISE_FIELD]["description"])
+        ))
 
 
 @pytest.mark.unit
@@ -2725,13 +2768,47 @@ def test_the_chain_and_the_root_cause_are_not_asked_how_to_word_a_safeguard(fiel
 @pytest.mark.unit
 def test_the_root_cause_is_asked_to_carry_no_contributing_factor() -> None:
     # A write-up's root cause ended on the missing check, and its first factor
-    # said the same check again.
+    # said the same check again. Told any check or safeguard is a factor, an
+    # incident whose fault is itself a missing protection - a wait with no
+    # limit - would have its mechanism moved out of its root cause. The
+    # boundary is the factors' own test: what would have stopped it with the
+    # mechanism unchanged.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions(f"Not one of the {CONTRIBUTING_FACTORS_FIELD}")
+            _the_description_mentions(f"Not one of the {CONTRIBUTING_FACTORS_FIELD}",
+                                      "a missing protection or not",
+                                      "would have stopped it with this mechanism unchanged")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_asked_to_leave_out_what_the_document_states_itself() -> None:
+    # Told only that the document states the trigger, write-ups' root causes
+    # said again what confirmed it, what resolved the incident, and what was
+    # ruled out - each a section of the document already.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Not the trigger, how it was confirmed, what resolved "
+                                      "it or what was ruled out")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_asked_to_say_once_that_it_rests_on_a_reading_nothing_ran() -> None:
+    # Two write-ups' root causes said twice that the reading of the code they
+    # rested on was unverified.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("rests on a reading nothing ran, say so once")
         )
 
 
@@ -3108,6 +3185,7 @@ def test_a_contributing_factor_is_read_with_the_items_that_answer_it() -> None:
             a_submission_with_a_factor := {
                 CONTRIBUTING_FACTORS_FIELD: [
                     {FACTOR_FIELD: "the canary started at 40%",
+                     HAD_IT_BEEN_OTHERWISE_FIELD: "a smaller canary would have failed fewer",
                      ADDRESSED_BY_FIELD: ["AI-2", "AI-4"]}
                 ]
             }
@@ -3117,8 +3195,10 @@ def test_a_contributing_factor_is_read_with_the_items_that_answer_it() -> None:
                 a_submission_with_a_factor).contributing_factors
         ) \
         .then(
-            the_answer_was([SubmittedFactor(factor="the canary started at 40%",
-                                            addressed_by=["AI-2", "AI-4"])])
+            the_answer_was([SubmittedFactor(
+                factor="the canary started at 40%",
+                had_it_been_otherwise="a smaller canary would have failed fewer",
+                addressed_by=["AI-2", "AI-4"])])
         )
 
 

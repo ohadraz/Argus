@@ -64,6 +64,7 @@ from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
+    HAD_IT_BEEN_OTHERWISE_FIELD,
     LEAD_EFFECTS_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
@@ -251,7 +252,10 @@ def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str
     it failed to stop it. Told so in both fields' descriptions, three
     write-ups said one in the root cause or the chain anyway, in the words of
     the reading of the code they cited. The fault names the rule, not the
-    words, so the claim moves rather than being said again in others.
+    words, so the claim moves rather than being said again in others. And says
+    what to write where the missing check is itself the mechanism - a read
+    path that does not check what it loaded - which moved out would leave the
+    root cause empty.
     """
     said = [prose for prose in [answer.root_cause,
                                 *(step.step for step in answer.causal_chain or [])]
@@ -259,7 +263,8 @@ def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str
 
     return [f"[{prose}] says a check is missing - a missing check or safeguard is one of "
             f"the {CONTRIBUTING_FACTORS_FIELD}: say it there, not in the {ROOT_CAUSE_FIELD} "
-            f"or the {CAUSAL_CHAIN_FIELD}"
+            f"or the {CAUSAL_CHAIN_FIELD} - or, where the missing check is itself the "
+            f"mechanism, say what the code does rather than what it lacks"
             for prose in said
             if _A_MISSING_CHECK.search(prose)]
 
@@ -324,6 +329,14 @@ def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[
     faults: list[str] = []
 
     for factor in answer.contributing_factors or []:
+        # Blank as well as absent: a strict tool guarantees a string arrives,
+        # not that it says anything.
+        if not (factor.had_it_been_otherwise or "").strip():
+            faults.append(f"the contributing factor [{factor.factor}] does not say what would "
+                          f"have gone differently had it been otherwise - say it in "
+                          f"{HAD_IT_BEEN_OTHERWISE_FIELD}, with what {ROOT_CAUSE_FIELD} says "
+                          f"still true")
+
         if not factor.addressed_by:
             faults.append(f"the contributing factor [{factor.factor}] names no action "
                           f"item that answers it - name one in {ACTION_ITEMS_FIELD} or "
