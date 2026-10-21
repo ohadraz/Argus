@@ -656,6 +656,49 @@ def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothin
 
 
 @pytest.mark.unit
+def test_a_revision_code_fix_names_is_tied_to_the_diff_that_shows_it() -> None:
+    # Code-Fix read main, and said the deployed revision was one it had not
+    # read. A write-up then asked somebody to check which key that revision
+    # uses, though D1 - its own diff - shows it: the model had the reading and
+    # the diff, and nothing between them said they were about one revision.
+    some_revision = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation=f"Revision {some_revision[:7]} is not in main's history and I "
+                                f"have not read it.",
+                deployment_changes=[DeploymentChangesRecord(revision=some_revision,
+                                                            said=["+ portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("[F1] names revision", some_revision[:7], "[D1]",
+                              "say what it shows rather than ask for it to be checked")
+        )
+
+
+@pytest.mark.unit
+def test_a_reading_naming_no_revision_a_diff_was_read_for_is_tied_to_none() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation="The scrape config selects the port by its old name.",
+                deployment_changes=[DeploymentChangesRecord(
+                    revision="53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901",
+                    said=["+ portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("[F1] names revision")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_code_fix_said_nothing_of_is_shown_no_heading_for_it() -> None:
     Scenario() \
         .given(
@@ -2159,6 +2202,33 @@ def test_the_log_lines_reaching_into_an_unobserved_stretch_are_the_service_s_acc
         ) \
         .then(
             _says_on_one_line("reach into it until", "the service's own account of that stretch")
+        )
+
+
+@pytest.mark.unit
+def test_the_error_rate_line_names_the_log_rows_whose_figures_reach_into_the_stretch() -> None:
+    # Told the logs reaching into the stretch were the service's own account,
+    # a write-up still said no error rate existed for it - beside a row whose
+    # figures inside the stretch were the shop's own logged rate. Named, and
+    # not called a rate: code knows which rows carry figures there, not what
+    # those figures measure.
+    some_lines_inside = [
+        f"{to_iso(ONSET + timedelta(minutes=minute))} WARN io-shop: account page error rate "
+        f"{rate}"
+        for minute, rate in ((2, "0.50"), (4, "1.00"), (6, "2.00"))
+    ]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines_inside),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("Error rate: not measured by the metrics", "[G",
+                              "say what they show, not that nothing was measured")
         )
 
 

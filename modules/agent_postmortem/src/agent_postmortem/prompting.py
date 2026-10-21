@@ -25,7 +25,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from argus_core import parse_iso, short_form, to_iso
+from argus_core import A_REVISION, parse_iso, short_form, the_revision_named, to_iso
 from argus_core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
@@ -827,7 +827,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         f"not how long the fault lasted - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                   measured.unobserved_from is not None,
-                                  _the_logs_reach_in(evidence, measured), figures),
+                                  _the_logs_reaching_in(evidence, measured), figures),
         *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
                                     measured.rule_series_unit, evidence,
                                     measured.error_rates, figures),
@@ -951,8 +951,33 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         *([("What each deployment it looked into changed:", looked_into, None)]
           if looked_into else []),
         *([("What Code-Fix read in the source and proposed - nothing ran its test or its fix:",
-            read_in_the_source, None)] if read_in_the_source else [])
+            read_in_the_source, _the_diffs_of_what_it_names(evidence, looked_into))]
+          if read_in_the_source else [])
     ]
+
+
+def _the_diffs_of_what_it_names(evidence: IncidentEvidence,
+                                looked_into: list[CitedEvidence]) -> str | None:
+    """Beneath what Code-Fix read: each revision it names whose own diff was
+    read, and the row that diff is - or nothing, where it names none.
+
+    Code-Fix reads a branch, and says when the deployed revision is not one it
+    read. A write-up then asked somebody to check what that revision holds,
+    beside the diff showing it: the reading and the diff were both in front of
+    it, and nothing between them said they were about one revision.
+    """
+    if evidence.fix_explanation is None:
+        return None
+
+    reading = label_of(CODE_READING_PREFIX, 1)
+    named = A_REVISION.findall(evidence.fix_explanation)
+    tied = [f"[{reading}] names revision {short} and [{diff.label}] is that revision's own "
+            f"diff - say what it shows rather than ask for it to be checked."
+            for record, diff in zip(evidence.deployment_changes, looked_into, strict=True)
+            for short in named
+            if the_revision_named(short, frozenset({record.revision})) == record.revision]
+
+    return " ".join(dict.fromkeys(tied)) or None
 
 
 def the_code_reading_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
@@ -1366,11 +1391,13 @@ def _where_the_reading_ended(evidence: IncidentEvidence, figures: Mapping[str, F
             f"nothing after that was read.")
 
 
-def _the_logs_reach_in(evidence: IncidentEvidence, measured: Measurements) -> bool:
-    """Whether any log line read reaches into a stretch the metrics did not
-    cover - `False` where they covered it all."""
-    return (measured.unobserved_from is not None
-            and bool(labels_reaching_into(evidence.log_lines, measured.unobserved_from)))
+def _the_logs_reaching_in(evidence: IncidentEvidence, measured: Measurements) -> list[str]:
+    """The labels of the log lines read that reach into a stretch the metrics
+    did not cover - none where they covered it all."""
+    if measured.unobserved_from is None:
+        return []
+
+    return labels_reaching_into(evidence.log_lines, measured.unobserved_from)
 
 
 def _back_before(credited: ActionRecord | None,
@@ -1420,7 +1447,7 @@ _NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
 def _what_the_error_rate_did(rates: ErrorRates | None,
                              unmeasured: Unmeasured | None,
                              unobserved: bool,
-                             logs_reach_in: bool,
+                             logs_reaching_in: Sequence[str],
                              figures: Mapping[str, Figure]) -> list[str]:
     """The error rate at every level worth reporting, each named for itself.
 
@@ -1443,7 +1470,11 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     called the ones the service was broken in: nothing says it was. The
     log lines reaching into it are pointed to: told only that the metrics did
     not measure it, a model wrote that the error rate over the stretch could
-    not be measured, of one the shop's own logged rate covered.
+    not be measured, of one the shop's own logged rate covered. And by label:
+    told only that they were the service's own account, a write-up still said
+    no error rate existed for the stretch, beside a row whose figures there
+    were the shop's logged rate. Not called a rate, since what a line's figures
+    measure is the line's to say.
     """
     if rates is None:
         reason = (
@@ -1453,8 +1484,10 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
             else None
         )
         why = f" - {reason}" if reason is not None else ""
-        logged = ("; the log lines that reach into that stretch are the service's own "
-                  "account of it" if logs_reach_in else "")
+        labels = ", ".join(f"[{label}]" for label in logs_reaching_in)
+        logged = (f"; the log lines that reach into that stretch, {labels}, are the "
+                  f"service's own account of it - say what they show, not that nothing was "
+                  f"measured" if logs_reaching_in else "")
 
         return [f"Error rate: not measured by the metrics{why}{logged}."]
 
