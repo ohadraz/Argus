@@ -23,6 +23,7 @@ from argus_core.models import (
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
+from postmortem_rendering.lines import Line, Role, Run
 
 # Said under a duration the metrics carry no minute of: what was missing is
 # the metrics, not sight of the service - its logs and its takings may well
@@ -71,6 +72,9 @@ class ImpactSection(BaseModel):
     finding: str | None
     unobserved: str | None
     finding_label: str | None = None
+    # What the service's own logs show where the metrics stopped, beside the
+    # note on what the duration measures; `None` where they never stopped.
+    logs_in_the_gap: Line | None = None
 
 
 def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
@@ -98,7 +102,8 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
                _the_loss(postmortem, a_lower_bound)),
         finding=f"What the alert found: {found}" if found else None,
         unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None,
-        finding_label=said.label if found and said else None)
+        finding_label=said.label if found and said else None,
+        logs_in_the_gap=_the_logs_in_the_gap(impact))
 
 
 def the_alert_s_own_finding(alert: Alert) -> str | None:
@@ -151,10 +156,53 @@ def _the_errors(impact: Impact | None) -> tuple[Card, ...]:
     peak = impact.peak_error_rate if impact else None
     failed = impact.requests_failed if impact else None
 
-    return (Card(value=f"{peak * 100:.1f}%" if peak is not None else "not measured",
+    return (Card(value=f"{peak * 100:.1f}%" if peak is not None else "not measured by the metrics",
                  label="peak error rate"),
-            Card(value=f"{failed:,}" if failed is not None else "not counted",
+            Card(value=f"{failed:,}" if failed is not None else "not counted by the metrics",
                  label="requests failed"))
+
+
+def _the_logs_in_the_gap(impact: Impact | None) -> Line | None:
+    """What the service's own logs show of the stretch its metrics missed,
+    said beside the cards that say what the metrics did not measure - which
+    rows reach in and how far, said once, and where the reading of them
+    ended, since where the lines stop is as often where the reading did.
+    `None` where the metrics never stopped.
+
+    Each row by its label, leading to it: the rows are where a reader checks
+    what the logs said there. And said where they show nothing: a note silent
+    on the logs reads the same as one whose logs nobody looked at.
+    """
+    logs = impact.logs_in_the_gap if impact else None
+
+    if logs is None:
+        return None
+
+    if not logs.read:
+        return Line(runs=(Run(text="No logs were read."),))
+
+    reached: tuple[Run, ...] = (Run(text="No log line read reaches into the stretch the metrics "
+                                         "missed."),)
+    if logs.labels and logs.reach_until is not None:
+        cited = [run for label in logs.labels
+                 for run in (Run(text=", "), Run(text=label, role=Role.CITATION, address=label))]
+        reached = (Run(text="The service's own logs reach into the stretch the metrics missed "
+                            "until "),
+                   Run.a_moment(logs.reach_until),
+                   Run(text=": "),
+                   *cited[1:],
+                   Run(text="."))
+
+    if logs.read_until is None:
+        return Line(runs=reached)
+
+    who_read = "They were" if logs.labels else "The logs were"
+    when = ", when the alert was raised" if logs.read_until_the_alert else ""
+
+    return Line(runs=(*reached,
+                      Run(text=f" {who_read} read up to "),
+                      Run.a_moment(logs.read_until),
+                      Run(text=f"{when}.")))
 
 
 def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:

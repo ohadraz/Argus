@@ -407,6 +407,27 @@ class RuleSeriesHarm(BaseModel):
     unit: str | None = None
 
 
+class LogsInTheGap(BaseModel):
+    """What the service's own logs show of a stretch its metrics missed: the
+    one account there is of how it was doing there.
+
+    `labels` are the log rows with a line inside the stretch, in the order
+    they were first logged, and `reach_until` the last minute any of them was
+    logged in - `None` with no rows. `read_until` is where the reading of the
+    logs ended, since where the lines stop is as often where the reading did,
+    and `read_until_the_alert` whether it ended at the alert, which is where
+    it ends unless the investigation asked for more. `read` is whether any
+    were read at all: a read that came back empty is a read, and the service
+    gone quiet in its logs too is not nobody having looked.
+    """
+
+    read: bool
+    labels: list[str]
+    reach_until: datetime | None
+    read_until: datetime | None
+    read_until_the_alert: bool
+
+
 class Impact(BaseModel):
     """How long the service was broken, what that duration is, and how bad it
     got at its worst.
@@ -420,6 +441,10 @@ class Impact(BaseModel):
     the series is what paged, so where it got worse it is harm whatever the
     failed requests did, and where it did not it is none. Both default to
     `None`, which a document written before either was carried reads as.
+
+    `logs_in_the_gap` is what the logs show where the metrics stopped, and
+    `None` where they never did - or on a document written before it was
+    carried.
     """
 
     duration: timedelta
@@ -428,6 +453,7 @@ class Impact(BaseModel):
     requests_failed: int | None = None
     error_rates: ErrorRateLevels | None = None
     rule_series_harm: RuleSeriesHarm | None = None
+    logs_in_the_gap: LogsInTheGap | None = None
 
 
 class Trigger(BaseModel):

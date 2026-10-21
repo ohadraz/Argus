@@ -49,6 +49,7 @@ from argus_core.models import (
     ImpactExtent,
     IncidentStatus,
     Lessons,
+    LogsInTheGap,
     MetricBucket,
     OpenedPullRequest,
     PostmortemDocument,
@@ -1850,6 +1851,38 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
             the_page_says('id="P1"'),
             the_page_says('id="G3fa2"'),
             the_page_says('id="L1"')
+        ))
+
+
+@pytest.mark.component
+def test_the_impact_names_the_log_rows_that_reach_into_the_stretch_the_metrics_missed() -> None:
+    # Named and leading to them: the rows are where a reader checks what the
+    # service's own logs said of the stretch nothing else measured.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(impact=Impact(
+            duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+            peak_error_rate=None,
+            logs_in_the_gap=LogsInTheGap(read=True, labels=["G46bc"],
+                                         reach_until=datetime(2026, 10, 21, 19, 12, tzinfo=UTC),
+                                         read_until=None, read_until_the_alert=False)
+        )).model_copy(update={
+            "log_messages_read": [CitedEvidence(label="G46bc", text="checkout failed")]
+        }),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            _the_page_reads("The service's own logs reach into the stretch the metrics missed"),
+            the_page_links_to("#G46bc")
         ))
 
 

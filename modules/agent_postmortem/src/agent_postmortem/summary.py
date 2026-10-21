@@ -140,10 +140,12 @@ def _what_the_logs_show(read: bool,
 
     reach = written_if_any(LOGS_REACH_UNTIL_FIGURE)
     ended = written_if_any(LOG_READING_ENDED_FIGURE)
-    logs = (f"The service's own logs show it until {reach}" if reach is not None
-            else "No log line read reaches into that stretch")
+    if reach is None:
+        logs, they = "No log line read reaches into that stretch", "the logs"
+    else:
+        logs, they = f"The service's own logs reach into that stretch until {reach}", "they"
 
-    return f"{logs}, and the logs were read up to {ended}." if ended is not None else f"{logs}."
+    return f"{logs}, and {they} were read up to {ended}." if ended is not None else f"{logs}."
 
 
 def _how_bad(measured: Measurements, written: _Written) -> list[str]:

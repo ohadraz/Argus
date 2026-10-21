@@ -30,6 +30,7 @@ from argus_core.models import (
     HypothesisConsidered,
     Impact,
     ImpactExtent,
+    LogsInTheGap,
     ResolutionStep,
     RuleSeriesHarm,
     TimelineEntry,
@@ -39,7 +40,9 @@ from argus_core.models import (
 )
 
 from agent_postmortem.evidence import CandidateRecord, IncidentEvidence
+from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.measuring import Measurements
+from agent_postmortem.stamps import the_last_minute_logged_inside
 
 # Who took every action in the record. Only Argus's own actions are recorded as
 # taken; a person's resolution is read beside the document, not written into it.
@@ -137,14 +140,41 @@ def the_alert_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
     return [CitedEvidence(label=label_of(ALERT_PREFIX, 1), text=evidence.alert_finding)]
 
 
-def impact_of(measured: Measurements) -> Impact:
+def logs_in_the_gap_of(evidence: IncidentEvidence,
+                       measured: Measurements) -> LogsInTheGap | None:
+    """What the service's own logs show of the stretch its metrics missed -
+    `None` where they never stopped.
+
+    Which rows reach in and how far, by the rule the brief tells it by
+    (`labels_reaching_into`, `the_last_minute_logged_inside`), and where the
+    reading of them ended, at the alert or past it.
+    """
+    since = measured.unobserved_from
+    if since is None:
+        return None
+
+    read_until = evidence.logs_read_until
+
+    return LogsInTheGap(
+        read=bool(evidence.log_lines) or read_until is not None,
+        labels=labels_reaching_into(evidence.log_lines, since),
+        reach_until=the_last_minute_logged_inside(evidence.log_lines, since),
+        read_until=read_until,
+        read_until_the_alert=read_until is not None and read_until == evidence.alerted_at
+    )
+
+
+def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -> Impact:
     """How long the service was broken, what kind of figure that is, and how
     bad it got - in failed requests, and in the series its rule pages on
-    where that got worse.
+    where that got worse - and what the logs show where the metrics stopped.
 
     Unobserved before a lower bound: metrics that stopped also never show a
     recovery, and a stretch the metrics carry nothing of is not one the
     service is known to have spent broken.
+
+    `logs_in_the_gap` is asked for rather than defaulted: left off, a gap the
+    logs reach into would be said with nothing of them.
     """
     if measured.unobserved_from is not None:
         extent = ImpactExtent.UNOBSERVED
@@ -170,7 +200,8 @@ def impact_of(measured: Measurements) -> Impact:
                                                   worse_when=series.worse_when,
                                                   line=series.line,
                                                   unit=measured.rule_series_unit)
-                  if series is not None and series.got_worse else None)
+                  if series is not None and series.got_worse else None,
+                  logs_in_the_gap=logs_in_the_gap)
 
 
 def trigger_of(evidence: IncidentEvidence) -> Trigger | None:

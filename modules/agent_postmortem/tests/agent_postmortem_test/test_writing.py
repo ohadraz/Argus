@@ -54,6 +54,7 @@ from agent_postmortem.sections import (
     detection_of,
     hypotheses_of,
     impact_of,
+    logs_in_the_gap_of,
     record_action_items_of,
     resolution_of,
     timeline_of,
@@ -444,13 +445,17 @@ def test_the_sections_the_record_holds_are_the_sections_published() -> None:
 
 
 @pytest.mark.unit
-def test_the_impact_is_the_incident_as_measured() -> None:
+def test_the_impact_is_the_incident_as_measured_with_the_logs_in_what_the_metrics_missed(
+) -> None:
     Scenario() \
         .given(
-            measured := a_measured_incident()
+            evidence := an_evidence_bundle(
+                log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"],
+                logs_read_until=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
         ) \
         .when(
-            lambda: write_postmortem(an_evidence_bundle(),
+            lambda: write_postmortem(evidence,
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(measured),
@@ -458,7 +463,9 @@ def test_the_impact_is_the_incident_as_measured() -> None:
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
-            _publishes("the impact", lambda document: document.impact, impact_of(measured))
+            _publishes("the impact", lambda document: document.impact,
+                       impact_of(measured,
+                                 logs_in_the_gap=logs_in_the_gap_of(evidence, measured)))
         )
 
 

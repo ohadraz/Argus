@@ -18,13 +18,17 @@ from argus_core.models import (
     ErrorRateLevels,
     Impact,
     ImpactExtent,
+    LogsInTheGap,
     RuleSeriesHarm,
     WorseWhen,
 )
-from argus_testkit import Assertion, Scenario, the_answer_was
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_rendering.impact import Card, the_impact
+from postmortem_rendering.lines import Line, Role
 
 from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
+
+SOME_MINUTE = datetime(2026, 10, 21, 19, 12, tzinfo=UTC)
 
 
 @pytest.mark.unit
@@ -51,7 +55,8 @@ def test_a_measured_incident_shows_its_four_figures_each_beside_what_it_is() -> 
 @pytest.mark.unit
 def test_nothing_measured_says_so_on_every_card() -> None:
     # Absence is said, never shown as a zero: a reader must not have to guess
-    # whether nothing was lost or nothing was known.
+    # whether nothing was lost or nothing was known. The rate and the count as
+    # what the metrics did not measure: the service's own logs may well have.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(impact=None, customer_loss_estimate=None)
@@ -60,7 +65,8 @@ def test_nothing_measured_says_so_on_every_card() -> None:
             lambda: the_impact(some_postmortem, an_alert()).cards
         ) \
         .then(
-            _the_values_are("not measured", "not measured", "not counted", "not estimated"))
+            _the_values_are("not measured", "not measured by the metrics",
+                            "not counted by the metrics", "not estimated"))
 
 
 @pytest.mark.unit
@@ -77,8 +83,8 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
             lambda: the_impact(some_postmortem, an_alert()).cards
         ) \
         .then(
-            _the_values_are("at least 40m 0s", "not measured", "not counted",
-                            "at least 500.00 USD"))
+            _the_values_are("at least 40m 0s", "not measured by the metrics",
+                            "not counted by the metrics", "at least 500.00 USD"))
 
 
 @pytest.mark.unit
@@ -246,6 +252,71 @@ def test_an_incident_whose_metrics_stopped_says_what_its_duration_measures() -> 
 
 
 @pytest.mark.unit
+def test_the_logs_reaching_into_the_stretch_the_metrics_missed_are_named_with_how_far() -> None:
+    # Impact said what the metrics did not measure and never that the shop's
+    # own logs measured it through the gap - the strongest evidence of how it
+    # was doing there, given in the cause and nowhere in Impact. How far, said
+    # once, and where the reading of them ended: where the lines stop is as
+    # often where the reading did.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_unobserved(LogsInTheGap(
+                read=True, labels=["G46bc", "Gbac1"], reach_until=SOME_MINUTE,
+                read_until=SOME_MINUTE + timedelta(seconds=55), read_until_the_alert=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(all_of(
+            _the_note_reads("The service's own logs reach into the stretch the metrics missed "
+                            "until Oct 21, 2026, 19:12 UTC: G46bc, Gbac1. They were read up to "
+                            "Oct 21, 2026, 19:12:55 UTC, when the alert was raised."),
+            _the_note_cites("G46bc", "Gbac1")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("logs", "said"), [
+    (LogsInTheGap(read=True, labels=[], reach_until=None, read_until=SOME_MINUTE,
+                  read_until_the_alert=False),
+     "No log line read reaches into the stretch the metrics missed. The logs were read up to "
+     "Oct 21, 2026, 19:12 UTC."),
+    (LogsInTheGap(read=False, labels=[], reach_until=None, read_until=None,
+                  read_until_the_alert=False),
+     "No logs were read.")
+], ids=["none-reaching-in", "none-read"])
+def test_logs_that_show_nothing_of_the_stretch_the_metrics_missed_say_so(logs: LogsInTheGap,
+                                                                         said: str) -> None:
+    # Said rather than left out: a note silent on the logs reads the same as
+    # one whose logs nobody looked at.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_unobserved(logs))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            _the_note_reads(said)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_never_stopped_says_nothing_of_logs_in_a_gap() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=9), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            the_answer_was(None))
+
+
+@pytest.mark.unit
 def test_a_measured_incident_carries_no_note_on_its_duration() -> None:
     Scenario() \
         .given(
@@ -396,6 +467,39 @@ def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:
 
         if values != expected:
             raise AssertionError(f"Expected the cards to read {expected}, got {values}.")
+
+        return True
+
+    return assertion
+
+
+def _unobserved(logs: LogsInTheGap) -> Impact:
+    """An incident whose metrics stopped at the onset, with these logs read."""
+    return Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                  peak_error_rate=None, logs_in_the_gap=logs)
+
+
+def _the_note_reads(expected: str) -> Assertion[Line | None]:
+    def assertion(note: Line | None) -> bool:
+        said = note.said if note is not None else None
+
+        if said != expected:
+            raise AssertionError(f"Expected the note on the logs to read [{expected}], "
+                                 f"got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_note_cites(*labels: str) -> Assertion[Line | None]:
+    def assertion(note: Line | None) -> bool:
+        cited = [run.address for run in note.runs
+                 if run.role is Role.CITATION] if note is not None else []
+
+        if cited != list(labels):
+            raise AssertionError(f"Expected the note to cite {list(labels)}, and it cited "
+                                 f"{cited}.")
 
         return True
 

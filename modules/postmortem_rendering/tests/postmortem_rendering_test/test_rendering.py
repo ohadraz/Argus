@@ -23,7 +23,10 @@ from argus_core.models import (
     CitedEvidence,
     Detection,
     HypothesisConsidered,
+    Impact,
+    ImpactExtent,
     IncidentStatus,
+    LogsInTheGap,
     PostmortemLead,
     ResolutionStep,
     TimelineEntry,
@@ -131,6 +134,30 @@ def test_below_the_head_a_moment_of_the_incident_s_day_says_its_time_alone() -> 
                                      "HighErrorRate fired at 14:05:47 UTC, 2m 40s later."),
                 _the_head_s_date_reads("Oct 11, 2026, 14:03:07 UTC, not seen back to normal")
             )
+        )
+
+
+@pytest.mark.unit
+def test_where_the_logs_were_read_up_to_is_said_by_its_time_on_the_incident_s_day() -> None:
+    # As every moment below the head is: the head says the day once.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                              peak_error_rate=None,
+                              logs_in_the_gap=LogsInTheGap(
+                                  read=True, labels=[], reach_until=None,
+                                  read_until=SOME_MOMENT + timedelta(minutes=9),
+                                  read_until_the_alert=False)),
+                timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_MOMENT)])
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert("HighErrorRate", "io-shop"), [],
+                           SOME_ADDRESS)
+        ) \
+        .then(
+            _the_logs_in_the_gap_read("No log line read reaches into the stretch the metrics "
+                                      "missed. The logs were read up to 14:12:07 UTC.")
         )
 
 
@@ -501,6 +528,20 @@ def _the_head_s_date_reads(expected: str) -> Assertion[RenderedPostmortem]:
         said = rendered.head.date.said
         if said != expected:
             raise AssertionError(f"Expected the head's date to read [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_logs_in_the_gap_read(expected: str) -> Assertion[RenderedPostmortem]:
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        note = rendered.impact.logs_in_the_gap
+        said = note.said if note is not None else None
+
+        if said != expected:
+            raise AssertionError(f"Expected the note on the logs to read [{expected}], "
+                                 f"got [{said}].")
 
         return True
 

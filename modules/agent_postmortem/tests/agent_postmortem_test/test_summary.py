@@ -83,7 +83,7 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
     # Not a stretch the service is known to have spent broken: its own logs
     # show it up to where they reach, and nothing after the reading ended was
     # read - said apart, since where the lines stop is as often where the
-    # reading did.
+    # reading did. In Impact's words for it, so the page says it one way.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
@@ -98,8 +98,8 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
         .then(
             _says("No metrics were collected from 12:00 UTC on, and they had not resumed when "
                   "Argus stopped working on the incident at 12:30 UTC, 30 minutes later. The "
-                  "service's own logs show it until 12:04 UTC, and the logs were read up to "
-                  "12:20 UTC.")
+                  "service's own logs reach into that stretch until 12:04 UTC, and they were "
+                  "read up to 12:20 UTC.")
         )
 
 

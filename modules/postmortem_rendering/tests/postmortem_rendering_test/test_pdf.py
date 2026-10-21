@@ -1046,12 +1046,12 @@ def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words
     pytest.param(288, 80, "Contributing factors", id="contributing-factors"),
     pytest.param(600, 80, "What the alert said", id="what-the-alert-said"),
     pytest.param(906, 80, "Changes to production read", id="changes-read"),
-    pytest.param(870, 80, "Log messages read (UTC)", id="log-messages-read"),
-    pytest.param(432, 40, "What each deployment looked into changed", id="deployments"),
+    pytest.param(858, 80, "Log messages read (UTC)", id="log-messages-read"),
+    pytest.param(396, 40, "What each deployment looked into changed", id="deployments"),
     pytest.param(492, 80, "What Code-Fix read in the source and proposed - "
                           "nothing ran its test or its fix",
                  id="code-fix-read"),
-    pytest.param(348, 80, "What went wrong", id="what-went-wrong"),
+    pytest.param(336, 80, "What went wrong", id="what-went-wrong"),
     pytest.param(318, 80, "Where it got lucky", id="where-it-got-lucky"),
     pytest.param(384, 80, "Lessons learned", id="lessons-set-one-under-another")
 ])

@@ -67,6 +67,9 @@ _FIGURE_PT: Final = 10.5
 # The smallest a row of figures is set at to keep each on one line.
 _SMALLEST_FIGURE_PT: Final = 8.0
 _LABEL_PT: Final = 7.9
+# A note set beside the figures, and the height of each of its lines.
+_QUIET_PT: Final = 7.9
+_QUIET_LINE: Final = 4.0
 _LINE: Final = 5.0
 
 _INK: Final = (27, 36, 48)
@@ -462,10 +465,22 @@ def _a_paragraph(pdf: _Sheet, line: Line, size: float = _TEXT_PT, height: float 
 def _quiet(pdf: _Sheet, said: str) -> None:
     """A note set small and muted - a sentence said in place of something
     absent, or one beside the figures."""
-    pdf.set_font(_BODY, "", 7.9)
+    pdf.set_font(_BODY, "", _QUIET_PT)
     pdf.set_text_color(*_MUTED)
-    pdf.multi_cell(0, 4, said, align="L", new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(0, _QUIET_LINE, said, align="L", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(*_INK)
+
+
+def _a_quiet_line(pdf: _Sheet, line: Line) -> None:
+    """A note set as `_quiet` sets one, but run by run - so a label in it
+    still leads to its row, in a link's colour, and the rest is muted."""
+    pdf.set_x(pdf.l_margin)
+    _written(pdf, _QUIET_LINE,
+             [(run, look._replace(colour=_MUTED) if look.colour == _INK else look)
+              for run in _cited(pdf, line.runs)
+              for look in (_the_look_of(run, _QUIET_PT),)])
+    pdf.set_text_color(*_INK)
+    pdf.ln(_QUIET_LINE)
 
 
 def _an_item(pdf: _Sheet, runs: Sequence[Run], size: float = _TEXT_PT, after: float = 1.0,
@@ -1005,6 +1020,8 @@ def _the_impact(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     for said in (impact.finding, impact.unobserved):
         if said:
             _quiet(pdf, said)
+    if impact.logs_in_the_gap is not None:
+        _a_quiet_line(pdf, impact.logs_in_the_gap)
 
 
 def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
