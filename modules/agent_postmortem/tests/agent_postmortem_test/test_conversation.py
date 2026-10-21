@@ -29,6 +29,7 @@ from decimal import Decimal
 import pytest
 from agent_postmortem import DeploymentChangesRecord
 from agent_postmortem.conversation import answer_worth_writing
+from agent_postmortem.ordering import ORDER_FIELD
 from agent_postmortem.prompting import (
     CITES_FIELD,
     EXECUTIVE_SUMMARY_FIELD,
@@ -48,7 +49,14 @@ from argus_core.models import (
     Turn,
     Verdict,
 )
-from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    one_record_was_logged,
+    the_answer_was,
+)
 
 from agent_postmortem_test.framework.builders import (
     a_candidate,
@@ -598,6 +606,29 @@ def test_a_root_cause_naming_the_deploy_that_carried_it_is_asked_for_again() -> 
                 _the_correction_named(asks, the_trigger[:7]),
                 _found_no_fault()
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_accepted_chain_is_put_in_the_order_its_whys_answer_each_other() -> None:
+    # Asked for the five whys, a write-up gave the step saying why the symptom
+    # happened after the one it explains. Asked once more, by number, the model
+    # puts them in order without a word of them changing.
+    some_chain = [{STEP_FIELD: f"step {letter}", CITES_FIELD: ["T1"]}
+                  for letter in "abcd"]
+
+    Scenario() \
+        .given(
+            a_model_answering_then_ordering := a_model_answering_in_turn(
+                an_answer(causal_chain=some_chain), {ORDER_FIELD: [1, 3, 2, 4]})
+        ) \
+        .when(
+            lambda: [step.step for step in answer_worth_writing(
+                a_model_answering_then_ordering, an_evidence_bundle(),
+                a_measured_incident())[0].causal_chain or []]
+        ) \
+        .then(
+            the_answer_was(["step a", "step c", "step b", "step d"])
         )
 
 

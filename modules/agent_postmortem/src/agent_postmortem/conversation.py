@@ -22,6 +22,7 @@ from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import Figure, with_figures_written
 from agent_postmortem.measuring import Measurements
+from agent_postmortem.ordering import put_in_order
 from agent_postmortem.prompting import (
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
@@ -67,14 +68,30 @@ def answer_worth_writing(llm: LLMClient,
     first = _reading_of(submitted, evidence.leads, given, figures)
     _, faults = first
     if not faults:
-        return first
+        return _with_its_chain_in_order(llm, first)
 
     logger.warning("postmortem answer rejected", extra={"faults": faults})
 
-    return _reading_of(llm.converse(_asking_again(asked, submitted, faults), [submit]),
-                       evidence.leads,
-                       given,
-                       figures)
+    return _with_its_chain_in_order(
+        llm,
+        _reading_of(llm.converse(_asking_again(asked, submitted, faults), [submit]),
+                    evidence.leads,
+                    given,
+                    figures))
+
+
+def _with_its_chain_in_order(llm: LLMClient,
+                             reading: tuple[SubmittedPostmortem, list[str]]
+                             ) -> tuple[SubmittedPostmortem, list[str]]:
+    """The answer kept, with its causal chain in the order its whys answer each
+    other (`ordering`) - after it is read, so the order is asked of the chain
+    the document will carry."""
+    answer, faults = reading
+    if answer.causal_chain is None:
+        return reading
+
+    return (answer.model_copy(update={"causal_chain": put_in_order(llm, answer.causal_chain)}),
+            faults)
 
 
 def _what_was_given(evidence: IncidentEvidence,
