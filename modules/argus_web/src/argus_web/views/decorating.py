@@ -12,6 +12,8 @@ knows an event from another.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from argus_narration import NarrationLine
 
 # How a marked word is dressed, by the kind of line it appears on. A status
@@ -61,9 +63,15 @@ class DecoratedLine(NarrationLine):
     emphasis_href: str = ""
 
 
-def decorated(line: NarrationLine) -> DecoratedLine:
-    """One line, with the class and the link this page would give it."""
-    target, label = _where_to_look(line)
+def decorated(line: NarrationLine, *, minutes_held: Sequence[str]) -> DecoratedLine:
+    """One line, with the class and the link this page would give it.
+
+    `minutes_held` is the minutes the page's metrics table has rows for. A
+    line naming a minute links to it only where there is a row to land on:
+    the metrics can stop before the minute the onset names, and a link that
+    lands nowhere is worse than none.
+    """
+    target, label = _where_to_look(line, minutes_held)
 
     return DecoratedLine(
         **line.model_dump(),
@@ -103,19 +111,22 @@ def _dressed_as(line: NarrationLine) -> str:
     return f"{dressed} {line.emphasis.lower()}"
 
 
-def _where_to_look(line: NarrationLine) -> tuple[str, str]:
+def _where_to_look(line: NarrationLine, minutes_held: Sequence[str]) -> tuple[str, str]:
     """The row a line points at, and what the link says.
 
     The onset names one minute out of ninety, and finding that minute by hand
-    is the work the link saves. The action names one flag, so it points at that
-    flag's own row - while the history line names all of them and points at
-    none, because a link that cannot say which of four rows it means is
-    furniture.
+    is the work the link saves - where the table holds that minute at all. The
+    action names one flag, so it points at that flag's own row - while the
+    history line names all of them and points at none, because a link that
+    cannot say which of four rows it means is furniture.
     """
     label = _POINTS_AT.get(line.kind)
     row = _the_row_named_by(line)
 
     if label is None or not row:
+        return "", ""
+
+    if line.kind == "onset-detected" and row not in minutes_held:
         return "", ""
 
     return f"#{_ANCHORS[line.kind]}-{row}", label

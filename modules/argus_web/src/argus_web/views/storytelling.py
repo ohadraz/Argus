@@ -146,7 +146,8 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     held = the_rows_held(minutes.values(), lines.values())
 
     return Story(
-        narration=[decorated(_pointed_at(shown(line, revisions), held)) for line in narration],
+        narration=[decorated(_pointed_at(shown(line, revisions), held), minutes_held=held.minutes)
+                   for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
         logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
         changes=[_a_row(change, revisions)

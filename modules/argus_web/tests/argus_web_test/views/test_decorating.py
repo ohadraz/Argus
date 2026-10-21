@@ -38,6 +38,9 @@ from argus_web.views.decorating import DecoratedLine, decorated
 SOME_MINUTE = "2026-08-30T10:03:00Z"
 SOME_FLAG = "monthly-spend-feature"
 
+# The minutes a page holds rows for, where no line in the case names one.
+DONT_CARE_MINUTES: list[str] = []
+
 
 @pytest.mark.unit
 def test_a_status_line_wears_the_badge_the_header_wears() -> None:
@@ -49,7 +52,7 @@ def test_a_status_line_wears_the_badge_the_header_wears() -> None:
                 StatusChanged(incident_id=new_id(), to_status=IncidentStatus.RESOLVED)
             )
         ) \
-        .when(lambda: decorated(the_incident_resolving)) \
+        .when(lambda: decorated(the_incident_resolving, minutes_held=DONT_CARE_MINUTES)) \
         .then(_it_is_dressed_as(f"moved-to {IncidentStatus.RESOLVED}"))
 
 
@@ -81,7 +84,7 @@ def test_a_verdict_line_is_dressed_as_the_verdict_it_reached() -> None:
                 VerdictReached(incident_id=new_id(), hypothesis_id=None, outcome=some_verdict)
             )
         ) \
-        .when(lambda: decorated(the_verdict)) \
+        .when(lambda: decorated(the_verdict, minutes_held=DONT_CARE_MINUTES)) \
         .then(_it_is_dressed_as(f"verdict {some_verdict}"))
 
 
@@ -95,7 +98,7 @@ def test_a_line_with_nothing_marked_is_dressed_as_nothing() -> None:
                 OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)
             )
         ) \
-        .when(lambda: decorated(a_plain_line)) \
+        .when(lambda: decorated(a_plain_line, minutes_held=DONT_CARE_MINUTES)) \
         .then(_it_is_dressed_as(""))
 
 
@@ -109,8 +112,23 @@ def test_the_onset_line_points_at_the_minute_it_named() -> None:
                 OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)
             )
         ) \
-        .when(lambda: decorated(the_onset)) \
+        .when(lambda: decorated(the_onset, minutes_held=[SOME_MINUTE])) \
         .then(_it_points_at(f"#minute-{SOME_MINUTE}", "show the minute"))
+
+
+@pytest.mark.unit
+def test_an_onset_at_a_minute_the_page_holds_no_row_for_points_at_nothing() -> None:
+    # The metrics stopped at the onset, so their table ended a minute before
+    # it, and "show the minute" led to no row. A link that lands nowhere is
+    # worse than none.
+    Scenario() \
+        .given(
+            the_onset := a_narration_line(
+                OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)
+            )
+        ) \
+        .when(lambda: decorated(the_onset, minutes_held=["2026-08-30T10:02:00Z"])) \
+        .then(_it_points_at("", ""))
 
 
 @pytest.mark.unit
@@ -128,7 +146,7 @@ def test_an_action_line_points_at_the_change_it_reverted() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(the_action)) \
+        .when(lambda: decorated(the_action, minutes_held=DONT_CARE_MINUTES)) \
         .then(_it_points_at(f"#flag-{SOME_FLAG}", "the change it reverted"))
 
 
@@ -143,7 +161,7 @@ def test_a_line_that_read_a_channel_points_at_nothing() -> None:
                 VerdictReached(incident_id=new_id(), hypothesis_id=None, outcome=Verdict.CONFIRMED)
             )
         ) \
-        .when(lambda: decorated(the_verdict)) \
+        .when(lambda: decorated(the_verdict, minutes_held=DONT_CARE_MINUTES)) \
         .then(_it_points_at("", ""))
 
 
@@ -166,7 +184,7 @@ def test_a_proposed_fix_makes_the_address_it_marked_clickable() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(the_proposal)) \
+        .when(lambda: decorated(the_proposal, minutes_held=DONT_CARE_MINUTES)) \
         .then(_the_marked_word_is_a_link_to(where_it_can_be_read))
 
 
@@ -185,7 +203,7 @@ def test_a_fix_that_proposed_nothing_marks_a_word_that_is_not_a_link() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(could_not)) \
+        .when(lambda: decorated(could_not, minutes_held=DONT_CARE_MINUTES)) \
         .then(_the_marked_word_is_a_link_to(""))
 
 
@@ -205,7 +223,7 @@ def test_everything_the_line_already_said_is_still_said() -> None:
                 )
             )
         ) \
-        .when(lambda: decorated(the_action)) \
+        .when(lambda: decorated(the_action, minutes_held=DONT_CARE_MINUTES)) \
         .then(all_of(_it_still_reads_as(the_action), _it_still_marks(the_action)))
 
 
