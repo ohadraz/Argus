@@ -39,6 +39,7 @@ from agent_postmortem.figures import (
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
@@ -739,6 +740,46 @@ def test_a_wait_for_nothing_or_one_never_read_is_no_figure(rule_waits: timedelta
         ) \
         .then(
             _the_figures_leave_out(RULE_WAITS_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_how_far_back_the_paging_rule_s_condition_looks_is_named_as_a_span() -> None:
+    # How much of the time from the onset to the alert can be the condition's
+    # own window filling. Told only that it may be some, a write-up was left to
+    # find it in the alert's words and subtract it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(rule_waits=timedelta(0),
+                                            rule_looks_back=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                RULE_LOOKS_BACK_FIGURE: Figure(given="5 minutes", written="5 minutes")
+            })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("rule_looks_back", [timedelta(0), None], ids=["no-range", "no-rule"])
+def test_a_condition_looking_back_over_nothing_or_no_rule_at_all_is_no_figure(
+        rule_looks_back: timedelta | None) -> None:
+    # A check rather than a query over a range looks back over nothing, and a
+    # span of no time is no figure to work with.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(rule_looks_back=rule_looks_back)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(RULE_LOOKS_BACK_FIGURE)
         )
 
 

@@ -991,6 +991,30 @@ def test_an_incident_no_rule_paged_for_asks_no_rule_how_long_it_waits() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("rule", "looks_back"), [
+    ("dont-care-rule", timedelta(minutes=5)),
+    (None, None)
+], ids=["a-rule-paged", "no-rule-paged"])
+def test_how_far_back_the_paging_rule_s_condition_looks_is_read_off_the_rule_that_paged(
+        rule: str | None, looks_back: timedelta | None) -> None:
+    # Part of the time from the onset to the alert can be the condition's own
+    # window filling - "no sample for 5m" holds only once five minutes have
+    # passed with none - and a write-up not told how long that is either leaves
+    # the gap unweighed or calls it slow detection.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=rule)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(0, looks_back_seconds=300)))
+        ) \
+        .then(
+            _the_rule_looks_back(looks_back)
+        )
+
+
+@pytest.mark.unit
 def test_the_query_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
     # What the series is. The alert's words say when the rule pages, and only
     # the rule's query says what it pages on.
@@ -1481,6 +1505,18 @@ def _the_rule_waits(expected: timedelta | None) -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected the rule to wait [{expected}], read, got "
                 f"[{measured.rule_waits}], unread [{measured.rule_wait_unread}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rule_looks_back(expected: timedelta | None) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_looks_back != expected:
+            raise AssertionError(
+                f"Expected the rule's condition to look back over [{expected}], got "
+                f"[{measured.rule_looks_back}].")
 
         return True
 

@@ -70,6 +70,7 @@ from agent_postmortem.figures import (
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
@@ -1414,12 +1415,14 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
 
     if not measured.rule_waits:
         return [f"The alert rule fires as soon as its condition holds."
-                f"{_the_alert_against_no_wait(evidence, measured, figures)}"]
+                f"{_the_alert_against_no_wait(evidence, measured, figures)}"
+                f"{_the_condition_s_window(measured, figures)}"]
 
     return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
             f"condition holding before it fires: that wait is part of the time from "
             f"the onset to the alert - count it before calling detection slow."
-            f"{_the_alert_against_its_wait(evidence, measured, figures)}"]
+            f"{_the_alert_against_its_wait(evidence, measured, figures)}"
+            f"{_the_condition_s_window(measured, figures)}"]
 
 
 def _the_alert_against_no_wait(evidence: IncidentEvidence,
@@ -1430,10 +1433,8 @@ def _the_alert_against_no_wait(evidence: IncidentEvidence,
     was measured to take a gap from.
 
     Told only that the rule fires at once, a write-up left the whole gap from
-    the onset to the alert unweighed. Part of it can be the condition's own
-    window - an absence of samples holds only once the minutes it counts have
-    passed - which the alert's own words may name. From a minute up, by its
-    figure; under one, in words, as a wait's own gap is said.
+    the onset to the alert unweighed. From a minute up, by its figure; under
+    one, in words, as a wait's own gap is said.
     """
     after_the_onset = what_came_after_the_wait(evidence, measured)
 
@@ -1448,9 +1449,24 @@ def _the_alert_against_no_wait(evidence: IncidentEvidence,
                 "onset - a whole minute - can tell.")
 
     return (f" The alert came {_shown(ALERTED_AFTER_THE_ONSET_FIGURE, figures)} after the "
-            f"onset: where the condition itself looks back over a window - samples missing "
-            f"for some minutes, a rate over some minutes - that window is part of it, and "
-            f"what the alert said may name it.")
+            f"onset.")
+
+
+def _the_condition_s_window(measured: Measurements, figures: Mapping[str, Figure]) -> str:
+    """How far back the rule's condition looks, as a sentence to follow the
+    wait's own - or nothing, for a check that looks back over no range.
+
+    Part of the time from the onset to the alert can be that window filling:
+    "5m with no sample" holds only once five minutes have passed with none.
+    Told only that it may be, a write-up was left to find how much in the
+    alert's words and subtract it.
+    """
+    if not measured.rule_looks_back:
+        return ""
+
+    return (f" Its condition looks back over {_shown(RULE_LOOKS_BACK_FIGURE, figures)}: up to "
+            f"that much of the time from the onset to the alert is that window filling - "
+            f"count it before calling detection slow.")
 
 
 def _the_alert_against_its_wait(evidence: IncidentEvidence,

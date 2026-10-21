@@ -173,6 +173,11 @@ class Measurements(BaseModel):
     # The unit that series is in, as Grafana names a unit - read off the rule's
     # panel or its metric's name - and `None` where neither said one.
     rule_series_unit: str | None = None
+    # How far back the paging rule's condition looks - "no sample for 5m" holds
+    # only once five minutes have passed with none - which is part of the time
+    # from an onset to its alert, as the wait is. Nothing for a check that looks
+    # back over no range, and `None` where no rule paged or it went unread.
+    rule_looks_back: timedelta | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -276,6 +281,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_series=rule_series_over(metrics, began, back_to_normal_at),
         error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at),
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
+        rule_looks_back=(timedelta(seconds=alert_rule.range_seconds)
+                         if alert_rule is not None else None),
         rule_wait_unread=evidence.rule is not None and waits is None,
         rule_series_query=alert_rule.series_query if alert_rule is not None else None,
         rule_series_unit=alert_rule.series_unit if alert_rule is not None else None,

@@ -45,6 +45,7 @@ from agent_postmortem.figures import (
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
     Figure,
     figures_of,
@@ -951,9 +952,7 @@ def test_a_rule_that_waits_for_nothing_is_told_as_firing_at_once() -> None:
 def test_a_rule_that_waits_for_nothing_is_told_how_long_after_the_onset_its_alert_came(
 ) -> None:
     # Told only that the rule fires as soon as its condition holds, a write-up
-    # left 5m 53s from the onset to the alert unweighed. Part of it can be the
-    # condition's own window - "5m with no sample" holds only once five minutes
-    # have passed with none - which the alert's own words may name.
+    # left 5m 53s from the onset to the alert unweighed.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=53)),
@@ -964,8 +963,44 @@ def test_a_rule_that_waits_for_nothing_is_told_how_long_after_the_onset_its_aler
         ) \
         .then(
             _says_on_one_line(A_RULE_FIRING_AT_ONCE, "The alert came",
-                              f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}} after the onset",
-                              "looks back over a window")
+                              f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}} after the onset")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("rule_waits", [timedelta(), timedelta(minutes=5)],
+                         ids=["waits-for-nothing", "waits"])
+def test_the_model_is_told_how_far_back_the_rule_s_condition_looks(
+        rule_waits: timedelta) -> None:
+    # Part of the time from the onset to the alert can be the condition's own
+    # window filling - "5m with no sample" holds only once five minutes have
+    # passed with none. Told only that it may be, a write-up was left to find
+    # how much in the alert's words and subtract it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(rule_waits=rule_waits,
+                                            rule_looks_back=timedelta(minutes=5))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _says_on_one_line("Its condition looks back over", f"{{{RULE_LOOKS_BACK_FIGURE}}}",
+                              "up to that much of the time from the onset to the alert")
+        )
+
+
+@pytest.mark.unit
+def test_a_condition_looking_back_over_nothing_is_told_no_window() -> None:
+    Scenario() \
+        .given(
+            measured := a_measured_incident(rule_waits=timedelta(), rule_looks_back=timedelta())
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(
+            _does_not_say("looks back over")
         )
 
 

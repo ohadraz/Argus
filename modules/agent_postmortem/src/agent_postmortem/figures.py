@@ -58,6 +58,7 @@ CUSTOMER_LOSS_FIGURE: Final = "customer_loss"
 DURATION_FIGURE: Final = "duration"
 HELD_FIGURE: Final = "held"
 RULE_WAITS_FIGURE: Final = "rule_waits"
+RULE_LOOKS_BACK_FIGURE: Final = "rule_looks_back"
 AFTER_THE_WAIT_FIGURE: Final = "after_the_wait"
 ALERTED_AFTER_THE_ONSET_FIGURE: Final = "alerted_after_the_onset"
 ARGUS_STOPPED_FIGURE: Final = "argus_stopped"
@@ -146,6 +147,7 @@ _KINDS: Final = {
     DURATION_FIGURE: _Kind.SPAN,
     HELD_FIGURE: _Kind.SPAN,
     RULE_WAITS_FIGURE: _Kind.SPAN,
+    RULE_LOOKS_BACK_FIGURE: _Kind.SPAN,
     AFTER_THE_WAIT_FIGURE: _Kind.SPAN,
     ALERTED_AFTER_THE_ONSET_FIGURE: _Kind.SPAN,
     ERRORS_BEFORE_FIGURE: _Kind.SHARE,
@@ -284,6 +286,12 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     # condition holds - and a span of no time is no figure to work with.
     if measured.rule_waits:
         figures[RULE_WAITS_FIGURE] = _a_span(measured.rule_waits / timedelta(hours=1))
+
+    # How much of the time from the onset to the alert can be the condition's
+    # own window filling - nothing named for a check that looks back over no
+    # range, as a wait of nothing is said in words.
+    if measured.rule_looks_back:
+        figures[RULE_LOOKS_BACK_FIGURE] = _a_span(measured.rule_looks_back / timedelta(hours=1))
 
     # Only from a minute up: a measured onset is a whole minute, so less than
     # one after the wait is inside what the onset can tell, and a name for it
