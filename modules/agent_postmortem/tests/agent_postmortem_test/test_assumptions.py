@@ -496,13 +496,15 @@ def test_bands_that_could_not_be_read_are_disclosed_where_somebody_responded() -
 @pytest.mark.unit
 def test_a_shortfall_within_what_the_shop_varies_by_is_disclosed_as_no_loss() -> None:
     # A zero beside an incident that plainly took less reads as a figure nobody
-    # computed. Said with both amounts, it is a finding a reader can check.
+    # computed. Said with both amounts, it is a finding a reader can check -
+    # each in the one spelling money has on the page, half a cent up and in its
+    # currency, since an amount said two ways reads as two amounts.
     Scenario() \
         .given(
             an_incident_within_the_shop_s_variation := a_measured_incident(
                 loss=Decimal(0)
-            ).model_copy(update={"shortfall": Decimal("200.00"),
-                                 "variation": Decimal("300.00")})
+            ).model_copy(update={"shortfall": Decimal("1200.005"),
+                                 "variation": Decimal("1300")})
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
@@ -511,8 +513,8 @@ def test_a_shortfall_within_what_the_shop_varies_by_is_disclosed_as_no_loss() ->
         ) \
         .then(
             all_of(
-                _names_a_line_mentioning(NORMAL_VARIATION_ASSUMPTION_LABEL, "200.00"),
-                _names_a_line_mentioning(NORMAL_VARIATION_ASSUMPTION_LABEL, "300.00")
+                _names_a_line_mentioning(NORMAL_VARIATION_ASSUMPTION_LABEL, "1,200.01 USD"),
+                _names_a_line_mentioning(NORMAL_VARIATION_ASSUMPTION_LABEL, "1,300.00 USD")
             )
         )
 

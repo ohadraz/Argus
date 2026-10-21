@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from argus_core.models import said_as_money
+
 from agent_postmortem.estimate import weeks_back_for
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
@@ -165,9 +167,11 @@ def _within_the_shop_s_variation(measured: Measurements) -> list[str]:
     weeks = weeks_back_for(timedelta(hours=measured.duration_in_hours)) // timedelta(weeks=1)
     earlier = f"{weeks} week{'s' if weeks != 1 else ''} earlier"
 
-    return [f"{NORMAL_VARIATION_ASSUMPTION_LABEL}: takings fell {shortfall:,.2f} short of "
-            f"the same hours {earlier}, no more than the {variation:,.2f} those hours "
-            f"differ by from the same hours {earlier} again, so no loss is reported"]
+    return [f"{NORMAL_VARIATION_ASSUMPTION_LABEL}: takings fell "
+            f"{said_as_money(shortfall, measured.currency)} short of the same hours "
+            f"{earlier}, no more than the {said_as_money(variation, measured.currency)} "
+            f"those hours differ by from the same hours {earlier} again, so no loss is "
+            f"reported"]
 
 
 def _currencies_left_out_of(measured: Measurements) -> list[str]:
