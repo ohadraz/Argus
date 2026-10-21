@@ -224,7 +224,7 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     as its label counts it - candidates blaming one move are one row, and the
     label still counts each - and its label after it, which leads to its row
     on the page and to nothing where the summary is said on its own."""
-    held_back = [f"Argus did not test the cause it ranked "
+    held_back = [f"Argus did not test the candidate it ranked "
                  f"{_ranked(int(cause.label.removeprefix(CANDIDATE_PREFIX)))} ({cause.label}): "
                  f"{cause.decided.result.rstrip('.')}."
                  for cause in causes_of(evidence.candidates)

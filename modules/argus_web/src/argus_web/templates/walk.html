@@ -78,8 +78,8 @@
          matching evidence to claims by timestamp is investigating again. #}
       {% if candidate.evidence %}
       <ul class="evidence">
-        {% for line in candidate.evidence %}
-        <li class="evidence-line">{{ line }}</li>
+        {% for finding in candidate.evidence %}
+        <li class="evidence-line">{{ finding.text }}</li>
         {% endfor %}
       </ul>
       {% endif %}
@@ -98,7 +98,7 @@
             <span class="verdict {{ attempt.outcome }}">{{ attempt.outcome }}</span>
           {% endif %}
           {% if attempt.undone %}<span class="undone">put back</span>{% endif %}
-          <span class="when">{{ attempt.taken_at | utc("%H:%M:%S") }}</span>
+          <span class="when">{{ attempt.taken_at | time }} UTC</span>
         </li>
       {% endfor %}
       </ul>
@@ -118,7 +118,7 @@
         data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
         data-undone="{{ 'true' if attempt.undone else 'false' }}">
       <span class="action">{{ attempt.action_type }}</span>
-      <span class="when">{{ attempt.taken_at | utc("%H:%M:%S") }}</span>
+      <span class="when">{{ attempt.taken_at | time }} UTC</span>
     </li>
   {% endfor %}
   </ul>

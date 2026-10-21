@@ -44,6 +44,24 @@ def test_each_action_is_a_row_saying_when_what_who_whether_it_undoes_and_what_it
 
 
 @pytest.mark.unit
+def test_an_action_taken_on_the_minute_says_its_time_to_the_minute() -> None:
+    # As every instant is said: "14:08:00" claims a precision nothing measured.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT.replace(second=0), action="dont care",
+                               by="Argus", has_a_way_back=True, outcome="dont care",
+                               label="M1")])
+        ) \
+        .when(
+            lambda: [step.at for step in the_actions_taken(some_postmortem,
+                                                          resolution=None).steps]
+        ) \
+        .then(
+            the_answer_was(["14:08"]))
+
+
+@pytest.mark.unit
 def test_an_action_that_left_automatic_sync_off_says_so_in_its_row_alone() -> None:
     # In the table, beside whether the action still stands, which is what the
     # sync being off explains - and not in the outcome a citation of the action

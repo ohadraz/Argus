@@ -113,7 +113,9 @@ def test_an_alert_within_what_was_accounted_for_is_said_first_under_what_went_we
 def test_an_alert_later_than_what_was_accounted_for_is_said_first_under_what_went_wrong(
 ) -> None:
     # A part of nothing is left out: a condition looking back over no range
-    # spends no time.
+    # spends no time. And what took the rest is said to be unknown: a rule can
+    # wait in ways the rule Argus reads does not say - an absence check's own
+    # dwell - and the rest counted against detection would be blamed on it.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -137,7 +139,8 @@ def test_an_alert_later_than_what_was_accounted_for_is_said_first_under_what_wen
                                     "its evaluation at intervals of 30 seconds, an "
                                     "unmeasured allowance of 30 seconds for scraping and "
                                     "storing its samples and the whole minute its series is "
-                                    "read in."),)),
+                                    "read in. The record does not show what took the "
+                                    "rest."),)),
                 Line(runs=(Run(text="the draft waits on a person", role=Role.PROSE),))))
         )
 

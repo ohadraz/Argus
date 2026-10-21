@@ -20,6 +20,8 @@ from postmortem_rendering.lines import Line, Role, Run
 
 _NOTHING: Final = "Nothing."
 
+_WHAT_TOOK_THE_REST: Final = "The record does not show what took the rest."
+
 # The whole minute each start is measured to, which the time from it to the
 # alert can hold without the rule having spent any of it.
 _A_WHOLE_MINUTE: Final = timedelta(minutes=1)
@@ -101,10 +103,15 @@ def _said(lesson: DetectionLesson) -> Line:
     ]
     by = ", ".join(parts[:-1]) + f" and {parts[-1]}" if len(parts) > 1 else parts[0]
     accounted_for = _accounted_for(lesson)
-    against = (f"within the {said_as_a_span(accounted_for)}" if _went_well(lesson)
+    went_well = _went_well(lesson)
+    against = (f"within the {said_as_a_span(accounted_for)}" if went_well
                else f"{said_as_a_span(lesson.gap - accounted_for)} more than the "
                     f"{said_as_a_span(accounted_for)}")
+    # A rule can spend time the rule Argus reads does not say - an absence
+    # check's own dwell - so the rest is said to be unknown rather than left
+    # to read as detection's fault.
+    unknown = "" if went_well else f" {_WHAT_TOOK_THE_REST}"
 
     return Line(runs=(Run(text=f"The alert came {said_as_a_span(lesson.gap)} "
                                f"{_AFTER[lesson.measured_from]}, {against} accounted for "
-                               f"by {by}."),))
+                               f"by {by}.{unknown}"),))

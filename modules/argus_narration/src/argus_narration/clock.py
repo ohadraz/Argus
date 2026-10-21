@@ -16,16 +16,14 @@ from __future__ import annotations
 from datetime import UTC
 from typing import Final
 
-from argus_core import parse_iso, said_as_a_day, said_as_a_span
+from argus_core import parse_iso, said_as_a_day, said_as_a_span, said_as_a_time
 
-# A time of day, to the minute a reader reads at and to the second a log line
-# or an alert was written at.
+# A minute bucket's time of day, which is the minute it is.
 _A_MINUTE: Final = "%H:%M"
-_A_SECOND: Final = "%H:%M:%S"
 
 
 def a_minute(value: str, beside: str | None = None) -> str:
-    """A wire-format minute, said the way a clock says it.
+    """A wire-format minute bucket, said the way a clock says it.
 
     `2026-08-30T10:14:00Z` is what the tools speak to each other; a person
     reading a page next to a wall clock wants `10:14`. The raw value stays
@@ -42,15 +40,23 @@ def a_minute(value: str, beside: str | None = None) -> str:
 
 
 def a_moment(value: str, beside: str | None = None) -> str:
-    """A wire-format instant to the second, for a log line's own stamp.
+    """A wire-format instant, said as the kernel says a time: to the minute,
+    and to the second only where it has one - every instant on the page and in
+    the brief alike, so one instant is never two spellings.
 
     `beside` is the moment it is read against, and the date comes back the
     moment the two fall on different days, as in `a_minute`: a pod placed a
     week after the onset, said as a time of day alone, reads as one placed the
     same day.
     """
-    return _reformatted(value, _A_SECOND,
-                        dated=beside is not None and not _the_same_day(value, beside))
+    try:
+        at = parse_iso(value).astimezone(UTC)
+    except ValueError:
+        return value
+
+    dated = beside is not None and not _the_same_day(value, beside)
+
+    return f"{said_as_a_day(at)} {said_as_a_time(at)}" if dated else said_as_a_time(at)
 
 
 def is_a_moment(value: str) -> bool:
@@ -74,22 +80,20 @@ def a_window(start: str | None, end: str | None, beside: str | None = None) -> s
     read as that line's day, so a window on any other keeps its date - even
     one whose two ends share a day, a week before the line asking for it.
 
-    The end to the second where it has one: the span is said exactly, and an
-    end said to the minute beside it puts the window's start that many
-    seconds from where it was.
+    Each end an instant, said as one: the span is said exactly, and an end
+    said to the minute beside it puts the window's start that many seconds
+    from where it was.
     """
     if start and end:
-        on_another_day = (not _the_same_day(end, start)
-                          or beside is not None and not _the_same_day(end, beside))
-        said_end = _reformatted(end, _A_SECOND if _has_seconds(end) else _A_MINUTE,
-                                dated=on_another_day)
+        on_another_day = not _the_same_day(end, start)
 
-        return f"the {_how_long(start, end)} before {said_end}"
+        return (f"the {_how_long(start, end)} before "
+                f"{a_moment(end, beside=start if on_another_day else beside)}")
 
     if start:
-        return f"anchored on {a_minute(start, beside=beside)}"
+        return f"anchored on {a_moment(start, beside=beside)}"
 
-    return f"up to {a_minute(end, beside=beside)}" if end else "over no particular window"
+    return f"up to {a_moment(end, beside=beside)}" if end else "over no particular window"
 
 
 def _the_same_day(value: str, other: str) -> bool:
@@ -103,15 +107,6 @@ def _the_same_day(value: str, other: str) -> bool:
         return parse_iso(value).astimezone(UTC).date() == parse_iso(other).astimezone(UTC).date()
     except ValueError:
         return True
-
-
-def _has_seconds(value: str) -> bool:
-    """Whether a wire-format moment falls off the minute - unparseable counts
-    as not, since the fallback prints it as it arrived either way."""
-    try:
-        return parse_iso(value).second != 0
-    except ValueError:
-        return False
 
 
 def _reformatted(value: str, clock: str, dated: bool) -> str:

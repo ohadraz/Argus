@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Annotated, Any, Final
 
 import psycopg
-from argus_core import Connections, DatabaseSettings, get_settings, open_pool
+from argus_core import (
+    Connections,
+    DatabaseSettings,
+    get_settings,
+    open_pool,
+    said_as_a_time,
+)
 from argus_core.events import Publisher
 from argus_core.models import (
     Incident,
@@ -204,6 +210,7 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 # shows arrives already written, in `postmortem_rendering`'s values.
 templates.env.filters["utc"] = in_utc
 templates.env.filters["clock"] = on_the_clock
+templates.env.filters["time"] = said_as_a_time
 templates.env.filters["references"] = with_references
 templates.env.filters["marked_up"] = marked_up
 

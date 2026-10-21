@@ -16,7 +16,6 @@ from datetime import datetime
 from argus_core import UuidStr
 from argus_core.models import (
     Alert,
-    Evidence,
     FailureMode,
     Hypothesis,
     Incident,
@@ -24,7 +23,7 @@ from argus_core.models import (
     TakenAction,
     Verdict,
 )
-from argus_narration import said_as_a_state
+from argus_narration import Finding, a_finding, said_as_a_state
 from pydantic import BaseModel
 
 
@@ -56,7 +55,9 @@ class Candidate(BaseModel):
     # where a state is only ever shown.
     moved_from: str = ""
     moved_to: str = ""
-    evidence: list[Evidence]
+    # Each in the words the timeline says it in: a finding is shown, never the
+    # record it is kept in.
+    evidence: list[Finding]
     tested: bool
     result: str | None
     attempts: list[Attempt]
@@ -186,7 +187,7 @@ def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
         subject=hypothesis.subject,
         moved_from=said_as_a_state(hypothesis.from_state),
         moved_to=said_as_a_state(hypothesis.to_state),
-        evidence=hypothesis.supporting_evidence,
+        evidence=[a_finding(cited) for cited in hypothesis.supporting_evidence],
         tested=hypothesis.tested,
         result=hypothesis.result,
         attempts=attempts

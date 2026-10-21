@@ -92,6 +92,20 @@ def test_a_log_lines_own_stamp_is_kept_to_the_second() -> None:
 
 
 @pytest.mark.unit
+def test_a_moment_on_the_minute_is_said_to_the_minute() -> None:
+    # As every instant is said: "deployed at 19:07:00" claims a precision
+    # nothing measured, and beside the page's "19:07" it is one instant spelled
+    # two ways.
+    some_instant = "2026-08-30T10:14:00Z"
+    the_minute_it_reads_as = some_instant[11:16]
+
+    Scenario() \
+        .given(some_instant) \
+        .when(lambda: a_moment(some_instant)) \
+        .then(the_answer_was(the_minute_it_reads_as))
+
+
+@pytest.mark.unit
 def test_a_moment_beside_another_on_the_same_day_needs_no_date() -> None:
     some_instant = "2026-08-30T19:16:07Z"
     another_instant_that_day = "2026-08-30T10:13:00Z"
@@ -220,6 +234,19 @@ def test_a_window_anchored_on_one_end_says_only_that_end() -> None:
 
 
 @pytest.mark.unit
+def test_a_window_anchored_on_a_second_says_that_second() -> None:
+    # Anchored on the alert, which fires on a second: "anchored on 19:12" sat
+    # beside lines saying the alert's 19:12:55, one instant said two ways.
+    some_instant = "2026-08-30T10:14:37Z"
+    the_second_it_reads_as = some_instant[11:19]
+
+    Scenario() \
+        .given(some_instant) \
+        .when(lambda: a_window(some_instant, None)) \
+        .then(the_answer_was(f"anchored on {the_second_it_reads_as}"))
+
+
+@pytest.mark.unit
 def test_a_window_with_only_an_end_says_what_it_reached_up_to() -> None:
     # The other half of the same asymmetry, and a different sentence because it
     # is a different request: this one was bounded and not anchored.
@@ -230,6 +257,17 @@ def test_a_window_with_only_an_end_says_what_it_reached_up_to() -> None:
         .given(some_instant) \
         .when(lambda: a_window(None, some_instant)) \
         .then(the_answer_was(f"up to {the_clock_time_it_reads_as}"))
+
+
+@pytest.mark.unit
+def test_a_window_reaching_up_to_a_second_says_that_second() -> None:
+    some_instant = "2026-08-30T10:14:37Z"
+    the_second_it_reads_as = some_instant[11:19]
+
+    Scenario() \
+        .given(some_instant) \
+        .when(lambda: a_window(None, some_instant)) \
+        .then(the_answer_was(f"up to {the_second_it_reads_as}"))
 
 
 @pytest.mark.unit

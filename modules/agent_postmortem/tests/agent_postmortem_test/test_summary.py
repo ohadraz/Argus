@@ -314,7 +314,8 @@ def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words(
     # investigator's own sentences, three of them in one write-up, and set
     # inside this one they run on into the reason. Its label after the rank,
     # which leads to its row on the page and to nothing where the summary is
-    # said on its own.
+    # said on its own. Called the candidate, as its reason calls it: "the cause
+    # it ranked first" and then "the candidate" read as two things.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[a_candidate(
@@ -325,8 +326,8 @@ def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words(
             lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
         ) \
         .then(
-            _says("Argus did not test the cause it ranked first (C1): rolling it back would "
-                  "undo a change somebody meant.")
+            _says("Argus did not test the candidate it ranked first (C1): rolling it back "
+                  "would undo a change somebody meant.")
         )
 
 
@@ -348,7 +349,8 @@ def test_a_held_back_cause_is_ranked_as_its_label_counts_it() -> None:
             lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
         ) \
         .then(
-            _says("Argus did not test the cause it ranked third (C3): nothing could confirm it.")
+            _says("Argus did not test the candidate it ranked third (C3): nothing could "
+                  "confirm it.")
         )
 
 

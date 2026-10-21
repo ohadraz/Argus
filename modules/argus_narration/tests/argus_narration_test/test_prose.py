@@ -47,6 +47,35 @@ def test_a_wire_format_instant_inside_a_sentence_is_said_as_a_clock_says_it() ->
 
 
 @pytest.mark.unit
+def test_a_wire_format_instant_on_a_second_keeps_its_second() -> None:
+    # As every instant is said. Cut to its minute, a time the model quoted to
+    # the second reads a minute away from the same instant in the table.
+    some_instant = "2026-08-30T10:14:37Z"
+    the_second_it_reads_as = some_instant[11:19]
+    some_claim_naming_a_wire_format_instant = f"The alert fired at {some_instant}."
+
+    Scenario() \
+        .given(some_claim_naming_a_wire_format_instant) \
+        .when(lambda: said_plainly(some_claim_naming_a_wire_format_instant)) \
+        .then(the_answer_was(f"The alert fired at {the_second_it_reads_as}."))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("zoned", "said"), [
+    ("10:14:37Z", "10:14:37"),
+    ("10:14:00Z", "10:14")
+], ids=["on-a-second", "on-the-minute"])
+def test_a_zoned_clock_time_is_said_to_the_second_only_where_it_has_one(zoned: str,
+                                                                        said: str) -> None:
+    some_claim_naming_a_zoned_clock_time = f"The alert fired at {zoned}."
+
+    Scenario() \
+        .given(some_claim_naming_a_zoned_clock_time) \
+        .when(lambda: said_plainly(some_claim_naming_a_zoned_clock_time)) \
+        .then(the_answer_was(f"The alert fired at {said}."))
+
+
+@pytest.mark.unit
 def test_a_clock_time_carrying_a_zone_loses_only_the_zone() -> None:
     # A bare `10:14Z` is a wire-format time with its date left off, which
     # nothing can parse into an instant - so it is trimmed rather than parsed.

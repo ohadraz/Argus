@@ -186,7 +186,8 @@ def test_a_candidate_is_shown_with_the_move_it_blamed() -> None:
 @pytest.mark.unit
 def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
     # Evidence in a collection of its own makes a reader correlate claims to
-    # timestamps, which is the reader investigating the incident again.
+    # timestamps, which is the reader investigating the incident again. Each in
+    # the words the timeline says it in, never as the record it is kept in.
     an_incident = _an_incident()
     what_it_was_formed_from = [
         Evidence(claim="error rate rose at 10:14", at=None),
@@ -204,7 +205,8 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
             candidates=[a_candidate_that_cited_two_things],
             attempts=NOTHING_WAS_TRIED
         )) \
-        .then(_the_first_candidate_cites(what_it_was_formed_from))
+        .then(_the_first_candidate_cites(["error rate rose at 10:14",
+                                          "a-flag was enabled at 10:13"]))
 
 
 @pytest.mark.unit
@@ -356,9 +358,9 @@ def _the_first_candidate_resulted_in(expected: str | None) -> Assertion[Incident
     return assertion
 
 
-def _the_first_candidate_cites(expected: list[Evidence]) -> Assertion[IncidentDetail]:
+def _the_first_candidate_cites(expected: list[str]) -> Assertion[IncidentDetail]:
     def assertion(detail: IncidentDetail) -> bool:
-        cited = _the_first(detail).evidence
+        cited = [finding.text for finding in _the_first(detail).evidence]
 
         if cited != expected:
             raise AssertionError(f"Expected the evidence {expected}, got {cited}.")

@@ -18,7 +18,7 @@
   <tbody>
   {% for line in story.narration %}
     <tr class="line" data-line="{{ line.kind }}">
-      <td class="when">{{ line.at | clock }}</td>
+      <td class="when">{{ line.at | time }}</td>
       <td class="who">{{ line.who }}</td>
       <td class="said">
         {# The marked word arrives as three plain strings rather than as

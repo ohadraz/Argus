@@ -92,7 +92,7 @@ class Run(BaseModel):
 
     @classmethod
     def a_pull_request(cls, pull_request: OpenedPullRequest) -> Run:
-        """A pull request by the name GitHub gives it - one name wherever the
+        """A pull request by Argus's name for it - one name wherever the
         document mentions it, its address written out once, where a reader of
         paper looks for addresses."""
         return cls(text=pull_request.name)

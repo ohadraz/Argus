@@ -264,7 +264,8 @@ def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_bac
 @pytest.mark.component
 def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> None:
     # Evidence in a dump of its own makes a reader match claims to timestamps,
-    # which is the reader investigating the incident again.
+    # which is the reader investigating the incident again. In words: the page
+    # printed each as the record it is kept in, "claim='...' at=datetime...".
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     a_cited_line = "error rate rose at 10:14"
 
@@ -285,9 +286,10 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
         .when(
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
-        .then(
-            the_page_says(a_cited_line)
-        )
+        .then(all_of(
+            the_page_says(a_cited_line),
+            _the_page_does_not_say("claim=")
+        ))
 
 
 @pytest.mark.component
@@ -2410,9 +2412,9 @@ def test_a_timeline_row_on_a_new_day_says_its_date() -> None:
             lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(all_of(
-            _the_page_reads("Sep 28 16:10:00 the incident began"),
-            _the_page_reads("17:10:00 it went on"),
-            _the_page_does_not_read("Sep 28 17:10:00"),
+            _the_page_reads("Sep 28 16:10 the incident began"),
+            _the_page_reads("17:10 it went on"),
+            _the_page_does_not_read("Sep 28 17:10"),
             _the_page_reads("Oct 05 16:08:38 it was found")
         ))
 

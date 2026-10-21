@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 
-from argus_narration.clock import a_minute
+from argus_narration.clock import a_moment
 
 # An instant inside a sentence, in the two shapes that are not already how this
 # page says the time: the wire format the tools speak to each other, and a
@@ -70,10 +70,12 @@ def _on_the_clock(said: str, beside: str | None) -> str:
     """One quoted time as a clock reads it, whatever shape it arrived in.
 
     A bare `21:48Z` is a wire-format time with its date left off, which nothing
-    can parse into an instant - so it is trimmed rather than parsed. A full
-    timestamp is parsed, because only parsing it can put it in UTC.
+    can parse into an instant - so it is trimmed rather than parsed, keeping
+    its seconds where it has any, as every instant is said. A full timestamp is
+    parsed, because only parsing it can put it in UTC.
     """
     if _A_BARE_CLOCK.fullmatch(said):
-        return said[:5]
+        clock = said.removesuffix("Z")
+        return clock.removesuffix(":00") if len(clock) > len("21:48") else clock
 
-    return a_minute(said, beside=beside)
+    return a_moment(said, beside=beside)

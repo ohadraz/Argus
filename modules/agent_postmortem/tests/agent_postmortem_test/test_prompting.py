@@ -3104,6 +3104,21 @@ def test_the_root_cause_is_asked_to_say_once_that_it_rests_on_a_reading_nothing_
 
 
 @pytest.mark.unit
+def test_an_action_item_is_asked_for_as_one_thing_to_do() -> None:
+    # One item asked for the draft's test to be updated to the deployed key and
+    # for the scrape change to land on the branch the revision was deployed
+    # from: two things to do, for whoever takes either, under one number.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Each item is one thing to do",
+                                      "two things to do are two items")
+        )
+
+
+@pytest.mark.unit
 def test_what_an_f_row_says_to_check_is_answered_from_a_diff_that_shows_it() -> None:
     # An F row said to check which key the deployed revision used before
     # merging; the deployed diff showed it, and a write-up passed the check on

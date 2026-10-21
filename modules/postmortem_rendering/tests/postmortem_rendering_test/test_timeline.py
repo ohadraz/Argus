@@ -42,7 +42,7 @@ def test_a_line_carries_its_time_its_marker_who_said_it_and_the_narration() -> N
             lambda: the_timeline(some_postmortem).rows
         ) \
         .then(
-            the_answer_was((TimelineRow(label="E1", at="Oct 11 14:03:00",
+            the_answer_was((TimelineRow(label="E1", at="Oct 11 14:03",
                                         marker="IMPACT BEGINS", who="Investigator Agent",
                                         text=Line(runs=(Run(text="the service began to fail",
                                                             role=Role.NARRATION),))),)))
@@ -259,7 +259,24 @@ def test_the_date_is_said_where_the_day_changes_and_only_there() -> None:
             lambda: tuple(row.at for row in the_timeline(some_postmortem).rows)
         ) \
         .then(
-            the_answer_was(("Oct 11 14:03:00", "14:04:00", "Oct 12 14:03:00")))
+            the_answer_was(("Oct 11 14:03", "14:04", "Oct 12 14:03")))
+
+
+@pytest.mark.unit
+def test_a_line_on_a_second_says_its_time_to_that_second() -> None:
+    # Every instant to the minute, and to the second only where it has one: the
+    # column said "19:07:00" of the instant the head and the chain say "19:07".
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT + timedelta(seconds=7), who=None,
+                              text="dont care")])
+        ) \
+        .when(
+            lambda: tuple(row.at for row in the_timeline(some_postmortem).rows)
+        ) \
+        .then(
+            the_answer_was(("Oct 11 14:03:07",)))
 
 
 @pytest.mark.unit

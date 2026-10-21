@@ -41,7 +41,7 @@ class OpenedPullRequest(BaseModel):
 
     @property
     def name(self) -> str:
-        """The pull request by the name GitHub gives it, "PR #7" - one name
-        wherever Argus mentions it, so every mention a reader follows leads to
-        the same place."""
+        """The pull request by Argus's own name for it, "PR #7" - GitHub's is
+        "#7" - one name wherever Argus mentions it, so every mention a reader
+        follows leads to the same place."""
         return f"PR #{self.number}"
