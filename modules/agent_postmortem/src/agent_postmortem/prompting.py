@@ -507,8 +507,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "words with no number: 'Account pages failed'. Not the metric "
                 "the alert fired on, and not the cause - the document adds the change "
                 "it began with itself. Where nobody using the service saw anything "
-                "wrong, say that, and what was seen instead: 'Nothing users saw; "
-                "the service could not be watched'."
+                "wrong, say that, and what was seen instead."
             )
         },
         ASSUMPTIONS_FIELD: {
@@ -537,7 +536,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "that did not stop it is never a step of its own: it is one of the "
             f"{CONTRIBUTING_FACTORS_FIELD}. Every step cites at least one piece of "
             "evidence by its label. Date a change by its own row's instant - the T "
-            "or P row that records it - never by an effect it had. At the step that "
+            "or P row that records it - never by an effect it had. A state a row "
+            "read - how many replicas run a revision, which way a flag is set - is "
+            "known as of the row that read it, not from when the change was made. "
+            "At the step that "
             "ties the incident to the change that set it off, say what else the "
             "record ruled out and why, in that step, not as a step of its own - an "
             "earlier change, a flag the provider showed unchanged, a candidate "

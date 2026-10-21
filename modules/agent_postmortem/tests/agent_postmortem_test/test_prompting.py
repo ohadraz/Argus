@@ -2573,6 +2573,34 @@ def test_a_change_is_asked_to_be_dated_by_its_own_row_rather_than_by_its_effect(
 
 
 @pytest.mark.unit
+def test_a_symptom_nobody_saw_is_given_no_example_of_an_unwatched_service() -> None:
+    # Shown "Nothing users saw; the service could not be watched", every
+    # write-up reads one incident's answer - and that one was false of it: the
+    # shop's logs and takings saw the stretch, and only its metrics stopped.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_avoids("could not be watched")
+        )
+
+
+@pytest.mark.unit
+def test_a_state_a_row_read_is_asked_for_as_of_that_read() -> None:
+    # A write-up said all the replicas were on the deployed revision from the
+    # minute it was deployed, on a read made minutes later that said only that
+    # they ran it then.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("as of the row that read it")
+        )
+
+
+@pytest.mark.unit
 def test_an_action_item_is_asked_not_to_check_what_the_evidence_already_shows() -> None:
     # A write-up asked somebody to check which key layout the deployed revision
     # used - which the deployed diff it was shown already said.
