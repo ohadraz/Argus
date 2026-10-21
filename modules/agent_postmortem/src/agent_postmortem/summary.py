@@ -236,8 +236,8 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
 
     return [*(["Argus handed the incident to a person."] if evidence.escalated else []),
             *held_back,
-            *([f"Argus opened a draft fix, pull request #{pull_request.number}, for a person "
-               f"to review and merge."] if pull_request is not None else []),
+            *([f"Argus opened a draft fix, {pull_request.name}, for a person to review and "
+               f"merge."] if pull_request is not None else []),
             *(f"Argus left automatic sync of {application} off, to be turned back on "
               f"{SYNC_GOES_BACK_ON}: {UNTIL_SYNC_IS_BACK_ON}."
               for application in left_off),

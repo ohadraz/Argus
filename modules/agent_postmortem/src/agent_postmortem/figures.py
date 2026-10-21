@@ -39,6 +39,7 @@ from argus_core import (
     said_as_a_day,
     said_as_a_level,
     said_as_a_span,
+    said_as_a_time,
     to_iso,
 )
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
@@ -684,15 +685,14 @@ def _as_a_reader_says(at: datetime, day: date | None) -> str:
     says too. In full where there is no day it began to leave unsaid.
     """
     at = at.astimezone(UTC)
-    seconds = f":{at:%S}" if at.second else ""
 
     if day is None:
-        return f"{said_as_a_day(at)}, {at:%Y, %H:%M}{seconds} UTC"
+        return f"{said_as_a_day(at)}, {at:%Y}, {said_as_a_time(at)} UTC"
 
     if at.date() != day:
-        return f"{said_as_a_day(at)}, {at:%H:%M}{seconds} UTC"
+        return f"{said_as_a_day(at)}, {said_as_a_time(at)} UTC"
 
-    return f"{at:%H:%M}{seconds} UTC"
+    return f"{said_as_a_time(at)} UTC"
 
 
 def _a_span(hours: float) -> Figure:

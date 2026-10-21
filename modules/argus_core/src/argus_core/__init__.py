@@ -33,7 +33,7 @@ from argus_core.config import (
     WriteMcpEndpoint,
     get_settings,
 )
-from argus_core.days import A_DAY_SAID, said_as_a_day
+from argus_core.days import A_DAY_SAID, said_as_a_day, said_as_a_time
 from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
 from argus_core.levels import level_given_in, level_said_in, said_as_a_level
@@ -73,6 +73,7 @@ __all__ = [
     "said_as_a_day",
     "said_as_a_level",
     "said_as_a_span",
+    "said_as_a_time",
     "said_short",
     "short_form",
     "sleep_on_the_clock",

@@ -77,5 +77,5 @@ def _where_it_is_tracked(tracking: str | None, postmortem: PostmortemDocument) -
     if tracking is None:
         return Run(text="-")
     if fix is not None and tracking == fix.url:
-        return Run.a_pull_request(fix.number).linked_to(fix.url)
+        return Run.a_pull_request(fix).linked_to(fix.url)
     return Run.an_address(tracking)

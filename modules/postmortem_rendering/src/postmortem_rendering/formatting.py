@@ -13,7 +13,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from argus_core import said_as_a_day
+from argus_core import said_as_a_day, said_as_a_time
 
 # A whole commit as git names one: forty hex digits, lower case.
 _A_WHOLE_COMMIT: Final = re.compile(r"[0-9a-f]{40}")
@@ -105,3 +105,9 @@ def on_the_day(moment: datetime, then: str = "") -> str:
     at = moment.astimezone(UTC)
 
     return f"{said_as_a_day(at)}{at.strftime(then)}"
+
+
+def on_the_day_and_clock(moment: datetime) -> str:
+    """A moment in UTC with its day and year, and its time as the kernel says
+    one - to the second only where it has one: "Oct 21, 2026, 19:12:55"."""
+    return f"{on_the_day(moment, ', %Y, ')}{said_as_a_time(moment)}"

@@ -2764,6 +2764,39 @@ def test_how_quickly_argus_acted_is_asked_for_as_a_working_of_two_rows() -> None
 
 
 @pytest.mark.unit
+def test_a_span_is_asked_to_be_set_beside_what_it_times() -> None:
+    # A write-up worked out how long the refusal took and set it after the
+    # handover, six seconds later, in the same sentence: "and handed it to a
+    # person instead (less than a second after entering MITIGATING)".
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("beside what it times",
+                                      "not after something else in the same sentence")
+        )
+
+
+@pytest.mark.unit
+def test_a_stretch_nothing_watched_is_asked_for_as_known_only_as_far_as_the_logs_reach() -> None:
+    # The brief says the service was seen through its logs up to where they
+    # reach, and a write-up still said the shop "stayed healthy while it was
+    # unmonitored", and its logs over the stretch "look the same as before" -
+    # of a stretch they covered only part of. In a lesson and in the chain
+    # alike, so said where every field reads it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.description
+        ) \
+        .then(
+            _the_description_mentions("known only as far as the logs reach into it",
+                                      "not throughout")
+        )
+
+
+@pytest.mark.unit
 def test_what_the_response_did_is_asked_for_under_what_went_wrong_rather_than_as_a_factor() -> None:
     # Asked for conditions that had to hold, a write-up listed automatic sync
     # left off by the rollback and "Argus could not act" as factors - things the
@@ -3110,7 +3143,9 @@ def test_the_cause_in_plain_words_is_asked_for_in_one_sentence_of_what_the_recor
 def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
     # Nothing at risk is an answer; and what Argus left to a person - a draft
     # fix, automatic sync left off, a recommended action - the summary says
-    # itself, and said here as well it is said twice. As of when Argus
+    # itself, and said here as well it is said twice. So is whether the
+    # service or its metrics were back, and why: asked for "the fault still in
+    # place", a write-up said again what the summary had just said. As of when Argus
     # stopped, not now: nobody read the service again, and a fault "still in
     # place now" says the draft that would remove it was not merged.
     Scenario() \
@@ -3119,7 +3154,8 @@ def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
         ) \
         .then(all_of(
             _the_description_mentions("one sentence", "Empty where", "left to a person",
-                                      "automatic sync left off",
+                                      "automatic sync left off", "could yet do",
+                                      "Not whether the service or its metrics were back",
                                       "when Argus stopped working on the incident",
                                       "only what the record says"),
             _the_description_avoids(" now")

@@ -38,3 +38,10 @@ class OpenedPullRequest(BaseModel):
     # and a later incident touching the same fault wants to know a branch for it
     # already exists.
     branch: str
+
+    @property
+    def name(self) -> str:
+        """The pull request by the name GitHub gives it, "PR #7" - one name
+        wherever Argus mentions it, so every mention a reader follows leads to
+        the same place."""
+        return f"PR #{self.number}"

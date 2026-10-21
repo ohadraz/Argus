@@ -169,6 +169,25 @@ def test_the_head_dates_the_incident_from_onset_to_recovery_saying_the_day_once(
 
 
 @pytest.mark.unit
+def test_the_head_dates_the_incident_to_the_second_where_its_ends_have_one() -> None:
+    # As every other moment on the page is said.
+    some_onset_with_seconds = datetime(2026, 10, 11, 14, 3, 7, tzinfo=UTC)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                a_marker(TimelineMarker.IMPACT_BEGINS, some_onset_with_seconds),
+                a_marker(TimelineMarker.IMPACT_ENDS,
+                         some_onset_with_seconds + timedelta(minutes=9))])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("Oct 11, 2026, 14:03:07 to 14:12:07 UTC"))
+
+
+@pytest.mark.unit
 def test_the_head_carries_both_ends_of_the_incident_for_a_reader_s_own_clock() -> None:
     # The page says the window again on the reader's clock; the words are UTC,
     # and the two instants ride along with them.
@@ -483,7 +502,7 @@ def test_an_incident_argus_escalated_with_a_fix_waiting_was_ended_by_the_escalat
                                       Run(text=": escalated to a person, "),
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=" - "),
-                                      Run.a_pull_request(7).linked_to(some_fix.url),
+                                      Run.a_pull_request(some_fix).linked_to(some_fix.url),
                                       Run(text=", opened as a draft")))))
 
 

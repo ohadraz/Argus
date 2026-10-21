@@ -69,7 +69,7 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     shorts = the_short_forms(postmortem.changes_read)
     addresses = the_revision_addresses(postmortem.changes_read)
     fix = postmortem.pull_request
-    named = {fix.url: f"PR #{fix.number}"} if fix is not None else {}
+    named = {fix.url: fix.name} if fix is not None else {}
     addresses |= {name: address for address, name in named.items()}
     rows = []
     day = None

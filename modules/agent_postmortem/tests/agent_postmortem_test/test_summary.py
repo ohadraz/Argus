@@ -355,7 +355,8 @@ def test_a_held_back_cause_is_ranked_as_its_label_counts_it() -> None:
 @pytest.mark.unit
 def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> None:
     # Never as having fixed anything: nothing ran the fix, and nothing took
-    # the recommendation.
+    # the recommendation. The fix by the name the rest of the document gives
+    # it, which is the name a mention of it leads to the fix by.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
@@ -367,8 +368,7 @@ def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> 
             lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
         ) \
         .then(
-            _says("Argus opened a draft fix, pull request #315, for a person to review and "
-                  "merge.",
+            _says("Argus opened a draft fix, PR #315, for a person to review and merge.",
                   "Argus recommends this and did not take it: restart the scorer.")
         )
 

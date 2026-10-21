@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from argus_core import A_DAY_SAID, said_as_a_day
+from argus_core import A_DAY_SAID, said_as_a_day, said_as_a_time
 from argus_testkit import Assertion, Scenario, the_answer_was
 
 
@@ -66,6 +66,31 @@ def test_a_count_of_something_is_not_a_day_said() -> None:
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_time_with_no_seconds_is_said_to_the_minute() -> None:
+    # "20:31:00" claims a precision nothing measured.
+    Scenario() \
+        .when(
+            lambda: said_as_a_time(datetime(2026, 10, 20, 20, 31, tzinfo=UTC))
+        ) \
+        .then(
+            the_answer_was("20:31")
+        )
+
+
+@pytest.mark.unit
+def test_a_time_with_seconds_is_said_to_the_second() -> None:
+    # Cut to its minute, a moment beside a span read a minute out: "fired at
+    # 19:12 UTC, 5m 55s later", where the timeline said 19:12:55.
+    Scenario() \
+        .when(
+            lambda: said_as_a_time(datetime(2026, 10, 20, 20, 31, 54, tzinfo=UTC))
+        ) \
+        .then(
+            the_answer_was("20:31:54")
         )
 
 

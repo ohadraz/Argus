@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Final
 
+from argus_core import said_as_a_time
 from argus_core.models import (
     ActionItemStatus,
     Alert,
@@ -24,16 +25,10 @@ from argus_core.models import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import as_revision, on_the_clock, on_the_day
+from postmortem_rendering.formatting import as_revision, on_the_day_and_clock
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
-
-# What follows a moment's day, as the head says the start of the incident's window.
-_AFTER_THE_DAY: Final = ", %Y, %H:%M"
-
-# The end of a window that falls on the day it began, which says that day once.
-_THE_TIME_OF_DAY: Final = "%H:%M"
 
 _THE_AUTHOR: Final = "Argus Postmortem agent"
 
@@ -151,11 +146,11 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
 
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
     if ended is not None:
-        return Line(runs=(Run(text=f"{on_the_day(began, _AFTER_THE_DAY)} to "
+        return Line(runs=(Run(text=f"{on_the_day_and_clock(began)} to "
                                    f"{_the_end_said(began, ended)} UTC",
                               role=Role.MOMENT, at=began, until=ended),))
 
-    since = Run(text=f"{on_the_day(began, _AFTER_THE_DAY)} UTC", role=Role.MOMENT, at=began)
+    since = Run.a_moment(began)
     if stopped is not None:
         return Line(runs=(since, Run(text=", metrics missing from then")))
 
@@ -175,9 +170,9 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
 def _the_end_said(began: datetime, ended: datetime) -> str:
     """The end of a window: its time alone on the day it began."""
     if ended.date() == began.date():
-        return on_the_clock(ended, _THE_TIME_OF_DAY)
+        return said_as_a_time(ended)
 
-    return on_the_day(ended, _AFTER_THE_DAY)
+    return on_the_day_and_clock(ended)
 
 
 def _how_finished(postmortem: Postmortem) -> Line:
@@ -239,7 +234,7 @@ def _the_escalation(escalation: Escalation, fix: OpenedPullRequest | None) -> Li
     runs = [Run(text=_ARGUS), Run(text=": escalated to a person, "), Run.a_moment(escalation.at)]
     if fix is not None:
         runs += [Run(text=" - "),
-                 Run.a_pull_request(fix.number).linked_to(fix.url),
+                 Run.a_pull_request(fix).linked_to(fix.url),
                  Run(text=f", {OPENED_AS_A_DRAFT}")]
     elif escalation.detail:
         runs += [Run(text=f" - {escalation.detail}")]

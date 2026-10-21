@@ -14,19 +14,12 @@ import re
 from collections.abc import Collection, Iterator, Mapping
 from datetime import UTC, date, datetime
 from enum import StrEnum
-from typing import Final
 
+from argus_core import said_as_a_time
+from argus_core.models import OpenedPullRequest
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import on_the_clock, on_the_day
-
-# How a moment is said in the body of the document after its day: its date
-# spelled once, in UTC, which every destination can print and none has to work
-# out.
-_AFTER_THE_DAY: Final = ", %Y, %H:%M"
-
-# How a moment of the day the head names is said: its time alone.
-_THE_TIME_OF_DAY: Final = "%H:%M"
+from postmortem_rendering.formatting import on_the_day_and_clock
 
 
 class Role(StrEnum):
@@ -75,8 +68,9 @@ class Run(BaseModel):
     @classmethod
     def a_moment(cls, at: datetime) -> Run:
         """A moment said in UTC, carrying the instant for a destination that
-        can say it again on a reader's own clock."""
-        return cls(text=f"{on_the_day(at, _AFTER_THE_DAY)} UTC", role=Role.MOMENT, at=at)
+        can say it again on a reader's own clock - to the second only where
+        it has one, as every figure of the write-up is."""
+        return cls(text=f"{on_the_day_and_clock(at)} UTC", role=Role.MOMENT, at=at)
 
     def said_on(self, day: date) -> Run:
         """This run, said by its time alone where it is a moment falling on
@@ -88,7 +82,7 @@ class Run(BaseModel):
         if self.at.astimezone(UTC).date() != day:
             return self
 
-        return self.model_copy(update={"text": f"{on_the_clock(self.at, _THE_TIME_OF_DAY)} UTC"})
+        return self.model_copy(update={"text": f"{said_as_a_time(self.at)} UTC"})
 
     @classmethod
     def an_address(cls, address: str) -> Run:
@@ -97,11 +91,11 @@ class Run(BaseModel):
         return cls(text=address, role=Role.LINK, address=address)
 
     @classmethod
-    def a_pull_request(cls, number: int) -> Run:
+    def a_pull_request(cls, pull_request: OpenedPullRequest) -> Run:
         """A pull request by the name GitHub gives it - one name wherever the
         document mentions it, its address written out once, where a reader of
         paper looks for addresses."""
-        return cls(text=f"PR #{number}")
+        return cls(text=pull_request.name)
 
     def linked_to(self, address: str) -> Run:
         """The same words, opening `address`."""

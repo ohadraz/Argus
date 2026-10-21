@@ -91,7 +91,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
         fix = StepRow(label=None,
                       at=on_the_clock(proposed) if proposed else "-",
                       action=Line(runs=(Run(text="Proposed a fix: "),
-                                        Run.a_pull_request(postmortem.pull_request.number)
+                                        Run.a_pull_request(postmortem.pull_request)
                                         .linked_to(postmortem.pull_request.url))),
                       by=_THE_FIXER,
                       # A draft changes nothing running, so - like a restart -

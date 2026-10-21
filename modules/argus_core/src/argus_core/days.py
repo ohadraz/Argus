@@ -30,3 +30,13 @@ def said_as_a_day(at: datetime) -> str:
     at = at.astimezone(UTC)
 
     return f"{_MONTHS[at.month - 1]} {at.day:02d}"
+
+
+def said_as_a_time(at: datetime) -> str:
+    """The time of day `at` falls at in UTC, to the minute, and to the second
+    only where it has one: "19:12", "19:12:55". A minute said "19:12:00"
+    claims a precision nothing measured, and one said "19:12" of 19:12:55
+    reads a span from it as a minute short."""
+    at = at.astimezone(UTC)
+
+    return f"{at:%H:%M:%S}" if at.second else f"{at:%H:%M}"

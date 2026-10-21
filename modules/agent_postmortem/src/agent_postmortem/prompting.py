@@ -544,7 +544,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "revision, a pod - and is written as given. State only what the "
         "evidence you are shown says: where the record does not show something "
         "- a check that was or was not run, how many replicas - leave it out "
-        "or say it was not seen."
+        "or say it was not seen. A stretch the metrics did not watch is known "
+        "only as far as the logs reach into it: what held, held up to then, not "
+        "throughout."
     ),
     properties={
         ROOT_CAUSE_FIELD: {
@@ -580,11 +582,12 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "type": "string",
             "description": (
                 "What was still at risk when Argus stopped working on the incident, "
-                "in one sentence for the same reader - the fault still in place then, "
-                "or the same thing able to happen again. Empty where nothing was. Not "
-                "what Argus left to a person - a draft fix, automatic sync left off, "
-                "a recommended action - "
-                "which the document says itself. Say only what the record says: "
+                "in one sentence for the same reader - what the fault still in place "
+                "then could yet do, or the same thing able to happen again. Empty where "
+                "nothing was. Not whether the service or its metrics were back, nor "
+                "why - the summary says both. Not what Argus left to a person - a "
+                "draft fix, automatic sync left off, a recommended action - which the "
+                "document says itself. Say only what the record says: "
                 "nothing after Argus stopped was read."
             )
         },
@@ -700,7 +703,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "write the span as a working of two instants - a "
                                    "T or P row's instant is its first figure, as T3.1 "
                                    f"is T3's: {{T3.1 - {ALERT_RAISED_FIGURE}}}, not in "
-                                   "words (\"within seconds\")."
+                                   "words (\"within seconds\"). Set the span beside "
+                                   "what it times - the thing its later instant dates "
+                                   "- not after something else in the same sentence."
                                )
                            },
                            # Left off so a rollback holds, automatic sync was
@@ -1090,7 +1095,7 @@ def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) ->
     if pull_request is None:
         return []
 
-    return [f"PR #{pull_request.number} is a draft Argus opened for a person to review "
+    return [f"{pull_request.name} is a draft Argus opened for a person to review "
             f"and merge. {NOTHING_RECORDED_AFTER_IT_WAS_OPENED}: do not say it "
             f"was reviewed, approved or merged, or that it was not - nor that the "
             f"record holds nothing, which the document says itself. Nothing ran its "

@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
+from argus_core.models import OpenedPullRequest
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
 
@@ -67,6 +68,38 @@ def test_a_moment_on_the_day_given_is_said_by_its_time_alone() -> None:
 
 
 @pytest.mark.unit
+def test_a_moment_with_seconds_is_said_to_the_second() -> None:
+    # As the write-up's own figures say it. Cut to its minute, a moment beside a
+    # span read a minute out: "fired at 19:12 UTC, 5m 55s later", where the
+    # timeline said 19:12:55.
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, 7, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant)
+        ) \
+        .then(
+            the_answer_was(Run(text="Oct 14, 2026, 14:03:07 UTC", role=Role.MOMENT,
+                               at=some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_with_seconds_on_the_day_given_keeps_them() -> None:
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, 7, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant).said_on(date(2026, 10, 14))
+        ) \
+        .then(
+            the_answer_was(Run(text="14:03:07 UTC", role=Role.MOMENT, at=some_instant))
+        )
+
+
+@pytest.mark.unit
 def test_a_moment_on_another_day_keeps_its_date() -> None:
     Scenario() \
         .given(
@@ -116,10 +149,12 @@ def test_a_pull_request_is_named_by_its_number() -> None:
     # written out once, where a reader of paper looks for addresses.
     Scenario() \
         .given(
-            some_number := 42
+            some_pull_request := OpenedPullRequest(number=42,
+                                                   url="https://github.com/acme/shop/pull/42",
+                                                   branch="dont care")
         ) \
         .when(
-            lambda: Run.a_pull_request(some_number)
+            lambda: Run.a_pull_request(some_pull_request)
         ) \
         .then(
             the_answer_was(Run(text="PR #42"))

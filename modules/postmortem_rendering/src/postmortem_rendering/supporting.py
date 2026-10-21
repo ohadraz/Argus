@@ -117,7 +117,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                 # The name captions the address beside it, so
                                 # only the address is a link: two to one place
                                 # side by side are one too many.
-                                Run.a_pull_request(fix.number),
+                                Run.a_pull_request(fix),
                                 Run(text=" ("),
                                 Run.an_address(fix.url),
                                 Run(text=") "),
@@ -139,7 +139,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              changes_absent=_no_changes(postmortem),
                              revision_addresses=revision_addresses,
                              prose_addresses={**revision_addresses,
-                                              **({Run.a_pull_request(fix.number).text: fix.url}
+                                              **({fix.name: fix.url}
                                                  if fix is not None else {})},
                              log_messages=log_messages,
                              log_messages_absent=(None if log_messages
