@@ -208,6 +208,43 @@ def test_an_incident_whose_walk_failed_is_escalated_rather_than_left_mid_walk(
 
 
 @pytest.mark.component
+def test_an_incident_a_failed_walk_escalated_ends_when_its_account_says(
+    a_clean_database: None
+) -> None:
+    # The row's end and the line saying the walk stopped are one instant: the
+    # database's own clock dated the end before the line that announced it.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("dont care")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _it_ended_when_the_account_says_it_was(conn, incident_id,
+                                                       IncidentStatus.ESCALATED)
+            )
+
+
+@pytest.mark.component
 def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> None:
     # The worst moment to fail is after Code-Fix has started, because a
     # mitigation has already been applied by then. A run that ends there
@@ -1360,6 +1397,26 @@ def _the_walk_found_no_transaction_open(seen: list[TransactionStatus]) -> Assert
             raise AssertionError(
                 f"Expected the walk to run once with nothing open on the worker's "
                 f"connection, and it found it {[status.name for status in seen]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_ended_when_the_account_says_it_was(conn: psycopg.Connection,
+                                           incident_id: str,
+                                           status: IncidentStatus) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        said_at = [event.at for event in events.get_by_incident(conn, incident_id)
+                   if isinstance(event, StatusChanged) and event.to_status == status]
+        incident = incidents.get(conn, incident_id)
+        ended_at = incident.ended_at if incident is not None else None
+
+        if said_at != [ended_at]:
+            raise AssertionError(
+                f"Expected the incident to end at the moment its account says it was "
+                f"[{status}], it ended at [{ended_at}] and was said to at {said_at}."
             )
 
         return True

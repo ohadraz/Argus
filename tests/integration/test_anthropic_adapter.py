@@ -12,10 +12,10 @@ import pytest
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from argus_core import LLMSettings
-from argus_core.llm import AnswerTruncated, ModelRefused, TurnPaused
+from argus_core.llm import AnswerTruncated, ModelRefused, ModelUnavailable, TurnPaused
 from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
 from argus_core.models import Ask, ToolDefinition, Transcript, Turn
-from argus_testkit.assertions import Assertion, an_error_was_raised
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
@@ -84,11 +84,13 @@ def test_a_truncated_response_is_not_reported_as_a_malformed_answer(
 
 
 @pytest.mark.integration
-def test_a_rate_limit_reaches_the_caller_as_the_sdks_own_error(
+def test_a_rate_limit_reaches_the_caller_as_a_model_unavailable_for_now(
     double: httpx2.Client, client: AnthropicLLMClient
 ) -> None:
-    # Not wrapped: a rate limit is a transport fact, and the SDK already has
-    # the right word for it. Wrapping would only hide the retry-after header.
+    # Argus's own word for it, so a caller that can go on without the answer -
+    # the chain's ordering - catches a moment the model could not be reached
+    # rather than one vendor's error. The SDK's own error is kept as its cause,
+    # retry-after header and all.
     _the_llm_hit_rate_limit = partial(_llm_returned_status, double, HttpStatus.TOO_MANY_REQUESTS)
 
     Scenario() \
@@ -98,9 +100,10 @@ def test_a_rate_limit_reaches_the_caller_as_the_sdks_own_error(
         .when(
             attempting(lambda: client.converse(DONT_CARE_TRANSCRIPT, [_a_tool()]))
         ) \
-        .then(
-            an_error_was_raised(anthropic.RateLimitError)
-        )
+        .then(all_of(
+            an_error_was_raised(ModelUnavailable),
+            _it_was_caused_by(anthropic.RateLimitError)
+        ))
 
 
 
@@ -194,3 +197,18 @@ def _the_llm_stopped_due_to(double: httpx2.Client, reason: str) -> None:
 
 def _llm_returned_status(double: httpx2.Client, status: HttpStatus) -> None:
     double.post("/double-control/seed", json={"status": status, "repeat": None})
+
+
+def _it_was_caused_by(expected_type: type[Exception]) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        cause = error.__cause__ if error is not None else None
+
+        if not isinstance(cause, expected_type):
+            raise AssertionError(
+                f"Expected the error to be caused by [{expected_type.__name__}], got "
+                f"[{type(cause).__name__}]."
+            )
+
+        return True
+
+    return assertion
