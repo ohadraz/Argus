@@ -679,16 +679,21 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                            # Left off so a rollback holds, automatic sync was
                            # listed here as well as in the resolution and the
                            # record's own item - and called a failure when it
-                           # went as designed.
+                           # went as designed. So was a draft fix nothing ran,
+                           # and a stretch the metrics did not cover, which is
+                           # a limit of the evidence rather than of the response.
                            WENT_WRONG_FIELD: {
                                **_SENTENCES,
                                "description": (
                                    "A change the response left in place on purpose, "
                                    "which one of the record's own action items undoes "
                                    "(automatic sync left off), went as designed and "
-                                   "did not go wrong. Not the root cause or a "
-                                   "contributing factor again - the document says "
-                                   "those already."
+                                   "did not go wrong; so did what the design leaves "
+                                   "to a person - a draft fix to review and merge. "
+                                   "Not a limit of what the record shows, which is "
+                                   f"said in {ASSUMPTIONS_FIELD} as what was assumed. "
+                                   "Not the root cause or a contributing factor again "
+                                   "- the document says those already."
                                )
                            },
                            # Told only that any list may be empty, write-ups

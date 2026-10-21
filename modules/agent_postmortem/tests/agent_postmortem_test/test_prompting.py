@@ -2820,6 +2820,36 @@ def test_luck_is_asked_for_as_what_the_record_shows_went_the_fortunate_way() -> 
 
 
 @pytest.mark.unit
+def test_a_draft_fix_left_for_a_person_is_asked_for_as_having_gone_as_designed() -> None:
+    # A write-up listed under what went wrong that the proposed fix was "only a
+    # draft and nothing ran its test or change". A person reviewing and
+    # merging it is the design, and the record's own item says so.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("a draft fix to review and merge", "went as designed")
+        )
+
+
+@pytest.mark.unit
+def test_a_limit_of_the_record_is_asked_for_as_an_assumption_rather_than_as_gone_wrong() -> None:
+    # A write-up's first item under what went wrong was that a stretch was
+    # unmeasured - a limit of the evidence, not something the response did.
+    # Told so of luck already; not of this list, where it landed instead.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("a limit of what the record shows", ASSUMPTIONS_FIELD)
+        )
+
+
+@pytest.mark.unit
 def test_what_went_wrong_is_asked_not_to_say_the_root_cause_or_a_factor_again() -> None:
     # A write-up's first item under what went wrong was the rename shipping
     # without the scrape config - the root cause, and its first factor, a third
