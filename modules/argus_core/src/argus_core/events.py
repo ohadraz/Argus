@@ -14,7 +14,7 @@ each of them all the same - it is what a stored row is read back by.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Final, Literal, Protocol
@@ -1011,6 +1011,20 @@ def parse_event(row: dict[str, Any]) -> IncidentEvent:
     dictionary it has to match on strings to interpret.
     """
     return _events.validate_python(row)
+
+
+def the_escalations(recorded: Sequence[IncidentEvent]) -> list[StatusChanged]:
+    """Argus's own moves of an incident to escalated, in the order recorded.
+
+    Said once, because the page's head and the postmortem both ask whether
+    Argus handed an incident over, and two copies of the rule are two answers.
+    A person's report never escalates - it withdraws or resolves - so a
+    reported move there is not Argus handing over, and is left out.
+    """
+    return [event for event in recorded
+            if isinstance(event, StatusChanged)
+            and event.to_status is IncidentStatus.ESCALATED
+            and event.reported is None]
 
 
 class RecordedEvent(BaseModel):

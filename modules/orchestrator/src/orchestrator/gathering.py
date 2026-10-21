@@ -47,6 +47,7 @@ from argus_core.events import (
     RetrievalRequested,
     RetrievalUnanswered,
     StatusChanged,
+    the_escalations,
 )
 from argus_core.llm import ClientFor
 from argus_core.models import (
@@ -349,10 +350,7 @@ def _it_was_handed_to_a_person(account: list[IncidentEvent]) -> bool:
     """Whether Argus ran out of moves and handed the incident over - its own
     move to escalated, off the account like every other ending here. A
     person's report never escalates; it withdraws or resolves."""
-    return any(isinstance(event, StatusChanged)
-               and event.to_status is IncidentStatus.ESCALATED
-               and event.reported is None
-               for event in account)
+    return bool(the_escalations(account))
 
 
 def _it_was_watched_and_never_came_back(conn: psycopg.Connection,

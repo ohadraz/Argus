@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from argus_core.events import IncidentEvent, StatusChanged
+from argus_core.events import IncidentEvent, StatusChanged, the_escalations
 from argus_core.models import IncidentStatus
 from argus_narration import where_a_report_came_from
 from pydantic import BaseModel, ConfigDict
@@ -42,10 +42,7 @@ class Escalation(BaseModel):
 def the_escalation(recorded: Sequence[IncidentEvent]) -> Escalation | None:
     """Argus's last move of the incident to escalated, if it made one - how an
     incident it could not end, and nobody has, did end."""
-    escalations = [event for event in recorded
-                   if isinstance(event, StatusChanged)
-                   and event.to_status is IncidentStatus.ESCALATED
-                   and event.reported is None]
+    escalations = the_escalations(recorded)
 
     if not escalations:
         return None

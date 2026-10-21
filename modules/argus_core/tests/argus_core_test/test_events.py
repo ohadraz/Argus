@@ -45,6 +45,7 @@ from argus_core.events import (
     names_as_changed,
     parse_event,
     publish,
+    the_escalations,
 )
 from argus_core.ids import new_id
 from argus_core.models import (
@@ -653,6 +654,36 @@ def test_a_fix_that_was_not_possible_is_not_a_fix_that_was_not_warranted() -> No
                 _it_reports(FixOutcome.NOT_POSSIBLE),
                 _it_carries_the_proposal(None)
             )
+        )
+
+
+@pytest.mark.unit
+def test_the_escalations_are_argus_s_own_moves_to_escalated_and_nothing_else() -> None:
+    # How an incident Argus could not end was handed over: its own move, said
+    # once here for the page's head and the postmortem alike - two copies of the
+    # rule are two answers to whether it escalated. A person's report never
+    # moves an incident there, and one that did would not be Argus handing over.
+    some_incident = new_id()
+
+    Scenario() \
+        .given(
+            argus_s_move := StatusChanged(incident_id=some_incident,
+                                          to_status=IncidentStatus.ESCALATED),
+            recorded := [
+                StatusChanged(incident_id=some_incident,
+                              to_status=IncidentStatus.INVESTIGATING),
+                argus_s_move,
+                StatusChanged(incident_id=some_incident,
+                              to_status=IncidentStatus.ESCALATED,
+                              reported=Report(by="some person",
+                                              channel=ReportChannel.ARGUS_UI))
+            ]
+        ) \
+        .when(
+            lambda: the_escalations(recorded)
+        ) \
+        .then(
+            the_answer_was([argus_s_move])
         )
 
 
