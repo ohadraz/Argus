@@ -35,6 +35,7 @@ from argus_core.llm.client import (
     AnswerTruncated,
     ModelDidNotAnswer,
     ModelRefused,
+    ModelUnavailable,
     TurnPaused,
 )
 from argus_core.llm.escapes import with_escapes_resolved
@@ -181,6 +182,15 @@ _STOP_REASON_ERRORS: dict[str, type[ModelDidNotAnswer]] = {
     TRUNCATED_STOP_REASON: AnswerTruncated,
     PAUSED_STOP_REASON: TurnPaused,
 }
+
+# The SDK's errors that mean the model could not be reached for now, raised
+# once its own retries are spent: 429, 529, any other 5xx, and a connection
+# that failed or timed out (`APITimeoutError` is one). Each is said as
+# `ModelUnavailable`; anything else - a 400 above all - is left as raised.
+_UNAVAILABLE_FOR_NOW: Final = (anthropic.RateLimitError,
+                               anthropic.OverloadedError,
+                               anthropic.InternalServerError,
+                               anthropic.APIConnectionError)
 
 
 def to_messages(transcript: Transcript) -> list[MessageParam]:
@@ -549,11 +559,15 @@ class AnthropicLLMClient:
         # two ways of asking cannot drift, which costs mypy the overload it
         # would otherwise resolve. What comes back is a `Message` either way -
         # that is the whole reason the rest of `converse` can be written once.
-        if room <= LARGEST_UNSTREAMED_ANSWER:
-            return cast(Message, self._client.messages.create(**asked))
+        try:
+            if room <= LARGEST_UNSTREAMED_ANSWER:
+                return cast(Message, self._client.messages.create(**asked))
 
-        with self._client.messages.stream(**asked) as streamed:
-            return cast(Message, streamed.get_final_message())
+            with self._client.messages.stream(**asked) as streamed:
+                return cast(Message, streamed.get_final_message())
+        except _UNAVAILABLE_FOR_NOW as unavailable:
+            raise ModelUnavailable(f"the model could not be reached for now: "
+                                   f"{unavailable}") from unavailable
 
     def _request(self,
                  transcript: Transcript,

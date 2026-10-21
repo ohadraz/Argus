@@ -4,7 +4,8 @@ The write-up is asked for the cause as the five whys, each step answering why
 the one before it happened, and a write-up gave its steps in the wrong order
 anyway: the step saying why the symptom happened came after the one it
 explains. Nothing in code can tell which step answers which, so the model is
-asked once more, after its answer is accepted - for an order and nothing else.
+asked once more, about the answer the document will carry - accepted, or the
+second attempt whatever faults it still has - for an order and nothing else.
 
 By the steps' numbers, not their words: a step said again is a step that can
 come back changed, and one a character off is no longer the step it was. And
@@ -20,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final
 
-from argus_core.llm import LLMClient
+from argus_core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable
 from argus_core.models import Ask, ToolDefinition, Transcript, Turn
 
 from agent_postmortem.prompting import SubmittedStep
@@ -55,12 +56,24 @@ ORDER_CHAIN = ToolDefinition(
 
 def put_in_order(llm: LLMClient, chain: Sequence[SubmittedStep]) -> list[SubmittedStep]:
     """The chain in the order the model gives - or as written, where it is too
-    short to have a step that could move, or the order given is not the same
-    steps rearranged with both ends in place."""
+    short to have a step that could move, the order given is not the same
+    steps rearranged with both ends in place, or the model gave no answer or
+    could not be reached for now.
+
+    Those two are caught and nothing else is: the write-up is kept by then,
+    and an order not suggested is no reason to lose it. A request refused as
+    asked is neither - in a replay it is a recording that no longer matches,
+    which has to be loud rather than a chain quietly left unordered.
+    """
     if len(chain) < _SHORTEST_TO_ORDER:
         return list(chain)
 
-    return in_its_order(chain, llm.converse(ordering_asked(chain), [ORDER_CHAIN]))
+    try:
+        answered = llm.converse(ordering_asked(chain), [ORDER_CHAIN])
+    except (ModelDidNotAnswer, ModelUnavailable):
+        return list(chain)
+
+    return in_its_order(chain, answered)
 
 
 def ordering_asked(chain: Sequence[SubmittedStep]) -> Transcript:
@@ -76,13 +89,20 @@ def ordering_asked(chain: Sequence[SubmittedStep]) -> Transcript:
 
 
 def in_its_order(chain: Sequence[SubmittedStep], answered: Turn) -> list[SubmittedStep]:
-    """The chain in the order `answered` gives, where that is every step once,
-    the first first and the last last - and as written otherwise."""
+    """The chain in the order `answered` gives, where that is every step once
+    by its whole number, the first first and the last last - and as written
+    otherwise.
+
+    A whole number and nothing that compares equal to one: a string among them
+    cannot be sorted, a float equal to its step's number fails as an index, and
+    `True` is the first step only to Python.
+    """
     order = next((call.arguments.get(ORDER_FIELD) for call in answered.tool_calls
                   if call.name == ORDER_TOOL_NAME), None)
     numbers = list(range(1, len(chain) + 1))
 
     if (not isinstance(order, list)
+            or not all(type(number) is int for number in order)
             or sorted(order) != numbers
             or order[0] != numbers[0]
             or order[-1] != numbers[-1]):

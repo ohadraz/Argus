@@ -88,6 +88,20 @@ class TurnPaused(ModelDidNotAnswer):
     """
 
 
+class ModelUnavailable(Exception):
+    """The model could not be reached for now - too many requests, overloaded,
+    a server error, or a connection that failed or timed out - after whatever
+    retrying the implementation does itself.
+
+    Not a `ModelDidNotAnswer`: nothing was asked of the model, nothing was
+    billed, and a caller that treats a refusal as final would be wrong to
+    treat this so. Its own type so that a caller able to go on without the
+    answer can say so without naming a vendor's errors - and only these: a
+    request refused as asked is not the model being unavailable, and stays
+    whatever the implementation raised.
+    """
+
+
 class LLMClient(Protocol):
     """What Argus needs from a reasoning model, stated in Argus's own terms.
 

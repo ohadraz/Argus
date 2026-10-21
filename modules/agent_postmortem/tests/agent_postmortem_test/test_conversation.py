@@ -633,6 +633,30 @@ def test_an_accepted_chain_is_put_in_the_order_its_whys_answer_each_other() -> N
 
 
 @pytest.mark.unit
+def test_a_chain_asked_for_again_is_put_in_order_once_the_second_answer_is_read() -> None:
+    # The second answer is the one the document carries, whatever faults it
+    # still has, so it is the one whose chain is ordered.
+    some_chain = [{STEP_FIELD: f"step {letter}", CITES_FIELD: ["T1"]}
+                  for letter in "abcd"]
+
+    Scenario() \
+        .given(
+            a_model_answering_twice_then_ordering := a_model_answering_in_turn(
+                an_answer_without(ROOT_CAUSE_FIELD),
+                an_answer(causal_chain=some_chain),
+                {ORDER_FIELD: [1, 3, 2, 4]})
+        ) \
+        .when(
+            lambda: [step.step for step in answer_worth_writing(
+                a_model_answering_twice_then_ordering, an_evidence_bundle(),
+                a_measured_incident())[0].causal_chain or []]
+        ) \
+        .then(
+            the_answer_was(["step a", "step c", "step b", "step d"])
+        )
+
+
+@pytest.mark.unit
 def test_a_step_resting_on_a_candidate_cause_is_asked_for_again_naming_it() -> None:
     # The candidates are shown under labels of their own, beside the evidence,
     # so a step can cite one - and the check has to know which labels they are.
