@@ -115,7 +115,7 @@ def test_below_the_head_a_moment_of_the_incident_s_day_says_its_time_alone() -> 
     # The head says the day once. Detection and Trigger said every moment of
     # that same day with its date again, which the write-up had stopped doing.
     # Each to the second, as the write-up's figures say it: cut to its minute,
-    # "fired at 14:05 UTC, 2m 40s later" reads a minute out.
+    # "fired at 14:05 UTC, 2 minutes 40 seconds later" reads a minute out.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -131,7 +131,8 @@ def test_below_the_head_a_moment_of_the_incident_s_day_says_its_time_alone() -> 
         .then(
             all_of(
                 _the_detection_reads("The incident on io-shop began at 14:03:07 UTC. "
-                                     "HighErrorRate fired at 14:05:47 UTC, 2m 40s later."),
+                                     "HighErrorRate fired at 14:05:47 UTC, 2 minutes 40 "
+                                     "seconds later."),
                 _the_head_s_date_reads("Oct 11, 2026, 14:03:07 UTC, not seen back to normal")
             )
         )

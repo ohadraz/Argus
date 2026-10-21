@@ -22,6 +22,9 @@ SOME_ALERT = SOME_ONSET + timedelta(minutes=2, seconds=40)
 
 @pytest.mark.unit
 def test_detection_says_when_it_began_when_the_alert_fired_and_the_gap() -> None:
+    # The gap in words, as the summary, the lessons and the brief say a span:
+    # "2m 40s" is the cards' form, a figure to read off, not a phrase in a
+    # sentence.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(detection=Detection(
@@ -38,7 +41,7 @@ def test_detection_says_when_it_began_when_the_alert_fired_and_the_gap() -> None
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=". HighErrorRate fired at "),
                                       Run.a_moment(SOME_ALERT),
-                                      Run(text=", 2m 40s later"),
+                                      Run(text=", 2 minutes 40 seconds later"),
                                       Run(text=".")))))
 
 
@@ -64,7 +67,7 @@ def test_an_onset_where_the_metrics_stopped_is_said_to_be_that() -> None:
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=". HighErrorRate fired at "),
                                       Run.a_moment(SOME_ALERT),
-                                      Run(text=", 2m 40s later"),
+                                      Run(text=", 2 minutes 40 seconds later"),
                                       Run(text=".")))))
 
 
@@ -91,7 +94,7 @@ def test_an_alert_dated_before_the_measured_onset_is_said_to_be() -> None:
                                       Run.a_moment(SOME_ONSET),
                                       Run(text=". HighErrorRate fired at "),
                                       Run.a_moment(some_earlier_alert),
-                                      Run(text=", 1m 20s before the measured onset"),
+                                      Run(text=", 1 minute 20 seconds before the measured onset"),
                                       Run(text=".")))))
 
 
@@ -114,19 +117,22 @@ def test_an_unknown_onset_is_said_to_be_and_no_gap_is_given() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize(("gap", "rule_waits", "rule_wait_unread", "held", "said"), [
     (timedelta(minutes=5, seconds=7), timedelta(minutes=5), False, None,
-     ", 5m 7s later - its rule fires only once its condition has held for 5m 0s"),
+     ", 5 minutes 7 seconds later - its rule fires only once its condition has held for "
+     "5 minutes"),
     (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, True,
-     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
-     "fires, so the condition held before the measured onset"),
+     ", 4 minutes 51 seconds later - shorter than the 5 minutes its rule's condition must "
+     "hold before it fires, so the condition held before the measured onset"),
     (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, False,
-     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it "
-     "fires, though not every minute of that wait before the measured onset met it"),
+     ", 4 minutes 51 seconds later - shorter than the 5 minutes its rule's condition must "
+     "hold before it fires, though not every minute of that wait before the measured onset "
+     "met it"),
     (timedelta(minutes=4, seconds=51), timedelta(minutes=5), False, None,
-     ", 4m 51s later - shorter than the 5m 0s its rule's condition must hold before it fires"),
+     ", 4 minutes 51 seconds later - shorter than the 5 minutes its rule's condition must "
+     "hold before it fires"),
     (timedelta(seconds=40), timedelta(0), False, None,
-     ", 40s later - its rule fires as soon as its condition holds"),
+     ", 40 seconds later - its rule fires as soon as its condition holds"),
     (timedelta(minutes=5, seconds=7), None, True, None,
-     ", 5m 7s later - how long its rule waits before firing could not be read")
+     ", 5 minutes 7 seconds later - how long its rule waits before firing could not be read")
 ], ids=["longer-than-the-wait", "shorter-than-the-wait-and-held",
         "shorter-than-the-wait-and-did-not-hold", "shorter-than-the-wait-and-unknown",
         "no-wait", "unread"])
@@ -179,7 +185,7 @@ def test_detection_with_no_onset_still_says_the_rules_wait() -> None:
             the_answer_was(Line(runs=(Run(text="The onset is unknown. HighErrorRate fired at "),
                                       Run.a_moment(SOME_ALERT),
                                       Run(text=" - its rule fires only once its condition has "
-                                               "held for 5m 0s"),
+                                               "held for 5 minutes"),
                                       Run(text=".")))))
 
 

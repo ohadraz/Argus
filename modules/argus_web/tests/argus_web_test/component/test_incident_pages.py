@@ -1726,7 +1726,7 @@ def test_the_postmortem_page_says_how_long_the_alert_took_in_minutes_and_seconds
             lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(
-            the_page_says("2m 40s")
+            the_page_says("2 minutes 40 seconds later")
         )
 
 

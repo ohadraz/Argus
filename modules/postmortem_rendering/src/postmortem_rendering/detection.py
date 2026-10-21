@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from argus_core import said_as_a_span
 from argus_core.models import (
     Alert,
     Detection,
@@ -17,7 +18,6 @@ from argus_core.models import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import as_span
 from postmortem_rendering.impact import the_alert_s_own_finding
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow
@@ -58,11 +58,11 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
     runs.append(Run.a_moment(detection.alerted_at))
 
     if detection.gap is not None and detection.gap >= timedelta(0):
-        gap = f", {as_span(detection.gap)} later"
+        gap = f", {said_as_a_span(detection.gap)} later"
     elif detection.gap is not None:
         # The sender dates the alert and Argus measures the onset, and the two
         # can cross: a rule with no wait fires on the first minute that departs.
-        gap = f", {as_span(-detection.gap)} before the measured onset"
+        gap = f", {said_as_a_span(-detection.gap)} before the measured onset"
     else:
         gap = ""
 
@@ -107,6 +107,8 @@ def _the_rules_wait(detection: Detection) -> str:
         return " - its rule fires as soon as its condition holds"
 
     if detection.gap is not None and timedelta(0) <= detection.gap < waits:
-        return f" - {shorter_than_the_rules_wait(as_span(waits), detection.held_before_the_onset)}"
+        shorter = shorter_than_the_rules_wait(said_as_a_span(waits),
+                                              detection.held_before_the_onset)
+        return f" - {shorter}"
 
-    return f" - its rule fires only once its condition has held for {as_span(waits)}"
+    return f" - its rule fires only once its condition has held for {said_as_a_span(waits)}"
