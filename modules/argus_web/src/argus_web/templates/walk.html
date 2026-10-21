@@ -64,7 +64,12 @@
         {% if candidate.confidence is not none %}
           <span class="confidence">{{ "%.0f%%"|format(candidate.confidence * 100) }}</span>
         {% endif %}
-        {% if not candidate.tested %}
+        {# Reached and held back is not never reached: the gate writes on the
+           row why it declined the test, and without it a refusal reads as a
+           candidate nobody got to - in the words the one after it carries. #}
+        {% if not candidate.tested and candidate.result %}
+          <span class="untried">test held back: {{ candidate.result }}</span>
+        {% elif not candidate.tested %}
           <span class="untried">never reached</span>
         {% endif %}
       </p>

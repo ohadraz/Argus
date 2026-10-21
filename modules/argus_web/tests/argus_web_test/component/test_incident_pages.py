@@ -235,6 +235,32 @@ def test_an_incident_page_distinguishes_a_candidate_the_walk_never_reached() -> 
 
 
 @pytest.mark.component
+def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_back() -> None:
+    # The walk reached it and the gate declined its test, writing why on its
+    # row. Said "never reached", a refusal read as a candidate nobody got to -
+    # the same words the one after it, which nobody did get to, carried.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_reason = "some reason the gate held its test back"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        held_back = _a_candidate_recorded_for(conn, incident_id, subject="held back", rank=1)
+        hypotheses.record_outcome(conn, held_back, tested=False, result=some_reason)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(f"test held back: {some_reason}"),
+            _the_page_does_not_say("never reached")
+        ))
+
+
+@pytest.mark.component
 def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> None:
     # Evidence in a dump of its own makes a reader match claims to timestamps,
     # which is the reader investigating the incident again.
@@ -2626,6 +2652,16 @@ def _a_deploy_read_on(incident_id: str,
                                  repository="acme/shop",
                                  repository_address=repository,
                                  revision_address=f"{repository}/commit/{revision}"))])
+
+
+def _the_page_does_not_say(text: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if text in page:
+            raise AssertionError(f"Expected the page not to say [{text}], and it did.")
+
+        return True
+
+    return assertion
 
 
 def _a_candidate_recorded_for(conn: psycopg.Connection,
