@@ -66,6 +66,7 @@ from agent_postmortem.prompting import (
     LEAD_EFFECTS_FIELD,
     REQUIRED_FIELDS,
     SUBMIT_TOOL_NAME,
+    SYMPTOM_FIELD,
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
@@ -126,6 +127,9 @@ _A_FIGURE_IN_A_WORD: Final = re.compile(
 # The words after which a number is a place in a source file, not a figure.
 _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 
+# A sentence's stop with another sentence after it.
+_A_SECOND_SENTENCE: Final = re.compile(r"[.!?]\s+\S")
+
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
     "write a figure the incident gave as the name shown after it, braces and all, "
@@ -153,6 +157,7 @@ def faults_in(answer: SubmittedPostmortem,
               given: Given) -> list[str]:
     """Everything about this answer that has to be put right, or nothing."""
     return (_missing_fields(answer)
+            + _a_symptom_of_more_than_one_sentence(answer)
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
             + _factors_nothing_answers(answer, given)
@@ -207,6 +212,22 @@ def _missing_fields(answer: SubmittedPostmortem) -> list[str]:
     return [f"the field [{field}] was missing from your answer"
             for field in REQUIRED_FIELDS
             if getattr(answer, field) is None]
+
+
+def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[str]:
+    """The symptom, where it runs past one sentence.
+
+    The symptom is the document's title. Asked for in a few words, a write-up
+    gave two sentences - what nobody saw, then what was seen instead - and the
+    title ran to seventeen words. A sentence's own closing stop is not a
+    second sentence; a stop with more words after it is.
+    """
+    symptom = answer.symptom
+    if symptom is None or not _A_SECOND_SENTENCE.search(symptom.strip()):
+        return []
+
+    return [f"the {SYMPTOM_FIELD} [{symptom}] is more than one sentence - it is the "
+            f"document's title, so say it in one, of a few words"]
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:

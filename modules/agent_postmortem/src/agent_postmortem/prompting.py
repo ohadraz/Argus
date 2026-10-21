@@ -489,7 +489,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "What caused the incident, in one or two sentences, written "
                 "for an engineer who was not on the call. Not the change that "
                 "set it off - the document states the trigger itself. Say why "
-                "that change broke the service, as far as the evidence goes."
+                "that change broke the service, as far as the evidence goes. "
+                f"{_A_SAFEGUARD_NOBODY_SAW}"
             )
         },
         EXECUTIVE_SUMMARY_FIELD: {
@@ -497,17 +498,20 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "description": (
                 "The same incident for a reader who does not work on the "
                 "service: what broke, for how long, who it affected, and what "
-                "was done. No component names unless they are unavoidable."
+                "was done. No component names unless they are unavoidable. Say "
+                "only what the record says - of a change, of the service, of the "
+                "people - and nothing it does not."
             )
         },
         SYMPTOM_FIELD: {
             "type": "string",
             "description": (
-                "What went wrong as somebody using the service saw it, in a few "
-                "words with no number: 'Account pages failed'. Not the metric "
-                "the alert fired on, and not the cause - the document adds the change "
-                "it began with itself. Where nobody using the service saw anything "
-                "wrong, say that, and what was seen instead."
+                "What went wrong as somebody using the service saw it, in one "
+                "sentence of a few words with no number: 'Account pages failed'. "
+                "It is the document's title. Not the metric the alert fired on, and "
+                "not the cause - the document adds the change it began with itself. "
+                "Where nobody using the service saw anything wrong, say that and what "
+                "was seen instead, still in one sentence."
             )
         },
         ASSUMPTIONS_FIELD: {
@@ -532,13 +536,15 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "symptom happened, not the symptom again in more detail. Where the "
             "incident needed two things at once - something going wrong, and "
             "nothing in place to contain it - follow the one that leads to what set "
-            "it off, and name the other at the step where they meet. A safeguard "
-            "that did not stop it is never a step of its own: it is one of the "
-            f"{CONTRIBUTING_FACTORS_FIELD}. Every step cites at least one piece of "
+            f"it off; the other is one of the {CONTRIBUTING_FACTORS_FIELD}, not "
+            "named in the chain. A safeguard that did not stop it is never a step "
+            f"of its own: it is one of the {CONTRIBUTING_FACTORS_FIELD}. "
+            f"{_A_SAFEGUARD_NOBODY_SAW} Every step cites at least one piece of "
             "evidence by its label. Date a change by its own row's instant - the T "
             "or P row that records it - never by an effect it had. A state a row "
             "read - how many replicas run a revision, which way a flag is set - is "
-            "known as of the row that read it, not from when the change was made. "
+            "known as of the row that read it, by that row's instant, which is its "
+            "first figure, as T3.1 is T3's - not from when the change was made. "
             "At the step that "
             "ties the incident to the change that set it off, say what else the "
             "record ruled out and why, in that step, not as a step of its own - an "
@@ -575,7 +581,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "items answer every factor. Propose nothing to confirm a cause the "
             "record already confirmed - a mitigation that worked, a hypothesis "
             "marked confirmed - and no check of what the evidence you are shown "
-            "already shows: a diff states what changed."
+            "already shows: a diff states what changed. Where a finding says to "
+            "check something a D row shows, say what the D row shows, and the item "
+            "is what follows from it."
         ),
         LESSONS_FIELD: {
             "type": "object",
@@ -626,7 +634,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "description": (
                 "What went well, what went wrong, and where the incident got "
                 "lucky - a risk that went unnoticed this time. Any list may be "
-                f"empty. {_A_SAFEGUARD_NOBODY_SAW}"
+                f"empty. {_A_SAFEGUARD_NOBODY_SAW} Weigh detection in one of them: "
+                "how long after the onset the alert came, and where the record "
+                "does not show what took that long, say so."
             )
         },
         REACHES_A_CAUSE_FIELD: {

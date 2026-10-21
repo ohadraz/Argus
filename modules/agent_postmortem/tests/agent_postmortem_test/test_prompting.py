@@ -2386,13 +2386,16 @@ def test_an_earlier_change_is_asked_to_be_ruled_out_by_the_service_healthy_with_
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD])
+@pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD,
+                                   CAUSAL_CHAIN_FIELD, ROOT_CAUSE_FIELD])
 def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: str) -> None:
     # Told once, in the tool's own description, to state only what the evidence
     # shows, a write-up still gave "nothing checked output quality before it
     # reached production" as a factor and as what went wrong - in the field
     # whose description asked for "a missing safeguard". Said where the claim
-    # is written, and never asked for as missing.
+    # is written, and never asked for as missing. The chain and the root cause
+    # too: told it only in the factors and the lessons, a write-up's root cause
+    # said "nothing checks that the two names agree".
     what_an_unseen_check_is_written_as = "no check was seen"
 
     Scenario() \
@@ -2596,7 +2599,77 @@ def test_a_state_a_row_read_is_asked_for_as_of_that_read() -> None:
             lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("as of the row that read it")
+            _the_description_mentions("as of the row that read it", "its first figure")
+        )
+
+
+@pytest.mark.unit
+def test_the_branch_that_did_not_set_it_off_is_asked_for_as_a_factor_not_a_step() -> None:
+    # Told to name the other branch "at the step where they meet", a write-up
+    # named the missing check in its last step - which the root cause is - and
+    # then the root cause carried the factor that said it again.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions(f"the other is one of the {CONTRIBUTING_FACTORS_FIELD}"),
+            _the_description_avoids("where they meet")
+        ))
+
+
+@pytest.mark.unit
+def test_what_a_finding_says_to_check_is_answered_from_a_diff_that_shows_it() -> None:
+    # A finding said to check which key the deployed revision used before
+    # merging; the deployed diff showed it, and a write-up passed the check on
+    # as an item rather than saying what followed from the answer.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("what the D row shows")
+        )
+
+
+@pytest.mark.unit
+def test_the_summary_is_asked_to_say_only_what_the_record_says() -> None:
+    # A write-up's summary called the deploy "routine", which nothing in the
+    # record said.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[EXECUTIVE_SUMMARY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("only what the record says")
+        )
+
+
+@pytest.mark.unit
+def test_how_quickly_the_alert_came_is_asked_to_be_weighed() -> None:
+    # Given the span from the onset to the alert, from a rule that waits for
+    # nothing, a write-up said nothing of detection at all: told only when it
+    # went wrong, it was never asked to weigh it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Weigh detection", "does not show what took that long")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_for_in_one_sentence() -> None:
+    # The symptom is the document's title. A write-up of an incident nobody
+    # using the service saw gave two sentences - that, then what was seen
+    # instead - as the clause asking for both read.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("one sentence")
         )
 
 
