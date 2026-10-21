@@ -75,6 +75,7 @@ from agent_codefix.opening import (
     the_opening_message,
     what_it_concluded,
     what_people_wrote_since,
+    whether_it_holds_what_ran,
 )
 from agent_codefix.prompting import (
     ANSWER_TOOL_NAME,
@@ -318,12 +319,14 @@ def propose_fix(hypothesis: Hypothesis | None,
     the next result, and each is shown once.
 
     `deployed` is the revision running when the alert fired, where one is
-    known. `contains` is asked whether the branch read has it, and the opening
-    says so only where it does not.
+    known. `contains` is asked once whether the branch read has it: the
+    opening says so only where it does not, and the answer comes back on
+    whatever is proposed, for the write-up.
 
     `read_tier_tools` is the repository tools the model is offered, as the read
     tier declares them - asked once, before the conversation starts.
     """
+    holds_what_ran = whether_it_holds_what_ran(settings, deployed, contains)
     submitted = _what_the_model_submitted(
         hypothesis,
         settings=settings,
@@ -332,7 +335,7 @@ def propose_fix(hypothesis: Hypothesis | None,
         search_by_meaning=search_by_meaning,
         index_notice=index_notice,
         list_files=list_files,
-        contains=contains,
+        holds_what_ran=holds_what_ran,
         deployed=deployed,
         read_file=read_file,
         converse=converse or conversations(
@@ -356,12 +359,16 @@ def propose_fix(hypothesis: Hypothesis | None,
         logger.info("fix not opened, it needs code outside the repository")
         return ProposedFix(pull_request=None,
                            explanation=submitted.explanation,
-                           needs_code_outside=True)
+                           needs_code_outside=True,
+                           holds_what_ran=holds_what_ran,
+                           branch_read=settings.github_base_branch)
 
     patch = submitted.patch()
 
     if not patch:
-        return ProposedFix(pull_request=None, explanation=submitted.explanation)
+        return ProposedFix(pull_request=None, explanation=submitted.explanation,
+                           holds_what_ran=holds_what_ran,
+                           branch_read=settings.github_base_branch)
 
     # The branch and the pull request are changes to the world, and the turn
     # that produced this patch may have been answered after somebody said stop.
@@ -386,7 +393,9 @@ def propose_fix(hypothesis: Hypothesis | None,
             title=title,
             body=_the_case_for(submitted, hypothesis, incident_id)
         ),
-        explanation=submitted.explanation
+        explanation=submitted.explanation,
+        holds_what_ran=holds_what_ran,
+        branch_read=settings.github_base_branch
     )
 
 
@@ -398,7 +407,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               search_by_meaning: MeaningSearcher,
                               index_notice: IndexNotice,
                               list_files: FileLister,
-                              contains: BranchMembership,
+                              holds_what_ran: bool | None,
                               deployed: str | None,
                               read_file: FileReader,
                               converse: Conversation,
@@ -431,7 +440,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     transcript: list[Exchange] = [
         Ask(text=the_opening_message(
             hypothesis, settings, index_notice, list_files, shown,
-            deployed=deployed, contains=contains
+            deployed=deployed, holds_what_ran=holds_what_ran
         ))
     ]
     spend = a_budget_for(settings)

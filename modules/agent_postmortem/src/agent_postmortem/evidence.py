@@ -195,6 +195,12 @@ class IncidentEvidence(BaseModel):
     # make - where it said anything. The one account of the mechanism read off
     # the source, and a static reading: nothing ran it.
     fix_explanation: str | None = None
+    # The branch that reading was made on, and whether it contains the revision
+    # running when the alert fired - `None` for either where it was not
+    # established. A fix written against a branch that does not hold what ran
+    # changes nothing that runs once merged, not until a deploy carries it.
+    fix_branch_read: str | None = None
+    fix_holds_what_ran: bool | None = None
     # The action the gate declined because nothing could confirm it. Structured
     # rather than left in `timeline` for the model to notice, for the reason the
     # pull request is: what a reader of the finished document goes on to do is

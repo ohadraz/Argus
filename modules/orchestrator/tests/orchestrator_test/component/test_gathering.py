@@ -1497,6 +1497,34 @@ def test_the_evidence_carries_what_code_fix_last_said_of_the_code(a_clean_databa
 
 
 @pytest.mark.component
+def test_the_evidence_carries_which_branch_code_fix_read_off_the_reading_that_stands(
+    a_clean_database: None
+) -> None:
+    # Off the same attempt as what it said: the branch and whether it held what
+    # ran are facts about that reading, and an earlier attempt's would describe
+    # a reading the document no longer shows.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading",
+                    branch_read="release", holds_what_ran=True))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands",
+                    branch_read="main", holds_what_ran=False)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_what_code_fix_read("main", False)
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_what_people_told_the_incident_as_it_was_weighed(
     a_clean_database: None
 ) -> None:
@@ -2115,6 +2143,21 @@ def _carries_what_code_fix_said(expected: str | None) -> Assertion[IncidentEvide
             raise AssertionError(
                 f"Expected what Code-Fix said of the code to be [{expected}], got "
                 f"[{evidence.fix_explanation}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_what_code_fix_read(branch: str | None,
+                                holds_what_ran: bool | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        read = (evidence.fix_branch_read, evidence.fix_holds_what_ran)
+
+        if read != (branch, holds_what_ran):
+            raise AssertionError(
+                f"Expected Code-Fix to have read [{branch}], holding what ran "
+                f"[{holds_what_ran}], got {read}.")
 
         return True
 

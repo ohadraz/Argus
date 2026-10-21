@@ -725,6 +725,46 @@ def test_a_reading_naming_no_revision_a_diff_was_read_for_is_tied_to_none() -> N
 
 
 @pytest.mark.unit
+def test_a_reading_of_a_branch_that_does_not_hold_what_ran_says_what_merging_it_changes() -> None:
+    # Production ran a revision deployed from a branch never merged into the one
+    # Code-Fix read. The write-up's thinking saw it and its answer dropped it:
+    # nothing it was shown said what follows - that merged, the fix changes what
+    # runs only once a deploy carries it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main", "fix_holds_what_ran": False})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("[F1] was written against main, which does not contain the revision "
+                  "running when the alert fired: merged, its fix changes what runs only "
+                  "once a deploy carries it.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("holds_what_ran", [True, None], ids=["holds-it", "not-established"])
+def test_a_reading_whose_branch_holds_what_ran_or_is_not_known_to_says_nothing(
+        holds_what_ran: bool | None) -> None:
+    # The ordinary case says nothing, and so does one nobody established: the
+    # note would be a claim the record does not make.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main", "fix_holds_what_ran": holds_what_ran})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("does not contain the revision running")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_code_fix_said_nothing_of_is_shown_no_heading_for_it() -> None:
     Scenario() \
         .given(

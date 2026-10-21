@@ -163,6 +163,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
     # and where in it each action's line sits.
     account = events.get_by_incident(conn, incident_id)
     told = _the_account_told(account)
+    reading = _the_reading_that_stands(account)
 
     return IncidentEvidence(
         incident_id=incident_id,
@@ -184,7 +185,9 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         changes=_what_changed(conn, incident_id),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
-        fix_explanation=_what_code_fix_said(conn, incident_id),
+        fix_explanation=reading.explanation if reading is not None else None,
+        fix_branch_read=reading.branch_read if reading is not None else None,
+        fix_holds_what_ran=reading.holds_what_ran if reading is not None else None,
         recommended_action=_what_is_still_owed(conn, incident_id),
         refusals=_what_was_refused(account, told),
         # Off the record rather than the account: the account says a lead was
@@ -262,16 +265,17 @@ def _what_was_proposed(conn: psycopg.Connection,
     return proposed[-1] if proposed else None
 
 
-def _what_code_fix_said(conn: psycopg.Connection, incident_id: str) -> str | None:
-    """What Code-Fix last said of the code, as it published it - `None` where
-    it said nothing.
+def _the_reading_that_stands(account: list[IncidentEvent]) -> FixAttempted | None:
+    """The attempt whose account of the code stands - the last that said
+    anything of it - or `None` where none did.
 
     The last, for the reason the proposal is: an incident that went back to
     investigate can reach the code twice, and what stands is what was said of
-    it last.
+    it last. One attempt for what was said and for the branch it was said of,
+    because the branch is a fact about that reading and an earlier attempt's
+    would describe a reading the document no longer shows.
     """
-    said = [event.explanation
-            for event in events.get_by_incident(conn, incident_id)
+    said = [event for event in account
             if isinstance(event, FixAttempted) and event.explanation]
 
     return said[-1] if said else None

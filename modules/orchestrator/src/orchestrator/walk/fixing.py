@@ -8,7 +8,13 @@ from functools import partial
 from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
 from argus_core import parse_iso
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
-from argus_core.models import ChangeKind, FixOutcome, OpenedPullRequest, ThreadMessage
+from argus_core.models import (
+    ChangeKind,
+    FixOutcome,
+    OpenedPullRequest,
+    ProposedFix,
+    ThreadMessage,
+)
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -145,7 +151,7 @@ def codefix_node(state: IncidentState,
             proposal=None,
             action="a code-level fix was written but not opened",
             detail="it helps only once code outside the repository changes as well",
-            explanation=proposed.explanation
+            read=proposed
         )
 
     if proposed.pull_request is None:
@@ -156,7 +162,7 @@ def codefix_node(state: IncidentState,
             proposal=None,
             action="no code-level fix found",
             detail="no code-level fix found, so the incident goes to a human",
-            explanation=proposed.explanation
+            read=proposed
         )
 
     return _said(
@@ -166,7 +172,7 @@ def codefix_node(state: IncidentState,
         proposal=proposed.pull_request,
         action="a code-level fix was proposed",
         detail=f"a draft pull request is open at {proposed.pull_request.url}",
-        explanation=proposed.explanation
+        read=proposed
     )
 
 
@@ -219,9 +225,11 @@ def _said(narrator: Narrator,
           proposal: OpenedPullRequest | None,
           action: str,
           detail: str,
-          explanation: str | None = None) -> StateDelta:
+          read: ProposedFix | None = None) -> StateDelta:
     """The one account of this step, published and handed up in one place -
-    with what Code-Fix said of the code, where it said anything.
+    with what Code-Fix answered, where it answered at all: what it said of the
+    code, the branch it read, and whether that held what ran. Taken off the
+    answer whole, so the three cannot come from two different answers.
 
     Both, rather than either. The narration is what a transition would say if
     this step moved the incident, and on the road here from a refuted walk it
@@ -230,7 +238,9 @@ def _said(narrator: Narrator,
     hardest to see, because each would look right on its own.
     """
     narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail,
-                 explanation=explanation)
+                 explanation=read.explanation if read is not None else None,
+                 branch_read=read.branch_read if read is not None else None,
+                 holds_what_ran=read.holds_what_ran if read is not None else None)
     logger.info("fix attempted", extra={
         "outcome": outcome, "pull_request": proposal.url if proposal is not None else None
     })

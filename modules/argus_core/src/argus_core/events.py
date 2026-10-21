@@ -683,6 +683,12 @@ class FixAttempted(_Event):
     `explanation` is what Code-Fix said of the code - why this change, or why
     there was nothing to change - and `None` wherever it said nothing: the one
     account of the mechanism the walk holds, and a static reading nothing ran.
+
+    `branch_read` is the branch Code-Fix read, and `holds_what_ran` whether it
+    contains the revision running when the alert fired - `None` for either
+    where it was not established. The write-up reads them: a fix written
+    against a branch that does not hold what ran changes nothing that runs once
+    merged, not until a deploy carries it.
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
@@ -690,6 +696,8 @@ class FixAttempted(_Event):
     pull_request: OpenedPullRequest | None = None
     detail: str
     explanation: str | None = None
+    branch_read: str | None = None
+    holds_what_ran: bool | None = None
 
 
 class PostmortemWritten(_Event):

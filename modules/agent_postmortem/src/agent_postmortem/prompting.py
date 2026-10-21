@@ -987,7 +987,10 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
             _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
         *([("What Code-Fix read in the source and proposed - nothing ran its test or its fix:",
-            read_in_the_source, _the_diffs_of_what_it_names(evidence, looked_into))]
+            read_in_the_source,
+            " ".join(note for note in (_what_its_branch_did_not_hold(evidence),
+                                       _the_diffs_of_what_it_names(evidence, looked_into))
+                     if note) or None)]
           if read_in_the_source else [])
     ]
 
@@ -1009,6 +1012,25 @@ def _what_each_whole_diff_leaves_as_it_was(evidence: IncidentEvidence,
             if record.lists_every_file]
 
     return " ".join(said) or None
+
+
+def _what_its_branch_did_not_hold(evidence: IncidentEvidence) -> str | None:
+    """Beneath what Code-Fix read: that the branch it read does not contain the
+    revision that ran, and what follows - or nothing, where it does or nobody
+    established it.
+
+    Production ran a revision deployed from a branch never merged into the one
+    Code-Fix read. A write-up's thinking saw it and its answer dropped it:
+    nothing it was shown said that merged, the fix changes what runs only once
+    a deploy carries it.
+    """
+    if evidence.fix_holds_what_ran is not False or evidence.fix_branch_read is None:
+        return None
+
+    return (f"[{label_of(CODE_READING_PREFIX, 1)}] was written against "
+            f"{evidence.fix_branch_read}, which does not contain the revision running "
+            f"when the alert fired: merged, its fix changes what runs only once a "
+            f"deploy carries it.")
 
 
 def _the_diffs_of_what_it_names(evidence: IncidentEvidence,

@@ -65,8 +65,17 @@ class ProposedFix(BaseModel):
     because the model said it helps nobody until code outside the repository
     changes too. Neither a proposal nor "nothing to change": the explanation is
     then what would have to change there, in the model's words.
+
+    `holds_what_ran` is whether the branch read contains the revision running
+    when the alert fired - `None` where that was not established, because no
+    revision was known or the branch could not be asked. The write-up reads it:
+    a fix written against a branch that does not hold what ran changes nothing
+    that runs once merged, not until a deploy carries it. `branch_read` is that
+    branch, by name - the sentence a reader acts on names it.
     """
 
     pull_request: OpenedPullRequest | None
     explanation: str | None
     needs_code_outside: bool = False
+    holds_what_ran: bool | None = None
+    branch_read: str | None = None

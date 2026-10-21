@@ -229,6 +229,31 @@ def test_what_code_fix_said_of_the_code_is_published_with_what_came_of_it(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("holds_what_ran", [True, False, None],
+                         ids=["holds-it", "does-not", "not-established"])
+def test_the_attempt_keeps_which_branch_code_fix_read_and_whether_it_holds_what_ran(
+        holds_what_ran: bool | None) -> None:
+    # The write-up reads the attempt, not the agent. A fix written against a
+    # branch that does not hold what ran changes nothing that runs once merged -
+    # not until a deploy carries it - and only Code-Fix's opening ever knew.
+    published: list[IncidentEvent] = []
+    some_branch = "main"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_that_read(some_branch, holds_what_ran)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_says_it_read(some_branch, holds_what_ran, published)
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_that_needs_code_outside_is_published_as_written_and_not_opened() -> None:
     # Neither a proposal nor "nothing to change": the model wrote a fix and
     # said it helps nobody until code outside the repository changes too. A
@@ -721,6 +746,20 @@ def _an_agent_offering(proposal: OpenedPullRequest | None,
     return propose
 
 
+def _an_agent_that_read(branch: str, holds_what_ran: bool | None) -> ProposeFix:
+    """Code-Fix, having proposed a fix from `branch`, which held what ran or not."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
+        return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
+                           branch_read=branch, holds_what_ran=holds_what_ran)
+
+    return propose
+
+
 def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
     """Code-Fix, having written a fix it says helps nobody until code outside
     the repository changes too."""
@@ -914,6 +953,24 @@ def _the_attempt_explains(explanation: str,
             raise AssertionError(
                 f"Expected the attempt to carry Code-Fix's account of the code, "
                 f"[{explanation}], got {explained}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_says_it_read(branch: str,
+                              holds_what_ran: bool | None,
+                              published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """Which branch Code-Fix read, and whether it held what ran, on the attempt."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = [(event.branch_read, event.holds_what_ran) for event in published
+                if isinstance(event, FixAttempted)]
+        if said != [(branch, holds_what_ran)]:
+            raise AssertionError(
+                f"Expected the attempt to say Code-Fix read [{branch}], holding what "
+                f"ran [{holds_what_ran}], got {said}."
             )
 
         return True

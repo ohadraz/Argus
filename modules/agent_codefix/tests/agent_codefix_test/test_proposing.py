@@ -1205,6 +1205,77 @@ def test_a_branch_that_could_not_be_asked_says_nothing_and_does_not_end_the_work
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(("containing", "deployed", "unreachable", "held"), [
+    (False, SOME_REVISION_THAT_RAN, False, False),
+    (True, SOME_REVISION_THAT_RAN, False, True),
+    (False, None, False, None),
+    (True, SOME_REVISION_THAT_RAN, True, None)
+], ids=["not-contained", "contained", "nothing-ran", "could-not-be-asked"])
+def test_a_proposal_comes_back_saying_whether_the_branch_read_holds_what_ran(
+        containing: bool, deployed: str | None, unreachable: bool, held: bool | None) -> None:
+    # The write-up reads it too. A fix written against a branch that does not
+    # hold what ran changes nothing that runs once merged - not until a deploy
+    # carries it - and only the opening ever knew. `None` where nothing was
+    # established: no revision to ask about, or a branch that could not answer.
+    repository = a_repository(containing_what_ran=containing)
+    if unreachable:
+        repository.contains.side_effect = RuntimeError("the repository could not be reached")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=deployed,
+                **repository.ports()
+            )
+        ) \
+        .then(_it_held_what_ran(held))
+
+
+@pytest.mark.unit
+def test_nothing_to_change_comes_back_saying_whether_the_branch_read_holds_what_ran() -> None:
+    # "Nothing in the code to change" said of a branch that is not what ran is
+    # a reading of other code, and the write-up has to know it.
+    model = a_model_that(reports_nothing_to_change(explanation="dont care"))
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **a_repository(containing_what_ran=False).ports()
+            )
+        ) \
+        .then(_it_held_what_ran(False))
+
+
+@pytest.mark.unit
+def test_a_proposal_comes_back_naming_the_branch_it_read() -> None:
+    # Whether the branch holds what ran is said of a branch, and the write-up
+    # names it: "written against main" is the sentence a reader acts on.
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(base_branch="release"),
+                converse=model.converse,
+                **a_repository().ports()
+            )
+        ) \
+        .then(_it_read("release"))
+
+
 def _the_branch_was_asked(repository: _Repository,
                           branch: str,
                           revision: str) -> Assertion[Any]:
@@ -2814,6 +2885,32 @@ def _it_explained(explanation: str) -> Assertion[ProposedFix]:
             raise AssertionError(
                 f"Expected Code-Fix's account of the code to come back as "
                 f"[{explanation}], got [{came_back.explanation}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_held_what_ran(expected: bool | None) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.holds_what_ran is not expected:
+            raise AssertionError(
+                f"Expected the proposal to say the branch read holds what ran "
+                f"[{expected}], got [{came_back.holds_what_ran}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_read(expected: str) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.branch_read != expected:
+            raise AssertionError(
+                f"Expected the proposal to name [{expected}] as the branch read, "
+                f"got [{came_back.branch_read}]."
             )
 
         return True

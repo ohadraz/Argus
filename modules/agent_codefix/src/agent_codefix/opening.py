@@ -74,7 +74,7 @@ def the_opening_message(hypothesis: Hypothesis | None,
                         leads: Sequence[ThreadMessage] = (),
                         *,
                         deployed: str | None,
-                        contains: BranchMembership) -> str:
+                        holds_what_ran: bool | None) -> str:
     """The first thing the model is sent, built for this incident alone.
 
     Assembled rather than templated, because five of its paragraphs are
@@ -100,7 +100,7 @@ def the_opening_message(hypothesis: Hypothesis | None,
         *_and_what_it_already_wrote(hypothesis),
         *_and_what_people_wrote(leads),
         *_what_the_repository_holds(listing),
-        *_whether_it_contains_what_ran(settings, deployed, contains),
+        *_whether_it_contains_what_ran(settings, deployed, holds_what_ran),
         *_what_is_known_about_the_index(settings, index_notice),
         "",
         f"{_how_to_start_looking(settings)} Then call {SUBMIT_TOOL_NAME} with "
@@ -341,9 +341,32 @@ def _what_the_repository_holds(listing: Sequence[str]) -> list[str]:
     return ["", "The repository holds:", *(f"  {path}" for path in listing)]
 
 
+def whether_it_holds_what_ran(settings: FixSettings,
+                              deployed: str | None,
+                              contains: BranchMembership) -> bool | None:
+    """Whether the branch read contains the revision that ran, or `None` where
+    that cannot be established.
+
+    Asked once, before the conversation, for the opening and for the answer
+    alike. `None` where no revision is known to have run, since there is
+    nothing to ask about; and `None` where the branch could not be asked, for
+    the listing's reason - a raise here spends the whole attempt on one call -
+    and because either answer would then be a claim nobody established.
+    """
+    if deployed is None:
+        return None
+
+    try:
+        return contains(settings.github_base_branch, deployed)
+    except Exception:
+        logger.warning("could not tell whether the branch contains what ran", exc_info=True)
+
+        return None
+
+
 def _whether_it_contains_what_ran(settings: FixSettings,
                                   deployed: str | None,
-                                  contains: BranchMembership) -> list[str]:
+                                  holds_what_ran: bool | None) -> list[str]:
     """That the branch read does not contain the revision that ran, or nothing.
 
     The revision may have been deployed from a branch never merged into the one
@@ -352,26 +375,14 @@ def _whether_it_contains_what_ran(settings: FixSettings,
     say which of the two a claim is about.
 
     Nothing where the branch contains it, which is the ordinary case: a caveat on
-    every incident is one nobody reads on the incident it is true of. Nothing
-    where no revision is known to have run, since there is nothing to ask
-    about. And nothing where the branch could not be asked, for the listing's
-    reason - a raise here spends the whole attempt on one call - and because the
-    caveat would then be a claim nobody established.
+    every incident is one nobody reads on the incident it is true of. And
+    nothing where it was not established, since the caveat would then be a
+    claim nobody made good.
     """
-    if deployed is None:
+    if deployed is None or holds_what_ran is not False:
         return []
 
     branch = settings.github_base_branch
-
-    try:
-        contained = contains(branch, deployed)
-    except Exception:
-        logger.warning("could not tell whether the branch contains what ran", exc_info=True)
-
-        return []
-
-    if contained:
-        return []
 
     return [
         "",
