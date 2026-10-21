@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import (
     AgentInvoked,
     IncidentEvent,
@@ -43,7 +43,7 @@ def test_a_recorded_event_comes_back_as_the_kind_it_was_published_as() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(
-                incident_id := incidents.create(conn, some_alert),
+                incident_id := incidents.create(conn, some_alert, at=utc_now()),
                 calling(lambda: _record(
                     conn,
                     OnsetDetected(incident_id=incident_id,
@@ -66,7 +66,7 @@ def test_events_come_back_in_the_order_they_were_published() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(
-                incident_id := incidents.create(conn, some_alert),
+                incident_id := incidents.create(conn, some_alert, at=utc_now()),
                 calling(lambda: _record(conn,
                                         *_an_investigation_in_three_steps(incident_id)))
             ) \
@@ -89,7 +89,7 @@ def test_a_payload_comes_back_whole() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(
-                incident_id := incidents.create(conn, some_alert),
+                incident_id := incidents.create(conn, some_alert, at=utc_now()),
                 calling(lambda: _record(conn, LogsRetrieved(
                     incident_id=incident_id,
                     window_start="2026-08-30T10:02:00Z",
@@ -113,7 +113,7 @@ def test_an_incident_that_published_nothing_reads_as_empty() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(
-                incident_id := incidents.create(conn, some_alert)
+                incident_id := incidents.create(conn, some_alert, at=utc_now())
             ) \
             .when(lambda: events.get_by_incident(conn, incident_id)) \
             .then(_the_account_reads([]))
@@ -128,8 +128,8 @@ def test_only_one_incident_s_events_come_back() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(
-                incident_id := incidents.create(conn, some_alert),
-                another_incident_id := incidents.create(conn, some_alert),
+                incident_id := incidents.create(conn, some_alert, at=utc_now()),
+                another_incident_id := incidents.create(conn, some_alert, at=utc_now()),
                 calling(lambda: _record(
                     conn,
                     AgentInvoked(incident_id=incident_id, agent=Actor.INVESTIGATOR),
@@ -151,7 +151,7 @@ def test_recording_an_event_writes_nothing_else() -> None:
     with connect_from_env() as conn:
         Scenario() \
             .given(
-                incident_id := incidents.create(conn, some_alert),
+                incident_id := incidents.create(conn, some_alert, at=utc_now()),
                 before := _row_counts(conn)
             ) \
             .when(lambda: events.record(
@@ -169,7 +169,7 @@ def test_only_what_was_published_after_the_cursor_comes_back() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _record(conn, AgentInvoked(incident_id=incident_id,
                                    agent=Actor.INVESTIGATOR))
 
@@ -195,8 +195,8 @@ def test_every_incident_s_events_come_back_in_the_one_order_they_happened() -> N
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        another_incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        another_incident_id = incidents.create(conn, some_alert, at=utc_now())
 
         Scenario() \
             .given(
@@ -226,7 +226,7 @@ def test_an_event_comes_back_with_the_place_in_the_log_it_was_written_at() -> No
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
         Scenario() \
             .given(
@@ -253,7 +253,7 @@ def test_a_batch_stops_at_the_limit_it_was_given_and_starts_at_the_oldest() -> N
     room_for_two = 2
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
         Scenario() \
             .given(
@@ -273,7 +273,7 @@ def test_a_cursor_at_the_end_of_the_log_reads_as_empty() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _record(conn, AgentInvoked(incident_id=incident_id,
                                    agent=Actor.INVESTIGATOR))
 
@@ -296,7 +296,7 @@ def test_an_event_still_being_written_holds_back_the_ones_behind_it() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn, connect_from_env() as an_unfinished_walk:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -326,7 +326,7 @@ def test_a_held_back_event_is_delivered_once_its_transaction_lands() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn, connect_from_env() as an_unfinished_walk:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -357,7 +357,7 @@ def test_a_recorded_event_leaves_no_column_of_its_row_empty() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
         Scenario() \
             .when(

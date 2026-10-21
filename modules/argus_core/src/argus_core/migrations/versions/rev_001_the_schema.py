@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     alert_payload JSONB NOT NULL,
     status TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- The moment of the event that opens the incident's account, and no
+    -- default: stamped by the database's own clock, the row and the account
+    -- would disagree about when the incident began.
+    created_at TIMESTAMPTZ NOT NULL,
     -- When the incident stopped being one, stamped on the transition that
     -- ended it. Null while it is still being worked - which `fixing` is,
     -- however terminal it reads. How long an incident lasted is reported
@@ -316,7 +319,9 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- Google's five review criteria, each met, unmet, or left for a person.
     -- Never null: a document is always reviewed against all five.
     review JSONB NOT NULL DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- The moment of the event saying it was written, as the incident's own
+    -- times are its account's.
+    created_at TIMESTAMPTZ NOT NULL
 );
 
 -- One row per currency per day, against one base. The rates a document was

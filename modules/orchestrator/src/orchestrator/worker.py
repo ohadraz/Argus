@@ -290,18 +290,15 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
     its answer.
     """
     try:
-        escalated = incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+        narrating = StatusChanged(incident_id=incident_id,
+                                  to_status=IncidentStatus.ESCALATED,
+                                  detail=f"the walk stopped without finishing: "
+                                         f"{type(failure).__name__}: {failure}")
+        escalated = incidents.transition(conn, incident_id, IncidentStatus.ESCALATED,
+                                         at=narrating.at)
 
         if escalated:
-            publish(
-                StatusChanged(
-                    incident_id=incident_id,
-                    to_status=IncidentStatus.ESCALATED,
-                    detail=f"the walk stopped without finishing: "
-                           f"{type(failure).__name__}: {failure}"
-                ),
-                events_into_connection(conn)
-            )
+            publish(narrating, events_into_connection(conn))
 
         conn.commit()
     except Exception:

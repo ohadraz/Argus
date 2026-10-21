@@ -11,7 +11,7 @@ the wrong one half the time.
 from __future__ import annotations
 
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import Alert, IncidentStatus
 from argus_incidents.ending import (
     EndedByAPerson,
@@ -29,8 +29,8 @@ def test_an_incident_argus_is_working_on_was_ended_by_nobody(a_clean_database: N
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
         conn.commit()
 
     Scenario() \
@@ -52,8 +52,8 @@ def test_an_incident_argus_ended_itself_was_ended_by_nobody(a_clean_database: No
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.transition(conn, incident_id, IncidentStatus.MITIGATED)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATED, at=utc_now())
         conn.commit()
 
     Scenario() \
@@ -73,8 +73,8 @@ def test_an_incident_somebody_withdrew_was_ended_by_a_withdrawal(a_clean_databas
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     Scenario() \
         .given(
@@ -93,8 +93,8 @@ def test_an_incident_somebody_resolved_was_ended_by_a_resolution(a_clean_databas
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.resolve(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.resolve(conn, incident_id, at=utc_now())
 
     Scenario() \
         .given(

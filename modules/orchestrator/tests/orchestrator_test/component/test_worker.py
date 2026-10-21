@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
@@ -54,7 +54,7 @@ def test_a_queued_run_is_walked_and_settled_by_the_worker(a_clean_database: None
         walked.append(incident_id)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -125,7 +125,7 @@ def test_a_run_whose_walk_failed_is_recorded_as_failed_with_its_reason(
         raise RuntimeError(what_went_wrong)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -182,8 +182,8 @@ def test_an_incident_whose_walk_failed_is_escalated_rather_than_left_mid_walk(
         raise RuntimeError(something_nobody_planned_for)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
-        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -231,7 +231,7 @@ def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> N
         raise RuntimeError(what_went_wrong)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -279,7 +279,7 @@ def test_an_unwind_that_fails_after_a_failed_run_still_records_the_failure(
         raise RuntimeError("the flag provider could not be reached either")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -315,12 +315,12 @@ def test_a_run_whose_incident_was_withdrawn_is_never_walked(a_clean_database: No
         walked.append(incident_id)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
             .given(
-                incidents.withdraw(conn, incident_id)
+                incidents.withdraw(conn, incident_id, at=utc_now())
             ) \
             .when(
                 lambda: worker.take_one_run(
@@ -349,12 +349,12 @@ def test_a_withdrawn_incident_has_its_changes_put_back(a_clean_database: None) -
     unwound: list[str] = []
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
             .given(
-                incidents.withdraw(conn, incident_id)
+                incidents.withdraw(conn, incident_id, at=utc_now())
             ) \
             .when(
                 lambda: worker.take_one_run(
@@ -383,11 +383,11 @@ def test_an_incident_withdrawn_while_it_was_walked_is_unwound_afterwards(
     unwound: list[str] = []
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id)
+            incidents.withdraw(conn, withdrawn_id, at=utc_now())
 
         Scenario() \
             .given(
@@ -420,11 +420,11 @@ def test_a_withdrawn_incident_whose_walk_then_failed_is_not_announced_escalated(
     dont_care_worker = "a-worker"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_and_then_fails(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id)
+            incidents.withdraw(conn, withdrawn_id, at=utc_now())
             raise RuntimeError("a bug in a node nobody has written yet")
 
         Scenario() \
@@ -462,12 +462,12 @@ def test_a_run_whose_incident_was_resolved_before_it_was_claimed_is_walked(
         walked.append(incident_id)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
             .given(
-                incidents.resolve(conn, incident_id)
+                incidents.resolve(conn, incident_id, at=utc_now())
             ) \
             .when(
                 lambda: worker.take_one_run(
@@ -498,11 +498,11 @@ def test_an_incident_resolved_while_it_was_walked_is_not_unwound(
     unwound: list[str] = []
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_resolved_partway(resolved_id: str) -> None:
-            incidents.resolve(conn, resolved_id)
+            incidents.resolve(conn, resolved_id, at=utc_now())
 
         Scenario() \
             .given(
@@ -538,11 +538,11 @@ def test_a_resolved_incident_whose_walk_then_failed_is_not_unwound(
     unwound: list[str] = []
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_resolved_and_then_fails(resolved_id: str) -> None:
-            incidents.resolve(conn, resolved_id)
+            incidents.resolve(conn, resolved_id, at=utc_now())
             raise RuntimeError(what_went_wrong)
 
         Scenario() \
@@ -583,7 +583,7 @@ def test_a_failed_run_whose_ending_cannot_be_read_is_not_unwound(
         raise RuntimeError(what_went_wrong)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -622,7 +622,7 @@ def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_data
         walked.append(incident_id)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -676,7 +676,7 @@ def test_a_run_still_being_walked_keeps_its_claim(a_clean_database: None) -> Non
                 taken_from_under_it.append(claimed.incident_id)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -705,7 +705,8 @@ def test_a_run_is_worked_inside_the_trace_its_incident_kept(a_clean_database: No
     observed = observing()
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert, trace_context=SOME_TRACE_CONTEXT)
+        incident_id = incidents.create(conn, dont_care_alert, trace_context=SOME_TRACE_CONTEXT,
+                                       at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -743,7 +744,7 @@ def test_a_walk_runs_with_its_incident_and_its_run_in_the_baggage(
         seen.append(dict(baggage.get_all()))
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -775,7 +776,7 @@ def test_a_run_is_logged_as_it_is_claimed_and_as_it_finishes(
     some_worker = "some-host/4242"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -812,7 +813,7 @@ def test_a_run_whose_walk_failed_is_logged_with_what_failed(
         raise RuntimeError("some failure nobody planned for")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -851,7 +852,7 @@ def test_an_unwind_that_failed_after_a_failed_run_is_logged_with_what_failed(
         raise ConnectionError("some provider that could not be reached")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -885,11 +886,11 @@ def test_a_failed_run_left_alone_because_a_person_resolved_it_is_logged(
     dont_care_worker = "a-worker"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_resolved_and_then_fails(resolved_id: str) -> None:
-            incidents.resolve(conn, resolved_id)
+            incidents.resolve(conn, resolved_id, at=utc_now())
             raise RuntimeError("some failure nobody planned for")
 
         Scenario() \
@@ -927,7 +928,7 @@ def test_a_failed_run_whose_ending_cannot_be_read_is_logged_with_what_failed(
         raise RuntimeError("some failure nobody planned for")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         Scenario() \
@@ -964,14 +965,14 @@ def test_a_withdrawn_incident_is_logged_as_it_is_unwound(
     dont_care_worker = "a-worker"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_that_is_withdrawn_partway(withdrawn_id: str) -> None:
-            incidents.withdraw(conn, withdrawn_id)
+            incidents.withdraw(conn, withdrawn_id, at=utc_now())
 
         if not walked:
-            incidents.withdraw(conn, incident_id)
+            incidents.withdraw(conn, incident_id, at=utc_now())
 
         Scenario() \
             .given(
@@ -1008,7 +1009,8 @@ def test_a_walk_runs_with_no_transaction_left_open_on_the_workers_connection(
     seen: list[TransactionStatus] = []
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert, trace_context=SOME_TRACE_CONTEXT)
+        incident_id = incidents.create(conn, dont_care_alert, trace_context=SOME_TRACE_CONTEXT,
+                                       at=utc_now())
         runs.enqueue(conn, incident_id)
 
         def walk_recording_the_connection(dont_care_incident_id: str) -> None:

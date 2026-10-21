@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from types import MappingProxyType
 from typing import Final
 
@@ -16,8 +17,16 @@ NO_TRACE_CONTEXT: Final[Mapping[str, str]] = MappingProxyType({})
 
 def create(conn: psycopg.Connection,
            alert: Alert,
-           trace_context: Mapping[str, str] = NO_TRACE_CONTEXT) -> str:
+           trace_context: Mapping[str, str] = NO_TRACE_CONTEXT,
+           *,
+           at: datetime) -> str:
     """Creates the Incident row (spec §7.1's single-writer rule, §11.1).
+
+    `at` is the moment of the event that opens the incident's account, so the
+    row and the account are on one clock: every reader that measures from the
+    row - the page's elapsed time, the postmortem's durations - measures what
+    the account says. Required, and the column has no default: a row stamped
+    by the database's own clock instead is the two clocks disagreeing again.
 
     `trace_context` is the trace the alert arrived in, as the propagator wrote
     it, and is what every later walk of the incident continues. Empty where
@@ -35,10 +44,10 @@ def create(conn: psycopg.Connection,
     begins nowhere."""
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO incident (alert_payload, status, trace_context) "
-            "VALUES (%s, %s, %s) RETURNING id",
+            "INSERT INTO incident (alert_payload, status, trace_context, created_at) "
+            "VALUES (%s, %s, %s, %s) RETURNING id",
             (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED,
-             Jsonb(dict(trace_context)))
+             Jsonb(dict(trace_context)), at)
         )
         row = cursor.fetchone()
         assert row is not None
@@ -48,7 +57,9 @@ def create(conn: psycopg.Connection,
 def transition(
     conn: psycopg.Connection,
     incident_id: str,
-    to_status: IncidentStatus
+    to_status: IncidentStatus,
+    *,
+    at: datetime
 ) -> bool:
     """Updates `Incident.status` (spec §7.1, §11.1's single-writer rule), and
     says whether it did.
@@ -77,9 +88,10 @@ def transition(
     status written without its time would leave an incident that has ended
     looking like one still running.
 
-    `now()` rather than a time the caller supplies - the database already
-    stamps `created_at`, and a duration measured between two clocks is a
-    duration measuring the difference between them.
+    `at` is the moment of the `StatusChanged` that narrates the move, so the
+    end the row says and the end the account says are one instant: a duration
+    measured between two clocks is a duration measuring the difference between
+    them, and the database's `now()` is the moment its transaction began.
 
     Committing is the caller's. The event that narrates this transition is
     written on the same connection, and a commit here would put the transition
@@ -91,16 +103,19 @@ def transition(
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE incident "
-            "   SET status = %s, ended_at = CASE WHEN %s THEN now() ELSE ended_at END "
+            "   SET status = %s, ended_at = CASE WHEN %s THEN %s ELSE ended_at END "
             " WHERE id = %s AND status <> ALL(%s)",
-            (to_status, ends_the_incident, incident_id, a_persons_endings)
+            (to_status, ends_the_incident, at, incident_id, a_persons_endings)
         )
 
         return cursor.rowcount == 1
 
 
-def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:
+def withdraw(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool:
     """Takes an incident back from Argus, and says whether it took effect.
+
+    `at` is the moment of the `StatusChanged` that says so, as `transition`'s
+    is.
 
     The one status written from outside the walk. Every other status an
     incident reaches is derived from work the walk did and written by the walk
@@ -128,9 +143,9 @@ def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:
 
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE incident SET status = %s, ended_at = now() "
+            "UPDATE incident SET status = %s, ended_at = %s "
             " WHERE id = %s AND status = ANY(%s)",
-            (IncidentStatus.WITHDRAWN, incident_id, withdrawable)
+            (IncidentStatus.WITHDRAWN, at, incident_id, withdrawable)
         )
         withdrawn = cursor.rowcount == 1
     conn.commit()
@@ -138,9 +153,12 @@ def withdraw(conn: psycopg.Connection, incident_id: str) -> bool:
     return withdrawn
 
 
-def resolve(conn: psycopg.Connection, incident_id: str) -> bool:
+def resolve(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool:
     """Records that a person reported the incident resolved, and says whether
     it took effect.
+
+    `at` is the moment of the `StatusChanged` that says so, as `transition`'s
+    is.
 
     Written here rather than derived by the walk, for the reason a withdrawal
     is: the walk never concludes `resolved` (spec §10), and what this records -
@@ -164,9 +182,9 @@ def resolve(conn: psycopg.Connection, incident_id: str) -> bool:
 
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE incident SET status = %s, ended_at = COALESCE(ended_at, now()) "
+            "UPDATE incident SET status = %s, ended_at = COALESCE(ended_at, %s) "
             " WHERE id = %s AND status = ANY(%s)",
-            (IncidentStatus.RESOLVED, incident_id, resolvable)
+            (IncidentStatus.RESOLVED, at, incident_id, resolvable)
         )
         resolved = cursor.rowcount == 1
     conn.commit()

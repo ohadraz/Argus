@@ -41,22 +41,22 @@ def resolve_incident(incident_id: str,
     Published only where the row actually moved, so a second press, or a press
     on an incident somebody withdrew meanwhile, says nothing untrue to anybody
     watching.
+
+    The change is built before the row is written, so a row ending now ends at
+    the moment the account says it did.
     """
+    narrating = StatusChanged(incident_id=incident_id,
+                              to_status=IncidentStatus.RESOLVED,
+                              reported=reported)
+
     with connections() as conn:
-        resolved = incidents.resolve(conn, incident_id)
+        resolved = incidents.resolve(conn, incident_id, at=narrating.at)
 
     if resolved:
         # The channel and not the name: which door the report came through is
         # what an operator reading the log needs, and the name is in the
         # account for anybody who needs that.
         logger.info("incident resolved", extra={"channel": reported.channel})
-        publish(
-            StatusChanged(
-                incident_id=incident_id,
-                to_status=IncidentStatus.RESOLVED,
-                reported=reported
-            ),
-            publisher
-        )
+        publish(narrating, publisher)
 
     return resolved

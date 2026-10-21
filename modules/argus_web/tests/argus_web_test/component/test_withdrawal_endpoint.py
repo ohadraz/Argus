@@ -13,7 +13,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx2
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus, Report, ReportChannel
 from argus_core.telemetry import ARGUS_INCIDENT_ID
@@ -38,7 +38,7 @@ def test_withdrawing_a_running_incident_stops_it() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -63,7 +63,7 @@ def test_a_withdrawal_from_the_page_is_recorded_as_the_demo_users() -> None:
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -89,11 +89,12 @@ def test_withdrawing_an_incident_that_already_ended_is_refused() -> None:
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         incidents.transition(
             conn,
             incident_id,
-            IncidentStatus.RESOLVED
+            IncidentStatus.RESOLVED,
+            at=utc_now()
         )
 
     with TestClient(app) as client:
@@ -131,7 +132,8 @@ def test_a_withdrawal_continues_the_incidents_trace() -> None:
     some_alert = Alert(service="kuki-traced-withdrawal", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, trace_context=SOME_TRACE_CONTEXT)
+        incident_id = incidents.create(conn, some_alert, trace_context=SOME_TRACE_CONTEXT,
+                                       at=utc_now())
 
     with observing_the_app() as spans, TestClient(app) as client:
         Scenario() \
@@ -153,8 +155,8 @@ def test_a_withdrawal_refused_is_logged(caplog: pytest.LogCaptureFixture) -> Non
     some_alert = Alert(service="kuki-refused-withdrawal", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.transition(conn, incident_id, IncidentStatus.RESOLVED)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.RESOLVED, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \

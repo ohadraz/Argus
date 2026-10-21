@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import (
     ALERT_FIRING,
     CHAT_THREAD,
@@ -168,7 +168,8 @@ def test_an_incident_found_by_a_name_is_found_as_it_stands() -> None:
             .given(
                 calling(lambda: references.add(conn, some_incident, [some_name])),
                 calling(lambda: incidents.transition(
-                    conn, some_incident, IncidentStatus.ESCALATED
+                    conn, some_incident, IncidentStatus.ESCALATED,
+                    at=utc_now()
                 ))
             ) \
             .when(lambda: references.get_incidents_by_values(

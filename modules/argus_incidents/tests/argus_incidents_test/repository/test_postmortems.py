@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -65,7 +65,7 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_proposing)
+                lambda: postmortems.record(conn, incident_id, a_document_proposing, at=utc_now())
             ) \
             .then(
                 all_of(
@@ -74,6 +74,25 @@ def test_a_document_proposing_a_fix_comes_back_naming_where_to_read_it() -> None
                     ),
                     _the_stored_postmortem_numbers_the_proposal(conn, incident_id, 7)
                 )
+            )
+
+
+@pytest.mark.integration
+def test_a_document_is_dated_by_the_moment_given() -> None:
+    # The moment of the line saying it was written: the page's author line and
+    # the account's line are one instant.
+    some_moment = datetime(2026, 10, 21, 19, 14, 9, 456789, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_created_in(conn)
+
+        Scenario() \
+            .when(
+                lambda: postmortems.record(conn, incident_id, _a_document(pull_request=None),
+                                           at=some_moment)
+            ) \
+            .then(
+                _the_stored_postmortem_was_written_at(conn, incident_id, some_moment)
             )
 
 
@@ -88,7 +107,8 @@ def test_a_document_that_proposed_no_fix_comes_back_proposing_none() -> None:
         Scenario() \
             .when(
                 lambda: postmortems.record(
-                    conn, incident_id, a_document_proposing_nothing
+                    conn, incident_id, a_document_proposing_nothing,
+                    at=utc_now()
                 )
             ) \
             .then(
@@ -141,7 +161,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_complete_document)
+                lambda: postmortems.record(conn, incident_id, a_complete_document, at=utc_now())
             ) \
             .then(
                 no_column_is_empty(conn, "postmortem", "incident_id", incident_id)
@@ -167,7 +187,7 @@ def test_what_people_told_the_incident_comes_back_whole() -> None:
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_with_leads)
+                lambda: postmortems.record(conn, incident_id, a_document_with_leads, at=utc_now())
             ) \
             .then(
                 _the_stored_postmortem_carries_the_leads(conn, incident_id, some_leads)
@@ -191,7 +211,8 @@ def test_the_templates_sections_come_back_whole() -> None:
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_with_every_section)
+                lambda: postmortems.record(conn, incident_id, a_document_with_every_section,
+                                           at=utc_now())
             ) \
             .then(
                 _the_stored_postmortem_carries_the_sections(conn, incident_id, some_sections)
@@ -212,13 +233,30 @@ def test_what_came_of_each_read_comes_back_as_it_was_written() -> None:
 
         Scenario() \
             .when(
-                lambda: postmortems.record(conn, incident_id, a_document_with_readings)
+                lambda: postmortems.record(conn, incident_id, a_document_with_readings,
+                                           at=utc_now())
             ) \
             .then(
                 _the_stored_postmortem_read(conn, incident_id, (ChannelReading.UNANSWERED,
                                                                 ChannelReading.ONLY_SINCE_ARGUS_ACTED,
                                                                 ChannelReading.NOT_ASKED))
             )
+
+
+def _the_stored_postmortem_was_written_at(conn: psycopg.Connection,
+                                          incident_id: str,
+                                          moment: datetime) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = postmortems.get_by_incident(conn, incident_id)
+        written_at = stored.created_at if stored is not None else None
+
+        if written_at != moment:
+            raise AssertionError(
+                f"Expected the postmortem to be written at [{moment}], got [{written_at}].")
+
+        return True
+
+    return assertion
 
 
 def _the_stored_postmortem_read(conn: psycopg.Connection,
@@ -466,7 +504,8 @@ def _an_incident_created_in(conn: psycopg.Connection) -> str:
             severity="critical",
             summary="dont care",
             started_at=datetime.now(UTC)
-        )
+        ),
+        at=utc_now()
     )
 
 

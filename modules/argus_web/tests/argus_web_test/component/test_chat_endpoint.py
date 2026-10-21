@@ -26,7 +26,7 @@ from uuid import uuid4
 
 import httpx2
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import PersonWrote, StatusChanged
 from argus_core.models import (
     Alert,
@@ -257,7 +257,7 @@ def _an_incident_told_in(thread: Reference,
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, trace_context)
+        incident_id = incidents.create(conn, some_alert, trace_context, at=utc_now())
         references.add(conn, incident_id, [thread])
         conn.commit()
 

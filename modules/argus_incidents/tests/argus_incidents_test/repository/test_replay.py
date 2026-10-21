@@ -23,7 +23,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import Alert
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.repository import incidents, replay
@@ -150,7 +150,8 @@ def test_what_an_incident_spent_is_every_count_its_model_calls_reported() -> Non
     some_cache_write_tokens = 1_204
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+                                       at=utc_now())
 
         Scenario() \
             .given(
@@ -183,7 +184,8 @@ def test_what_an_incident_spent_counts_nothing_for_the_tools_it_called() -> None
     dont_care_response: dict[str, object] = {"lines": []}
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+        incident_id = incidents.create(conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+                                       at=utc_now())
 
         Scenario() \
             .given(
@@ -211,7 +213,8 @@ def test_an_incident_that_called_no_model_spent_nothing_rather_than_nothing_know
         Scenario() \
             .given(
                 an_incident_that_never_reached_a_model := incidents.create(
-                    conn, Alert(service="io-shop", alert_name="HighErrorRate")
+                    conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+                    at=utc_now()
                 )
             ) \
             .when(

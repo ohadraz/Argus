@@ -6,7 +6,7 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
 from argus_core.telemetry import (
@@ -38,7 +38,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
@@ -67,8 +67,8 @@ def test_a_walk_withdrawn_before_it_started_announces_no_investigation(
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
-        incidents.withdraw(conn, incident_id)  # commits, so the walk reads it back
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())  # commits, so the walk reads it back
 
         Scenario() \
             .given(
@@ -94,7 +94,7 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: 
     a_graph = create_autospec(CompiledStateGraph, instance=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
@@ -125,7 +125,7 @@ def test_a_walk_is_one_span_the_graph_runs_inside(a_clean_database: None) -> Non
     observed = observing()
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
@@ -157,7 +157,7 @@ def test_a_walk_is_counted_and_timed_by_how_the_incident_ended(
     observed = observing()
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \
@@ -189,7 +189,7 @@ def test_a_walk_is_logged_as_it_starts_and_as_it_ends(
     some_seconds_walked = 42.5
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, dont_care_alert)
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
         conn.commit()  # the walk reads it back on a connection of its own
 
         Scenario() \

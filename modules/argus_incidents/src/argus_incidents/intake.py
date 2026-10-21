@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from argus_core import Connections
+from argus_core import Connections, utc_now
 from argus_core.models import ALERT_FIRING, Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 
@@ -110,10 +110,13 @@ def start_incident(alert: Alert,
     # alert has already been received; published before the commit because an
     # incident whose account begins nowhere is the failure `publish_beside`
     # exists to prevent.
+    # One instant for the row and the sentence opening its account, taken once.
+    opened_at = utc_now()
+
     with connections() as conn:
-        incident_id = incidents.create(conn, alert, trace_context)
+        incident_id = incidents.create(conn, alert, trace_context, at=opened_at)
         references.add(conn, incident_id, alert.references)
-        acknowledge_alert(conn, incident_id, alert, publisher_for)
+        acknowledge_alert(conn, incident_id, alert, publisher_for, at=opened_at)
         conn.commit()
 
     with connections() as conn:

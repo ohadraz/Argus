@@ -13,7 +13,7 @@ from http import HTTPStatus as HttpStatus
 
 import httpx2
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus, Report, ReportChannel
 from argus_core.telemetry import ARGUS_INCIDENT_ID
@@ -38,7 +38,7 @@ def test_resolving_a_running_incident_resolves_it() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -63,7 +63,7 @@ def test_a_resolution_from_the_page_is_recorded_as_the_demo_users_with_their_not
     some_note = "rolled the flag back by hand"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -90,7 +90,7 @@ def test_a_resolution_with_a_blank_note_records_no_note() -> None:
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -116,8 +116,8 @@ def test_a_resolution_tells_the_page_to_reload() -> None:
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -140,8 +140,8 @@ def test_resolving_an_incident_that_cannot_be_resolved_is_refused() -> None:
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -178,7 +178,8 @@ def test_a_resolution_continues_the_incidents_trace() -> None:
     some_alert = Alert(service="kuki-traced-resolution", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert, trace_context=SOME_TRACE_CONTEXT)
+        incident_id = incidents.create(conn, some_alert, trace_context=SOME_TRACE_CONTEXT,
+                                       at=utc_now())
 
     with observing_the_app() as spans, TestClient(app) as client:
         Scenario() \
@@ -200,8 +201,8 @@ def test_a_resolution_refused_is_logged(caplog: pytest.LogCaptureFixture) -> Non
     some_alert = Alert(service="kuki-refused-resolution", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \

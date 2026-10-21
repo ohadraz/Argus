@@ -18,7 +18,7 @@ from http import HTTPStatus as HttpStatus
 import httpx2
 import psycopg
 import pytest
-from argus_core import connect_from_env, new_id
+from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import CandidateSelected, ChangesRetrieved, StatusChanged
 from argus_core.models import (
     ActionItem,
@@ -95,9 +95,9 @@ def test_the_history_lists_incidents_newest_first() -> None:
     a_newer_alert = Alert(service="newer-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        older = incidents.create(conn, an_older_alert)
+        older = incidents.create(conn, an_older_alert, at=utc_now())
         conn.commit()  # `now()` is transaction time - one transaction, one timestamp
-        newer = incidents.create(conn, a_newer_alert)
+        newer = incidents.create(conn, a_newer_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -117,7 +117,7 @@ def test_the_history_links_to_each_incident() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -152,7 +152,7 @@ def test_the_polled_history_fragment_carries_the_incidents() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -174,7 +174,7 @@ def test_a_time_is_shown_in_the_zone_it_is_written_in() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -195,7 +195,7 @@ def test_an_incident_page_shows_every_candidate_in_rank_order() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
         _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
 
@@ -218,7 +218,7 @@ def test_an_incident_page_distinguishes_a_candidate_the_walk_never_reached() -> 
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         tried = _a_candidate_recorded_for(conn, incident_id, subject="tried", rank=1)
         _a_candidate_recorded_for(conn, incident_id, subject="never reached", rank=2)
         hypotheses.record_outcome(conn, tried, tested=True, result="confirmed")
@@ -244,7 +244,7 @@ def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_bac
     some_reason = "some reason the gate held its test back"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         held_back = _a_candidate_recorded_for(conn, incident_id, subject="held back", rank=1)
         hypotheses.record_outcome(conn, held_back, tested=False, result=some_reason)
 
@@ -270,7 +270,7 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
     a_cited_line = "error rate rose at 10:14"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_candidate_recorded_for(
             conn,
             incident_id,
@@ -300,7 +300,7 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         refuted = _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
         confirmed = _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
         _an_attempt_taken_for(conn, incident_id, refuted, outcome=Verdict.REFUTED)
@@ -326,7 +326,7 @@ def test_a_running_incident_keeps_asking_for_more() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -347,11 +347,12 @@ def test_a_finished_incident_stops_asking() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         incidents.transition(
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
+            at=utc_now(),
         )
 
     Scenario() \
@@ -373,7 +374,7 @@ def test_the_polled_fragment_carries_the_walk_on_its_own() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_candidate_recorded_for(conn, incident_id, subject="a-flag", rank=1)
 
     Scenario() \
@@ -414,7 +415,7 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
     a_root_cause = "a-flag was enabled"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -427,7 +428,8 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
                 responders=None,
                 tokens_spent=None,
                 assumptions=["dont care"]
-            )
+            ),
+            at=utc_now()
         )
 
     Scenario() \
@@ -449,7 +451,7 @@ def test_an_incident_with_no_postmortem_says_so_rather_than_failing() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -470,7 +472,7 @@ def test_the_postmortem_page_offers_the_document_as_a_pdf() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -494,7 +496,7 @@ def test_the_postmortem_page_s_all_incidents_link_leads_to_the_list_of_them() ->
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -515,7 +517,7 @@ def test_an_incident_with_no_postmortem_offers_no_pdf_of_one() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -535,7 +537,7 @@ def test_the_postmortem_downloads_as_a_pdf_named_for_its_incident() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     with TestClient(app) as client:
@@ -557,7 +559,7 @@ def test_an_incident_with_no_postmortem_has_no_pdf_of_one() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     with TestClient(app) as client:
         Scenario() \
@@ -596,7 +598,7 @@ def test_a_running_incident_can_be_withdrawn_from_its_page() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -619,11 +621,12 @@ def test_a_finished_incident_offers_no_way_to_withdraw_it() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         incidents.transition(
             conn,
             incident_id,
             IncidentStatus.RESOLVED,
+            at=utc_now(),
         )
 
     Scenario() \
@@ -646,7 +649,7 @@ def test_a_running_incident_can_be_resolved_from_its_page() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     Scenario() \
         .given(
@@ -669,8 +672,8 @@ def test_an_incident_argus_escalated_can_still_be_resolved_and_not_withdrawn() -
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.ESCALATED, at=utc_now())
 
     Scenario() \
         .given(
@@ -692,8 +695,8 @@ def test_a_withdrawn_incident_offers_no_way_to_resolve_it() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     Scenario() \
         .given(
@@ -718,7 +721,7 @@ def test_the_postmortem_page_says_who_resolved_the_incident_and_what_they_said()
     some_note = "rolled the flag back by hand"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -731,7 +734,8 @@ def test_the_postmortem_page_says_who_resolved_the_incident_and_what_they_said()
                 responders=None,
                 tokens_spent=None,
                 assumptions=["dont care"]
-            )
+            ),
+            at=utc_now()
         )
         events.record(conn, StatusChanged(
             incident_id=incident_id,
@@ -762,7 +766,7 @@ def test_an_incident_a_person_resolved_before_any_postmortem_says_who_on_its_pag
     some_note = "rolled the flag back by hand"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         events.record(conn, StatusChanged(
             incident_id=incident_id,
             to_status=IncidentStatus.RESOLVED,
@@ -795,7 +799,7 @@ def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> Non
     some_other_title = "Senior Shuki Tuki"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -809,7 +813,8 @@ def test_the_postmortem_page_says_how_many_responded_and_what_they_were() -> Non
                 responder_titles=[some_title, some_other_title],
                 tokens_spent=None,
                 assumptions=["dont care"]
-            )
+            ),
+            at=utc_now()
         )
 
     Scenario() \
@@ -843,7 +848,7 @@ def test_the_postmortem_page_says_what_people_told_the_incident_and_what_it_chan
     some_late_words = "it is the database again"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -876,7 +881,8 @@ def test_the_postmortem_page_says_what_people_told_the_incident_and_what_it_chan
                         effect=None
                     )
                 ]
-            )
+            ),
+            at=utc_now()
         )
 
     Scenario() \
@@ -907,7 +913,7 @@ def test_the_postmortem_page_shows_the_template_s_sections_in_its_order() -> Non
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[PostmortemLead(
             label="L1",
             person_id="U-some-person",
@@ -938,7 +944,7 @@ def test_a_postmortem_section_with_nothing_in_it_is_still_shown_but_what_people_
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -961,7 +967,7 @@ def test_the_postmortem_header_names_its_incident_and_tells_its_two_times_apart(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -984,7 +990,7 @@ def test_the_postmortem_header_links_its_incident_in_full() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -1007,7 +1013,7 @@ def test_the_postmortem_page_links_its_incident_by_its_title_and_in_full_alone()
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -1032,8 +1038,9 @@ def test_a_refusal_in_the_resolution_gives_its_row_no_anchor() -> None:
                                   has_a_way_back=False, outcome="not taken", label=None)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        postmortems.record(conn, incident_id, _a_document_with(resolution=[some_refusal]))
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(resolution=[some_refusal]),
+                           at=utc_now())
 
     Scenario() \
         .given(
@@ -1054,7 +1061,7 @@ def test_the_postmortem_header_answers_its_five_questions_in_order() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -1077,13 +1084,14 @@ def test_the_postmortem_header_dates_the_incident_once_on_both_clocks() -> None:
     some_onset = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(timeline=[
             TimelineEntry(at=some_onset, who=None, text="dont care",
                           marker=TimelineMarker.IMPACT_BEGINS),
             TimelineEntry(at=some_onset + timedelta(minutes=9), who=None, text="dont care",
                           marker=TimelineMarker.IMPACT_ENDS)
-        ]))
+        ]),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1104,13 +1112,14 @@ def test_the_postmortem_header_counts_the_action_items_already_done() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(action_items=[
             ActionItem(number="AI-1", text="dont care", type=ActionItemType.MITIGATE,
                        owner=None, tracking=None, status=ActionItemStatus.DONE),
             ActionItem(number="AI-2", text="dont care", type=ActionItemType.PREVENT,
                        owner=None, tracking=None, status=ActionItemStatus.OPEN)
-        ]))
+        ]),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1133,11 +1142,12 @@ def test_the_postmortem_header_says_whether_a_person_has_reviewed_it(met: bool |
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(review=[
             ReviewCriterion(criterion="dont care", met=True),
             ReviewCriterion(criterion="dont care either", met=met)
-        ]))
+        ]),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1159,11 +1169,12 @@ def test_a_check_left_for_a_person_says_what_they_would_do_on_the_page() -> None
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(review=[
             ReviewCriterion(criterion="Root-cause analysis complete", met=None,
                             because="the cause rests on F1, a reading of the source nothing ran")
-        ]))
+        ]),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1186,10 +1197,11 @@ def test_an_impact_card_shows_its_figure_its_label_and_its_note() -> None:
                                worse_when="below", line=0.8)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
-                          peak_error_rate=None, rule_series_harm=some_harm)))
+                          peak_error_rate=None, rule_series_harm=some_harm)),
+                          at=utc_now())
 
     Scenario() \
         .given(
@@ -1209,13 +1221,14 @@ def test_the_postmortem_header_says_argus_ended_an_incident_nobody_reported_over
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(resolution=[
             ResolutionStep(at=datetime(2026, 10, 11, 14, 11, tzinfo=UTC),
                            action="revert-feature-flag on monthly-spend-feature",
                            by="Argus", has_a_way_back=True, outcome="confirmed, still in place",
                            label="M1")
-        ]))
+        ]),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1237,7 +1250,7 @@ def test_the_postmortem_header_says_the_person_who_reported_the_incident_over_en
     some_person = "Kuki Buki"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
         events.record(conn, StatusChanged(
             incident_id=incident_id,
@@ -1264,12 +1277,13 @@ def test_the_postmortem_title_says_the_symptom_and_the_change_it_began_with() ->
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             symptom="Account pages failed",
             trigger=Trigger(subject="monthly-spend-feature", from_state="off", to_state="on",
                             changed_at=None)
-        ))
+        ),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1289,7 +1303,7 @@ def test_a_postmortem_that_names_no_symptom_is_titled_by_its_alert() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         _a_postmortem_recorded_for(conn, incident_id, leads=[])
 
     Scenario() \
@@ -1311,11 +1325,12 @@ def test_the_trigger_says_what_kind_of_change_it_was_and_between_which_states() 
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(trigger=Trigger(
             subject="monthly-spend-feature", from_state="off", to_state="on",
             changed_at=None, kind=ChangeKind.FLAG_TOGGLE
-        )))
+        )),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1341,11 +1356,12 @@ def test_a_deployment_trigger_says_which_service_went_between_which_revisions() 
     new_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(trigger=Trigger(
             subject=new_revision, from_state=old_revision, to_state=new_revision,
             changed_at=None, kind=ChangeKind.DEPLOY
-        )))
+        )),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1367,14 +1383,15 @@ def test_a_deployment_trigger_names_the_service_and_its_revision_in_the_title() 
     new_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             symptom=symptom,
             trigger=Trigger(subject=new_revision,
                             from_state="4c810f22894e612ced87f5ee3f3062dfeb785050",
                             to_state=new_revision, changed_at=None,
                             kind=ChangeKind.DEPLOY)
-        ))
+        ),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1394,11 +1411,12 @@ def test_the_impact_says_how_many_requests_failed() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "impact": Impact(duration=timedelta(minutes=9), extent=ImpactExtent.MEASURED,
                              peak_error_rate=0.338, requests_failed=4210)
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1417,11 +1435,12 @@ def test_the_trigger_says_who_made_the_change() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(trigger=Trigger(
             subject="monthly-spend-feature", from_state="off", to_state="on",
             changed_at=None, kind=ChangeKind.FLAG_TOGGLE, actor="kuki"
-        )))
+        )),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1442,11 +1461,12 @@ def test_a_suspected_trigger_is_said_as_suspected() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(trigger=Trigger(
             subject="monthly-spend-feature", from_state="off", to_state="on",
             changed_at=None, suspected=True
-        )))
+        )),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1468,12 +1488,13 @@ def test_a_suspected_trigger_stays_out_of_the_title() -> None:
     some_symptom = "Account pages failed"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             symptom=some_symptom,
             trigger=Trigger(subject="monthly-spend-feature", from_state="off",
                             to_state="on", changed_at=None, suspected=True)
-        ))
+        ),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1501,12 +1522,13 @@ def test_a_loss_over_an_incident_that_never_ended_is_said_to_be_at_least(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "customer_loss_estimate": Decimal("500"),
             "estimate_currency": "usd",
             "impact": Impact(duration=timedelta(hours=2), extent=extent, peak_error_rate=None)
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1535,12 +1557,13 @@ def test_no_loss_is_said_as_none_rather_than_as_an_amount(extent: ImpactExtent,
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "customer_loss_estimate": Decimal("0"),
             "estimate_currency": "usd",
             "impact": Impact(duration=timedelta(hours=2), extent=extent, peak_error_rate=None)
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1561,7 +1584,7 @@ def test_the_postmortem_page_shows_every_amount_to_the_cent() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -1576,7 +1599,8 @@ def test_the_postmortem_page_shows_every_amount_to_the_cent() -> None:
                 responder_cost_currency="usd",
                 tokens_spent=None,
                 assumptions=[]
-            )
+            ),
+            at=utc_now()
         )
 
     Scenario() \
@@ -1599,13 +1623,14 @@ def test_detection_names_the_alert_the_way_the_header_does() -> None:
     some_onset = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "detection": Detection(alerted_at=some_onset + timedelta(minutes=2),
                                    rule="io-shop-high-error-rate",
                                    onset_at=some_onset,
                                    gap=timedelta(minutes=2))
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1625,7 +1650,7 @@ def test_the_postmortem_page_says_how_long_the_alert_took_in_minutes_and_seconds
     some_onset = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -1642,7 +1667,8 @@ def test_the_postmortem_page_says_how_long_the_alert_took_in_minutes_and_seconds
                                     rule="HighErrorRate",
                                     onset_at=some_onset,
                                     gap=timedelta(minutes=2, seconds=40))
-            )
+            ),
+            at=utc_now()
         )
 
     Scenario() \
@@ -1666,10 +1692,11 @@ def test_the_resolution_names_the_fix_proposed_as_well_as_the_action_taken() -> 
     some_fix = "https://github.invalid/ohadraz/io-shop/pull/7"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "pull_request": OpenedPullRequest(number=7, url=some_fix, branch="argus/fix-abc")
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1693,7 +1720,7 @@ def test_the_postmortem_page_links_its_walk_and_the_fix_in_full_and_not_itself()
     some_fix = "https://github.invalid/ohadraz/io-shop/pull/7"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(
             conn,
             incident_id,
@@ -1707,7 +1734,8 @@ def test_the_postmortem_page_links_its_walk_and_the_fix_in_full_and_not_itself()
                 tokens_spent=None,
                 assumptions=[],
                 pull_request=OpenedPullRequest(number=7, url=some_fix, branch="argus/fix-abc")
-            )
+            ),
+            at=utc_now()
         )
 
     Scenario() \
@@ -1734,7 +1762,7 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
     dont_care_moment = datetime(2026, 10, 11, 14, 11, tzinfo=UTC)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             timeline=[
                 TimelineEntry(at=dont_care_moment, who=None, text="dont care",
@@ -1758,7 +1786,8 @@ def test_every_row_the_prose_can_cite_answers_to_its_label() -> None:
             "leads": [PostmortemLead(label="L1", person_id="U-some-person", person_name=None,
                                      text="dont care", written_at=dont_care_moment,
                                      weighing=None, effect=None)]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1784,12 +1813,13 @@ def test_what_the_alert_said_answers_to_its_label() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "detection": Detection(alerted_at=datetime(2026, 10, 11, 14, 11, tzinfo=UTC),
                                    rule="dont care", onset_at=None, gap=None,
                                    said=CitedEvidence(label="AL1", text="240 totals are off"))
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1846,12 +1876,13 @@ def test_a_label_cited_in_any_prose_links_to_its_row(prose: dict[str, object]) -
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
                                                 result="dont care", label="C1")],
             **prose
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1872,12 +1903,13 @@ def test_what_a_step_ruled_out_is_said_under_it() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "causal_chain": [ChainStep(text="dont care", cites=[],
                                        ruled_out=[RuledOut(text="The earlier deploy was healthy.",
                                                            cites=[])])]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1901,11 +1933,12 @@ def test_a_row_standing_for_several_candidates_answers_to_each_label() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
                                                 result="dont care", label="C1", also=["C2"])]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1929,8 +1962,8 @@ def test_a_time_said_again_on_the_reader_s_clock_leaves_no_space_where_it_is_not
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        postmortems.record(conn, incident_id, _a_document_with())
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(), at=utc_now())
 
     Scenario() \
         .given(
@@ -1951,7 +1984,7 @@ def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
                                                 result="dont care", label="C1")],
@@ -1959,7 +1992,8 @@ def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
                                        who="Investigator Agent",
                                        text="Formed 1 candidate cause, best first: C1",
                                        label="T1")]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -1980,13 +2014,14 @@ def test_a_step_and_a_line_of_the_timeline_show_the_label_they_are_cited_by() ->
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             resolution=[ResolutionStep(at=datetime(2026, 10, 11, 14, 5, tzinfo=UTC),
                                        action="Turned the flag off", by="Argus",
                                        has_a_way_back=True, outcome="dont care", label="M1")],
             timeline=[TimelineEntry(at=datetime(2026, 10, 11, 14, 3, tzinfo=UTC),
-                                    who="Argus", text="The flag went on.", label="T1")]))
+                                    who="Argus", text="The flag went on.", label="T1")]),
+                                    at=utc_now())
 
     Scenario() \
         .given(
@@ -2006,14 +2041,15 @@ def test_a_label_a_check_left_for_a_person_cites_links_to_its_row() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(
             action_items=[ActionItem(number="AI-2", text="dont care",
                                      type=ActionItemType.PREVENT, owner=None, tracking=None,
                                      status=ActionItemStatus.OPEN)],
             review=[ReviewCriterion(criterion="Root-cause analysis complete", met=None,
                                     because="running the proposed fix's tests would "
-                                            "confirm it (AI-2)")]))
+                                            "confirm it (AI-2)")]),
+                                            at=utc_now())
 
     Scenario() \
         .given(
@@ -2034,11 +2070,12 @@ def test_a_change_the_root_cause_names_links_to_its_row() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "root_cause": "The deploy P2 switched the model.",
             "changes_read": [_a_change_read("P2")]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2060,12 +2097,13 @@ def test_a_kind_of_change_with_no_row_is_said_beneath_the_rows_there_are() -> No
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "changes_read": [_a_change_read("P2")],
             "deploys_reading": ChannelReading.NOT_ASKED,
             "flags_reading": ChannelReading.READ
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2086,13 +2124,14 @@ def test_what_a_deployment_changed_the_root_cause_names_links_to_its_row() -> No
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "root_cause": "As D1 shows, the categoriser's model went from v1 to v2.",
             "deployment_changes_read": [CitedEvidence(
                 label="D1",
                 text="modified deploy/values-production.yaml\n  -  model: v1\n  +  model: v2")]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2114,11 +2153,12 @@ def test_what_code_fix_read_the_root_cause_names_links_to_its_row() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "root_cause": "As F1 reads the code, v2 meets input it was not built for.",
             "code_read": [CitedEvidence(label="F1", text="the categoriser does not lowercase")]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2142,7 +2182,7 @@ def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "changes_read": [CitedChange(
                 label="P1",
@@ -2159,7 +2199,8 @@ def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory(
                         directory="deploy",
                         directory_address=f"{some_repository}/tree/{some_revision}/deploy")),
                 short_reference=some_revision[:7])]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2185,7 +2226,7 @@ def test_a_deployment_trigger_s_revision_opens_its_commit() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "trigger": Trigger(subject="dont care",
                                from_state="4c810f2aa1e9a6f3b7c9d0e1f2a3b4c5d6e7f809",
@@ -2204,7 +2245,8 @@ def test_a_deployment_trigger_s_revision_opens_its_commit() -> None:
                         repository_address=some_repository,
                         revision_address=commit)),
                 short_reference=some_revision[:7])]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2228,7 +2270,7 @@ def test_a_revision_the_root_cause_names_opens_its_commit() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "root_cause": f"The deploy of revision {some_revision[:7]} broke it.",
             "changes_read": [CitedChange(
@@ -2243,7 +2285,8 @@ def test_a_revision_the_root_cause_names_opens_its_commit() -> None:
                         repository_address=some_repository,
                         revision_address=commit)),
                 short_reference=some_revision[:7])]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2268,7 +2311,7 @@ def test_a_revision_a_hypothesis_names_opens_its_commit() -> None:
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "hypotheses": [HypothesisConsidered(
                 summary=f"{some_revision} made every page slow", confidence=0.8,
@@ -2285,7 +2328,8 @@ def test_a_revision_a_hypothesis_names_opens_its_commit() -> None:
                         repository_address=some_repository,
                         revision_address=commit)),
                 short_reference=some_revision[:7])]
-        }))
+        }),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2310,7 +2354,7 @@ def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> 
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
         events.record(conn, CandidateSelected(incident_id=incident_id, hypothesis_id=new_id(),
                                               summary=f"[{some_revision}] made every page slow",
@@ -2340,7 +2384,7 @@ def test_a_change_read_is_named_on_the_incident_page_as_its_postmortem_row_names
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         events.record(conn, _a_deploy_read_on(
             incident_id, some_revision, some_repository,
             summary=f"deployed revision {some_revision} from the acme/shop repository"))
@@ -2367,13 +2411,14 @@ def test_a_contributing_factor_links_to_the_action_items_that_answer_it() -> Non
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(action_items=[
             ActionItem(number="AI-1", text="dont care", type=ActionItemType.PREVENT,
                        owner=None, tracking=None, status=ActionItemStatus.OPEN)
         ]).model_copy(update={"contributing_factors": [
             ContributingFactor(text="dont care", addressed_by=["AI-1"])
-        ]}))
+        ]}),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2396,13 +2441,14 @@ def test_a_timeline_row_on_a_new_day_says_its_date() -> None:
     onset = datetime(2026, 9, 28, 16, 10, tzinfo=UTC)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(timeline=[
             TimelineEntry(at=onset, who=None, text="the incident began"),
             TimelineEntry(at=onset + timedelta(hours=1), who=None, text="it went on"),
             TimelineEntry(at=datetime(2026, 10, 5, 16, 8, 38, tzinfo=UTC), who=None,
                           text="it was found")
-        ]))
+        ]),
+        at=utc_now())
 
     Scenario() \
         .given(
@@ -2430,8 +2476,8 @@ def test_the_impact_says_what_the_alert_found() -> None:
                                     summary=finding, claim=AlarmClaim.ITS_OWN_FINDING)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, an_alert_with_a_finding)
-        postmortems.record(conn, incident_id, _a_document_with())
+        incident_id = incidents.create(conn, an_alert_with_a_finding, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(), at=utc_now())
 
     Scenario() \
         .given(
@@ -2450,8 +2496,8 @@ def test_an_alert_that_found_nothing_in_words_adds_nothing_to_the_impact() -> No
     an_alert_with_no_finding = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, an_alert_with_no_finding)
-        postmortems.record(conn, incident_id, _a_document_with())
+        incident_id = incidents.create(conn, an_alert_with_no_finding, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(), at=utc_now())
 
     Scenario() \
         .given(
@@ -2482,7 +2528,8 @@ def _a_postmortem_recorded_for(conn: psycopg.Connection,
             tokens_spent=None,
             assumptions=[],
             leads=leads
-        )
+        ),
+        at=utc_now()
     )
 
 

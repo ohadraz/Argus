@@ -100,7 +100,7 @@ class Records:
         row it accounts for.
         """
         with self._connections() as conn:
-            moved = incidents.transition(conn, incident_id, to_status)
+            moved = incidents.transition(conn, incident_id, to_status, at=narrating.at)
 
             if moved:
                 publish_beside(conn, narrating, self._publisher_for(conn))
@@ -188,18 +188,20 @@ class Records:
         The summary travels on the event rather than being read back from the
         row, so that a destination says what the document said at the moment
         it was written - and beside the row, inside a savepoint, so a
-        subscriber having a bad day cannot lose the document itself.
+        subscriber having a bad day cannot lose the document itself. The row
+        is stamped with the event's moment, so the page's author line and the
+        account's line are one instant.
         """
+        written = PostmortemWritten(incident_id=incident_id,
+                                    root_cause=document.root_cause,
+                                    executive_summary=document.executive_summary,
+                                    customer_loss_estimate=document.customer_loss_estimate,
+                                    estimate_currency=document.estimate_currency,
+                                    engineer_minutes=document.engineer_minutes)
+
         with self._connections() as conn:
-            postmortems.record(conn, incident_id, document)
-            publish_beside(conn, PostmortemWritten(
-                incident_id=incident_id,
-                root_cause=document.root_cause,
-                executive_summary=document.executive_summary,
-                customer_loss_estimate=document.customer_loss_estimate,
-                estimate_currency=document.estimate_currency,
-                engineer_minutes=document.engineer_minutes
-            ), self._publisher_for(conn))
+            postmortems.record(conn, incident_id, document, at=written.at)
+            publish_beside(conn, written, self._publisher_for(conn))
 
     def weighing(self, lead: ThreadMessage, /) -> None:
         """Keeps what the Investigator made of a lead, then says so.

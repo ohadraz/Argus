@@ -107,7 +107,7 @@ def test_an_announced_line_is_posted_to_the_channel(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -134,7 +134,7 @@ def test_the_first_message_becomes_the_conversation_the_incident_is_told_in(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -156,7 +156,7 @@ def test_a_followed_line_is_a_reply_in_the_incident_s_own_thread(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -185,7 +185,7 @@ def test_a_followed_line_with_no_thread_yet_goes_to_the_channel(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -212,7 +212,7 @@ def test_a_line_names_who_did_it_and_marks_the_word_the_dashboard_marks(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -237,7 +237,7 @@ def test_what_code_fix_said_of_the_code_reaches_the_thread_with_its_line(
     some_explanation = "scrape.yaml would have to name the port http-metrics"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -261,7 +261,7 @@ def test_a_name_the_walk_quoted_is_said_without_its_brackets(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -287,7 +287,7 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
     its_commit = f"https://github.invalid/acme/shop/commit/{some_revision}"
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         events.record(conn, _a_deploy_read_on(incident_id, some_revision))
         conn.commit()
 
@@ -315,7 +315,7 @@ def test_an_offer_is_a_reply_whose_button_answers_the_person_s_own_message(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -347,7 +347,7 @@ def test_an_offer_is_remembered_so_that_it_can_be_retired(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -369,7 +369,7 @@ def test_a_line_that_offers_nothing_is_not_remembered_as_an_offer(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -390,7 +390,7 @@ def test_an_offer_slack_refused_leaves_no_offer_to_retire(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -417,7 +417,7 @@ def test_an_incident_past_resolving_takes_the_button_off_its_offer(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -449,7 +449,7 @@ def test_a_move_that_still_takes_a_resolution_leaves_the_offer_standing(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -478,7 +478,7 @@ def test_an_offer_not_confirmed_in_time_loses_its_button(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -512,7 +512,7 @@ def test_an_offer_s_button_says_what_pressing_it_does(
     offer_on = {"resolution": _the_offer_on, "withdrawal": _the_withdrawal_offer_on}[offered]
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -534,7 +534,7 @@ def test_an_offer_to_withdraw_is_remembered_as_one(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -560,7 +560,7 @@ def test_a_mitigated_incident_takes_the_button_off_an_offer_to_withdraw_only(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
 
@@ -595,7 +595,7 @@ def test_an_ending_past_resolving_or_an_expiry_takes_the_button_off_every_offer(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         say = _a_destination_pointed_at(slack)
         the_ending = {
@@ -632,7 +632,7 @@ def test_an_offer_slack_would_not_take_the_button_off_is_written_down(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -663,7 +663,7 @@ def test_a_message_refused_for_good_is_reported_as_never_landing(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -692,7 +692,7 @@ def test_a_line_refused_for_good_is_written_down_on_the_incident(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -721,7 +721,7 @@ def test_a_filed_line_goes_to_the_archive_and_everything_else_to_the_war_room(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -756,7 +756,7 @@ def test_a_write_up_filed_elsewhere_is_pointed_at_from_the_war_room(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
         its_page = f"{ARGUS_AT}/incidents/{incident_id}/postmortem"
 
@@ -788,7 +788,7 @@ def test_a_line_refused_for_good_is_logged_as_an_error(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \
@@ -816,7 +816,7 @@ def test_an_offer_that_keeps_its_button_is_logged_as_a_warning(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         conn.commit()
 
         Scenario() \

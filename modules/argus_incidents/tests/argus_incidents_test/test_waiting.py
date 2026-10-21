@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import connect_from_env, new_id
+from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import OfferExpired
 from argus_core.models import (
     Alert,
@@ -382,7 +382,8 @@ def test_an_expiry_is_kept_on_the_incident_and_told_among_its_events() -> None:
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, Alert(service="io-shop",
-                                                   alert_name="HighErrorRate"))
+                                                   alert_name="HighErrorRate"),
+                                                   at=utc_now())
         conn.commit()
         conversation.write(conn, _written(incident_id, SOME_MESSAGE, at=SOME_MOMENT))
         conn.commit()

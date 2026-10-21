@@ -13,10 +13,11 @@ transition, and it fails alone.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Final
 
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import (
     IncidentEvent,
     LeadWeighed,
@@ -65,7 +66,7 @@ def test_a_transition_survives_a_narration_that_could_not_be_written(
     some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
 
@@ -87,6 +88,32 @@ def test_a_transition_survives_a_narration_that_could_not_be_written(
 
 
 @pytest.mark.component
+def test_a_transition_that_ends_an_incident_ends_it_at_the_moment_it_is_narrated(
+    a_clean_database: None
+) -> None:
+    # The summary said Argus stopped a second before the line saying it had:
+    # the row's end was the database's transaction start.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            narrating := _a_status_change_for(incident_id, IncidentStatus.ESCALATED)
+        ) \
+        .when(
+            lambda: records.transition(incident_id, IncidentStatus.ESCALATED,
+                                       narrating=narrating)
+        ) \
+        .then(
+            _the_incident_ended_at(incident_id, narrating.at)
+        )
+
+
+@pytest.mark.component
 def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
     a_clean_database: None
 ) -> None:
@@ -98,7 +125,7 @@ def test_a_transition_is_not_durable_before_the_line_that_narrates_it(
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     seen_mid_write: list[IncidentStatus] = []
 
@@ -138,8 +165,8 @@ def test_a_withdrawn_incident_is_neither_moved_nor_said_to_have_moved(
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        incidents.withdraw(conn, incident_id)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        incidents.withdraw(conn, incident_id, at=utc_now())
 
     records = Records(connect_from_env, publisher_for=events_into_connection)
 
@@ -173,7 +200,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
     dont_care_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
         taken_actions.claim(
@@ -230,7 +257,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
     dont_care_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         candidate = a_determined_hypothesis(incident_id)
         hypotheses.record(conn, candidate)
         taken_actions.claim(
@@ -277,7 +304,7 @@ def test_a_weighing_is_kept_on_the_lead_and_said(
     some_weighing = Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_written = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon")
     records = Records(connect_from_env, publisher_for=events_into_connection)
@@ -306,7 +333,7 @@ def test_a_weighing_survives_a_narration_that_could_not_be_written(
     some_weighing = Weighing(standing=Standing.REFUTED, reason="the database answered throughout")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_written = _a_lead_written_in(incident_id, "it is the database again")
     records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)
@@ -333,7 +360,7 @@ def test_a_lead_nobody_weighed_is_refused_rather_than_said_to_be_weighed(
     some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_written = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon")
     records = Records(connect_from_env, publisher_for=events_into_connection)
@@ -361,8 +388,8 @@ def test_the_leads_read_are_what_people_told_this_incident(
     some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
-        another_incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        another_incident_id = incidents.create(conn, some_alert, at=utc_now())
 
     a_lead_here = _a_lead_written_in(incident_id, "the kuki flag was flipped at noon",
                                      ts="1760000100.000200")
@@ -422,6 +449,22 @@ def _the_incident_is(incident_id: str, status: IncidentStatus) -> Assertion[None
         if incident.status != status:
             raise AssertionError(
                 f"Expected the incident to be [{status}], got [{incident.status}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_ended_at(incident_id: str, moment: datetime) -> Assertion[bool]:
+    def assertion(_moved: bool) -> bool:
+        with connect_from_env() as conn:
+            incident = incidents.get(conn, incident_id)
+
+        ended_at = incident.ended_at if incident is not None else None
+        if ended_at != moment:
+            raise AssertionError(
+                f"Expected the incident to end at [{moment}], got [{ended_at}]."
             )
 
         return True

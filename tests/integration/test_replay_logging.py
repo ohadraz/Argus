@@ -25,7 +25,7 @@ import pytest
 from agent_investigator import investigate
 from agent_investigator.budget import InvestigationSettings
 from anthropic_double.server import DEFAULT_BASE_URL
-from argus_core import connect_from_env, get_settings
+from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.models import Alert
 from argus_core.replay import CallType, ReplayEntry
 from argus_incidents.publishing import calls_into
@@ -69,7 +69,7 @@ def test_an_investigations_calls_reach_the_replay_log(
     # both payloads, because an entry that reached the table with an empty
     # request is a row that satisfies a count and replays nothing.
     with psycopg.connect(DATABASE_URL) as conn:
-        incident_id = incidents.create(conn, _an_alert())
+        incident_id = incidents.create(conn, _an_alert(), at=utc_now())
         conn.commit()  # the recorder writes on a connection of its own
         the_replay_log_holds = _the_replay_log_holds
 
@@ -111,7 +111,7 @@ def test_an_investigation_that_records_nowhere_still_investigates(
     # the work. An investigation asked to record nowhere must reach the same
     # conclusion, and must not leave rows behind under some other incident.
     with psycopg.connect(DATABASE_URL) as conn:
-        incident_id = incidents.create(conn, _an_alert())
+        incident_id = incidents.create(conn, _an_alert(), at=utc_now())
 
         Scenario() \
             .given(

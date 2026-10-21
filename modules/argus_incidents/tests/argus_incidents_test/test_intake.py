@@ -19,11 +19,12 @@ from __future__ import annotations
 import logging
 
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
+from argus_core.events import AlertAcknowledged
 from argus_core.models import ALERT_FIRING, Alert, IncidentStatus, Reference
 from argus_core.telemetry import ARGUS_INCIDENT_ID
 from argus_incidents import events_into_connection, start_incident
-from argus_incidents.repository import incidents, references
+from argus_incidents.repository import events, incidents, references
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 
 # Two carriers as a W3C propagator writes them: what the alert arrived in, and
@@ -372,6 +373,22 @@ def test_an_incident_started_outside_any_trace_keeps_none() -> None:
 
 
 @pytest.mark.component
+def test_an_incident_opens_at_the_moment_its_acknowledgement_says() -> None:
+    # One instant for the row and the line opening its account, taken once:
+    # every reader measuring from the row measures what the account says.
+    Scenario() \
+        .given(
+            some_alert := Alert(service="kuki-service", alert_name="HighErrorRate")
+        ) \
+        .when(
+            lambda: _started(some_alert)
+        ) \
+        .then(
+            _it_opened_when_its_account_did()
+        )
+
+
+@pytest.mark.component
 def test_an_incident_opened_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # Nothing is walking it yet, so there is no walk to say which incident a
     # line is about - the line names it itself.
@@ -410,6 +427,25 @@ def test_an_alert_joining_an_open_incident_is_logged(caplog: pytest.LogCaptureFi
         )
 
 
+def _it_opened_when_its_account_did() -> Assertion[str]:
+    def assertion(incident_id: str) -> bool:
+        with connect_from_env() as conn:
+            incident = incidents.get(conn, incident_id)
+            acknowledged = [event.at for event in events.get_by_incident(conn, incident_id)
+                            if isinstance(event, AlertAcknowledged)]
+
+        opened_at = incident.created_at if incident is not None else None
+        if acknowledged != [opened_at]:
+            raise AssertionError(
+                f"Expected the incident to open at the moment its acknowledgement says, "
+                f"it opened at [{opened_at}] and was acknowledged at {acknowledged}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_is_found_by(reference: Reference) -> Assertion[str]:
     """That a tool using this name for the incident would reach it."""
     def assertion(incident_id: str) -> bool:
@@ -441,7 +477,7 @@ def _an_incident_that_ended(alert: Alert) -> str:
     incident_id = _started(alert)
 
     with connect_from_env() as conn:
-        incidents.withdraw(conn, incident_id)
+        incidents.withdraw(conn, incident_id, at=utc_now())
         conn.commit()
 
     return incident_id
@@ -460,7 +496,7 @@ def _an_incident_walked_to(status: IncidentStatus, alert: Alert) -> str:
 
     if status != IncidentStatus.ACKNOWLEDGED:
         with connect_from_env() as conn:
-            incidents.transition(conn, incident_id, status)
+            incidents.transition(conn, incident_id, status, at=utc_now())
             conn.commit()
 
     return incident_id
@@ -475,11 +511,11 @@ def _an_incident_ended_as(status: IncidentStatus, alert: Alert) -> str:
     with connect_from_env() as conn:
         match status:
             case IncidentStatus.RESOLVED:
-                incidents.resolve(conn, incident_id)
+                incidents.resolve(conn, incident_id, at=utc_now())
             case IncidentStatus.WITHDRAWN:
-                incidents.withdraw(conn, incident_id)
+                incidents.withdraw(conn, incident_id, at=utc_now())
             case _:
-                incidents.transition(conn, incident_id, status)
+                incidents.transition(conn, incident_id, status, at=utc_now())
                 conn.commit()
 
     return incident_id

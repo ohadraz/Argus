@@ -29,7 +29,7 @@ from decimal import Decimal
 import psycopg
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
-from argus_core import connect_from_env, new_id, parse_iso
+from argus_core import connect_from_env, new_id, parse_iso, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
     ActionRefused,
@@ -850,7 +850,8 @@ def test_an_incident_that_has_not_ended_cannot_be_summarised(a_clean_database: N
         Scenario() \
             .given(
                 incident_id := incidents.create(
-                    conn, Alert(service="io-shop", alert_name="HighErrorRate"))
+                    conn, Alert(service="io-shop", alert_name="HighErrorRate"),
+                    at=utc_now())
             ) \
             .when(
                 attempting(lambda: gather_evidence(conn, incident_id))
@@ -2270,12 +2271,13 @@ def _an_incident_that_ended(conn: psycopg.Connection,
     """
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary,
                        started_at=started_at)
-    incident_id = incidents.create(conn, some_alert)
+    incident_id = incidents.create(conn, some_alert, at=utc_now())
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(
         conn,
         incident_id,
         IncidentStatus.RESOLVED,
+        at=utc_now(),
     )
     events.record(
         conn,

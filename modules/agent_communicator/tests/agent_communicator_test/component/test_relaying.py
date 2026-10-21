@@ -17,7 +17,7 @@ from __future__ import annotations
 import psycopg
 import pytest
 from agent_communicator.relaying import CHAT_RELAY, relay_once
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import IncidentEvent
 from argus_core.models import Alert
 from argus_incidents.following import events_since, place_for
@@ -39,7 +39,7 @@ def test_a_relay_over_the_real_log_says_what_was_published_and_then_stops(
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
-        incident_id = incidents.create(conn, some_alert)
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
         a_destination = a_destination_that_takes_everything()
 
         Scenario() \

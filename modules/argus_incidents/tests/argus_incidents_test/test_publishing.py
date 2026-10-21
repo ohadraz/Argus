@@ -17,6 +17,7 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
+from argus_core import utc_now
 from argus_core.events import AlertAcknowledged, IncidentEvent, nobody
 from argus_core.models import Alert
 from argus_incidents.publishing import acknowledge_alert
@@ -36,7 +37,8 @@ def test_receiving_the_alert_is_the_first_line_of_the_incidents_story() -> None:
             calling(lambda: acknowledge_alert(_a_connection(),
                                               SOME_INCIDENT_ID,
                                               some_alert,
-                                              lambda _conn: published.append))
+                                              lambda _conn: published.append,
+                                              at=utc_now()))
         ) \
         .when(lambda: published) \
         .then(all_of(_exactly_one_event_was_published(),
@@ -48,7 +50,8 @@ def test_an_alert_nobody_is_listening_for_is_still_received() -> None:
     Scenario() \
         .given(DONT_CARE_ALERT) \
         .when(lambda: acknowledge_alert(
-            _a_connection(), SOME_INCIDENT_ID, DONT_CARE_ALERT, lambda _conn: nobody)) \
+            _a_connection(), SOME_INCIDENT_ID, DONT_CARE_ALERT, lambda _conn: nobody,
+            at=utc_now())) \
         .then(_nothing_went_wrong())
 
 

@@ -18,7 +18,7 @@ from unittest.mock import Mock, create_autospec
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.events import PersonWrote
 from argus_core.models import Alert, ReportChannel, ThreadMessage, a_chat_message
 from argus_incidents.ingesting import ingest_a_message
@@ -135,7 +135,8 @@ def _the_failed_attempt_reached_the_event_log(event_log: Mock) -> Assertion[bool
 
 def _an_incident() -> str:
     with connect_from_env() as conn:
-        return incidents.create(conn, Alert(service="kuki-service", alert_name="HighErrorRate"))
+        return incidents.create(conn, Alert(service="kuki-service", alert_name="HighErrorRate"),
+                                at=utc_now())
 
 
 def _it_reports(expected: bool) -> Assertion[bool]:

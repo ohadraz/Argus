@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env
+from argus_core import connect_from_env, utc_now
 from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -259,7 +259,7 @@ def test_a_failed_run_leaves_no_column_of_its_row_empty_but_its_lease() -> None:
 def _an_enqueued_run_for(conn: psycopg.Connection, alert: Alert) -> str:
     """An incident with a run waiting to be walked - the state the webhook
     leaves behind, and the only state a worker has anything to do in."""
-    incident_id = incidents.create(conn, alert)
+    incident_id = incidents.create(conn, alert, at=utc_now())
     runs.enqueue(conn, incident_id)
 
     return incident_id
