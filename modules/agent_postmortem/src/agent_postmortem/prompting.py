@@ -112,7 +112,11 @@ from agent_postmortem.sources import EngagementAnswer, NotPaged
 # quietly always missing.
 SUBMIT_TOOL_NAME: Final = "submit_postmortem"
 ROOT_CAUSE_FIELD: Final = "root_cause"
-EXECUTIVE_SUMMARY_FIELD: Final = "executive_summary"
+# The two sentences of the executive summary only the model can write - the
+# cause for a reader outside the service, and what is still at risk. Code
+# writes the rest of it from the record (`summary`).
+CAUSE_IN_PLAIN_WORDS_FIELD: Final = "cause_in_plain_words"
+STILL_AT_RISK_FIELD: Final = "still_at_risk"
 # What a reader saw go wrong, as the document's title says it.
 SYMPTOM_FIELD: Final = "symptom"
 ASSUMPTIONS_FIELD: Final = "assumptions"
@@ -150,7 +154,8 @@ REACHES_A_CAUSE_FIELD: Final = "reaches_a_cause"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
+    STILL_AT_RISK_FIELD,
     SYMPTOM_FIELD,
     CAUSAL_CHAIN_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
@@ -227,7 +232,9 @@ class SubmittedPostmortem(BaseModel):
     """
 
     root_cause: str | None = None
-    executive_summary: str | None = None
+    cause_in_plain_words: str | None = None
+    # Empty where nothing is: an answer, unlike `None`, which is none given.
+    still_at_risk: str | None = None
     symptom: str | None = None
     assumptions: list[str] = []
     # What each lead changed, by the label the prompt gave it. Empty where
@@ -252,7 +259,8 @@ class SubmittedPostmortem(BaseModel):
         one of them leaves out is prose the other's rule never sees - a figure
         the check never refuses, or a name never written in.
         """
-        yield from (prose for prose in (self.root_cause, self.executive_summary, self.symptom)
+        yield from (prose for prose in (self.root_cause, self.cause_in_plain_words,
+                                        self.still_at_risk, self.symptom)
                     if prose is not None)
         yield from self.assumptions
         yield from self.lead_effects.values()
@@ -278,7 +286,8 @@ class SubmittedPostmortem(BaseModel):
 
         return self.model_copy(update={
             ROOT_CAUSE_FIELD: rewritten(self.root_cause),
-            EXECUTIVE_SUMMARY_FIELD: rewritten(self.executive_summary),
+            CAUSE_IN_PLAIN_WORDS_FIELD: rewritten(self.cause_in_plain_words),
+            STILL_AT_RISK_FIELD: rewritten(self.still_at_risk),
             SYMPTOM_FIELD: rewritten(self.symptom),
             ASSUMPTIONS_FIELD: [rewrite(each) for each in self.assumptions],
             LEAD_EFFECTS_FIELD: {lead: rewrite(effect)
@@ -308,7 +317,8 @@ class SubmittedPostmortem(BaseModel):
                             }))
         })
 
-    @field_validator(ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, SYMPTOM_FIELD, mode="before")
+    @field_validator(ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
+                     SYMPTOM_FIELD, mode="before")
     @classmethod
     def _prose_however_it_arrived(cls, value: Any) -> Any:
         """A prose field made to cost only itself.
@@ -550,15 +560,29 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "nothing ran, say so once."
             )
         },
-        EXECUTIVE_SUMMARY_FIELD: {
+        # Asked for the whole summary, write-ups left out how long, told the
+        # reader what the brief told them, and called a draft fix a correction.
+        # Code writes the record's part of it now (`summary`); these are the two
+        # sentences it cannot.
+        CAUSE_IN_PLAIN_WORDS_FIELD: {
             "type": "string",
             "description": (
-                "The same incident for a reader who does not work on the "
-                f"service: what broke, for how long, as {{{DURATION_FIGURE}}} - "
-                "whatever stretch the brief says it measures - who it affected, and "
-                "what was done. No component names unless they are unavoidable. Say "
-                "only what the record says - of a change, of the service, of the "
-                "people - and nothing it does not."
+                "Why it broke, in one sentence for a reader who does not work on the "
+                "service: no component names unless they are unavoidable. When it "
+                "broke, for how long, how bad it got, what customers lost and what "
+                "was done the document says itself - say none of them. Say only what "
+                "the record says - of a change, of the service, of the people - and "
+                "nothing it does not."
+            )
+        },
+        STILL_AT_RISK_FIELD: {
+            "type": "string",
+            "description": (
+                "What is still at risk now, in one sentence for the same reader - "
+                "the fault still in place, or the same thing able to happen again. "
+                "Empty where nothing is. Not what Argus left to a person - a draft "
+                "fix, a recommended action - which the document says itself. Say "
+                "only what the record says."
             )
         },
         SYMPTOM_FIELD: {

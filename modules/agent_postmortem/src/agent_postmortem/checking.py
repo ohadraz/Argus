@@ -63,11 +63,13 @@ from agent_postmortem.figures import (
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
     LEAD_EFFECTS_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
+    STILL_AT_RISK_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SubmittedPostmortem,
@@ -174,6 +176,7 @@ def faults_in(answer: SubmittedPostmortem,
     """Everything about this answer that has to be put right, or nothing."""
     return (_missing_fields(answer)
             + _a_symptom_of_more_than_one_sentence(answer)
+            + _summary_sentences_of_more_than_one(answer)
             + _missing_checks_outside_the_factors(answer)
             + _the_trigger_said_again(answer, given)
             + _leads_left_unanswered(answer, leads)
@@ -246,6 +249,21 @@ def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[st
 
     return [f"the {SYMPTOM_FIELD} [{symptom}] is more than one sentence - it is the "
             f"document's title, so say it in one, of a few words"]
+
+
+def _summary_sentences_of_more_than_one(answer: SubmittedPostmortem) -> list[str]:
+    """The cause in plain words and what is still at risk, each where it runs
+    past one sentence.
+
+    Each is one sentence of the summary code writes around it: two, and the
+    model is writing the summary again beside the record's own account of
+    when, how bad and what was done.
+    """
+    return [f"the {field} [{said}] is more than one sentence - it is one sentence of the "
+            f"executive summary, which says the rest itself, so say it in one"
+            for field, said in ((CAUSE_IN_PLAIN_WORDS_FIELD, answer.cause_in_plain_words),
+                                (STILL_AT_RISK_FIELD, answer.still_at_risk))
+            if said is not None and _A_SENTENCE_END.search(said.strip())]
 
 
 def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str]:

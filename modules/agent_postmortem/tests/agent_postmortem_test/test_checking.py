@@ -45,11 +45,12 @@ from agent_postmortem.figures import Figure, figures_of
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
     LESSONS_FIELD,
     ROOT_CAUSE_FIELD,
+    STILL_AT_RISK_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SubmittedFactor,
@@ -67,7 +68,7 @@ from agent_postmortem_test.framework.builders import (
     an_evidence_bundle,
 )
 
-SOME_SUMMARY_WITHOUT_A_NUMBER = "checkout failed for several minutes, for most requests"
+SOME_CAUSE_WITHOUT_A_NUMBER = "checkout failed for several minutes, for most requests"
 
 DONT_CARE_PROSE = "dont care"
 
@@ -117,13 +118,14 @@ def test_every_required_field_missing_is_named_and_not_just_the_first() -> None:
         .then(
             all_of(
                 _named(ROOT_CAUSE_FIELD),
-                _named(EXECUTIVE_SUMMARY_FIELD),
+                _named(CAUSE_IN_PLAIN_WORDS_FIELD),
+                _named(STILL_AT_RISK_FIELD),
                 _named(CAUSAL_CHAIN_FIELD),
                 _named(CONTRIBUTING_FACTORS_FIELD),
                 _named(ACTION_ITEMS_FIELD),
                 _named(LESSONS_FIELD),
                 _named(SYMPTOM_FIELD),
-                _found(7)
+                _found(8)
             )
         )
 
@@ -190,7 +192,7 @@ def test_a_figure_argus_measured_is_still_not_said_in_digits() -> None:
     Scenario() \
         .given(
             an_answer_restating_the_peak := _an_answer(
-                executive_summary="errors peaked at 33.8% of requests")
+                cause_in_plain_words="errors peaked at 33.8% of requests")
         ) \
         .when(
             lambda: faults_in(an_answer_restating_the_peak, given=SOME_GIVEN)
@@ -210,7 +212,7 @@ def test_money_in_digits_is_named() -> None:
     Scenario() \
         .given(
             an_answer_costing_the_outage := _an_answer(
-                executive_summary="the outage cost $1,200,000")
+                cause_in_plain_words="the outage cost $1,200,000")
         ) \
         .when(
             lambda: faults_in(an_answer_costing_the_outage, given=SOME_GIVEN)
@@ -305,7 +307,7 @@ def test_every_number_in_digits_is_named_and_not_just_the_first() -> None:
     Scenario() \
         .given(
             an_answer_naming_two := _an_answer(
-                executive_summary="from 21:45 for 7 minutes")
+                cause_in_plain_words="from 21:45 for 7 minutes")
         ) \
         .when(
             lambda: faults_in(an_answer_naming_two, given=SOME_GIVEN)
@@ -334,7 +336,7 @@ def test_a_figure_spelled_out_in_words_is_named(spelled_out: str) -> None:
     Scenario() \
         .given(
             an_answer_spelling_a_figure_out := _an_answer(
-                executive_summary=f"the widest total was short by {spelled_out}")
+                cause_in_plain_words=f"the widest total was short by {spelled_out}")
         ) \
         .when(
             lambda: faults_in(an_answer_spelling_a_figure_out, given=SOME_GIVEN)
@@ -375,7 +377,7 @@ def test_a_figure_said_in_one_word_is_named(said: str) -> None:
     Scenario() \
         .given(
             an_answer_saying_a_figure_in_a_word := _an_answer(
-                executive_summary=f"after the deploy it was {said}")
+                cause_in_plain_words=f"after the deploy it was {said}")
         ) \
         .when(
             lambda: faults_in(an_answer_saying_a_figure_in_a_word, given=SOME_GIVEN)
@@ -395,7 +397,7 @@ def test_a_figure_spelled_out_with_what_it_measures_is_named_once() -> None:
     Scenario() \
         .given(
             an_answer_spelling_out_a_span := _an_answer(
-                executive_summary="it ran for twenty-four hours")
+                cause_in_plain_words="it ran for twenty-four hours")
         ) \
         .when(
             lambda: faults_in(an_answer_spelling_out_a_span, given=SOME_GIVEN)
@@ -426,7 +428,7 @@ def test_a_size_with_no_figure_in_it_is_accepted(said: str) -> None:
     Scenario() \
         .given(
             an_answer_sizing_without_a_figure := _an_answer(
-                executive_summary=f"after the deploy it was {said}")
+                cause_in_plain_words=f"after the deploy it was {said}")
         ) \
         .when(
             lambda: faults_in(an_answer_sizing_without_a_figure, given=SOME_GIVEN)
@@ -442,7 +444,7 @@ def test_a_figure_named_as_the_incident_gives_it_is_accepted() -> None:
     Scenario() \
         .given(
             an_answer_naming_its_figures := _an_answer(
-                executive_summary="short by {A3} for {duration}")
+                cause_in_plain_words="short by {A3} for {duration}")
         ) \
         .when(
             lambda: faults_in(an_answer_naming_its_figures,
@@ -459,7 +461,7 @@ def test_a_figure_named_that_the_incident_never_gave_is_named() -> None:
     # a number nobody measured, said as nothing at all.
     Scenario() \
         .given(
-            an_answer_naming_a_ghost_figure := _an_answer(executive_summary="short by {A9}")
+            an_answer_naming_a_ghost_figure := _an_answer(cause_in_plain_words="short by {A9}")
         ) \
         .when(
             lambda: faults_in(an_answer_naming_a_ghost_figure,
@@ -480,7 +482,7 @@ def test_a_working_the_figures_answer_is_accepted() -> None:
     Scenario() \
         .given(
             an_answer_working_out_a_span := _an_answer(
-                executive_summary="it was broken for {back_to_normal - began}")
+                cause_in_plain_words="it was broken for {back_to_normal - began}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_out_a_span,
@@ -503,7 +505,7 @@ def test_a_working_between_two_instants_the_evidence_states_is_accepted() -> Non
     Scenario() \
         .given(
             an_answer_working_from_the_narration := _an_answer(
-                executive_summary="mitigation began {T21.1 - T18.1} in")
+                cause_in_plain_words="mitigation began {T21.1 - T18.1} in")
         ) \
         .when(
             lambda: faults_in(an_answer_working_from_the_narration,
@@ -521,7 +523,7 @@ def test_a_working_that_makes_no_sense_is_named() -> None:
     Scenario() \
         .given(
             an_answer_adding_two_instants := _an_answer(
-                executive_summary="it ended at {began + argus_stopped}")
+                cause_in_plain_words="it ended at {began + argus_stopped}")
         ) \
         .when(
             lambda: faults_in(an_answer_adding_two_instants,
@@ -549,7 +551,7 @@ def test_a_working_of_figures_nobody_knows_the_kind_of_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_the_alerts_figures := _an_answer(
-                executive_summary="the totals fell by {A1 - A2}")
+                cause_in_plain_words="the totals fell by {A1 - A2}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_the_alerts_figures,
@@ -571,7 +573,7 @@ def test_a_working_from_a_figure_the_incident_never_gave_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_from_a_ghost := _an_answer(
-                executive_summary="it was broken for {back_to_normal - began}")
+                cause_in_plain_words="it was broken for {back_to_normal - began}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_from_a_ghost,
@@ -592,7 +594,7 @@ def test_a_working_that_comes_out_below_nothing_is_named() -> None:
     Scenario() \
         .given(
             an_answer_working_backwards := _an_answer(
-                executive_summary="it was broken for {began - back_to_normal}")
+                cause_in_plain_words="it was broken for {began - back_to_normal}")
         ) \
         .when(
             lambda: faults_in(an_answer_working_backwards,
@@ -620,7 +622,7 @@ def test_a_working_that_divides_by_nothing_is_named() -> None:
     Scenario() \
         .given(
             an_answer_dividing_by_nothing := _an_answer(
-                executive_summary="errors were {errors_at_worst / errors_before} as common")
+                cause_in_plain_words="errors were {errors_at_worst / errors_before} as common")
         ) \
         .when(
             lambda: faults_in(an_answer_dividing_by_nothing,
@@ -712,7 +714,7 @@ def test_a_figure_as_long_as_a_revision_is_still_named() -> None:
     Scenario() \
         .given(
             an_answer_with_a_long_figure := _an_answer(
-                executive_summary="the shop took 12345678 cents")
+                cause_in_plain_words="the shop took 12345678 cents")
         ) \
         .when(
             lambda: faults_in(an_answer_with_a_long_figure, given=SOME_GIVEN)
@@ -758,7 +760,7 @@ def test_digits_shorter_than_a_revision_s_short_form_are_a_figure_whatever_they_
     Scenario() \
         .given(
             an_answer_with_a_small_figure := _an_answer(
-                executive_summary="checkout failed for 3 hours")
+                cause_in_plain_words="checkout failed for 3 hours")
         ) \
         .when(
             lambda: faults_in(an_answer_with_a_small_figure,
@@ -867,19 +869,19 @@ def test_a_name_joined_by_a_slash_or_a_dash_is_still_a_name() -> None:
 
 
 @pytest.mark.unit
-def test_a_summary_the_model_never_wrote_is_missing_rather_than_numbered() -> None:
-    # An absent summary has no numbers in it, and the fault it earns is the one
+def test_a_cause_the_model_never_wrote_is_missing_rather_than_numbered() -> None:
+    # An absent cause has no numbers in it, and the fault it earns is the one
     # about the field.
     Scenario() \
         .given(
-            an_answer_with_no_summary := _an_answer(executive_summary=None)
+            an_answer_with_no_cause := _an_answer(cause_in_plain_words=None)
         ) \
         .when(
-            lambda: faults_in(an_answer_with_no_summary, given=SOME_GIVEN)
+            lambda: faults_in(an_answer_with_no_cause, given=SOME_GIVEN)
         ) \
         .then(
             all_of(
-                _named(EXECUTIVE_SUMMARY_FIELD),
+                _named(CAUSE_IN_PLAIN_WORDS_FIELD),
                 _found(1)
             )
         )
@@ -1206,6 +1208,45 @@ def test_a_symptom_of_more_than_one_sentence_is_named() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("field", [CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD])
+def test_a_summary_sentence_of_more_than_one_is_named(field: str) -> None:
+    # Each is one sentence of the summary code writes around it; two, and the
+    # model is writing the summary again, beside the record's own account.
+    some_two_sentences = "The rename reached one file. The other still names the old port."
+
+    Scenario() \
+        .given(
+            an_answer_in_two_sentences := _an_answer().model_copy(
+                update={field: some_two_sentences})
+        ) \
+        .when(
+            lambda: faults_in(an_answer_in_two_sentences, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(field),
+                _named(some_two_sentences),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_nothing_still_at_risk_is_an_answer() -> None:
+    # Empty, not missing: an incident whose fault is gone leaves nothing at risk.
+    Scenario() \
+        .given(
+            an_answer_with_nothing_at_risk := _an_answer(still_at_risk="")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_nothing_at_risk, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_symptom_of_one_sentence_is_accepted() -> None:
     # Ended with a full stop or not: a sentence's own stop is not a second one.
     Scenario() \
@@ -1449,7 +1490,8 @@ class _WhatAnAnswerHolds(TypedDict, total=False):
     """
 
     root_cause: str | None
-    executive_summary: str | None
+    cause_in_plain_words: str | None
+    still_at_risk: str | None
     symptom: str | None
     assumptions: list[str]
     lead_effects: dict[str, str]
@@ -1466,7 +1508,8 @@ def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:
     proposals, and three empty lessons."""
     complete: _WhatAnAnswerHolds = {
         "root_cause": DONT_CARE_PROSE,
-        "executive_summary": SOME_SUMMARY_WITHOUT_A_NUMBER,
+        "cause_in_plain_words": SOME_CAUSE_WITHOUT_A_NUMBER,
+        "still_at_risk": "",
         "symptom": DONT_CARE_PROSE,
         "causal_chain": [SubmittedStep(step=DONT_CARE_PROSE, cites=["E1"])],
         "contributing_factors": [],

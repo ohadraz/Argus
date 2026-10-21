@@ -57,6 +57,20 @@ def reports_executive_summary(expected: str) -> Assertion[PostmortemDocument]:
     return assertion
 
 
+def summarises_with(expected: str) -> Assertion[PostmortemDocument]:
+    """That the summary says `expected` somewhere in it - the model's sentence,
+    which code writes the record's facts around."""
+    def assertion(document: PostmortemDocument) -> bool:
+        if expected not in (document.executive_summary or ""):
+            raise AssertionError(
+                f"Expected the summary to say [{expected}], got "
+                f"[{document.executive_summary}].")
+
+        return True
+
+    return assertion
+
+
 def estimates_a_loss_of(expected: Decimal | None) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.customer_loss_estimate != expected:

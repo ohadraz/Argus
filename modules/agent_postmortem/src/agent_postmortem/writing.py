@@ -59,6 +59,7 @@ from agent_postmortem.sections import (
     trigger_of,
 )
 from agent_postmortem.sources import EngagementAnswer, NotPaged, Sources
+from agent_postmortem.summary import the_executive_summary
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,11 @@ def write_postmortem(evidence: IncidentEvidence,
         # page reads as a root cause somebody wrote and left empty, and this
         # document is one nobody can ask a follow-up question of.
         root_cause=answer.root_cause,
-        executive_summary=answer.executive_summary,
+        # Written by code from the record, around the two sentences only the
+        # model can give: the cause in plain words, and what is still at risk.
+        executive_summary=the_executive_summary(evidence, measured,
+                                                answer.cause_in_plain_words,
+                                                answer.still_at_risk),
         symptom=answer.symptom,
         customer_loss_estimate=measured.loss,
         estimate_currency=measured.currency,

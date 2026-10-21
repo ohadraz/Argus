@@ -31,10 +31,10 @@ from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
     CITES_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
     GOT_LUCKY_FIELD,
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
@@ -42,6 +42,7 @@ from agent_postmortem.prompting import (
     REACHES_A_CAUSE_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
+    STILL_AT_RISK_FIELD,
     SYMPTOM_FIELD,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
@@ -760,7 +761,7 @@ def a_bucket(at: datetime,
 
 
 def an_answer(root_cause: str = "dont care",
-              executive_summary: str = "dont care",
+              cause_in_plain_words: str = "dont care",
               assumptions: list[str] | None = None,
               lead_effects: Mapping[str, str] | None = None,
               causal_chain: list[dict[str, Any]] | None = None,
@@ -768,7 +769,8 @@ def an_answer(root_cause: str = "dont care",
               action_items: list[dict[str, Any]] | None = None,
               lessons: dict[str, Any] | None = None,
               symptom: str = "dont care",
-              reaches_a_cause: bool = True) -> dict[str, Any]:
+              reaches_a_cause: bool = True,
+              still_at_risk: str = "") -> dict[str, Any]:
     """The arguments of a submission that would be accepted as it stands.
 
     Saying what each lead changed only where a test hands it leads to say it
@@ -777,12 +779,14 @@ def an_answer(root_cause: str = "dont care",
     A chain of one step citing the first label by default, because every
     bundle carries at least one line of narration and a chain citing nothing
     is refused. No factors and no proposals, which is an answer: the record's
-    own items stand alone. Three empty lessons, which is an answer too.
+    own items stand alone. Three empty lessons, and nothing still at risk,
+    which are answers too.
     """
     answer: dict[str, Any] = {
         SYMPTOM_FIELD: symptom,
         ROOT_CAUSE_FIELD: root_cause,
-        EXECUTIVE_SUMMARY_FIELD: executive_summary,
+        CAUSE_IN_PLAIN_WORDS_FIELD: cause_in_plain_words,
+        STILL_AT_RISK_FIELD: still_at_risk,
         ASSUMPTIONS_FIELD: assumptions if assumptions is not None else [],
         CAUSAL_CHAIN_FIELD: (causal_chain if causal_chain is not None
                              else [{STEP_FIELD: "dont care", CITES_FIELD: ["T1"]}]),
@@ -809,10 +813,11 @@ def an_answer_without(field: str) -> dict[str, Any]:
 
 
 def a_submitted_answer(root_cause: str = "dont care",
-                       executive_summary: str = "dont care",
+                       cause_in_plain_words: str = "dont care",
                        assumptions: list[str] | None = None,
                        lead_effects: Mapping[str, str] | None = None,
-                       reaches_a_cause: bool = True
+                       reaches_a_cause: bool = True,
+                       still_at_risk: str = ""
                        ) -> SubmittedPostmortem:
     """The same submission, once it has been read out of the call.
 
@@ -821,12 +826,12 @@ def a_submitted_answer(root_cause: str = "dont care",
     the whole reason the answer became a model.
     """
     return SubmittedPostmortem.model_validate(
-        an_answer(root_cause, executive_summary, assumptions, lead_effects,
-                  reaches_a_cause=reaches_a_cause))
+        an_answer(root_cause, cause_in_plain_words, assumptions, lead_effects,
+                  reaches_a_cause=reaches_a_cause, still_at_risk=still_at_risk))
 
 
 def a_model_answering(root_cause: str = "dont care",
-                      executive_summary: str = "dont care",
+                      cause_in_plain_words: str = "dont care",
                       assumptions: list[str] | None = None) -> LLMClient:
     """A model that answers, once, by calling the tool it was offered.
 
@@ -836,7 +841,7 @@ def a_model_answering(root_cause: str = "dont care",
     answered in either shape.
     """
     return a_model_answering_in_turn(
-        an_answer(root_cause, executive_summary, assumptions))
+        an_answer(root_cause, cause_in_plain_words, assumptions))
 
 
 def a_model_answering_in_turn(*answers: dict[str, Any],
@@ -929,7 +934,7 @@ def a_model_calling(tool_name: str,
 
             return a_submission_of(
                 an_answer(root_cause="a root cause from the wrong call",
-                          executive_summary="a summary from the wrong call"),
+                          cause_in_plain_words="a cause from the wrong call"),
                 tool_name)
 
     return WrongTool()

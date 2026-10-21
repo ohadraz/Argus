@@ -60,10 +60,10 @@ from agent_postmortem.prompting import (
     ADDRESSED_BY_FIELD,
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
     CITES_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
     FACTOR_FIELD,
     GOT_LUCKY_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
@@ -77,6 +77,7 @@ from agent_postmortem.prompting import (
     ROOT_CAUSE_FIELD,
     RULED_OUT_FIELD,
     STEP_FIELD,
+    STILL_AT_RISK_FIELD,
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
@@ -179,8 +180,8 @@ A_WAIT_NOBODY_COULD_READ = "waits before it fires could not be read"
 A_TIME_FINER_THAN_THE_SECOND = re.compile(r"\d{2}:\d{2}:\d{2}[.,]\d")
 
 # Every field the tool offers on an incident nobody wrote about.
-EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, EXECUTIVE_SUMMARY_FIELD, ASSUMPTIONS_FIELD,
-                     CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
+EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
+                     ASSUMPTIONS_FIELD, CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
                      ACTION_ITEMS_FIELD, LESSONS_FIELD, SYMPTOM_FIELD,
                      REACHES_A_CAUSE_FIELD)
 
@@ -2517,7 +2518,8 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
     # figures nothing refuses and whose names nothing writes in.
     some_answer = SubmittedPostmortem(
         root_cause="the root cause",
-        executive_summary="the summary",
+        cause_in_plain_words="the cause in plain words",
+        still_at_risk="what is still at risk",
         symptom="the symptom",
         assumptions=["an assumption"],
         lead_effects={"L1": "a lead's effect"},
@@ -2536,7 +2538,8 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
             lambda: list(some_answer.sentences())
         ) \
         .then(
-            the_answer_was(["the root cause", "the summary", "the symptom", "an assumption",
+            the_answer_was(["the root cause", "the cause in plain words",
+                            "what is still at risk", "the symptom", "an assumption",
                             "a lead's effect", "a step", "what it ruled out", "a factor",
                             "had it been otherwise", "an item", "went well", "went wrong",
                             "got lucky"])
@@ -3046,29 +3049,32 @@ def test_what_an_f_row_says_to_check_is_answered_from_a_diff_that_shows_it() -> 
 
 
 @pytest.mark.unit
-def test_the_summary_is_asked_to_say_only_what_the_record_says() -> None:
-    # A write-up's summary called the deploy "routine", which nothing in the
-    # record said.
+def test_the_cause_in_plain_words_is_asked_for_in_one_sentence_of_what_the_record_says() -> None:
+    # The one sentence of the summary code cannot write. Asked for the whole
+    # summary, write-ups left out how long, told the reader what the brief told
+    # them, and called a deploy "routine", which nothing in the record said -
+    # so it is told what the document says itself, and to say none of it.
     Scenario() \
         .when(
-            lambda: SUBMIT_POSTMORTEM.properties[EXECUTIVE_SUMMARY_FIELD]["description"]
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSE_IN_PLAIN_WORDS_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("only what the record says")
+            _the_description_mentions("one sentence", "does not work on the service",
+                                      "the document says itself", "only what the record says")
         )
 
 
 @pytest.mark.unit
-def test_the_summary_is_asked_for_how_long_by_the_duration_s_name() -> None:
-    # Asked "for how long", a write-up of a stretch the metrics did not cover
-    # left the span out: the brief says it is no stretch the service is known
-    # to have spent in trouble, and nothing tied the summary's "how long" to it.
+def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
+    # Nothing at risk is an answer; and what Argus left to a person - a draft
+    # fix, a recommended action - the summary says itself.
     Scenario() \
         .when(
-            lambda: SUBMIT_POSTMORTEM.properties[EXECUTIVE_SUMMARY_FIELD]["description"]
+            lambda: SUBMIT_POSTMORTEM.properties[STILL_AT_RISK_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions(f"for how long, as {{{DURATION_FIGURE}}}")
+            _the_description_mentions("one sentence", "Empty where", "left to a person",
+                                      "only what the record says")
         )
 
 
@@ -3543,19 +3549,19 @@ def test_a_field_that_did_not_arrive_as_prose_costs_only_itself() -> None:
 
     Scenario() \
         .given(
-            a_submission_whose_summary_is_not_prose := {
+            a_submission_whose_cause_is_not_prose := {
                 ROOT_CAUSE_FIELD: some_root_cause,
-                EXECUTIVE_SUMMARY_FIELD: {"nested": "in the wrong shape"}
+                CAUSE_IN_PLAIN_WORDS_FIELD: {"nested": "in the wrong shape"}
             }
         ) \
         .when(
             lambda: SubmittedPostmortem.model_validate(
-                a_submission_whose_summary_is_not_prose)
+                a_submission_whose_cause_is_not_prose)
         ) \
         .then(
             all_of(
                 _answered(ROOT_CAUSE_FIELD, some_root_cause),
-                _left_unanswered(EXECUTIVE_SUMMARY_FIELD)
+                _left_unanswered(CAUSE_IN_PLAIN_WORDS_FIELD)
             )
         )
 
@@ -3644,7 +3650,8 @@ def test_a_submission_carrying_nothing_usable_is_empty_rather_than_refused() -> 
         .then(
             all_of(
                 _left_unanswered(ROOT_CAUSE_FIELD),
-                _left_unanswered(EXECUTIVE_SUMMARY_FIELD),
+                _left_unanswered(CAUSE_IN_PLAIN_WORDS_FIELD),
+                _left_unanswered(STILL_AT_RISK_FIELD),
                 _left_unanswered(CAUSAL_CHAIN_FIELD),
                 _left_unanswered(CONTRIBUTING_FACTORS_FIELD),
                 _left_unanswered(ACTION_ITEMS_FIELD),

@@ -8,7 +8,7 @@ stop, and the faults are handed back so the caller can mark the document
 partial.
 
 The invented figure is the subtler of the two. Columns are safe from the model
-by construction, but the executive summary is published as written, so a
+by construction, but the model's prose is published as written, so a
 sentence claiming a number Argus never computed reaches the one reader least
 able to check it. A figure the incident gives is named instead, and the answer
 kept has each name written in as this run measured it.
@@ -31,8 +31,8 @@ from agent_postmortem import DeploymentChangesRecord
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.ordering import ORDER_FIELD
 from agent_postmortem.prompting import (
+    CAUSE_IN_PLAIN_WORDS_FIELD,
     CITES_FIELD,
-    EXECUTIVE_SUMMARY_FIELD,
     LEAD_EFFECTS_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
@@ -76,7 +76,7 @@ from agent_postmortem_test.framework.builders import (
 SOME_COMPUTED_LOSS = Decimal("500")
 
 SOME_INVENTED_FIGURE = "$1,200,000"
-SOME_SUMMARY_WITHOUT_A_FIGURE = "checkout failed for several minutes"
+SOME_CAUSE_WITHOUT_A_FIGURE = "checkout failed for several minutes"
 
 # What a shop's integrity check reports, in its own words: one figure, which
 # the incident then gives the name A1.
@@ -144,7 +144,7 @@ def test_a_second_answer_that_is_still_missing_a_field_is_handed_back_anyway() -
 
 
 @pytest.mark.unit
-def test_a_summary_naming_a_figure_argus_never_computed_is_asked_for_again() -> None:
+def test_a_cause_naming_a_figure_argus_never_computed_is_asked_for_again() -> None:
     # The whole reason this check exists. Nothing downstream can tell that
     # "$1.2M" was invented: it is a fluent sentence in a document whose every
     # other number is measured.
@@ -153,8 +153,8 @@ def test_a_summary_naming_a_figure_argus_never_computed_is_asked_for_again() -> 
     Scenario() \
         .given(
             a_model_that_invented_a_figure := a_model_answering_in_turn(
-                an_answer(executive_summary=f"the outage cost {SOME_INVENTED_FIGURE}"),
-                an_answer(executive_summary=SOME_SUMMARY_WITHOUT_A_FIGURE),
+                an_answer(cause_in_plain_words=f"the outage cost {SOME_INVENTED_FIGURE}"),
+                an_answer(cause_in_plain_words=SOME_CAUSE_WITHOUT_A_FIGURE),
                 recording_into=asks)
         ) \
         .when(
@@ -166,21 +166,21 @@ def test_a_summary_naming_a_figure_argus_never_computed_is_asked_for_again() -> 
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, SOME_INVENTED_FIGURE),
-                _answered_with(EXECUTIVE_SUMMARY_FIELD, SOME_SUMMARY_WITHOUT_A_FIGURE)
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, SOME_CAUSE_WITHOUT_A_FIGURE)
             )
         )
 
 
 @pytest.mark.unit
-def test_a_summary_saying_its_magnitudes_in_words_is_accepted() -> None:
+def test_a_cause_saying_its_magnitudes_in_words_is_accepted() -> None:
     # The answer the rule asks for, accepted the first time - otherwise there
-    # is no summary the model could write that would pass.
+    # is no cause the model could write that would pass.
     asks: Kept[Transcript] = Kept()
 
     Scenario() \
         .given(
             a_model_answering_in_words := a_model_answering_in_turn(
-                an_answer(executive_summary=SOME_SUMMARY_WITHOUT_A_FIGURE),
+                an_answer(cause_in_plain_words=SOME_CAUSE_WITHOUT_A_FIGURE),
                 recording_into=asks)
         ) \
         .when(
@@ -191,7 +191,7 @@ def test_a_summary_saying_its_magnitudes_in_words_is_accepted() -> None:
         .then(
             all_of(
                 _was_asked(asks),
-                _answered_with(EXECUTIVE_SUMMARY_FIELD, SOME_SUMMARY_WITHOUT_A_FIGURE),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, SOME_CAUSE_WITHOUT_A_FIGURE),
                 _found_no_fault()
             )
         )
@@ -204,7 +204,7 @@ def test_a_figure_the_answer_names_is_written_in_as_the_incident_gave_it() -> No
     Scenario() \
         .given(
             a_model_naming_a_figure := a_model_answering_in_turn(
-                an_answer(executive_summary="The widest was short by {A1}."))
+                an_answer(cause_in_plain_words="The widest was short by {A1}."))
         ) \
         .when(
             lambda: answer_worth_writing(
@@ -214,7 +214,7 @@ def test_a_figure_the_answer_names_is_written_in_as_the_incident_gave_it() -> No
         ) \
         .then(
             all_of(
-                _answered_with(EXECUTIVE_SUMMARY_FIELD, "The widest was short by 1,297.31."),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, "The widest was short by 1,297.31."),
                 _found_no_fault()
             )
         )
@@ -227,7 +227,7 @@ def test_a_figure_the_evidence_states_is_written_in_as_the_evidence_gave_it() ->
     Scenario() \
         .given(
             a_model_quoting_the_evidence := a_model_answering_in_turn(
-                an_answer(executive_summary="The deploy landed at {P1.1}."))
+                an_answer(cause_in_plain_words="The deploy landed at {P1.1}."))
         ) \
         .when(
             lambda: answer_worth_writing(
@@ -240,7 +240,7 @@ def test_a_figure_the_evidence_states_is_written_in_as_the_evidence_gave_it() ->
         ) \
         .then(
             all_of(
-                _answered_with(EXECUTIVE_SUMMARY_FIELD,
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD,
                                "The deploy landed at 11:59 UTC."),
                 _found_no_fault()
             )
@@ -256,8 +256,8 @@ def test_a_figure_the_incident_never_gave_is_asked_for_again_naming_it() -> None
     Scenario() \
         .given(
             a_model_naming_a_ghost_figure := a_model_answering_in_turn(
-                an_answer(executive_summary="The widest was short by {A9}."),
-                an_answer(executive_summary="The widest was short by {A1}."),
+                an_answer(cause_in_plain_words="The widest was short by {A9}."),
+                an_answer(cause_in_plain_words="The widest was short by {A1}."),
                 recording_into=asks)
         ) \
         .when(
@@ -270,7 +270,7 @@ def test_a_figure_the_incident_never_gave_is_asked_for_again_naming_it() -> None
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, "{A9}"),
-                _answered_with(EXECUTIVE_SUMMARY_FIELD, "The widest was short by 1,297.31."),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, "The widest was short by 1,297.31."),
                 _found_no_fault()
             )
         )

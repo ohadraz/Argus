@@ -1345,7 +1345,7 @@ def _an_answer_saying_everywhere(said: str) -> SubmittedPostmortem:
     """An answer saying one sentence in every field it would publish."""
     return SubmittedPostmortem(
         root_cause=said,
-        executive_summary=said,
+        cause_in_plain_words=said,
         symptom=said,
         assumptions=[said],
         lead_effects={"L1": said},

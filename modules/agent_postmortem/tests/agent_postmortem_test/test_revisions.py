@@ -248,7 +248,7 @@ def _an_answer_naming_everywhere(revision: str) -> SubmittedPostmortem:
 
     return SubmittedPostmortem(
         root_cause=said,
-        executive_summary=said,
+        cause_in_plain_words=said,
         symptom=said,
         assumptions=[said],
         lead_effects={"L1": said},
