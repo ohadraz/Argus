@@ -178,7 +178,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        rule: str | None = None,
                        leads: list[ThreadMessage] | None = None,
                        watched_and_never_recovered: bool = False,
-                       alerted_at: datetime | None = None
+                       alerted_at: datetime | None = None,
+                       logs_read_until: datetime | None = None
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -225,7 +226,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         watched_and_never_recovered=watched_and_never_recovered,
         # When the alert says it fired - when the incident opened, unless a
         # test says the two differ.
-        alerted_at=alerted_at if alerted_at is not None else started_at
+        alerted_at=alerted_at if alerted_at is not None else started_at,
+        logs_read_until=logs_read_until
     )
 
 
