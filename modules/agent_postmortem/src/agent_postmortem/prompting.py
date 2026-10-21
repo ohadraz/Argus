@@ -506,7 +506,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "What went wrong as somebody using the service saw it, in a few "
                 "words with no number: 'Account pages failed'. Not the metric "
                 "the alert fired on, and not the cause - the document adds the change "
-                "it began with itself."
+                "it began with itself. Where nobody using the service saw anything "
+                "wrong, say that, and what was seen instead: 'Nothing users saw; "
+                "the service could not be watched'."
             )
         },
         ASSUMPTIONS_FIELD: {
@@ -525,15 +527,20 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                            "merely happened at the same time.")}},
             [STEP_FIELD, CITES_FIELD],
             "The cause as the five whys, from the symptom down: the first step is "
-            "what users saw, and each step after it answers why the step directly "
-            "before it happened. The first why says why the symptom happened, not "
-            "the symptom again in more detail. Where the incident needed two things "
-            "at once - something going wrong, and nothing in place to contain it - "
-            "follow the one that leads to what set it off, and name the other at "
-            "the step where they meet. Every step cites at least one piece of "
-            "evidence by its label. At the step that ties the incident to the "
-            "change that set it off, say what else the record ruled out and why - "
-            "an earlier change, a flag the provider showed unchanged, a candidate "
+            "what users saw - or, where nobody using the service saw anything "
+            "wrong, that and what was seen instead - and each step after it answers "
+            "why the step directly before it happened. The first why says why the "
+            "symptom happened, not the symptom again in more detail. Where the "
+            "incident needed two things at once - something going wrong, and "
+            "nothing in place to contain it - follow the one that leads to what set "
+            "it off, and name the other at the step where they meet. A safeguard "
+            "that did not stop it is never a step of its own: it is one of the "
+            f"{CONTRIBUTING_FACTORS_FIELD}. Every step cites at least one piece of "
+            "evidence by its label. Date a change by its own row's instant - the T "
+            "or P row that records it - never by an effect it had. At the step that "
+            "ties the incident to the change that set it off, say what else the "
+            "record ruled out and why, in that step, not as a step of its own - an "
+            "earlier change, a flag the provider showed unchanged, a candidate "
             "refuted - citing what ruled it out. An earlier change is ruled out only "
             "by the service measured healthy with it in place - in metrics read "
             "between it and the onset, or after a confirmed action that left it "
@@ -565,7 +572,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "one thing a person could take on. Empty where the record's own "
             "items answer every factor. Propose nothing to confirm a cause the "
             "record already confirmed - a mitigation that worked, a hypothesis "
-            "marked confirmed."
+            "marked confirmed - and no check of what the evidence you are shown "
+            "already shows: a diff states what changed."
         ),
         LESSONS_FIELD: {
             "type": "object",
@@ -593,7 +601,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "which one of the record's own action items undoes "
                                    "(automatic sync left off), went as designed and "
                                    "did not go wrong. Detection went wrong only by "
-                                   "what came after the alert rule's own wait."
+                                   "what came after the alert rule's own wait. Not "
+                                   "the root cause or a contributing factor again - "
+                                   "the document says those already."
                                )
                            },
                            # Told only that any list may be empty, write-ups
@@ -623,7 +633,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "Whether the chain says why the change that set the incident off "
                 "broke the service, rather than stopping at that change. A step "
                 "resting only on F rows - a reading of the code nothing ran - "
-                "counts only where it says the reading is unverified. That a new "
+                "counts only where it says the reading is unverified; what a D row's "
+                "diff shows was read, and is not unverified. That a new "
                 "version does worse is what the change did, not why it broke the "
                 "service: answer false where the chain says the evidence does not "
                 "show why."

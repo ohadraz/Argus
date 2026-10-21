@@ -2501,6 +2501,105 @@ def test_luck_is_asked_for_as_what_the_record_shows_went_the_fortunate_way() -> 
 
 
 @pytest.mark.unit
+def test_what_went_wrong_is_asked_not_to_say_the_root_cause_or_a_factor_again() -> None:
+    # A write-up's first item under what went wrong was the rename shipping
+    # without the scrape config - the root cause, and its first factor, a third
+    # time.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("root cause or a contributing factor again")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [SYMPTOM_FIELD, CAUSAL_CHAIN_FIELD])
+def test_a_symptom_nobody_using_the_service_saw_is_asked_for_as_that(field: str) -> None:
+    # Asked what someone using the service saw, and forbidden the metric the
+    # alert fired on, a write-up of an incident nobody using the shop saw
+    # anything of wrote the metric anyway - "Shop metrics stopped arriving" -
+    # in the title, and as the chain's first step.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[field]["description"]
+        ) \
+        .then(
+            _the_description_mentions("nobody using the service saw anything")
+        )
+
+
+@pytest.mark.unit
+def test_a_safeguard_that_did_not_stop_it_is_asked_for_as_a_factor_rather_than_a_step() -> None:
+    # Told to name it "at the step where they meet", a write-up gave it a why
+    # of its own - "Why nothing stopped it" - beside the factor that already
+    # said it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never a step of its own", CONTRIBUTING_FACTORS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_what_was_ruled_out_is_asked_for_in_its_step_rather_than_as_one() -> None:
+    # Told to say it "at the step that ties the incident to the change", a
+    # write-up listed what it ruled out as a why of its own, which the page
+    # labelled "why 4".
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("in that step, not as a step of its own")
+        )
+
+
+@pytest.mark.unit
+def test_a_change_is_asked_to_be_dated_by_its_own_row_rather_than_by_its_effect() -> None:
+    # A write-up dated the rollout by the instant the metrics stopped, so "the
+    # same minute the metrics stop" proved the cause by its own effect.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("never by an effect it had")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_item_is_asked_not_to_check_what_the_evidence_already_shows() -> None:
+    # A write-up asked somebody to check which key layout the deployed revision
+    # used - which the deployed diff it was shown already said.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("already shows", "a diff")
+        )
+
+
+@pytest.mark.unit
+def test_unverified_is_asked_for_of_a_reading_of_the_code_rather_than_of_a_diff() -> None:
+    # Told a step resting on a reading of the code counts only where it says
+    # "unverified", a write-up called unverified what a diff it was shown said
+    # outright.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("D row")
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_what_people_told_the_incident_and_how_it_was_weighed() -> None:
     # What a person said and what the investigation made of it are one fact
     # about the incident: the words without the standing would read as advice
