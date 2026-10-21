@@ -59,6 +59,7 @@ from agent_postmortem.figures import (
     ALERT_RAISED_FIGURE,
     ALERTED_AFTER_THE_ONSET_FIGURE,
     ARGUS_STOPPED_FIGURE,
+    AS_FAR_AS_THE_LOGS_SHOW_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
@@ -511,6 +512,12 @@ def _a_list_of(item_properties: dict[str, Any],
 
 _SENTENCES: Final[dict[str, Any]] = {"type": "array", "items": {"type": "string"}}
 
+# What another agent's words are not, said where its rows are shown. The
+# candidates' "the shop itself kept serving normally" and Code-Fix's "samples
+# stop while the shop keeps serving" came back in thirteen root causes of
+# fifteen as what happened.
+_NOT_WHAT_HAPPENED: Final = "is not what happened unless a row of the record shows it"
+
 # What a check the record does not show is written as, said in the two fields a
 # missing safeguard is written in. Said once in the tool's description, a
 # write-up still gave "nothing checked output quality before it reached
@@ -545,9 +552,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "revision, a pod - and is written as given. State only what the "
         "evidence you are shown says: where the record does not show something "
         "- a check that was or was not run, how many replicas - leave it out "
-        "or say it was not seen. A stretch the metrics did not watch is known "
-        "only as far as the logs reach into it: what held, held up to then, not "
-        "throughout."
+        "or say it was not seen."
     ),
     properties={
         ROOT_CAUSE_FIELD: {
@@ -560,7 +565,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "confirmed, what resolved it or what was ruled out - the document "
                 f"states each of those itself. Not one of the {CONTRIBUTING_FACTORS_FIELD}: "
                 "a safeguard that would have stopped it with this mechanism unchanged "
-                "is said there, not here. Where the mechanism rests on a reading "
+                "is said there, not here. What the service did over the stretch the "
+                "metrics did not watch is not the mechanism: the first step of the chain "
+                "says it. "
+                "Where the mechanism rests on a reading "
                 "nothing ran and no S or D row shows what it rests on, say so once."
             )
         },
@@ -983,12 +991,14 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                             {cited.change.kind for cited in changes})),
         ("Log lines it read, one per message:", log_lines,
          None if log_lines else no_logs_listed(evidence.logs_reading)),
-        ("Candidates it considered:", candidates, None if candidates else NOTHING),
+        (f"Candidates it considered, in the Investigator's words - cite them; what they "
+         f"claim {_NOT_WHAT_HAPPENED}:", candidates, None if candidates else NOTHING),
         ("Actions it took:", actions, None if actions else NOTHING),
         *([("What each deployment it looked into changed:", looked_into,
             _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
-        *([("What Code-Fix read in the source and proposed - nothing ran its test or its fix:",
+        *([(f"What Code-Fix read in the source and proposed, in Code-Fix's words - nothing "
+            f"ran its test or its fix, and what it claims {_NOT_WHAT_HAPPENED}:",
             read_in_the_source,
             " ".join(note for note in (_what_its_branch_did_not_hold(evidence),
                                        _what_it_read_as_it_ran(evidence),
@@ -1450,7 +1460,11 @@ def _how_long_it_was_broken(measured: Measurements,
             f"incident. That is {_shown(DURATION_FIGURE, figures)} the metrics did "
             f"not cover, not a stretch the service is known to have spent in "
             f"trouble.",
-            _the_logs_reaching_into(evidence, measured.unobserved_from, figures)
+            _the_logs_reaching_into(evidence, measured.unobserved_from, figures),
+            # Beside the figure rather than in the tool every incident is sent:
+            # the name exists only here, and the rule always arrives with it.
+            f"Anything said of the service over that stretch carries "
+            f"{_shown(AS_FAR_AS_THE_LOGS_SHOW_FIGURE, figures)}."
         ]
 
     if measured.back_to_normal_at is None:

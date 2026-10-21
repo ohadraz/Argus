@@ -679,10 +679,29 @@ def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothin
             _says_on_one_line("[F1]", some_reading),
             # Nothing ran the test or the fix either, and an explanation that
             # said its test fails was repeated as fact - so the heading says so
-            # of both, not of "it".
-            _says("What Code-Fix read in the source and proposed - "
-                  "nothing ran its test or its fix:")
+            # of both, not of "it". And whose words they are: its "samples stop
+            # while the shop keeps serving" came back as the chain's own claim.
+            _says("What Code-Fix read in the source and proposed, in Code-Fix's words - "
+                  "nothing ran its test or its fix, and what it claims is not what "
+                  "happened unless a row of the record shows it:")
         ))
+
+
+@pytest.mark.unit
+def test_the_candidates_are_shown_as_the_investigator_s_words() -> None:
+    # "The shop itself kept serving normally" was a candidate's, written before
+    # anything was tried, and came back in the root cause as what happened.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[a_candidate("dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Candidates it considered, in the Investigator's words - cite them; what "
+                  "they claim is not what happened unless a row of the record shows it:")
+        )
 
 
 @pytest.mark.unit
@@ -2917,19 +2936,38 @@ def test_a_span_is_asked_to_be_set_beside_what_it_times() -> None:
 
 
 @pytest.mark.unit
-def test_a_stretch_nothing_watched_is_asked_for_as_known_only_as_far_as_the_logs_reach() -> None:
+def test_the_logs_bound_is_asked_for_beside_its_figure_where_the_metrics_stopped() -> None:
     # The brief says the service was seen through its logs up to where they
     # reach, and a write-up still said the shop "stayed healthy while it was
     # unmonitored", and its logs over the stretch "look the same as before" -
-    # of a stretch they covered only part of. In a lesson and in the chain
-    # alike, so said where every field reads it.
+    # of a stretch they covered only part of. Told so in a sentence, four root
+    # causes of five still said the shop "kept serving"; given the bound as a
+    # figure to write in, one step of five left it out. Said with the figure,
+    # so the rule and the name it uses always arrive together.
     Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
         .when(
-            lambda: SUBMIT_POSTMORTEM.description
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              unobserved_from=ONSET))
         ) \
         .then(
-            _the_description_mentions("known only as far as the logs reach into it",
-                                      "not throughout")
+            _says_on_one_line("Anything said of the service over that stretch carries",
+                              "{as_far_as_the_logs_show}")
+        )
+
+
+@pytest.mark.unit
+def test_the_tool_never_names_the_logs_bound_an_incident_may_not_have() -> None:
+    # The figure exists only where the metrics stopped. Named in the tool, which
+    # every incident is sent, it is a name most incidents cannot use.
+    Scenario() \
+        .when(
+            lambda: "as_far_as_the_logs_show" in SUBMIT_POSTMORTEM.model_dump_json()
+        ) \
+        .then(
+            the_answer_was(False)
         )
 
 
@@ -3224,6 +3262,21 @@ def test_the_root_cause_is_asked_to_leave_out_what_the_document_states_itself() 
         .then(
             _the_description_mentions("Not the trigger, how it was confirmed, what resolved "
                                       "it or what was ruled out")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_told_what_the_service_did_over_the_gap_is_not_the_mechanism() -> None:
+    # Four of five root causes said the shop "kept serving" unbounded, with the
+    # bound a figure away; told the stretch is the first step's to say, two.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                "What the service did over the stretch the metrics did not watch is not the "
+                "mechanism: the first step of the chain says it.")
         )
 
 

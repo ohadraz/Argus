@@ -85,6 +85,10 @@ SOME_GIVEN_WITH_A_FILE_AS_IT_RAN = SOME_GIVEN.model_copy(update={
 # from: it began at noon and recovered ten minutes later.
 SOME_FIGURES = figures_of(an_evidence_bundle(), a_measured_incident())
 
+# A figure a log group states whose written form is a range, beside an instant.
+SOME_RANGE_FIGURES = {**SOME_FIGURES,
+                      "Gbac1.1": Figure(given="21:41–22:01", written="21:41–22:01")}
+
 DONT_CARE_FIGURE = Figure(given=DONT_CARE_PROSE, written=DONT_CARE_PROSE)
 
 
@@ -477,6 +481,47 @@ def test_a_figure_named_that_the_incident_never_gave_is_named() -> None:
                 _named("[{A9}]"),
                 _found(1)
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("before", ["between", "from", "Between"])
+def test_a_range_figure_after_a_word_that_opens_a_range_is_named(before: str) -> None:
+    # A range is written in whole, so "between {G}" reads "between 21:41–22:01".
+    # The figure says its own range.
+    Scenario() \
+        .given(
+            an_answer_opening_a_range_twice := _an_answer(
+                cause_in_plain_words=f"errors held {before} {{Gbac1.1}}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_opening_a_range_twice,
+                              given=_given_figures("Gbac1.1", figures=SOME_RANGE_FIGURES))
+        ) \
+        .then(
+            all_of(
+                _named("[{Gbac1.1}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("prose", "name"), [
+    ("errors held over {Gbac1.1}", "Gbac1.1"),
+    ("errors held from {began}", "began")
+], ids=["another-word-before-a-range", "a-word-opening-a-range-before-an-instant"])
+def test_a_range_said_with_a_word_that_does_not_open_one_or_an_instant_after_one_is_accepted(
+        prose: str, name: str) -> None:
+    Scenario() \
+        .given(
+            an_answer := _an_answer(cause_in_plain_words=prose)
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_figures(name, figures=SOME_RANGE_FIGURES))
+        ) \
+        .then(
+            _found_nothing_wrong()
         )
 
 

@@ -54,6 +54,7 @@ from argus_core.models import ThreadMessage, Turn, labelled
 from pydantic import BaseModel
 
 from agent_postmortem.figures import (
+    A_FIGURE_NAME,
     AROUND_A_WORD,
     Figure,
     is_a_figure,
@@ -132,6 +133,11 @@ _A_FIGURE_IN_A_WORD: Final = re.compile(
 # The words after which a number is a place in a source file, not a figure.
 _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 
+# The words a range is opened with, and the dash a range figure is written
+# with: "between {G}" where G writes in as "21:41–22:01" opens it twice.
+_WORDS_THAT_OPEN_A_RANGE: Final = frozenset({"between", "from"})
+_A_RANGE_DASH: Final = re.compile(r"[–—]")
+
 # Where one sentence ends and another begins: a stop with words after it. A
 # sentence's own closing stop is not one.
 _A_SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+(?=\S)")
@@ -190,6 +196,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _figures_spelled_out(answer)
             + _figures_said_in_a_word(answer)
             + _figures_nobody_gave(answer, given)
+            + _ranges_opened_twice(answer, given)
             + _workings_that_make_no_sense(answer, given)
             + _revisions_nobody_read(answer, given))
 
@@ -444,6 +451,25 @@ def _numbers_in_digits(answer: SubmittedPostmortem, given: Given) -> list[str]:
         if is_a_figure(word)
         and before.lower() not in _A_PLACE_IN_A_FILE
         and not _names_a_revision_read(word, given)
+    ]
+
+
+def _ranges_opened_twice(answer: SubmittedPostmortem, given: Given) -> list[str]:
+    """Each figure written in as a range that the prose opens a range before.
+
+    A range is written in whole, so "between {G}" reads "between 21:41–22:01" -
+    the range opened twice. A word before a figure's name, as "line" before a
+    number is: what the figure says decides, not how the sentence reads.
+    """
+    return [
+        f"your answer writes [{before} {{{name}}}] - [{{{name}}}] is a range and says "
+        f"its own: write it alone, or say over or during"
+        for prose in answer.sentences()
+        for before, word in pairwise(["", *prose.split()])
+        if before.strip(AROUND_A_WORD).lower() in _WORDS_THAT_OPEN_A_RANGE
+        and (named := A_FIGURE_NAME.fullmatch(word.strip(AROUND_A_WORD))) is not None
+        and (name := named.group(1)) in given.figures
+        and _A_RANGE_DASH.search(given.figures[name].written) is not None
     ]
 
 
