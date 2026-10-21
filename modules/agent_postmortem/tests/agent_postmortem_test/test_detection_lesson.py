@@ -82,6 +82,34 @@ def test_where_the_rules_series_passed_its_line_the_alert_is_weighed_from_there_
 
 
 @pytest.mark.unit
+def test_a_series_already_past_its_line_at_the_onset_is_weighed_from_the_onset_without_look_back(
+) -> None:
+    # Past it in the onset's own minute, it passed it then or earlier - not a
+    # crossing to say the alert came after. Still the rule's own readings, so
+    # the look-back is in them.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6)),
+            measured := a_measured_incident(rule_waits=timedelta(minutes=1),
+                                            rule_looks_back=timedelta(minutes=5),
+                                            rule_evaluated_every=timedelta(seconds=30),
+                                            rule_past_its_line_at=ONSET,
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: the_detection_lesson(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(DetectionLesson(gap=timedelta(minutes=6),
+                                           measured_from=DetectionMeasuredFrom.ONSET,
+                                           rule_waits=timedelta(minutes=1),
+                                           rule_looks_back=timedelta(0),
+                                           rule_evaluated_every=timedelta(seconds=30),
+                                           scraping_and_storing=SCRAPING_AND_STORING))
+        )
+
+
+@pytest.mark.unit
 def test_where_the_metrics_stopped_at_the_onset_the_alert_is_weighed_from_their_stopping() -> None:
     # The same instant, and a different thing to have dated: the page says it
     # as the metrics stopping, as Detection does.

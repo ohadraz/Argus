@@ -34,12 +34,13 @@ def the_detection_lesson(evidence: IncidentEvidence,
     """How soon the alert came and what the rule spends before it can - or
     `None` where that cannot be weighed.
 
-    Not where the page's Detection section already says why: no onset, no rule
-    read, an alert before its start or sooner than the rule's wait. Nor where
-    the series was read with its line and never past it before the alert: it
-    does not bear out when the rule could fire - often the minute it passed
-    was not read yet - and weighed from the onset instead, the fault's own
-    growth would be called slow detection.
+    Not where the page's Detection section already says why, which it says of
+    the onset: no onset, no rule read, an alert before the onset or sooner
+    after it than the rule's wait. Nor where the series was read with its line
+    and does not bear out when the rule could fire - never past it before the
+    alert (often the minute it passed was not read yet), or past it too late
+    for the alert to have waited out the rule's wait after. Weighed from the
+    onset instead, the fault's own growth would be called slow detection.
     """
     if (measured.onset_at is None or measured.rule_waits is None
             or measured.rule_looks_back is None or measured.rule_evaluated_every is None):
@@ -49,8 +50,11 @@ def the_detection_lesson(evidence: IncidentEvidence,
         if measured.rule_past_its_line_at is None:
             return None
 
+        # Past it in the onset's own minute, it passed it then or earlier:
+        # no crossing to say the alert came after, so the onset is the start.
         began = measured.rule_past_its_line_at
-        measured_from = DetectionMeasuredFrom.LINE_PASSED
+        measured_from = (DetectionMeasuredFrom.ONSET if began == measured.onset_at
+                         else DetectionMeasuredFrom.LINE_PASSED)
         looks_back = timedelta(0)
     else:
         began = measured.onset_at

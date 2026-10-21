@@ -79,7 +79,9 @@ def test_a_document_with_no_lessons_still_has_all_three_lists() -> None:
 
 @pytest.mark.unit
 def test_an_alert_within_what_was_accounted_for_is_said_first_under_what_went_well() -> None:
-    # Plain, not prose: the words are worked out here, not the model's.
+    # Plain, not prose: the words are worked out here, not the model's. The
+    # time to scrape and store is an allowance nobody measured, and said as
+    # the rule's own parts are it would read as a fact about the stack.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -100,9 +102,9 @@ def test_an_alert_within_what_was_accounted_for_is_said_first_under_what_went_we
                 Line(runs=(Run(text="The alert came 5 minutes 53 seconds after the onset, "
                                     "within the 7 minutes 30 seconds accounted for by its "
                                     "condition looking back over 5 minutes, its evaluation at "
-                                    "intervals of 1 minute, up to 30 seconds to scrape and "
-                                    "store its samples and the whole minute the onset is "
-                                    "measured to."),)),
+                                    "intervals of 1 minute, an unmeasured allowance of 30 "
+                                    "seconds for scraping and storing its samples and the "
+                                    "whole minute the onset is measured to."),)),
                 Line(runs=(Run(text="the logs told the gap apart", role=Role.PROSE),))))
         )
 
@@ -132,9 +134,10 @@ def test_an_alert_later_than_what_was_accounted_for_is_said_first_under_what_wen
                 Line(runs=(Run(text="The alert came 12 minutes after its series passed its "
                                     "line, 8 minutes more than the 4 minutes accounted for by "
                                     "its rule waiting 2 minutes with its condition holding, "
-                                    "its evaluation at intervals of 30 seconds, up to 30 "
-                                    "seconds to scrape and store its samples and the whole "
-                                    "minute its series is read in."),)),
+                                    "its evaluation at intervals of 30 seconds, an "
+                                    "unmeasured allowance of 30 seconds for scraping and "
+                                    "storing its samples and the whole minute its series is "
+                                    "read in."),)),
                 Line(runs=(Run(text="the draft waits on a person", role=Role.PROSE),))))
         )
 

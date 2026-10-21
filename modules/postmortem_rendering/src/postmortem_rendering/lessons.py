@@ -93,8 +93,10 @@ def _said(lesson: DetectionLesson) -> Line:
           if lesson.rule_looks_back else ()),
         *((f"its evaluation at intervals of {said_as_a_span(lesson.rule_evaluated_every)}",)
           if lesson.rule_evaluated_every else ()),
-        *((f"up to {said_as_a_span(lesson.scraping_and_storing)} to scrape and store its "
-           f"samples",) if lesson.scraping_and_storing else ()),
+        # An allowance nobody measured, said as one: in the voice of the
+        # rule's own parts it would read as a fact about the stack.
+        *((f"an unmeasured allowance of {said_as_a_span(lesson.scraping_and_storing)} for "
+           f"scraping and storing its samples",) if lesson.scraping_and_storing else ()),
         _THE_WHOLE_MINUTE[lesson.measured_from]
     ]
     by = ", ".join(parts[:-1]) + f" and {parts[-1]}" if len(parts) > 1 else parts[0]
