@@ -162,31 +162,34 @@ def test_a_moment_in_another_zone_is_said_in_utc_and_says_so() -> None:
 
 
 @pytest.mark.unit
-def test_a_moment_is_said_in_whatever_pattern_it_is_asked_for() -> None:
+def test_a_moment_with_seconds_is_said_in_utc_to_the_second() -> None:
+    # As every instant is said. "Opened 19:12" sat above the walk's first line,
+    # the acknowledgement, saying the same instant as 19:12:56.
     Scenario() \
         .given(
-            some_moment := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+            some_moment := datetime(2026, 10, 14, 14, 3, 9, tzinfo=UTC)
         ) \
         .when(
-            lambda: in_utc(some_moment, "%b %d, %Y, %H:%M")
+            lambda: in_utc(some_moment)
         ) \
         .then(
-            the_answer_was("Oct 14, 2026, 14:03 UTC")
+            the_answer_was("2026-10-14 14:03:09 UTC")
         )
 
 
 @pytest.mark.unit
 def test_a_moment_on_the_clock_is_converted_and_left_unlabelled() -> None:
-    # For a column whose heading says UTC once, rather than every row of it.
+    # For markup a script reads, in the pattern it reads: every moment a person
+    # reads is said through the kernel's time.
     Scenario() \
         .given(
             some_moment := datetime(2026, 10, 14, 16, 3, 9, tzinfo=timezone(timedelta(hours=2)))
         ) \
         .when(
-            lambda: on_the_clock(some_moment)
+            lambda: on_the_clock(some_moment, "%Y-%m-%dT%H:%M:%SZ")
         ) \
         .then(
-            the_answer_was("14:03:09")
+            the_answer_was("2026-10-14T14:03:09Z")
         )
 
 

@@ -23,8 +23,12 @@ and a postmortem is entitled to say the date.
 from __future__ import annotations
 
 import re
+from datetime import UTC
+from typing import Final
 
-from argus_narration.clock import a_moment
+from argus_core import parse_iso
+
+from argus_narration.clock import a_moment, is_a_moment
 
 # An instant inside a sentence, in the two shapes that are not already how this
 # page says the time: the wire format the tools speak to each other, and a
@@ -40,6 +44,10 @@ _A_TIME_IN_PROSE = re.compile(
 
 # A clock time on its own, with or without the wire format's seconds and zone.
 _A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2})?Z?")
+
+# The day a clock time is put on where no line says which: any will do, since
+# a time said beside nothing is said without one.
+_ANY_DAY: Final = "1970-01-01"
 
 
 def said_plainly(prose: str, beside: str | None = None) -> str:
@@ -70,12 +78,21 @@ def _on_the_clock(said: str, beside: str | None) -> str:
     """One quoted time as a clock reads it, whatever shape it arrived in.
 
     A bare `21:48Z` is a wire-format time with its date left off, which nothing
-    can parse into an instant - so it is trimmed rather than parsed, keeping
-    its seconds where it has any, as every instant is said. A full timestamp is
-    parsed, because only parsing it can put it in UTC.
+    can parse into an instant - so it is put on the day of the line it sits on,
+    as the sentence reads it, and said as every instant is. A full timestamp is
+    parsed as it came, because only parsing it can put it in UTC.
     """
     if _A_BARE_CLOCK.fullmatch(said):
-        clock = said.removesuffix("Z")
-        return clock.removesuffix(":00") if len(clock) > len("21:48") else clock
+        return a_moment(f"{_the_day_of(beside)}T{said.removesuffix('Z')}Z", beside=beside)
 
     return a_moment(said, beside=beside)
+
+
+def _the_day_of(beside: str | None) -> str:
+    """The UTC day of the line a clock time sits on, or any day where there is
+    no such line to read one from - said beside nothing, a time is never dated,
+    so the day only places it."""
+    if beside is None or not is_a_moment(beside):
+        return _ANY_DAY
+
+    return parse_iso(beside).astimezone(UTC).date().isoformat()

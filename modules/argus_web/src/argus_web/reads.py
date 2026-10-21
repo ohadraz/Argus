@@ -9,7 +9,7 @@ would be the beginning of a second opinion about what an incident is.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import psycopg
 from argus_incidents.repository import (
@@ -54,7 +54,10 @@ def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:
     return [build_incident_summary(incident) for incident in incidents.get_recent(conn)]
 
 
-def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail | None:
+def read_incident(conn: psycopg.Connection,
+                  incident_id: str,
+                  minutes: Sequence[str] = (),
+                  logged: Sequence[str] = ()) -> IncidentDetail | None:
     """One incident's whole walk, or `None` where there is no such incident.
 
     `None` rather than an empty detail: an id that never existed has no walk to
@@ -62,7 +65,8 @@ def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail 
 
     Four reads rather than one join, because each is a repository's own
     question and the join belongs to the view, which is where the answers are
-    arranged for somebody to look at.
+    arranged for somebody to look at. `minutes` and `logged` are the rows the
+    page beside the walk holds, for its findings to lead to.
     """
     incident = incidents.get(conn, incident_id)
     if incident is None:
@@ -72,6 +76,8 @@ def read_incident(conn: psycopg.Connection, incident_id: str) -> IncidentDetail 
         incident,
         candidates=hypotheses.get_all_by_incident(conn, incident_id),
         attempts=taken_actions.get_by_incident(conn, incident_id),
+        minutes=minutes,
+        logged=logged
     )
 
 

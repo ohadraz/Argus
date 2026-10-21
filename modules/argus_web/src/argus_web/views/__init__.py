@@ -21,9 +21,11 @@ from argus_web.views.incidents import (
 )
 from argus_web.views.storytelling import (
     LiveIncident,
+    RowsHeld,
     Story,
     build_live_incident,
     build_story,
+    the_rows_held,
 )
 
 __all__ = [
@@ -32,9 +34,11 @@ __all__ = [
     "IncidentDetail",
     "IncidentSummary",
     "LiveIncident",
+    "RowsHeld",
     "Story",
     "build_incident_detail",
     "build_incident_summary",
     "build_live_incident",
-    "build_story"
+    "build_story",
+    "the_rows_held"
 ]

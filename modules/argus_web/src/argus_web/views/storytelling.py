@@ -13,7 +13,7 @@ wins, because it is the later read that Argus acted on.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
 
@@ -77,6 +77,14 @@ class Story(BaseModel):
     read_changes: bool
 
 
+class RowsHeld(BaseModel):
+    """What a finding on the page can lead to: the minutes its metrics table
+    holds, and the minutes its log table holds lines for."""
+
+    minutes: list[str]
+    logged: list[str]
+
+
 class LiveIncident(BaseModel):
     """The incident somebody watching Argus is looking at.
 
@@ -135,12 +143,10 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
         toggled.update({(toggle.flag, toggle.occurred_at): toggle
                         for toggle in line.flag_changes})
 
+    held = the_rows_held(minutes.values(), lines.values())
+
     return Story(
-        narration=[
-            decorated(_pointed_at(shown(line, revisions), list(minutes),
-                                  the_minutes_logged(lines.values())))
-            for line in narration
-        ],
+        narration=[decorated(_pointed_at(shown(line, revisions), held)) for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
         logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
         changes=[_a_row(change, revisions)
@@ -187,9 +193,17 @@ def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision]) -> Chang
                      summary=what_a_change_did(change, short))
 
 
-def _pointed_at(line: NarrationLine,
-                minutes: Sequence[str],
-                logged: Sequence[str]) -> NarrationLine:
+def the_rows_held(metrics: Iterable[BucketRow], logs: Iterable[LogLine]) -> RowsHeld:
+    """The rows a page showing these tables holds, for its findings to lead to.
+
+    Answered once, for the timeline and the walk's candidates alike: two
+    answers to it are links that can come to land on different rows.
+    """
+    return RowsHeld(minutes=[bucket.bucket_id for bucket in metrics],
+                    logged=the_minutes_logged(logs))
+
+
+def _pointed_at(line: NarrationLine, held: RowsHeld) -> NarrationLine:
     """One line, with its findings pointed at the minutes the page holds.
 
     Done here rather than while the line is built, because a finding cited at
@@ -201,7 +215,7 @@ def _pointed_at(line: NarrationLine,
 
     return line.model_copy(update={"candidates": [
         candidate.model_copy(update={"evidence": [
-            pointed_at(cited, minutes, logged) for cited in candidate.evidence
+            pointed_at(cited, held.minutes, held.logged) for cited in candidate.evidence
         ]})
         for candidate in line.candidates
     ]})

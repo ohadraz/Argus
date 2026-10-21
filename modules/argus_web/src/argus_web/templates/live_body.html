@@ -61,7 +61,7 @@
         <td>{{ incident.alert.summary or "none given" }}</td>
         <td>{{ incident.alert.service }}</td>
         <td>{{ incident.alert.severity or "-" }}</td>
-        <td>{{ incident.created_at | utc("%Y-%m-%d %H:%M:%S") }}</td>
+        <td>{{ incident.created_at | utc }}</td>
       </tr>
     </tbody>
   </table>

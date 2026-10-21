@@ -116,9 +116,12 @@
 // already, since it would only repeat the line. Once the page is parsed,
 // because the times it rewrites are in every section below this one.
 document.addEventListener('DOMContentLoaded', function () {
+  // To the second only where the moment has one, as the UTC time beside it.
   function hm(iso) {
-    return new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit',
-                                                 hourCycle: 'h23'});
+    var at = new Date(iso);
+    var clock = {hour: '2-digit', minute: '2-digit', hourCycle: 'h23'};
+    if (at.getSeconds()) { clock.second = '2-digit'; }
+    return at.toLocaleTimeString([], clock);
   }
   document.querySelectorAll('.local').forEach(function (span) {
     var from = span.dataset.localFrom || span.dataset.localAt;

@@ -683,8 +683,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                "enum": [kind.value for kind in ActionItemType]}},
             [ITEM_FIELD, ITEM_TYPE_FIELD],
             "What should be done that the record does not already hold, each "
-            "one thing a person could take on. Each item is one thing to do; two "
-            "things to do are two items. Empty where the record's own "
+            "one thing a person could take on: two things to do are two items. "
+            "Empty where the record's own "
             "items answer every factor. Propose nothing to confirm a cause the "
             "record already confirmed - a mitigation that worked, a hypothesis "
             "marked confirmed - and no check of what the evidence you are shown "

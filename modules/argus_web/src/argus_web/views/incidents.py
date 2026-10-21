@@ -11,6 +11,7 @@ explanation?" is the question a reader has while looking at one.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from argus_core import UuidStr
@@ -107,7 +108,9 @@ def build_incident_summary(incident: Incident) -> IncidentSummary:
 def build_incident_detail(
     incident: Incident,
     candidates: list[Hypothesis],
-    attempts: list[TakenAction]
+    attempts: list[TakenAction],
+    minutes: Sequence[str] = (),
+    logged: Sequence[str] = ()
 ) -> IncidentDetail:
     """Arranges an incident's rows into the walk a reader follows.
 
@@ -118,6 +121,10 @@ def build_incident_detail(
 
     Attempts are attached to the candidate they name, because "what did we try
     for this explanation?" is the question a reader has while looking at one.
+
+    `minutes` and `logged` are the rows the page holds - the minutes read and
+    the minutes logged - so a finding naming one of them leads to it, as the
+    same finding does in the timeline. Empty, a finding leads nowhere.
     """
     attached: dict[str, list[Attempt]] = {}
     unattributed: list[Attempt] = []
@@ -135,7 +142,7 @@ def build_incident_detail(
         status=incident.status,
         created_at=incident.created_at,
         candidates=[
-            _a_candidate(candidate, attached.get(candidate.id, []))
+            _a_candidate(candidate, attached.get(candidate.id, []), minutes, logged)
             for candidate in candidates
         ],
         unattributed_attempts=unattributed
@@ -172,7 +179,10 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
     )
 
 
-def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
+def _a_candidate(hypothesis: Hypothesis,
+                 attempts: list[Attempt],
+                 minutes: Sequence[str],
+                 logged: Sequence[str]) -> Candidate:
     """One hypothesis row, with the attempts made for it.
 
     A candidate the walk never reached comes back with no attempts and
@@ -187,7 +197,8 @@ def _a_candidate(hypothesis: Hypothesis, attempts: list[Attempt]) -> Candidate:
         subject=hypothesis.subject,
         moved_from=said_as_a_state(hypothesis.from_state),
         moved_to=said_as_a_state(hypothesis.to_state),
-        evidence=[a_finding(cited) for cited in hypothesis.supporting_evidence],
+        evidence=[a_finding(cited, minutes, logged)
+                  for cited in hypothesis.supporting_evidence],
         tested=hypothesis.tested,
         result=hypothesis.result,
         attempts=attempts

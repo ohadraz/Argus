@@ -210,6 +210,31 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
 
 
 @pytest.mark.unit
+def test_a_finding_naming_a_minute_the_page_holds_leads_to_it() -> None:
+    # As the same finding does in the timeline above it. Said in words and
+    # leading nowhere, the moment the finding rests on was lost.
+    an_incident = _an_incident()
+    the_minute_read = "2026-08-30T10:14:00Z"
+    the_minute_logged = "2026-08-30T10:14"
+
+    Scenario() \
+        .given(
+            a_candidate_citing_that_minute := _a_candidate(
+                an_incident.id, subject="a-flag", rank=1,
+                evidence=[Evidence(claim="error rate rose",
+                                   at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))])
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_citing_that_minute],
+            attempts=NOTHING_WAS_TRIED,
+            minutes=[the_minute_read],
+            logged=[the_minute_logged]
+        )) \
+        .then(_the_first_finding_leads_to(the_minute_read, the_minute_logged))
+
+
+@pytest.mark.unit
 def test_an_incident_is_shown_with_the_alert_it_opened_on() -> None:
     # The row stores the alert as the JSON it was normalized into. A reader
     # gets the alert back, not the payload it was stored as.
@@ -352,6 +377,22 @@ def _the_first_candidate_resulted_in(expected: str | None) -> Assertion[Incident
 
         if result != expected:
             raise AssertionError(f"Expected the result [{expected}], got [{result}].")
+
+        return True
+
+    return assertion
+
+
+def _the_first_finding_leads_to(minute: str, lines: str) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        finding = _the_first(detail).evidence[0]
+        led_to = (finding.links_to_minute, finding.links_to_lines)
+
+        if led_to != (minute, lines):
+            raise AssertionError(
+                f"Expected the finding to lead to the minute [{minute}] and its lines "
+                f"[{lines}], it led to {led_to}."
+            )
 
         return True
 

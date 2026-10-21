@@ -67,7 +67,7 @@ from argus_web.pushes import (
     Watermark,
     receive_push,
 )
-from argus_web.views import IncidentDetail
+from argus_web.views import IncidentDetail, Story, the_rows_held
 
 logger = logging.getLogger(__name__)
 
@@ -676,8 +676,8 @@ def incident_page(request: Request,
     """One incident's whole walk: the alert it opened on, every ranked
     candidate with what was tried for it, and the transitions it went through."""
     with connections() as conn:
-        incident = _an_incident_or_404(conn, incident_id)
         story = reads.read_story(conn, incident_id)
+        incident = _an_incident_or_404(conn, incident_id, beside=story)
 
     return templates.TemplateResponse(
         request, "incident.html", {"incident": incident, "story": story}
@@ -701,8 +701,8 @@ def incident_walk(request: Request,
     second button on screen.
     """
     with connections() as conn:
-        incident = _an_incident_or_404(conn, incident_id)
         story = reads.read_story(conn, incident_id)
+        incident = _an_incident_or_404(conn, incident_id, beside=story)
 
     return templates.TemplateResponse(
         request,
@@ -770,13 +770,21 @@ def postmortem_pdf(request: Request,
                              f'attachment; filename="argus-postmortem-{incident_id}.pdf"'})
 
 
-def _an_incident_or_404(conn: psycopg.Connection, incident_id: str) -> IncidentDetail:
+def _an_incident_or_404(conn: psycopg.Connection,
+                        incident_id: str,
+                        beside: Story | None = None) -> IncidentDetail:
     """The incident, or the answer that there is no such incident.
 
     A 404 rather than an empty page: an id that never existed has no walk to be
     empty, and rendering one for it invents a record.
+
+    `beside` is the story shown on the same page, whose minutes and log lines
+    the walk's findings lead to.
     """
-    incident = reads.read_incident(conn, incident_id)
+    held = the_rows_held(beside.metrics, beside.logs) if beside else None
+    incident = reads.read_incident(conn, incident_id,
+                                   minutes=held.minutes if held else (),
+                                   logged=held.logged if held else ())
     if incident is None:
         raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
 

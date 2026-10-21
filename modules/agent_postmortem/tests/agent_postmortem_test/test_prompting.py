@@ -3107,15 +3107,17 @@ def test_the_root_cause_is_asked_to_say_once_that_it_rests_on_a_reading_nothing_
 def test_an_action_item_is_asked_for_as_one_thing_to_do() -> None:
     # One item asked for the draft's test to be updated to the deployed key and
     # for the scrape change to land on the branch the revision was deployed
-    # from: two things to do, for whoever takes either, under one number.
+    # from: two things to do, for whoever takes either, under one number. Said
+    # once, where "one thing a person could take on" already asked for it.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
         ) \
-        .then(
-            _the_description_mentions("Each item is one thing to do",
-                                      "two things to do are two items")
-        )
+        .then(all_of(
+            _the_description_mentions("one thing a person could take on: two things to do "
+                                      "are two items"),
+            _the_description_avoids("Each item is one thing to do")
+        ))
 
 
 @pytest.mark.unit

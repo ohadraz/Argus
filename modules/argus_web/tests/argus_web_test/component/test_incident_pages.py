@@ -19,7 +19,13 @@ import httpx2
 import psycopg
 import pytest
 from argus_core import connect_from_env, new_id, utc_now
-from argus_core.events import CandidateSelected, ChangesRetrieved, StatusChanged
+from argus_core.events import (
+    CandidateSelected,
+    ChangesRetrieved,
+    LogsRetrieved,
+    MetricsRetrieved,
+    StatusChanged,
+)
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -43,6 +49,7 @@ from argus_core.models import (
     ImpactExtent,
     IncidentStatus,
     Lessons,
+    MetricBucket,
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
@@ -290,6 +297,45 @@ def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> No
             the_page_says(a_cited_line),
             _the_page_does_not_say("claim=")
         ))
+
+
+@pytest.mark.component
+def test_a_candidates_finding_naming_a_minute_the_page_holds_links_to_it() -> None:
+    # As the same finding does in the timeline. Said in words and leading
+    # nowhere, the minute the finding rests on was left for a reader to find -
+    # on the page, and in the fragment its poll swaps in every two seconds.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_minute = "2026-08-30T10:14:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _metrics_showing(incident_id, the_minute))
+        events.record(conn, LogsRetrieved(incident_id=incident_id,
+                                          window_start="2026-08-30T10:00:00Z",
+                                          window_end="2026-08-30T10:20:00Z",
+                                          lines=["2026-08-30T10:14:12Z ERROR checkout failed"]))
+        hypotheses.record(conn, Hypothesis(
+            incident_id=incident_id,
+            summary="dont care",
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+            confidence=0.9,
+            supporting_evidence=[Evidence(claim="error rate rose",
+                                          at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))],
+            subject="a-flag",
+            rank=1
+        ))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: [page_at(f"/incidents/{incident_id}"),
+                     page_at(f"/incidents/{incident_id}/walk")]
+        ) \
+        .then(
+            _the_candidates_link_to(f"#minute-{the_minute}", "#log-at-2026-08-30T10:14")
+        )
 
 
 @pytest.mark.component
@@ -2741,6 +2787,45 @@ def _a_deploy_read_on(incident_id: str,
                                  repository="acme/shop",
                                  repository_address=repository,
                                  revision_address=f"{repository}/commit/{revision}"))])
+
+
+def _metrics_showing(incident_id: str, minute: str) -> MetricsRetrieved:
+    """One metrics read that came back with a single minute in it."""
+    return MetricsRetrieved(
+        incident_id=incident_id,
+        window_start=minute,
+        window_end=minute,
+        buckets=[MetricBucket(
+            bucket_id=minute,
+            error_rate=0.2,
+            p50_ms=120,
+            p95_ms=240,
+            p99_ms=420,
+            request_volume=200,
+            memory_used_bytes=440 * 1024**2,
+            process_start_time_seconds=1_756_000_000.0,
+            cpu_used_cores=0.77,
+            cpu_limit_cores=3.0
+        )]
+    )
+
+
+def _the_candidates_link_to(*addresses: str) -> Assertion[list[str]]:
+    """Under Candidates, on every page asked: the timeline above it links its
+    own findings, and a link there says nothing about these."""
+    def assertion(pages: list[str]) -> bool:
+        missing = [(number, address)
+                   for number, page in enumerate(pages, start=1)
+                   for address in addresses
+                   if f'href="{address}"' not in page.partition("<h2>Candidates</h2>")[2]]
+
+        if missing:
+            raise AssertionError(f"Expected every page to link to {list(addresses)} under "
+                                 f"Candidates, and (page, link) {missing} did not.")
+
+        return True
+
+    return assertion
 
 
 def _the_page_does_not_say(text: str) -> Assertion[str]:

@@ -79,7 +79,15 @@
       {% if candidate.evidence %}
       <ul class="evidence">
         {% for finding in candidate.evidence %}
-        <li class="evidence-line">{{ finding.text }}</li>
+        <li class="evidence-line">
+          {{ finding.text }}
+          {% if finding.links_to_minute %}
+            <a class="jump" href="#minute-{{ finding.links_to_minute }}">the minute</a>
+          {% endif %}
+          {% if finding.links_to_lines %}
+            <a class="jump" href="#log-at-{{ finding.links_to_lines }}">its log lines</a>
+          {% endif %}
+        </li>
         {% endfor %}
       </ul>
       {% endif %}

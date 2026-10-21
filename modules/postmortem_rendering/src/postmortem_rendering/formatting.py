@@ -69,8 +69,9 @@ def as_revision(revision: str) -> str:
     return revision
 
 
-def in_utc(moment: datetime, pattern: str = "%Y-%m-%d %H:%M") -> str:
-    """A moment, rendered in UTC and saying so.
+def in_utc(moment: datetime) -> str:
+    """A moment, rendered in UTC and saying so: its date, then its time as the
+    kernel says one - to the second only where it has one.
 
     The zone is written out rather than assumed. The Target Service's console
     stamps its minutes in UTC and labels them; an unlabelled time beside it
@@ -81,15 +82,15 @@ def in_utc(moment: datetime, pattern: str = "%Y-%m-%d %H:%M") -> str:
     whatever zone the connection is set to, and formatting it as it comes would
     make the label a guess.
     """
-    return f"{moment.astimezone(UTC).strftime(pattern)} UTC"
+    return f"{moment.astimezone(UTC):%Y-%m-%d} {said_as_a_time(moment)} UTC"
 
 
-def on_the_clock(moment: datetime, pattern: str = "%H:%M:%S") -> str:
-    """A moment in UTC, unlabelled - for a column whose heading says UTC once.
+def on_the_clock(moment: datetime, pattern: str) -> str:
+    """A moment in UTC, unlabelled and in `pattern` - for markup a script reads.
 
-    The same conversion `in_utc` does and none of its suffix: a table that
-    repeats the zone on every row of forty spends a column's width saying one
-    thing forty times, and that width is the message column's.
+    Every moment a person reads is said through the kernel's time, which no
+    pattern here could keep in step with. A script reads a pattern of its own,
+    and it is that one this is asked for.
     """
     return moment.astimezone(UTC).strftime(pattern)
 
