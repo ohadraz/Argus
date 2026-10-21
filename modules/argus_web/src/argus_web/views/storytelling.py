@@ -36,7 +36,7 @@ from argus_narration import (
 from postmortem_rendering import Run, a_reference, what_a_change_did
 from pydantic import BaseModel
 
-from argus_web.views.decorating import DecoratedLine, decorated
+from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 
 
 class ChangeRow(BaseModel):
@@ -75,14 +75,6 @@ class Story(BaseModel):
     # finding - it is what rules a deploy out - and a table that simply did not
     # appear would leave that finding unsaid.
     read_changes: bool
-
-
-class RowsHeld(BaseModel):
-    """What a finding on the page can lead to: the minutes its metrics table
-    holds, and the minutes its log table holds lines for."""
-
-    minutes: list[str]
-    logged: list[str]
 
 
 class LiveIncident(BaseModel):
@@ -143,18 +135,17 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
         toggled.update({(toggle.flag, toggle.occurred_at): toggle
                         for toggle in line.flag_changes})
 
-    held = the_rows_held(minutes.values(), lines.values())
+    flag_history = a_flag_history(sorted(toggled.values(), key=lambda toggle: toggle.occurred_at))
+    held = the_rows_held(minutes.values(), lines.values(), flag_history)
 
     return Story(
-        narration=[decorated(_pointed_at(shown(line, revisions), held), minutes_held=held.minutes)
+        narration=[decorated(_pointed_at(shown(line, revisions), held), held=held)
                    for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
         logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
         changes=[_a_row(change, revisions)
                  for change in sorted(changed.values(), key=lambda change: change.occurred_at)],
-        flag_changes=a_flag_history(
-            sorted(toggled.values(), key=lambda toggle: toggle.occurred_at)
-        ),
+        flag_changes=flag_history,
         read_changes=any(isinstance(event, ChangesRetrieved) for event in events)
     )
 
@@ -194,14 +185,20 @@ def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision]) -> Chang
                      summary=what_a_change_did(change, short))
 
 
-def the_rows_held(metrics: Iterable[BucketRow], logs: Iterable[LogLine]) -> RowsHeld:
-    """The rows a page showing these tables holds, for its findings to lead to.
+def the_rows_held(metrics: Iterable[BucketRow],
+                  logs: Iterable[LogLine],
+                  flags: Iterable[FlagToggleRow]) -> RowsHeld:
+    """The rows a page showing these tables holds, for its lines and findings
+    to lead to.
 
     Answered once, for the timeline and the walk's candidates alike: two
-    answers to it are links that can come to land on different rows.
+    answers to it are links that can come to land on different rows. A flag is
+    held where its history has a row for it - the table's anchor is on the
+    flag's latest move, and every flag in the history has one.
     """
     return RowsHeld(minutes=[bucket.bucket_id for bucket in metrics],
-                    logged=the_minutes_logged(logs))
+                    logged=the_minutes_logged(logs),
+                    flags=list(dict.fromkeys(row.flag for row in flags)))
 
 
 def _pointed_at(line: NarrationLine, held: RowsHeld) -> NarrationLine:

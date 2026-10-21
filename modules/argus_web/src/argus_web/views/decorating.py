@@ -12,9 +12,8 @@ knows an event from another.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from argus_narration import NarrationLine
+from pydantic import BaseModel
 
 # How a marked word is dressed, by the kind of line it appears on. A status
 # wears the badge the header gives it and a verdict wears red or green; every
@@ -37,6 +36,16 @@ _ANCHORS = {
     "onset-detected": "minute",
     "action-taken": "flag"
 }
+
+
+class RowsHeld(BaseModel):
+    """What a line or a finding on the page can lead to: the minutes its
+    metrics table holds, the minutes its log table holds lines for, and the
+    flags its flag history holds a row for."""
+
+    minutes: list[str]
+    logged: list[str]
+    flags: list[str]
 
 
 class DecoratedLine(NarrationLine):
@@ -63,15 +72,15 @@ class DecoratedLine(NarrationLine):
     emphasis_href: str = ""
 
 
-def decorated(line: NarrationLine, *, minutes_held: Sequence[str]) -> DecoratedLine:
+def decorated(line: NarrationLine, *, held: RowsHeld) -> DecoratedLine:
     """One line, with the class and the link this page would give it.
 
-    `minutes_held` is the minutes the page's metrics table has rows for. A
-    line naming a minute links to it only where there is a row to land on:
-    the metrics can stop before the minute the onset names, and a link that
-    lands nowhere is worse than none.
+    `held` is the rows the page has. A line links to a row only where there is
+    one to land on, whatever kind of line it is: the metrics can stop before
+    the minute the onset names, the flag history can leave out the flag an
+    action moved, and a link that lands nowhere is worse than none.
     """
-    target, label = _where_to_look(line, minutes_held)
+    target, label = _where_to_look(line, held)
 
     return DecoratedLine(
         **line.model_dump(),
@@ -111,25 +120,29 @@ def _dressed_as(line: NarrationLine) -> str:
     return f"{dressed} {line.emphasis.lower()}"
 
 
-def _where_to_look(line: NarrationLine, minutes_held: Sequence[str]) -> tuple[str, str]:
-    """The row a line points at, and what the link says.
+def _where_to_look(line: NarrationLine, held: RowsHeld) -> tuple[str, str]:
+    """The row a line points at, and what the link says - or nothing, where
+    the page holds no such row.
 
     The onset names one minute out of ninety, and finding that minute by hand
-    is the work the link saves - where the table holds that minute at all. The
-    action names one flag, so it points at that flag's own row - while the
-    history line names all of them and points at none, because a link that
-    cannot say which of four rows it means is furniture.
+    is the work the link saves. The action names one flag, so it points at that
+    flag's own row - while the history line names all of them and points at
+    none, because a link that cannot say which of four rows it means is
+    furniture.
     """
     label = _POINTS_AT.get(line.kind)
     row = _the_row_named_by(line)
 
-    if label is None or not row:
-        return "", ""
-
-    if line.kind == "onset-detected" and row not in minutes_held:
+    if label is None or not row or row not in _the_rows_of(_ANCHORS[line.kind], held):
         return "", ""
 
     return f"#{_ANCHORS[line.kind]}-{row}", label
+
+
+def _the_rows_of(table: str, held: RowsHeld) -> list[str]:
+    """The rows the page holds in the table a link's anchor names - named one
+    by one, so an anchor nobody mapped fails rather than reading another's."""
+    return {"minute": held.minutes, "flag": held.flags}[table]
 
 
 def _the_row_named_by(line: NarrationLine) -> str:

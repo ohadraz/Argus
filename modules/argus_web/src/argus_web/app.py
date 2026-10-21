@@ -781,7 +781,7 @@ def _an_incident_or_404(conn: psycopg.Connection,
     `beside` is the story shown on the same page, whose minutes and log lines
     the walk's findings lead to.
     """
-    held = the_rows_held(beside.metrics, beside.logs) if beside else None
+    held = the_rows_held(beside.metrics, beside.logs, beside.flag_changes) if beside else None
     incident = reads.read_incident(conn, incident_id,
                                    minutes=held.minutes if held else (),
                                    logged=held.logged if held else ())

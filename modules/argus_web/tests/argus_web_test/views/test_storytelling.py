@@ -23,12 +23,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core import new_id
 from argus_core.events import (
+    ActionTaken,
     CandidateSelected,
     ChangesRetrieved,
     FlagChangesRetrieved,
     IncidentEvent,
     LogsRetrieved,
     MetricsRetrieved,
+    OnsetDetected,
     StatusChanged,
 )
 from argus_core.models import (
@@ -178,6 +180,37 @@ def test_a_flag_that_moved_twice_keeps_both_of_its_moves() -> None:
         ) \
         .when(lambda: build_story(a_flag_tried_and_put_back)) \
         .then(_the_flag_moves_shown_are([("OFF", "ON"), ("ON", "OFF")]))
+
+
+@pytest.mark.unit
+def test_the_onset_leads_to_its_minute_where_the_metrics_table_holds_it() -> None:
+    # The lines are told what the page holds by the story that gathered it:
+    # the minutes of its metrics table.
+    Scenario() \
+        .given(
+            an_onset_inside_the_metrics := list[IncidentEvent]([
+                _metrics_showing(SOME_MINUTE, 0.5),
+                OnsetDetected(incident_id=new_id(), onset=SOME_MINUTE)])
+        ) \
+        .when(lambda: build_story(an_onset_inside_the_metrics)) \
+        .then(_a_line_shown_points_at(f"#minute-{SOME_MINUTE}"))
+
+
+@pytest.mark.unit
+def test_an_action_leads_to_its_flag_where_the_flag_history_holds_it() -> None:
+    # And the flags of its flag history, where the action's own row is.
+    Scenario() \
+        .given(
+            an_action_on_a_flag_in_the_history := list[IncidentEvent]([
+                _flag_history([
+                    FlagChange(flag=SOME_FLAG, enabled=True, occurred_at=AN_EARLIER_MINUTE)
+                ]),
+                ActionTaken(incident_id=new_id(), hypothesis_id=new_id(),
+                            action_type="revert-feature-flag", subject=SOME_FLAG,
+                            enabled=False)])
+        ) \
+        .when(lambda: build_story(an_action_on_a_flag_in_the_history)) \
+        .then(_a_line_shown_points_at(f"#flag-{SOME_FLAG}"))
 
 
 @pytest.mark.unit
@@ -428,6 +461,19 @@ def _a_line_shown_reads(text: str, emphasis: str) -> Assertion[Story]:
 
         if (text, emphasis) not in shown:
             raise AssertionError(f"Expected a line reading {(text, emphasis)}, got {shown}.")
+
+        return True
+
+    return assertion
+
+
+def _a_line_shown_points_at(target: str) -> Assertion[Story]:
+    """Some line as the page shows it has a link beside it to `target`."""
+    def assertion(story: Story) -> bool:
+        pointed = [line.link_target for line in story.narration]
+
+        if target not in pointed:
+            raise AssertionError(f"Expected a line pointing at [{target}], got {pointed}.")
 
         return True
 
