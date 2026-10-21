@@ -14,8 +14,14 @@ wrong.
 from __future__ import annotations
 
 from datetime import UTC
+from typing import Final
 
-from argus_core import parse_iso, said_as_a_span
+from argus_core import parse_iso, said_as_a_day, said_as_a_span
+
+# A time of day, to the minute a reader reads at and to the second a log line
+# or an alert was written at.
+_A_MINUTE: Final = "%H:%M"
+_A_SECOND: Final = "%H:%M:%S"
 
 
 def a_minute(value: str, beside: str | None = None) -> str:
@@ -31,10 +37,8 @@ def a_minute(value: str, beside: str | None = None) -> str:
     the twenty-four hours before the onset, and a clock time alone renders that
     as "18:13 to 18:13" - a window a reader can only read as a bug.
     """
-    if beside is not None and not _the_same_day(value, beside):
-        return _reformatted(value, "%d %b %H:%M")
-
-    return _reformatted(value, "%H:%M")
+    return _reformatted(value, _A_MINUTE,
+                        dated=beside is not None and not _the_same_day(value, beside))
 
 
 def a_moment(value: str, beside: str | None = None) -> str:
@@ -45,10 +49,8 @@ def a_moment(value: str, beside: str | None = None) -> str:
     week after the onset, said as a time of day alone, reads as one placed the
     same day.
     """
-    if beside is not None and not _the_same_day(value, beside):
-        return _reformatted(value, "%d %b %H:%M:%S")
-
-    return _reformatted(value, "%H:%M:%S")
+    return _reformatted(value, _A_SECOND,
+                        dated=beside is not None and not _the_same_day(value, beside))
 
 
 def is_a_moment(value: str) -> bool:
@@ -79,8 +81,8 @@ def a_window(start: str | None, end: str | None, beside: str | None = None) -> s
     if start and end:
         on_another_day = (not _the_same_day(end, start)
                           or beside is not None and not _the_same_day(end, beside))
-        clock = "%H:%M:%S" if _has_seconds(end) else "%H:%M"
-        said_end = _reformatted(end, f"%d %b {clock}" if on_another_day else clock)
+        said_end = _reformatted(end, _A_SECOND if _has_seconds(end) else _A_MINUTE,
+                                dated=on_another_day)
 
         return f"the {_how_long(start, end)} before {said_end}"
 
@@ -112,17 +114,23 @@ def _has_seconds(value: str) -> bool:
         return False
 
 
-def _reformatted(value: str, pattern: str) -> str:
-    """`value` in UTC under `pattern`, or `value` itself where it is not a time.
+def _reformatted(value: str, clock: str, dated: bool) -> str:
+    """`value` in UTC as `clock` says it, after the kernel's day where `dated`
+    - or `value` itself where it is not a time.
+
+    The day is the kernel's spelling rather than one written here, because the
+    postmortem has to recognise it in a line it reads for figures.
 
     Unparseable is shown as it arrived rather than dropped or guessed at: the
     string came out of a recorded event, and a page that silently blanked it
     would be hiding the one clue to why it looks wrong.
     """
     try:
-        return parse_iso(value).astimezone(UTC).strftime(pattern)
+        at = parse_iso(value).astimezone(UTC)
     except ValueError:
         return value
+
+    return f"{said_as_a_day(at)} {at:{clock}}" if dated else f"{at:{clock}}"
 
 
 def _how_long(start: str, end: str) -> str:

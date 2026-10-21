@@ -17,7 +17,7 @@ quotes a figure from the incident the recording was made against.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -61,7 +61,7 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
     SubmittedStep,
 )
-from argus_core import to_iso
+from argus_core import said_as_a_day, to_iso
 from argus_core.models import ActionItemType, CitedEvidence, Lessons, Verdict
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
@@ -101,6 +101,14 @@ SOME_DIFF = CitedEvidence(label="D1", text="modified deploy/values-production.ya
                                            "  @@ -12,7 +12,7 @@\n"
                                            "  -  timeout: 30\n"
                                            "  +  timeout: 5")
+
+# A line of narration dating a time on another day than its own, as narration
+# dates one: the day, then the time.
+SOME_MOMENT_ON_ANOTHER_DAY = datetime(2026, 10, 20, 20, 31, tzinfo=UTC)
+SOME_LINE_DATING_A_TIME = CitedEvidence(
+    label="T8",
+    text=f"Asked for production change events, the 1 day before "
+         f"{said_as_a_day(SOME_MOMENT_ON_ANOTHER_DAY)} {SOME_MOMENT_ON_ANOTHER_DAY:%H:%M}")
 
 
 @pytest.mark.unit
@@ -485,6 +493,40 @@ def test_a_diff_is_shown_with_its_hunk_header_as_it_was_read() -> None:
                            "  @@ -12,7 +12,7 @@\n"
                            "  -  timeout: 30 {D1.1}\n"
                            "  +  timeout: 5 {D1.2}")
+        )
+
+
+@pytest.mark.unit
+def test_a_day_said_beside_a_time_states_no_figure() -> None:
+    # Read word by word, the day of the month was a figure of its own, offered
+    # to the model as a number the incident gave. The time beside it is one.
+    Scenario() \
+        .given(
+            some_line := SOME_LINE_DATING_A_TIME
+        ) \
+        .when(
+            lambda: the_evidence_figures([some_line], DONT_CARE_DAY)
+        ) \
+        .then(
+            the_answer_was({
+                "T8.1": Figure(given="1", written="1"),
+                "T8.2": Figure(given="20:31", written="20:31")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_a_line_dating_a_time_is_shown_with_its_day_as_it_was_said() -> None:
+    Scenario() \
+        .given(
+            some_line := SOME_LINE_DATING_A_TIME
+        ) \
+        .when(
+            lambda: the_evidence_named(some_line)
+        ) \
+        .then(
+            the_answer_was("Asked for production change events, the 1 {T8.1} day before "
+                           "20 Oct 20:31 {T8.2}")
         )
 
 

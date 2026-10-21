@@ -32,6 +32,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from argus_core import (
+    A_DAY_SAID,
     level_given_in,
     level_said_in,
     parse_iso,
@@ -627,15 +628,36 @@ def _the_words_of(text: str) -> Iterator[tuple[str, str | None]]:
     layout the read tier sets a diff out in, so a patch line whose own text
     begins with `@@` keeps its figures. The values the diff changed are
     figures, since one of them can be the cause.
+
+    Nor does a day said as narration says one beside a time ("20 Oct 20:31"):
+    read word by word, the day of the month was a figure of its own, offered as
+    a number the incident gave. The time beside it is one.
     """
     for line in text.splitlines(keepends=True):
         if line.startswith(PATCH_LINE_INDENT + HUNK_HEADER):
             yield line, None
             continue
 
-        for part in re.split(r"(\s+)", line):
-            word = part.strip(AROUND_A_WORD)
-            yield part, word if word and is_a_figure(word) else None
+        for stretch, is_a_day in _the_days_apart(line):
+            if is_a_day:
+                yield stretch, None
+                continue
+
+            for part in re.split(r"(\s+)", stretch):
+                word = part.strip(AROUND_A_WORD)
+                yield part, word if word and is_a_figure(word) else None
+
+
+def _the_days_apart(line: str) -> Iterator[tuple[str, bool]]:
+    """The line in stretches, each with whether it is a day said."""
+    at = 0
+
+    for day in A_DAY_SAID.finditer(line):
+        yield line[at:day.start()], False
+        yield day.group(), True
+        at = day.end()
+
+    yield line[at:], False
 
 
 def _as_the_alert_gave_it(figure: str, day: date) -> Figure:
