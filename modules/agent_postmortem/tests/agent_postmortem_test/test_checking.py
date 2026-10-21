@@ -1012,6 +1012,57 @@ def test_what_a_step_ruled_out_citing_a_label_never_given_is_named() -> None:
         .then(
             all_of(
                 _named("[E40]"),
+                _named("ruled out"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_citing_nothing_is_named() -> None:
+    # Asked to cite what ruled it out, and held to it as a step is: a ruling
+    # resting on nothing is an assertion.
+    Scenario() \
+        .given(
+            an_answer_ruling_out_on_nothing := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=[])])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_ruling_out_on_nothing, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[the earlier deploy]"),
+                _named("cite what ruled it out"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_citing_a_candidate_is_named_as_that_entry() -> None:
+    # Told to "leave the step out", a model could drop a step of the chain
+    # rather than the entry that cited the guess.
+    Scenario() \
+        .given(
+            an_answer_ruling_out_on_a_guess := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=["C1"])])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_ruling_out_on_a_guess,
+                              given=Given(labels=frozenset({"E1", "C1"}),
+                                          hypotheses=frozenset({"C1"})))
+        ) \
+        .then(
+            all_of(
+                _named("[C1]"),
+                _named("leave that entry out"),
                 _found(1)
             )
         )

@@ -205,7 +205,10 @@ def _what_the_key_data_lacks(document: PostmortemDocument) -> list[str]:
     """A timeline to read, and nothing in the cause resting on nothing."""
     return [*(["there is no timeline"] if not document.timeline else []),
             *(["a step of the causal chain cites nothing"]
-              if not all(step.cites for step in document.causal_chain) else [])]
+              if not all(step.cites for step in document.causal_chain) else []),
+            *(["something the causal chain ruled out cites nothing"]
+              if not all(ruled.cites for step in document.causal_chain
+                         for ruled in step.ruled_out) else [])]
 
 
 def _what_the_impact_lacks(document: PostmortemDocument) -> list[str]:

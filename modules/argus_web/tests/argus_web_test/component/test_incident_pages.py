@@ -1886,7 +1886,9 @@ def test_what_a_step_ruled_out_is_said_under_it() -> None:
         ) \
         .then(all_of(
             the_page_says("Ruled out:"),
-            the_page_says("The earlier deploy was healthy.")
+            # A line of its own in the claim's ink, apart from the quieter rows
+            # that ruled it out - set among them, it read as one more of them.
+            the_page_says('<p class="ruled">The earlier deploy was healthy.</p>')
         ))
 
 

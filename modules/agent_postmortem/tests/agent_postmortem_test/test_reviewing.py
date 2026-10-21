@@ -43,6 +43,7 @@ from argus_core.models import (
     Refusal,
     ResolutionStep,
     ReviewCriterion,
+    RuledOut,
     TimelineEntry,
     TimelineMarker,
     Trigger,
@@ -104,6 +105,27 @@ def test_key_data_is_not_collected_while_a_step_cites_nothing() -> None:
         .then(
             _says_because(KEY_DATA_COLLECTED, met=False,
                           because="a step of the causal chain cites nothing")
+        )
+
+
+@pytest.mark.unit
+def test_key_data_is_not_collected_while_something_ruled_out_cites_nothing() -> None:
+    # Held to what a step is: what the chain ruled out rests on evidence too.
+    Scenario() \
+        .given(
+            a_document_with_an_uncited_ruling := _a_document(causal_chain=[
+                ChainStep(text="the divisor was zero",
+                          cites=[CitedEvidence(label="E1", text="dont care")],
+                          ruled_out=[RuledOut(text="the earlier deploy", cites=[])])
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_with_an_uncited_ruling, faults=[SOME_FAULT],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(KEY_DATA_COLLECTED, met=False,
+                          because="something the causal chain ruled out cites nothing")
         )
 
 

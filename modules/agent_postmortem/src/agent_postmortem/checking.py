@@ -245,28 +245,37 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
             faults.append(f"the step [{step.step}] in {CAUSAL_CHAIN_FIELD} cites no "
                           f"evidence - cite the labels it rests on")
 
-        faults.extend(_what_is_wrong_with_citing(step.step, label, given)
+        faults.extend(_what_is_wrong_with_citing(f"the step [{step.step}]", "step", label,
+                                                 given)
                       for label in step.cites
                       if label in given.hypotheses or label not in given.labels)
 
-        # What the step ruled out is held to what the step is: a ruling citing
-        # nothing that exists only looks checked.
-        faults.extend(_what_is_wrong_with_citing(ruled.what, label, given)
-                      for ruled in step.ruled_out
-                      for label in ruled.cites
-                      if label in given.hypotheses or label not in given.labels)
+        # What the step ruled out is held to what the step is - a ruling
+        # resting on nothing is an assertion - and named as itself, so the
+        # model puts that entry right rather than a step of the chain.
+        for ruled in step.ruled_out:
+            entry = f"what was ruled out, [{ruled.what}],"
+
+            if not ruled.cites:
+                faults.append(f"{entry} cites no evidence - cite what ruled it out")
+
+            faults.extend(_what_is_wrong_with_citing(entry, "entry", label, given)
+                          for label in ruled.cites
+                          if label in given.hypotheses or label not in given.labels)
 
     return faults
 
 
-def _what_is_wrong_with_citing(step: str, label: str, given: Given) -> str:
-    """Why a step may not rest on this label, said for the model to act on."""
+def _what_is_wrong_with_citing(said: str, kind: str, label: str, given: Given) -> str:
+    """Why a step, or what it ruled out, may not rest on this label, said for
+    the model to act on - `said` is how the fault names it, and `kind` what it
+    is asked to leave out."""
     if label in given.hypotheses:
-        return (f"the step [{step}] cites [{label}], a candidate cause - a hypothesis, "
-                f"not evidence; cite what was observed that shows it, or leave the step "
+        return (f"{said} cites [{label}], a candidate cause - a hypothesis, not "
+                f"evidence; cite what was observed that shows it, or leave that {kind} "
                 f"out")
 
-    return f"the step [{step}] cites [{label}], which is not a label you were given"
+    return f"{said} cites [{label}], which is not a label you were given"
 
 
 def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[str]:
