@@ -102,6 +102,7 @@ from agent_postmortem.sections import (
     record_action_items_of,
     said_of_a_line,
     the_alert_labelled,
+    trigger_of,
 )
 from agent_postmortem.sources import EngagementAnswer, NotPaged
 
@@ -842,6 +843,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         "Action items the record already holds:",
         *(_the_record_items(evidence, measured) or [f"  - {NOTHING}"]),
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
+        *_what_set_it_off(evidence),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label, and name action items "
         f"in {CONTRIBUTING_FACTORS_FIELD} by their number. Items you propose in "
@@ -1039,6 +1041,47 @@ def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) ->
             f"was reviewed, approved or merged, or that it was not - nor that the "
             f"record holds nothing, which the document says itself. Nothing ran its "
             f"test or its fix: say what it proposes, not that it corrects anything."]
+
+
+def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:
+    """Which change the document states set the incident off, and that the
+    root cause starts after it - or nothing, where it states none.
+
+    Told only that "the document states the trigger itself", write-ups still
+    opened the root cause with the change: nothing they were shown said which
+    change the document names, so the sentence pointed at nothing.
+    """
+    trigger = trigger_of(evidence)
+    change = the_change_that_set_it_off(evidence)
+    if trigger is None or change is None:
+        return []
+
+    suspected = " - suspected, not confirmed" if trigger.suspected else ""
+
+    return [f"The document already states what set it off, in a section of its own: the "
+            f"change [{change.label}]{suspected}. Do not open {ROOT_CAUSE_FIELD} with it: start "
+            f"from what that change ran into, and why that broke the service."]
+
+
+def the_change_that_set_it_off(evidence: IncidentEvidence) -> CitedChange | None:
+    """The change read that the document states set the incident off, under
+    the label the model is shown it by - the deploy that carried it where one
+    did, and the change dating the trigger otherwise. `None` where no trigger
+    was established, or none of the changes read is it.
+
+    Public because the answer is held to it (`conversation`): a root cause
+    naming that deploy's revision says the trigger again.
+    """
+    trigger = trigger_of(evidence)
+    if trigger is None:
+        return None
+
+    changes = the_changes_labelled(evidence)
+    if trigger.carried_by is not None:
+        return next((cited for cited in changes if cited.label == trigger.carried_by), None)
+
+    return next((cited for cited in changes
+                 if parse_iso(cited.change.occurred_at) == trigger.changed_at), None)
 
 
 def _a_line_of_the_narration(entry: TimelineEntry) -> str:

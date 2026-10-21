@@ -715,6 +715,29 @@ def test_an_incident_with_no_onset_is_dated_from_its_alert() -> None:
 
 
 @pytest.mark.unit
+def test_an_incident_with_no_onset_is_dated_from_its_sender_s_alert_not_its_opening() -> None:
+    # The page's head dates such an incident by the alert as its sender dated
+    # it. Dated here by the incident's opening instead, the two named different
+    # days for an alert fired before midnight and delivered after it.
+    some_alert_the_day_before = STARTED_AT - timedelta(hours=13)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, alerted_at=some_alert_the_day_before),
+            measured := a_measured_incident(onset_at=None)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                BEGAN_FIGURE: Figure(given=to_iso(some_alert_the_day_before),
+                                     written="23:10 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
 def test_the_alert_is_raised_when_its_sender_says_it_fired() -> None:
     # Not when the incident opened: a sender holds an alert back before
     # delivering it.

@@ -49,7 +49,7 @@ from collections.abc import Sequence
 from itertools import pairwise
 from typing import Final
 
-from argus_core import the_revision_named
+from argus_core import A_REVISION, the_revision_named
 from argus_core.models import ThreadMessage, Turn, labelled
 from pydantic import BaseModel
 
@@ -130,11 +130,9 @@ _A_FIGURE_IN_A_WORD: Final = re.compile(
 # The words after which a number is a place in a source file, not a figure.
 _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 
-# A sentence's stop with another sentence after it.
-_A_SECOND_SENTENCE: Final = re.compile(r"[.!?]\s+\S")
-
-# Where one sentence ends and the next begins, for splitting prose into them.
-_A_SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+")
+# Where one sentence ends and another begins: a stop with words after it. A
+# sentence's own closing stop is not one.
+_A_SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+(?=\S)")
 
 # A check said to be missing: nothing (seen) checks, or no (such) check. With
 # a word allowed between, since "nothing seen checks" is how the rule that a
@@ -157,13 +155,15 @@ _STATE_IT_BY_ITS_NAME: Final = (
 class Given(BaseModel):
     """What the model was handed, as far as a check needs it: the labels it
     could cite and which of them name a hypothesis, how many action items the
-    record already held, the revisions the incident read, and the figures it
-    gave, by name."""
+    record already held, the revisions the incident read and which of them the
+    deploy that set it off went to, and the figures it gave, by name."""
 
     labels: frozenset[str] = frozenset()
     hypotheses: frozenset[str] = frozenset()
     items_on_record: int = 0
     revisions: frozenset[str] = frozenset()
+    # `None` where no deploy set the incident off.
+    trigger_revision: str | None = None
     figures: dict[str, Figure] = {}
 
 
@@ -175,6 +175,7 @@ def faults_in(answer: SubmittedPostmortem,
     return (_missing_fields(answer)
             + _a_symptom_of_more_than_one_sentence(answer)
             + _missing_checks_outside_the_factors(answer)
+            + _the_trigger_said_again(answer, given)
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
             + _factors_nothing_answers(answer, given)
@@ -240,7 +241,7 @@ def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[st
     second sentence; a stop with more words after it is.
     """
     symptom = answer.symptom
-    if symptom is None or not _A_SECOND_SENTENCE.search(symptom.strip()):
+    if symptom is None or not _A_SENTENCE_END.search(symptom.strip()):
         return []
 
     return [f"the {SYMPTOM_FIELD} [{symptom}] is more than one sentence - it is the "
@@ -277,6 +278,25 @@ def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str
             for prose in said
             for sentence in _A_SENTENCE_END.split(prose.strip())
             if _A_MISSING_CHECK.search(sentence)]
+
+
+def _the_trigger_said_again(answer: SubmittedPostmortem, given: Given) -> list[str]:
+    """Each start of the trigger's revision the root cause names.
+
+    The document states the trigger in a section of its own, and the brief
+    says which change that is. A root cause opening with it says it again and
+    stops at the change, short of why it broke the service. The backstop to
+    the brief: only a revision can be held to, and a root cause naming the
+    change in other words passes."""
+    revision = given.trigger_revision
+    if revision is None or answer.root_cause is None:
+        return []
+
+    return [f"the {ROOT_CAUSE_FIELD} names [{named}], the change that set it off, which the "
+            f"document states itself - start from what that change ran into, and say why "
+            f"that broke the service"
+            for named in A_REVISION.findall(answer.root_cause)
+            if the_revision_named(named, frozenset({revision})) == revision]
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:

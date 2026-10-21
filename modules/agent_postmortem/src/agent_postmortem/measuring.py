@@ -188,11 +188,13 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     as calm trade would raise the baseline using the very minutes the service
     was already failing in.
     """
-    # The alert's own time where nothing measured an onset. It is the wrong
-    # instant to cost an incident from - which is why no loss is published
-    # without an onset, below - but it is the right one to describe it from,
-    # and the duration is the model's context rather than a published figure.
-    began = evidence.onset_at or evidence.started_at
+    # The alert's own time where nothing measured an onset, as its sender dated
+    # it - the instant the brief and the page date such an incident from. It is
+    # the wrong instant to cost an incident from - which is why no loss is
+    # published without an onset, below - but it is the right one to describe
+    # it from, and the duration is the model's context rather than a published
+    # figure.
+    began = evidence.onset_at or evidence.alerted_at
     # Read once, and every window below bounded by what it says. Computed here
     # rather than per figure because it is a property of the incident, like
     # the onset beside it: a duration measured to recovery and a rise measured
@@ -253,10 +255,10 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         duration_in_hours=duration,
         back_to_normal_at=back_to_normal_at,
         back_before_the_action=back_before_the_action,
-        # From the alert rather than from the onset. The minutes before the
-        # alert are the fault's, not the responder's - nobody had been told
-        # yet - and charging them to the response would price Argus for a
-        # delay in somebody else's monitoring.
+        # From the incident's opening rather than from the onset or the
+        # alert. The minutes before Argus had the incident are the fault's, not
+        # the responder's - nobody had been told yet - and charging them to the
+        # response would price Argus for a delay in somebody else's monitoring.
         time_to_close_in_hours=duration_in_hours(
             evidence.started_at, evidence.ended_at),
         # The end of the harm itself, not the bound the read fell back to. Where

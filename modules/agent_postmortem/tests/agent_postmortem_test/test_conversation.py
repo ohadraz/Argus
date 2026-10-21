@@ -44,6 +44,7 @@ from argus_core.models import (
     ToolResults,
     Transcript,
     Turn,
+    Verdict,
 )
 from argus_testkit import Assertion, Kept, Scenario, all_of, one_record_was_logged
 
@@ -518,6 +519,42 @@ def test_a_revision_the_incident_never_read_is_asked_for_again_naming_it() -> No
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, some_revision_nobody_read),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_naming_the_deploy_that_set_it_off_is_asked_for_again() -> None:
+    # What the answer is held to includes the trigger the document states: a
+    # root cause opening with that deploy's revision is put back, naming it.
+    the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_naming_the_trigger := a_model_answering_in_turn(
+                an_answer(root_cause=f"Revision {the_trigger[:7]} renamed the port."),
+                an_answer(root_cause="The scrape still asks for a port nothing has."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_naming_the_trigger,
+                an_evidence_bundle(
+                    candidates=[a_candidate("dont care", subject="io-shop",
+                                            to_state=the_trigger, tested=True,
+                                            result=Verdict.CONFIRMED,
+                                            failure_mode="bad-deployment")],
+                    changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                                         occurred_at="2026-09-02T11:59:00Z",
+                                         reference=the_trigger, summary="dont care")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, the_trigger[:7]),
                 _found_no_fault()
             )
         )

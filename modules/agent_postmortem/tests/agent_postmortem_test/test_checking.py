@@ -1279,6 +1279,55 @@ def test_a_missing_check_is_named_by_its_sentence_and_the_rest_is_kept() -> None
 
 
 @pytest.mark.unit
+def test_a_root_cause_naming_the_change_that_set_it_off_is_named() -> None:
+    # The document states the trigger in a section of its own. A root cause
+    # opening with the deploy's revision says it again, and stops at the change
+    # instead of saying why it broke the service.
+    the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+
+    Scenario() \
+        .given(
+            an_answer_naming_the_trigger := _an_answer(
+                root_cause=f"Revision {the_trigger[:7]} renamed the port, so nothing scraped it.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_the_trigger,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "revisions": frozenset({the_trigger}),
+                                  "trigger_revision": the_trigger}))
+        ) \
+        .then(
+            all_of(
+                _named(the_trigger[:7]),
+                _named("start from what that change ran into"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_naming_another_revision_is_accepted() -> None:
+    # An earlier revision the mechanism turns on is not the trigger said again.
+    the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+    some_other_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+
+    Scenario() \
+        .given(
+            an_answer_naming_another_revision := _an_answer(
+                root_cause=f"The reader {some_other_revision[:7]} left in place cannot parse it.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_another_revision,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "revisions": frozenset({the_trigger, some_other_revision}),
+                                  "trigger_revision": the_trigger}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_step_of_the_cause_saying_a_check_is_missing_is_named() -> None:
     # The chain's last step said "nothing seen checks that the two names
     # agree", though the chain is told the safeguard is a factor and no step.

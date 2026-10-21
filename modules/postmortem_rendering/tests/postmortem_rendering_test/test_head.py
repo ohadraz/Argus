@@ -9,7 +9,7 @@ the PDF must agree on, and the parts each plays only how each shows them.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from argus_core.models import (
@@ -28,7 +28,7 @@ from argus_core.models import (
     Trigger,
 )
 from argus_testkit import Assertion, Scenario, the_answer_was
-from postmortem_rendering.head import a_head, a_title
+from postmortem_rendering.head import a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 
@@ -282,6 +282,55 @@ def test_an_incident_with_no_onset_is_dated_by_its_alert() -> None:
         ) \
         .then(
             _it_reads("onset unknown, alerted Oct 11, 2026, 14:03 UTC"))
+
+
+@pytest.mark.unit
+def test_an_incident_is_dated_by_its_onset_s_day() -> None:
+    # The alert came past midnight; the incident began the day before.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)],
+                detection=Detection(alerted_at=SOME_ONSET + timedelta(hours=11),
+                                    rule="dont care", onset_at=SOME_ONSET,
+                                    gap=timedelta(hours=11)))
+        ) \
+        .when(
+            lambda: the_day_it_is_dated_by(some_postmortem)
+        ) \
+        .then(
+            the_answer_was(date(2026, 10, 11)))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_is_dated_by_its_alert_s_day() -> None:
+    # Every moment below the head of the day named here says its time alone,
+    # so with no onset it is the alert's day, which the head then says.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[], detection=Detection(
+                alerted_at=SOME_ONSET + timedelta(hours=11), rule="dont care",
+                onset_at=None, gap=None))
+        ) \
+        .when(
+            lambda: the_day_it_is_dated_by(some_postmortem)
+        ) \
+        .then(
+            the_answer_was(date(2026, 10, 12)))
+
+
+@pytest.mark.unit
+def test_an_incident_with_neither_onset_nor_alert_is_dated_by_no_day() -> None:
+    # With no day named in the head, no moment below may leave its date out.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[])
+        ) \
+        .when(
+            lambda: the_day_it_is_dated_by(some_postmortem)
+        ) \
+        .then(
+            the_answer_was(None))
 
 
 @pytest.mark.unit

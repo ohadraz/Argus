@@ -880,6 +880,69 @@ def test_the_model_is_told_nothing_ran_the_fix_it_proposed() -> None:
 
 
 @pytest.mark.unit
+def test_the_model_is_told_which_change_the_document_states_set_it_off() -> None:
+    # Told only that "the document states the trigger itself", write-ups still
+    # opened the root cause with the change: nothing they were shown said which
+    # change the document names, so the sentence pointed at nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T11:59:52Z",
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off", "[P1]",
+                              "start from what that change ran into")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_trigger_is_told_nothing_of_one() -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[], changes=[])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("already states what set it off")
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_nothing_tested_is_named_as_suspected() -> None:
+    # The document's Trigger section says "Suspected, not confirmed" of the
+    # change an untested leading candidate blamed. Named bare in the brief, it
+    # is a trigger the model is told the document states as fact.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="checkout-v2",
+                                        from_state="off", to_state="on")],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T11:59:52Z",
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("already states what set it off", "[P1]",
+                              "suspected, not confirmed")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_that_opened_no_pull_request_is_told_nothing_of_one() -> None:
     Scenario() \
         .given(

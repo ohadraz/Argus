@@ -351,9 +351,10 @@ def the_day_it_began(evidence: IncidentEvidence, measured: Measurements) -> date
 
 
 def _the_instant_it_began(evidence: IncidentEvidence, measured: Measurements) -> datetime:
-    """The onset where one was measured, and the alert where none was - the
-    instant the incident is dated from either way."""
-    return measured.onset_at or evidence.started_at
+    """The onset where one was measured, and the alert as its sender dated it
+    where none was - the instant the incident is dated from either way, here,
+    in the duration (`measuring`) and in the page's head."""
+    return measured.onset_at or evidence.alerted_at
 
 
 def what_came_after_the_wait(evidence: IncidentEvidence,

@@ -242,6 +242,26 @@ def test_an_incident_with_no_onset_is_not_costed() -> None:
 
 
 @pytest.mark.unit
+def test_an_incident_with_no_onset_runs_from_its_sender_s_alert_not_its_opening() -> None:
+    # A sender holds an alert back before delivering it. Measured from the
+    # incident's opening, the duration ran from a later instant than the one
+    # the brief and the page say it began at.
+    some_alert_before_the_opening = STARTED_AT - timedelta(minutes=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None,
+                                           alerted_at=some_alert_before_the_opening)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _ran_for(hours_between(some_alert_before_the_opening, ENDED_AT))
+        )
+
+
+@pytest.mark.unit
 def test_a_revenue_source_that_cannot_be_read_costs_nothing_rather_than_zero() -> None:
     # Zero here would become a postmortem telling an executive the outage cost
     # them nothing, on the strength of a service Argus failed to reach. Both

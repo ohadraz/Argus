@@ -361,8 +361,9 @@ class Settings(BaseSettings):
     # Opus's, and the same six investigations billed 94,035 tokens against
     # 92,604, so the work costs 45% of what it did. A model that answers as
     # well for less is not a trade, and this is the one agent whose answers can
-    # be scored well enough to say so.
-    investigation_model: str = Field(default="claude-sonnet-5")
+    # be scored well enough to say so. Those runs were on Sonnet 5; it runs on
+    # its successor, Sonnet 5.5, at the same rates, which no eval has scored.
+    investigation_model: str = Field(default="claude-sonnet-5-5")
     investigation_effort: Effort = Field(default=DEFAULT_EFFORT)
     codefix_model: str = Field(default=DEFAULT_MODEL)
     codefix_effort: Effort = Field(default=DEFAULT_EFFORT)

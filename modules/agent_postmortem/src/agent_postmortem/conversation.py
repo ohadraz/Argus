@@ -14,8 +14,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
+from argus_core import A_REVISION
 from argus_core.llm import LLMClient
-from argus_core.models import ThreadMessage, Transcript, Turn
+from argus_core.models import ChangeKind, CitedChange, ThreadMessage, Transcript, Turn
 
 from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
@@ -30,6 +31,7 @@ from agent_postmortem.prompting import (
     rejecting,
     submit_postmortem_for,
     the_candidates_labelled,
+    the_change_that_set_it_off,
     the_evidence_labelled,
 )
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
@@ -80,7 +82,8 @@ def _what_was_given(evidence: IncidentEvidence,
                     figures: dict[str, Figure]) -> Given:
     """What the answer is held to: the labels it could cite and which of them
     are hypotheses, the items already on the record, the revisions the incident
-    read, and the figures it may name."""
+    read and the one the deploy that set it off went to, and the figures it may
+    name."""
     return Given(
         labels=frozenset(label for cited in the_evidence_labelled(evidence,
                                                                   measured.unobserved_from)
@@ -89,8 +92,18 @@ def _what_was_given(evidence: IncidentEvidence,
                              for label in (cited.label, *cited.also)),
         items_on_record=len(record_action_items_of(evidence, measured.back_to_normal_at)),
         revisions=revisions_of(evidence),
+        trigger_revision=_the_deploy_s_revision(the_change_that_set_it_off(evidence)),
         figures=figures
     )
+
+
+def _the_deploy_s_revision(change: CitedChange | None) -> str | None:
+    """The revision a change went to, where it is a deploy - and nothing for a
+    flag, whose name is no revision."""
+    if change is None or change.change.kind is not ChangeKind.DEPLOY:
+        return None
+
+    return change.change.reference if A_REVISION.fullmatch(change.change.reference) else None
 
 
 def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Transcript:
