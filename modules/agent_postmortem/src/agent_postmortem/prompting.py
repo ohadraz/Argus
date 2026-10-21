@@ -524,7 +524,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "for an engineer who was not on the call. Not the change that "
                 "set it off - the document states the trigger itself. Say why "
                 "that change broke the service, as far as the evidence goes. "
-                f"{_A_SAFEGUARD_NOBODY_SAW}"
+                f"Not one of the {CONTRIBUTING_FACTORS_FIELD}: a check or safeguard "
+                "that did not stop it is said there, not here."
             )
         },
         EXECUTIVE_SUMMARY_FIELD: {
@@ -581,7 +582,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             f"it off; the other is one of the {CONTRIBUTING_FACTORS_FIELD}, not "
             "named in the chain. A safeguard that did not stop it is never a step "
             f"of its own: it is one of the {CONTRIBUTING_FACTORS_FIELD}. "
-            f"{_A_SAFEGUARD_NOBODY_SAW} Every step cites at least one piece of "
+            "Every step cites at least one piece of "
             "evidence by its label. Date a change by its own row's instant - the T "
             "or P row that records it - never by an effect it had. A state a row "
             "read - how many replicas run a revision, which way a flag is set - is "
@@ -623,7 +624,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "items answer every factor. Propose nothing to confirm a cause the "
             "record already confirmed - a mitigation that worked, a hypothesis "
             "marked confirmed - and no check of what the evidence you are shown "
-            "already shows: a diff states what changed. Where a finding says to "
+            "already shows: a diff states what changed. Where an F row says to "
             "check something a D row shows, say what the D row shows, and the item "
             "is what follows from it."
         ),
@@ -676,9 +677,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "description": (
                 "What went well, what went wrong, and where the incident got "
                 "lucky - a risk that went unnoticed this time. Any list may be "
-                f"empty. {_A_SAFEGUARD_NOBODY_SAW} Weigh detection in one of them: "
-                "how long after the onset the alert came, and where the record "
-                "does not show what took that long, say so."
+                f"empty. {_A_SAFEGUARD_NOBODY_SAW} Where you are shown how long after "
+                "the onset the alert came, weigh detection in one of them: that span, "
+                "and where the record does not show what took that long, say so."
             )
         },
         REACHES_A_CAUSE_FIELD: {

@@ -219,7 +219,7 @@ def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[st
 
     The symptom is the document's title. Asked for in a few words, a write-up
     gave two sentences - what nobody saw, then what was seen instead - and the
-    title ran to seventeen words. A sentence's own closing stop is not a
+    title ran to fifteen words. A sentence's own closing stop is not a
     second sentence; a stop with more words after it is.
     """
     symptom = answer.symptom

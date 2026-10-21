@@ -2412,16 +2412,13 @@ def test_an_earlier_change_is_asked_to_be_ruled_out_by_the_service_healthy_with_
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD,
-                                   CAUSAL_CHAIN_FIELD, ROOT_CAUSE_FIELD])
+@pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD])
 def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: str) -> None:
     # Told once, in the tool's own description, to state only what the evidence
     # shows, a write-up still gave "nothing checked output quality before it
     # reached production" as a factor and as what went wrong - in the field
     # whose description asked for "a missing safeguard". Said where the claim
-    # is written, and never asked for as missing. The chain and the root cause
-    # too: told it only in the factors and the lessons, a write-up's root cause
-    # said "nothing checks that the two names agree".
+    # is written, and never asked for as missing.
     what_an_unseen_check_is_written_as = "no check was seen"
 
     Scenario() \
@@ -2648,17 +2645,47 @@ def test_the_branch_that_did_not_set_it_off_is_asked_for_as_a_factor_not_a_step(
 
 
 @pytest.mark.unit
-def test_what_a_finding_says_to_check_is_answered_from_a_diff_that_shows_it() -> None:
-    # A finding said to check which key the deployed revision used before
+@pytest.mark.parametrize("field", [CAUSAL_CHAIN_FIELD, ROOT_CAUSE_FIELD])
+def test_the_chain_and_the_root_cause_are_not_asked_how_to_word_a_safeguard(field: str) -> None:
+    # Neither names one: the other branch is a contributing factor. Told how to
+    # word a safeguard there anyway, a field that should carry none is asked
+    # for one.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[field]["description"]
+        ) \
+        .then(
+            _the_description_avoids("no check was seen")
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_is_asked_to_carry_no_contributing_factor() -> None:
+    # A write-up's root cause ended on the missing check, and its first factor
+    # said the same check again.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(f"Not one of the {CONTRIBUTING_FACTORS_FIELD}")
+        )
+
+
+@pytest.mark.unit
+def test_what_an_f_row_says_to_check_is_answered_from_a_diff_that_shows_it() -> None:
+    # An F row said to check which key the deployed revision used before
     # merging; the deployed diff showed it, and a write-up passed the check on
-    # as an item rather than saying what followed from the answer.
+    # as an item rather than saying what followed from the answer. Called an F
+    # row as the tool calls it everywhere else.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
         ) \
-        .then(
-            _the_description_mentions("what the D row shows")
-        )
+        .then(all_of(
+            _the_description_mentions("an F row says to check", "what the D row shows"),
+            _the_description_avoids("finding")
+        ))
 
 
 @pytest.mark.unit
@@ -2675,16 +2702,18 @@ def test_the_summary_is_asked_to_say_only_what_the_record_says() -> None:
 
 
 @pytest.mark.unit
-def test_how_quickly_the_alert_came_is_asked_to_be_weighed() -> None:
+def test_how_quickly_the_alert_came_is_asked_to_be_weighed_where_it_was_shown() -> None:
     # Given the span from the onset to the alert, from a rule that waits for
     # nothing, a write-up said nothing of detection at all: told only when it
-    # went wrong, it was never asked to weigh it.
+    # went wrong, it was never asked to weigh it. Only where it was shown: an
+    # incident with no onset measured has no such span to weigh.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("Weigh detection", "does not show what took that long")
+            _the_description_mentions("Where you are shown how long after the onset",
+                                      "weigh detection", "does not show what took that long")
         )
 
 

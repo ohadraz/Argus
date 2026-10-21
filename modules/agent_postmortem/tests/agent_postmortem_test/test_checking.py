@@ -1082,16 +1082,17 @@ def test_a_factor_may_name_an_item_on_the_record_or_one_the_answer_proposes() ->
 @pytest.mark.unit
 def test_a_symptom_of_more_than_one_sentence_is_named() -> None:
     # The symptom is the document's title. Asked for in a few words, a write-up
-    # gave two sentences, and the title ran to seventeen words.
+    # gave two sentences, and the title ran to fifteen words.
     some_symptom_in_two_sentences = ("No shopper-facing failure was seen. "
                                      "The shop's metrics stopped being collected.")
 
     Scenario() \
         .given(
-            an_answer_with_a_long_symptom := _an_answer(symptom=some_symptom_in_two_sentences)
+            an_answer_with_a_symptom_in_two := _an_answer(
+                symptom=some_symptom_in_two_sentences)
         ) \
         .when(
-            lambda: faults_in(an_answer_with_a_long_symptom, given=SOME_GIVEN)
+            lambda: faults_in(an_answer_with_a_symptom_in_two, given=SOME_GIVEN)
         ) \
         .then(
             all_of(
@@ -1106,11 +1107,11 @@ def test_a_symptom_of_one_sentence_is_accepted() -> None:
     # Ended with a full stop or not: a sentence's own stop is not a second one.
     Scenario() \
         .given(
-            an_answer_with_a_short_symptom := _an_answer(
+            an_answer_with_a_symptom_in_one := _an_answer(
                 symptom="Far more purchases than usual were held for review.")
         ) \
         .when(
-            lambda: faults_in(an_answer_with_a_short_symptom, given=SOME_GIVEN)
+            lambda: faults_in(an_answer_with_a_symptom_in_one, given=SOME_GIVEN)
         ) \
         .then(
             _found_nothing_wrong()
