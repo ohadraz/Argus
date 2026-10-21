@@ -188,7 +188,8 @@ def _what_argus_did(evidence: IncidentEvidence,
 
 
 def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
-    """Each cause Argus held back from testing, with why in its own words - not
+    """That Argus handed the incident to a person, where it ran out of moves;
+    each cause Argus held back from testing, with why in its own words - not
     its row's "never tried: ...", which would say it twice - the draft fix, and
     the action recommended and not taken. Never as having fixed anything:
     nothing ran the fix, and nothing took the recommendation.
@@ -204,7 +205,8 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     pull_request = evidence.pull_request
     recommended = evidence.recommended_action
 
-    return [*held_back,
+    return [*(["Argus handed the incident to a person."] if evidence.escalated else []),
+            *held_back,
             *([f"Argus opened a draft fix, pull request #{pull_request.number}, for a person "
                f"to review and merge."] if pull_request is not None else []),
             *([f"Argus recommends this and did not take it: {recommended.rstrip('.')}."]

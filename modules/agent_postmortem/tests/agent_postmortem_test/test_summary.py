@@ -322,6 +322,22 @@ def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> 
 
 
 @pytest.mark.unit
+def test_an_incident_argus_escalated_is_said_to_have_been_handed_to_a_person() -> None:
+    # Saying only what Argus did, the summary of an incident it ran out of
+    # moves on reads as one it closed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(escalated=True)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("Argus handed the incident to a person.")
+        )
+
+
+@pytest.mark.unit
 def test_nothing_still_at_risk_is_left_unsaid() -> None:
     Scenario() \
         .given(

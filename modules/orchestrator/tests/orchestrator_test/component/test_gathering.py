@@ -1099,6 +1099,43 @@ def test_an_incident_nobody_watched_is_not_said_never_to_have_recovered(
 
 
 @pytest.mark.component
+def test_an_incident_argus_escalated_is_said_to_have_been_handed_to_a_person(
+        a_clean_database: None) -> None:
+    # Argus running out of moves and handing over is how the incident ended,
+    # and a summary saying only what Argus did reads as an incident it closed.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                the_escalation := StatusChanged(incident_id=incident_id,
+                                                to_status=IncidentStatus.ESCALATED)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_escalation)
+            ) \
+            .then(
+                _was_escalated(True)
+            )
+
+
+@pytest.mark.component
+def test_an_incident_argus_never_escalated_is_not_said_to_have_been_handed_over(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _was_escalated(False)
+            )
+
+
+@pytest.mark.component
 def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_database: None) -> None:
     # After a resolution nothing is unwound, so a flag Argus turned off is off
     # when the document is written - and a responder reading it needs to know
@@ -1963,6 +2000,19 @@ def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
             raise AssertionError(
                 f"Expected the recovery recorded at [{expected}], got "
                 f"[{evidence.recorded_recovery_at}].")
+
+        return True
+
+    return assertion
+
+
+def _was_escalated(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.escalated != expected:
+            raise AssertionError(
+                f"Expected the evidence to say Argus {'' if expected else 'never '}handed the "
+                f"incident to a person, and it says it "
+                f"{'did' if evidence.escalated else 'did not'}.")
 
         return True
 

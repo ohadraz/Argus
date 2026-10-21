@@ -147,6 +147,10 @@ class IncidentEvidence(BaseModel):
     # with nothing to date it by, or nobody watching at all - an incident that
     # escalated before acting, or one nobody mitigated.
     watched_and_never_recovered: bool = False
+    # That Argus ran out of moves and handed the incident to a person - how the
+    # incident ended, which a summary saying only what Argus did would leave
+    # reading as one it closed. Argus's own move, never a person's report.
+    escalated: bool = False
     # The alert rule that paged, as the alert addressed it. `measure` reads the
     # metrics again over the whole incident, and read for this rule they carry its
     # own series - the one a fault in what the service answers departs in alone.

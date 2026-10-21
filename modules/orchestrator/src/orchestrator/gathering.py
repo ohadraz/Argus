@@ -171,6 +171,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         onset_at=_when_it_actually_began(conn, incident_id),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
+        escalated=_it_was_handed_to_a_person(account),
         rule=_the_rule_that_paged(incident.alert_payload),
         alert_title=_what_was_alerted(incident.alert_payload),
         alert_finding=_what_the_alert_found(incident.alert_payload),
@@ -342,6 +343,16 @@ def _when_it_came_back(conn: psycopg.Connection,
                             and event.reported is not None]
 
     return resolved_by_a_person[-1] if resolved_by_a_person else None
+
+
+def _it_was_handed_to_a_person(account: list[IncidentEvent]) -> bool:
+    """Whether Argus ran out of moves and handed the incident over - its own
+    move to escalated, off the account like every other ending here. A
+    person's report never escalates; it withdraws or resolves."""
+    return any(isinstance(event, StatusChanged)
+               and event.to_status is IncidentStatus.ESCALATED
+               and event.reported is None
+               for event in account)
 
 
 def _it_was_watched_and_never_came_back(conn: psycopg.Connection,
