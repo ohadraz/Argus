@@ -157,17 +157,37 @@ def test_a_window_with_both_ends_says_how_long_it_was_and_where_it_ended() -> No
 
 
 @pytest.mark.unit
-def test_a_window_of_whole_hours_is_said_in_hours() -> None:
-    # The largest unit that says it whole. A day's window read as "1440
-    # minutes" is a number a reader has to convert before it means anything.
-    some_window_hours = 24
+@pytest.mark.parametrize(("span", "said"), [
+    (timedelta(hours=24), "1 day"),
+    (timedelta(days=1, minutes=6), "1 day 6 minutes")
+], ids=["a-day", "a-day-and-minutes"])
+def test_a_window_s_span_is_said_as_every_other_span_is(span: timedelta, said: str) -> None:
+    # Days, hours and minutes, naming only the units it has, as the brief says
+    # every span it is given. A day and six minutes read as "1446 minutes" is a
+    # number a reader has to convert before it means anything, and said one way
+    # here and another in the figure beside it, it is two spans to a reader.
     some_end = datetime(2026, 8, 30, 19, 16, tzinfo=UTC)
-    some_start = some_end - timedelta(hours=some_window_hours)
+    some_start = some_end - span
 
     Scenario() \
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end))) \
-        .then(the_answer_was(f"the {some_window_hours} hours before {some_end:%d %b %H:%M}"))
+        .then(the_answer_was(f"the {said} before {some_end:%d %b %H:%M}"))
+
+
+@pytest.mark.unit
+def test_a_window_ending_on_a_second_says_its_end_to_that_second() -> None:
+    # The change channel's window ends at the alert, which fires on a second.
+    # Its span is said exactly, to the second, so its end is too: "the 1 day 5
+    # minutes 54 seconds before 20:31" puts the window's start 54 seconds
+    # earlier than it was.
+    some_end = datetime(2026, 8, 30, 19, 16, 54, tzinfo=UTC)
+    some_start = some_end - timedelta(minutes=10, seconds=54)
+
+    Scenario() \
+        .given(some_start) \
+        .when(lambda: a_window(to_iso(some_start), to_iso(some_end))) \
+        .then(the_answer_was(f"the 10 minutes 54 seconds before {some_end:%H:%M:%S}"))
 
 
 @pytest.mark.unit

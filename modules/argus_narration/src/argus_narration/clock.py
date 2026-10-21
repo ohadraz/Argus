@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import UTC
 
-from argus_core import parse_iso
+from argus_core import parse_iso, said_as_a_span
 
 
 def a_minute(value: str, beside: str | None = None) -> str:
@@ -71,11 +71,16 @@ def a_window(start: str | None, end: str | None, beside: str | None = None) -> s
     `beside` is the moment of the line the window is said on. A clock time is
     read as that line's day, so a window on any other keeps its date - even
     one whose two ends share a day, a week before the line asking for it.
+
+    The end to the second where it has one: the span is said exactly, and an
+    end said to the minute beside it puts the window's start that many
+    seconds from where it was.
     """
     if start and end:
         on_another_day = (not _the_same_day(end, start)
                           or beside is not None and not _the_same_day(end, beside))
-        said_end = _reformatted(end, "%d %b %H:%M" if on_another_day else "%H:%M")
+        clock = "%H:%M:%S" if _has_seconds(end) else "%H:%M"
+        said_end = _reformatted(end, f"%d %b {clock}" if on_another_day else clock)
 
         return f"the {_how_long(start, end)} before {said_end}"
 
@@ -98,6 +103,15 @@ def _the_same_day(value: str, other: str) -> bool:
         return True
 
 
+def _has_seconds(value: str) -> bool:
+    """Whether a wire-format moment falls off the minute - unparseable counts
+    as not, since the fallback prints it as it arrived either way."""
+    try:
+        return parse_iso(value).second != 0
+    except ValueError:
+        return False
+
+
 def _reformatted(value: str, pattern: str) -> str:
     """`value` in UTC under `pattern`, or `value` itself where it is not a time.
 
@@ -112,21 +126,14 @@ def _reformatted(value: str, pattern: str) -> str:
 
 
 def _how_long(start: str, end: str) -> str:
-    """How much time a window covers, in the largest unit that says it whole.
+    """How much time a window covers, said as the brief says every span.
 
     A span read as "29 Aug 19:16 to 30 Aug 19:16" is arithmetic the reader has
-    to do to find out it is a day; "the 24 hours before 30 Aug 19:16" is the
+    to do to find out it is a day; "the 1 day before 30 Aug 19:16" is the
     same window already understood. The end is kept and the start is not,
     because the end is what the window is anchored on.
     """
     try:
-        minutes = round((parse_iso(end) - parse_iso(start)).total_seconds() / 60)
+        return said_as_a_span(parse_iso(end) - parse_iso(start))
     except ValueError:
         return f"window {start} to {end}"
-
-    if minutes >= 60 and minutes % 60 == 0:
-        hours = minutes // 60
-
-        return f"{hours} hour{'s' if hours != 1 else ''}"
-
-    return f"{minutes} minute{'s' if minutes != 1 else ''}"

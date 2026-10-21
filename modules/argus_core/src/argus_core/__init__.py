@@ -37,6 +37,7 @@ from argus_core.db import Connections, connect, connect_from_env, open_pool
 from argus_core.ids import UuidStr, new_id
 from argus_core.levels import level_given_in, level_said_in, said_as_a_level
 from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
+from argus_core.spans import said_as_a_span
 from argus_core.timestamps import (
     in_real_time,
     parse_iso,
@@ -68,6 +69,7 @@ __all__ = [
     "open_pool",
     "parse_iso",
     "said_as_a_level",
+    "said_as_a_span",
     "said_short",
     "short_form",
     "sleep_on_the_clock",

@@ -31,7 +31,14 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from argus_core import level_given_in, level_said_in, parse_iso, said_as_a_level, to_iso
+from argus_core import (
+    level_given_in,
+    level_said_in,
+    parse_iso,
+    said_as_a_level,
+    said_as_a_span,
+    to_iso,
+)
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
 from argus_core.models import CitedEvidence, said_as_money
 from pydantic import BaseModel
@@ -175,8 +182,8 @@ _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
 _WORKINGS: Final[dict[tuple[_Kind, str, _Kind],
                       Callable[[Figure, Figure, date | None], str]]] = {
     (_Kind.INSTANT, "-", _Kind.INSTANT):
-        lambda first, second, _: _said_of_a_span(parse_iso(first.given)
-                                                 - parse_iso(second.given)),
+        lambda first, second, _: said_as_a_span(parse_iso(first.given)
+                                                - parse_iso(second.given)),
     (_Kind.INSTANT, "+", _Kind.SPAN):
         lambda first, second, day: _as_a_reader_says(parse_iso(first.given)
                                                      + _span_shown(second), day),
@@ -184,9 +191,9 @@ _WORKINGS: Final[dict[tuple[_Kind, str, _Kind],
         lambda first, second, day: _as_a_reader_says(parse_iso(first.given)
                                                      - _span_shown(second), day),
     (_Kind.SPAN, "+", _Kind.SPAN):
-        lambda first, second, _: _said_of_a_span(_span_shown(first) + _span_shown(second)),
+        lambda first, second, _: said_as_a_span(_span_shown(first) + _span_shown(second)),
     (_Kind.SPAN, "-", _Kind.SPAN):
-        lambda first, second, _: _said_of_a_span(_span_shown(first) - _span_shown(second)),
+        lambda first, second, _: said_as_a_span(_span_shown(first) - _span_shown(second)),
     (_Kind.SPAN, "/", _Kind.SPAN):
         lambda first, second, _: _how_many_times(_seconds_shown(first) / _seconds_shown(second)),
     (_Kind.SHARE, "-", _Kind.SHARE):
@@ -205,7 +212,7 @@ _WORKINGS: Final[dict[tuple[_Kind, str, _Kind],
 _A_LEVEL_SHOWN: Final = re.compile(r"^(?P<number>-?[\d.]+)(?P<unit>.*)$")
 _PERCENT_SHOWN: Final = "%"
 
-# A span as `span_in_words` says one, a count and its unit at a time.
+# A span as `said_as_a_span` says one, a count and its unit at a time.
 _A_COUNT_OF_A_UNIT: Final = re.compile(r"(\d+) (day|hour|minute|second)s?")
 
 # An instant as a wire format writes one, which the alert's sender may.
@@ -611,36 +618,6 @@ def _how_many_times(ratio: Decimal) -> str:
     return f"{ratio.quantize(_A_TENTH, rounding=ROUND_HALF_UP)} times"
 
 
-def span_in_words(hours: float) -> str:
-    """A span as a reader says one: days, hours, minutes and seconds, naming
-    only the units it has.
-
-    Never a fraction of an hour. "0.10 hours" is six minutes a reader has to
-    work out, and a model handed it either works it out or repeats the figure.
-    Exact to the second, like every instant the model reads: what it is given
-    is the measurement, not a rounding of it.
-    """
-    return _said_of_a_span(timedelta(hours=hours))
-
-
-def _said_of_a_span(span: timedelta) -> str:
-    """A span as `span_in_words` says one, from the span itself rather than a
-    count of hours that cannot hold every second exactly."""
-    seconds = span // timedelta(seconds=1)
-
-    if seconds < 1:
-        return "less than a second"
-
-    days, seconds = divmod(seconds, 24 * 60 * 60)
-    whole_hours, seconds = divmod(seconds, 60 * 60)
-    minutes, seconds = divmod(seconds, 60)
-
-    return " ".join(f"{count} {unit}{'s' if count != 1 else ''}"
-                    for count, unit in ((days, "day"), (whole_hours, "hour"),
-                                        (minutes, "minute"), (seconds, "second"))
-                    if count)
-
-
 def _the_words_of(text: str) -> Iterator[tuple[str, str | None]]:
     """Every stretch of the text in order, each with the figure it is - or
     `None` for the spaces between words and for every word that is no figure.
@@ -695,7 +672,7 @@ def _as_a_reader_says(at: datetime, day: date | None) -> str:
 
 
 def _a_span(hours: float) -> Figure:
-    said = span_in_words(hours)
+    said = said_as_a_span(timedelta(hours=hours))
 
     return Figure(given=said, written=said)
 
