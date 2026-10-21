@@ -97,6 +97,7 @@ from agent_postmortem.sections import (
     OneCause,
     a_hypothesis_of,
     causes_of,
+    inside_a_sentence,
     label_of,
     labels_of_the_narration,
     record_action_items_of,
@@ -567,22 +568,23 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         CAUSE_IN_PLAIN_WORDS_FIELD: {
             "type": "string",
             "description": (
-                "Why it broke, in one sentence for a reader who does not work on the "
-                "service: no component names unless they are unavoidable. When it "
-                "broke, for how long, how bad it got, what customers lost and what "
-                "was done the document says itself - say none of them. Say only what "
-                "the record says - of a change, of the service, of the people - and "
-                "nothing it does not."
+                "What caused the incident, in one sentence for a reader who does not "
+                "work on the service: no component names unless they are unavoidable. "
+                "When it began, for how long, how bad it got, what customers lost and "
+                "what was done the document says itself - say none of them. Say only "
+                "what the record says - of a change, of the service, of the people - "
+                "and nothing it does not."
             )
         },
         STILL_AT_RISK_FIELD: {
             "type": "string",
             "description": (
-                "What is still at risk now, in one sentence for the same reader - "
-                "the fault still in place, or the same thing able to happen again. "
-                "Empty where nothing is. Not what Argus left to a person - a draft "
-                "fix, a recommended action - which the document says itself. Say "
-                "only what the record says."
+                "What was still at risk when Argus stopped working on the incident, "
+                "in one sentence for the same reader - the fault still in place then, "
+                "or the same thing able to happen again. Empty where nothing was. Not "
+                "what Argus left to a person - a draft fix, a recommended action - "
+                "which the document says itself. Say only what the record says: "
+                "nothing after Argus stopped was read."
             )
         },
         SYMPTOM_FIELD: {
@@ -1381,7 +1383,9 @@ def _the_logs_reaching_into(evidence: IncidentEvidence,
     and how far - or that none do, said rather than left out, since an absent
     list reads the same as one nobody looked for. And where no logs were read,
     that: told none reached in, a model is told logs were looked at and said
-    nothing of it.
+    nothing of it. A read that came back empty is a read, not that: where the
+    metrics stopped, the service gone quiet in its logs too is not nobody
+    having looked.
 
     How far as a figure: told only which lines reached in, a model wrote that
     nothing was known after the onset. And what they are: told which and how
@@ -1397,7 +1401,7 @@ def _the_logs_reaching_into(evidence: IncidentEvidence,
     Up to where they reach and no further - where they end before the reading
     did, the service may have stopped with its metrics.
     """
-    if not evidence.log_lines:
+    if not evidence.log_lines and evidence.logs_read_until is None:
         return "No logs were read."
 
     labels = labels_reaching_into(evidence.log_lines, metrics_stopped_at)
@@ -1449,8 +1453,8 @@ def _back_before(credited: ActionRecord | None,
 
     return [
         f"It was back to normal by {_shown(BACK_TO_NORMAL_FIGURE, figures)}, before "
-        f"{_shown(ACTED_FIGURE, figures)}, when {credited.action} was taken - the "
-        f"action credited with ending it: the metrics show the service back before "
+        f"{_shown(ACTED_FIGURE, figures)}, when Argus {inside_a_sentence(credited.action)} - "
+        f"the action credited with ending it: the metrics show the service back before "
         f"that action, not because of it."
     ]
 

@@ -11,7 +11,7 @@ plain words, and what is still at risk.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -33,6 +33,10 @@ from agent_postmortem_test.framework.builders import (
 SOME_CAUSE = "A rename reached one of the two files that name the port."
 SOME_RISK = "Any other service renamed the same way loses its metrics too."
 
+# An action as the narration words it, which is how the record holds it: the
+# opening of a sentence whose subject is Argus.
+SOME_ACTION = "Reverted the feature flag checkout-v2"
+
 
 @pytest.mark.unit
 def test_an_ordinary_incident_is_summed_up_in_the_order_a_reader_asks_about_it() -> None:
@@ -40,7 +44,7 @@ def test_an_ordinary_incident_is_summed_up_in_the_order_a_reader_asks_about_it()
     # at risk.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(actions=[an_action("turned checkout-v2 off",
+            evidence := an_evidence_bundle(actions=[an_action(SOME_ACTION,
                                                              verdict=Verdict.CONFIRMED)]),
             measured := a_measured_incident(loss=None)
         ) \
@@ -51,8 +55,8 @@ def test_an_ordinary_incident_is_summed_up_in_the_order_a_reader_asks_about_it()
             the_answer_was(
                 "The service broke at 12:00 UTC and was back to normal at 12:10 UTC, "
                 "10 minutes later. No loss was estimated: the shop's takings could not be "
-                f"read. {SOME_CAUSE} What Argus did: turned checkout-v2 off (can be put "
-                f"back) - confirmed, still in place. {SOME_RISK}")
+                f"read. {SOME_CAUSE} What Argus did: reverted the feature flag checkout-v2 "
+                f"(can be put back) - confirmed, still in place. {SOME_RISK}")
         )
 
 
@@ -100,19 +104,23 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("log_lines", "said"), [
-    ([], "No logs were read."),
+@pytest.mark.parametrize(("log_lines", "read_until", "said"), [
+    ([], None, "No logs were read."),
+    ([], ONSET + timedelta(minutes=20),
+     "No log line read reaches into that stretch, and the logs were read up to 12:20 UTC."),
     ([f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: dont care"],
+     ONSET + timedelta(minutes=20),
      "No log line read reaches into that stretch, and the logs were read up to 12:20 UTC.")
-], ids=["no-logs-read", "none-reaching-in"])
+], ids=["no-logs-read", "read-and-empty", "none-reaching-in"])
 def test_logs_that_show_nothing_of_the_unseen_stretch_are_said_to_show_nothing(
-        log_lines: list[str], said: str) -> None:
+        log_lines: list[str], read_until: datetime | None, said: str) -> None:
     # Said rather than left out: a summary silent on the logs reads the same as
-    # one whose logs nobody looked at.
+    # one whose logs nobody looked at. And a read that came back empty is a
+    # read: where the metrics stopped, the service gone quiet in its logs too
+    # is not nobody having looked.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=log_lines,
-                                           logs_read_until=ONSET + timedelta(minutes=20)),
+            evidence := an_evidence_bundle(log_lines=log_lines, logs_read_until=read_until),
             measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET,
                                             duration_in_hours=0.5)
         ) \
@@ -212,15 +220,15 @@ def test_where_both_moved_the_failed_requests_and_what_the_alert_watches_are_bot
      f"{said_as_money(Decimal('500'), SOME_CURRENCY)}, beyond how much those hours vary on "
      f"their own."),
     (Decimal("500"), False,
-     f"The shop's takings fell short of the same hours on earlier weeks by at least "
-     f"{said_as_money(Decimal('500'), SOME_CURRENCY)} so far, beyond how much those hours "
-     f"vary on their own."),
+     f"So far, the shop's takings fell short of the same hours on earlier weeks by at least "
+     f"{said_as_money(Decimal('500'), SOME_CURRENCY)}, beyond how much those hours vary on "
+     f"their own."),
     (Decimal("0"), True,
      "The shop's takings fell short of the same hours on earlier weeks by no more than "
      "those hours vary on their own, if at all."),
     (Decimal("0"), False,
-     "The shop's takings fell short of the same hours on earlier weeks by no more than "
-     "those hours vary on their own so far, if at all."),
+     "So far, the shop's takings fell short of the same hours on earlier weeks by no more "
+     "than those hours vary on their own, if at all."),
     (None, True, "No loss was estimated: the shop's takings could not be read.")
 ], ids=["a-loss", "a-loss-so-far", "none", "none-so-far", "takings-unread"])
 def test_what_customers_lost_is_said_as_the_brief_says_it(loss: Decimal | None, back: bool,
@@ -264,7 +272,7 @@ def test_a_service_back_before_the_action_credited_is_said_back_not_because_of_i
     Scenario() \
         .given(
             evidence := an_evidence_bundle(actions=[an_action(
-                "turned checkout-v2 off", verdict=Verdict.CONFIRMED,
+                SOME_ACTION, verdict=Verdict.CONFIRMED,
                 taken_at=ONSET + timedelta(minutes=12))]),
             measured := a_measured_incident(back_before_the_action=True)
         ) \
@@ -272,8 +280,29 @@ def test_a_service_back_before_the_action_credited_is_said_back_not_because_of_i
             lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
         ) \
         .then(
-            _says("The service was back to normal at 12:10 UTC, before turned checkout-v2 off "
-                  "at 12:12 UTC - so not because of it.")
+            _says("The service was back to normal at 12:10 UTC, before Argus reverted the "
+                  "feature flag checkout-v2 at 12:12 UTC - so not because of it.")
+        )
+
+
+@pytest.mark.unit
+def test_each_action_is_said_as_the_narration_words_it_after_the_first() -> None:
+    # The narration words an action as the opening of a sentence - "Restarted
+    # io-shop" - and set after a semicolon it reads as one.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(SOME_ACTION, verdict=Verdict.REFUTED, standing="put back"),
+                an_action("Restarted io-shop", verdict=Verdict.CONFIRMED,
+                          standing="nothing to put back", has_a_way_back=False)])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("What Argus did: reverted the feature flag checkout-v2 (can be put back) - "
+                  "refuted, put back; restarted io-shop (nothing to put back) - confirmed, "
+                  "nothing to put back.")
         )
 
 
@@ -297,6 +326,28 @@ def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words(
         .then(
             _says("Argus did not test the cause it ranked first (C1): rolling it back would "
                   "undo a change somebody meant.")
+        )
+
+
+@pytest.mark.unit
+def test_a_held_back_cause_is_ranked_as_its_label_counts_it() -> None:
+    # Candidates blaming one move are one row; the label still counts each
+    # candidate, and "ranked second (C3)" names a rank the label contradicts.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care", subject="checkout-v2", from_state="off",
+                            to_state="on"),
+                a_candidate("dont care", subject="checkout-v2", from_state="off",
+                            to_state="on"),
+                a_candidate("dont care", subject="scorer", tested=False,
+                            result="nothing could confirm it")])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("Argus did not test the cause it ranked third (C3): nothing could confirm it.")
         )
 
 
@@ -341,7 +392,7 @@ def test_an_incident_argus_escalated_is_said_to_have_been_handed_to_a_person() -
 def test_nothing_still_at_risk_is_left_unsaid() -> None:
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(actions=[an_action("turned checkout-v2 off",
+            evidence := an_evidence_bundle(actions=[an_action(SOME_ACTION,
                                                              verdict=Verdict.CONFIRMED)]),
             measured := a_measured_incident(loss=None)
         ) \
@@ -352,8 +403,8 @@ def test_nothing_still_at_risk_is_left_unsaid() -> None:
             the_answer_was(
                 "The service broke at 12:00 UTC and was back to normal at 12:10 UTC, "
                 "10 minutes later. No loss was estimated: the shop's takings could not be "
-                f"read. {SOME_CAUSE} What Argus did: turned checkout-v2 off (can be put "
-                f"back) - confirmed, still in place.")
+                f"read. {SOME_CAUSE} What Argus did: reverted the feature flag checkout-v2 "
+                f"(can be put back) - confirmed, still in place.")
         )
 
 

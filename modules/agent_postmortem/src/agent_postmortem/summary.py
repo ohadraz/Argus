@@ -37,7 +37,12 @@ from agent_postmortem.figures import (
     figures_of,
 )
 from agent_postmortem.measuring import Measurements
-from agent_postmortem.sections import causes_of, resolution_of
+from agent_postmortem.sections import (
+    CANDIDATE_PREFIX,
+    causes_of,
+    inside_a_sentence,
+    resolution_of,
+)
 
 type _Written = Callable[[str], str]
 
@@ -61,7 +66,9 @@ def the_executive_summary(evidence: IncidentEvidence,
         return figures[name].written if name in figures else None
 
     return " ".join([
-        *_when_and_for_how_long(measured, bool(evidence.log_lines), written, written_if_any),
+        *_when_and_for_how_long(measured,
+                                bool(evidence.log_lines) or evidence.logs_read_until is not None,
+                                written, written_if_any),
         *_how_bad(measured, written),
         _what_customers_lost(measured, written),
         *([cause] if cause else []),
@@ -107,14 +114,15 @@ def _when_and_for_how_long(measured: Measurements,
             f"{written(DURATION_FIGURE)} {later}."]
 
 
-def _what_the_logs_show(log_lines: bool,
+def _what_the_logs_show(read: bool,
                         written_if_any: Callable[[str], str | None]) -> str:
     """How far the service's own logs reach into the stretch the metrics did
     not cover, and where their reading ended - said apart, since where the
     lines stop is as often where the reading did. And said where they show
     nothing: a summary silent on the logs reads the same as one whose logs
-    nobody looked at."""
-    if not log_lines:
+    nobody looked at. A read that came back empty is a read: the service gone
+    quiet in its logs too is not nobody having looked."""
+    if not read:
         return "No logs were read."
 
     reach = written_if_any(LOGS_REACH_UNTIL_FIGURE)
@@ -157,14 +165,15 @@ def _what_customers_lost(measured: Measurements, written: _Written) -> str:
                else "the shop's takings could not be read")
         return f"No loss was estimated: {why}."
 
-    so_far = " so far" if measured.back_to_normal_at is None else ""
-    fell_short = "The shop's takings fell short of the same hours on earlier weeks by"
+    unended = measured.back_to_normal_at is None
+    fell_short = (f"{'So far, the' if unended else 'The'} shop's takings fell short of the "
+                  f"same hours on earlier weeks by")
 
     if not measured.loss:
-        return f"{fell_short} no more than those hours vary on their own{so_far}, if at all."
+        return f"{fell_short} no more than those hours vary on their own, if at all."
 
-    return (f"{fell_short} {'at least ' if so_far else ''}{written(CUSTOMER_LOSS_FIGURE)}"
-            f"{so_far}, beyond how much those hours vary on their own.")
+    return (f"{fell_short} {'at least ' if unended else ''}{written(CUSTOMER_LOSS_FIGURE)}, "
+            f"beyond how much those hours vary on their own.")
 
 
 def _what_argus_did(evidence: IncidentEvidence,
@@ -173,16 +182,16 @@ def _what_argus_did(evidence: IncidentEvidence,
     """Each action with what it came to, in the resolution's words - and where
     the service was back before the action credited with it, that it was, so
     the action is not read as what brought it back."""
-    taken = [f"{step.action} ({whether_it_can_be_put_back(step.has_a_way_back)}) - "
-             f"{step.outcome}"
+    taken = [f"{inside_a_sentence(step.action)} "
+             f"({whether_it_can_be_put_back(step.has_a_way_back)}) - {step.outcome}"
              for step in resolution_of(evidence) if step.label is not None]
     said = [f"What Argus did: {'; '.join(taken)}."] if taken else []
 
     credited = evidence.credited_action
     if measured.back_before_the_action and credited is not None:
         said.append(f"The service was back to normal at {written(BACK_TO_NORMAL_FIGURE)}, "
-                    f"before {credited.action} at {written(ACTED_FIGURE)} - so not because "
-                    f"of it.")
+                    f"before Argus {inside_a_sentence(credited.action)} at "
+                    f"{written(ACTED_FIGURE)} - so not because of it.")
 
     return said
 
@@ -195,12 +204,14 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     nothing ran the fix, and nothing took the recommendation.
 
     A cause by its rank, not its summary: that is the investigator's own
-    sentences, and set inside this one they run on into the reason. Its label
-    after the rank, which leads to its row on the page and to nothing where
-    the summary is said on its own."""
-    held_back = [f"Argus did not test the cause it ranked {_ranked(rank)} ({cause.label}): "
+    sentences, and set inside this one they run on into the reason. Its rank
+    as its label counts it - candidates blaming one move are one row, and the
+    label still counts each - and its label after it, which leads to its row
+    on the page and to nothing where the summary is said on its own."""
+    held_back = [f"Argus did not test the cause it ranked "
+                 f"{_ranked(int(cause.label.removeprefix(CANDIDATE_PREFIX)))} ({cause.label}): "
                  f"{cause.decided.result.rstrip('.')}."
-                 for rank, cause in enumerate(causes_of(evidence.candidates), start=1)
+                 for cause in causes_of(evidence.candidates)
                  if not cause.decided.tested and cause.decided.result]
     pull_request = evidence.pull_request
     recommended = evidence.recommended_action

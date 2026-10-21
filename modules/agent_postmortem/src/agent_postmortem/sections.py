@@ -587,6 +587,13 @@ def causes_of(candidates: list[CandidateRecord]) -> list[OneCause]:
     return [cause for _, cause in sorted(causes, key=lambda placed: placed[0])]
 
 
+def inside_a_sentence(action: str) -> str:
+    """An action as the narration words it - the opening of a sentence whose
+    subject is Argus, "Reverted the feature flag checkout-v2" - lowered to go
+    on inside one: "before Argus reverted the feature flag checkout-v2"."""
+    return action[:1].lower() + action[1:]
+
+
 def label_of(prefix: str, position: int) -> str:
     """What the evidence of one kind at `position` (from 1) is cited as."""
     return f"{prefix}{position}"

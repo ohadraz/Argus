@@ -2057,7 +2057,9 @@ def test_a_service_back_before_the_action_credited_with_it_is_given_as_back_befo
     # Back a whole minute before the action said to have brought it back, the
     # service was not brought back by that action. Ending the incident at the
     # action would hide that, and saying nothing leaves the model to credit it.
-    the_action = "revert-feature-flag on monthly-spend-feature"
+    # The action as the narration words it - the opening of a sentence - said
+    # with Argus as its subject.
+    the_action = "Reverted the feature flag monthly-spend-feature"
 
     Scenario() \
         .given(
@@ -2068,7 +2070,8 @@ def test_a_service_back_before_the_action_credited_with_it_is_given_as_back_befo
         .when(
             lambda: opening_ask(evidence, measured)
         ) \
-        .then(_says(f"when {the_action} was taken", "not because of it"))
+        .then(_says("when Argus reverted the feature flag monthly-spend-feature",
+                    "not because of it"))
 
 
 @pytest.mark.unit
@@ -2236,6 +2239,25 @@ def test_an_unobserved_stretch_of_a_walk_that_read_no_logs_is_said_to_have_read_
         .then(all_of(
             _says("No logs were read"),
             _does_not_say("reaches into it")))
+
+
+@pytest.mark.unit
+def test_an_unobserved_stretch_of_a_walk_whose_log_read_came_back_empty_is_said_to_have_read(
+) -> None:
+    # A read with no lines is a finding about the service, not a read nobody
+    # made: where the metrics stopped, the service gone quiet in its logs too.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[],
+                                           logs_read_until=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("No log line read reaches into it", "The logs were read up to"),
+            _does_not_say("No logs were read")))
 
 
 @pytest.mark.unit
@@ -3053,29 +3075,37 @@ def test_the_cause_in_plain_words_is_asked_for_in_one_sentence_of_what_the_recor
     # The one sentence of the summary code cannot write. Asked for the whole
     # summary, write-ups left out how long, told the reader what the brief told
     # them, and called a deploy "routine", which nothing in the record said -
-    # so it is told what the document says itself, and to say none of it.
+    # so it is told what the document says itself, and to say none of it. And
+    # asked for what caused the incident, not why it broke: where only the
+    # metrics stopped, the service is not known to have broken at all.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[CAUSE_IN_PLAIN_WORDS_FIELD]["description"]
         ) \
-        .then(
-            _the_description_mentions("one sentence", "does not work on the service",
-                                      "the document says itself", "only what the record says")
-        )
+        .then(all_of(
+            _the_description_mentions("What caused the incident", "one sentence",
+                                      "does not work on the service",
+                                      "the document says itself", "only what the record says"),
+            _the_description_avoids("broke")
+        ))
 
 
 @pytest.mark.unit
 def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
     # Nothing at risk is an answer; and what Argus left to a person - a draft
-    # fix, a recommended action - the summary says itself.
+    # fix, a recommended action - the summary says itself. As of when Argus
+    # stopped, not now: nobody read the service again, and a fault "still in
+    # place now" says the draft that would remove it was not merged.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[STILL_AT_RISK_FIELD]["description"]
         ) \
-        .then(
+        .then(all_of(
             _the_description_mentions("one sentence", "Empty where", "left to a person",
-                                      "only what the record says")
-        )
+                                      "when Argus stopped working on the incident",
+                                      "only what the record says"),
+            _the_description_avoids(" now")
+        ))
 
 
 @pytest.mark.unit
