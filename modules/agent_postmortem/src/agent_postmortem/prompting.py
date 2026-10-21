@@ -1124,12 +1124,15 @@ def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) ->
 
 
 def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:
-    """Which change the document states set the incident off, and that the
-    root cause starts after it - or nothing, where it states none.
+    """Which change the document states set the incident off - or nothing,
+    where it states none.
 
     Told only that "the document states the trigger itself", write-ups still
     opened the root cause with the change: nothing they were shown said which
-    change the document names, so the sentence pointed at nothing.
+    change the document names, so the sentence pointed at nothing. Named, and
+    nothing more: a root cause naming the change on its way to the mechanism
+    is right, and "do not open with it" contradicted the brief's own account of
+    what the root cause is.
     """
     trigger = trigger_of(evidence)
     if trigger is None:
@@ -1141,8 +1144,7 @@ def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:
     suspected = " - suspected, not confirmed" if trigger.suspected else ""
 
     return [f"The document already states what set it off, in a section of its own: "
-            f"{named}{suspected}. Do not open {ROOT_CAUSE_FIELD} with it: start from what that "
-            f"change ran into, and why that broke the service."]
+            f"{named}{suspected}."]
 
 
 def _the_move_of(subject: str, from_state: str | None, to_state: str | None) -> str:

@@ -1322,8 +1322,8 @@ def test_a_missing_check_is_named_by_its_sentence_and_the_rest_is_kept() -> None
 @pytest.mark.unit
 def test_a_root_cause_naming_the_change_that_set_it_off_is_named() -> None:
     # The document states the trigger in a section of its own. A root cause
-    # opening with the deploy's revision says it again, and stops at the change
-    # instead of saying why it broke the service.
+    # naming the deploy's revision says it again: what it owes is why that
+    # change broke the service.
     the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
 
     Scenario() \
@@ -1340,7 +1340,7 @@ def test_a_root_cause_naming_the_change_that_set_it_off_is_named() -> None:
         .then(
             all_of(
                 _named(the_trigger[:7]),
-                _named("start from what that change ran into"),
+                _named("say why that change broke the service"),
                 _found(1)
             )
         )

@@ -302,17 +302,15 @@ def _the_trigger_said_again(answer: SubmittedPostmortem, given: Given) -> list[s
     """Each start of the trigger's revision the root cause names.
 
     The document states the trigger in a section of its own, and the brief
-    says which change that is. A root cause opening with it says it again and
-    stops at the change, short of why it broke the service. The backstop to
-    the brief: only a revision can be held to, and a root cause naming the
-    change in other words passes."""
+    says which change that is. A root cause naming its revision says it again,
+    and what it owes is why that change broke the service. Only a revision can
+    be held to, and a root cause naming the change in other words passes."""
     revision = given.trigger_revision
     if revision is None or answer.root_cause is None:
         return []
 
-    return [f"the {ROOT_CAUSE_FIELD} names [{named}], the change that set it off, which the "
-            f"document states itself - start from what that change ran into, and say why "
-            f"that broke the service"
+    return [f"the {ROOT_CAUSE_FIELD} names [{named}] by its revision - the document states "
+            f"which change set it off; say why that change broke the service"
             for named in A_REVISION.findall(answer.root_cause)
             if the_revision_named(named, frozenset({revision})) == revision]
 

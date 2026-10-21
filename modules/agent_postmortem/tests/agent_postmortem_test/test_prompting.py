@@ -952,7 +952,9 @@ def test_the_model_is_told_nothing_ran_the_fix_it_proposed() -> None:
 def test_the_model_is_told_which_change_the_document_states_set_it_off() -> None:
     # Told only that "the document states the trigger itself", write-ups still
     # opened the root cause with the change: nothing they were shown said which
-    # change the document names, so the sentence pointed at nothing.
+    # change the document names, so the sentence pointed at nothing. Named, and
+    # nothing more: a root cause that names the change on its way to the
+    # mechanism is right, and "do not open with it" contradicted the brief.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
@@ -967,8 +969,10 @@ def test_the_model_is_told_which_change_the_document_states_set_it_off() -> None
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(
-            _says_on_one_line("already states what set it off", "[P1]",
-                              "start from what that change ran into")
+            all_of(
+                _says_on_one_line("already states what set it off", "[P1]"),
+                _does_not_say("Do not open")
+            )
         )
 
 

@@ -19,9 +19,10 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 
 # The five whys, by the words that carry its rules: where the chain starts,
 # where it stops, where a why the record cannot answer goes, that it never
-# stops at a person, and what the root cause is.
+# stops at a person, and what the root cause is - the mechanism, not the
+# chain's last step, which is often the change that set it off.
 THE_FIVE_WHYS = ("five whys", "symptom", "evidence stops", "contributing factor",
-                 "at a person", "last step of the chain")
+                 "at a person", "says the mechanism")
 
 # Whose account wins where the candidates and the record disagree.
 THE_RECORD_OUTRANKS_A_CANDIDATE = ("Investigator's account", "the record is right")
