@@ -17,6 +17,7 @@ from argus_core.models import (
     ActionItemStatus,
     ActionItemType,
     ChangeKind,
+    Detection,
     Impact,
     ImpactExtent,
     OpenedPullRequest,
@@ -264,6 +265,23 @@ def test_an_incident_with_no_onset_says_it_is_unknown() -> None:
         ) \
         .then(
             _it_reads("onset unknown"))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_is_dated_by_its_alert() -> None:
+    # Below the head a moment of the incident's day says its time alone, so
+    # with no onset the head still has to say which day that is - the alert's,
+    # as the write-up dates the incident.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[], detection=Detection(
+                alerted_at=SOME_ONSET, rule="dont care", onset_at=None, gap=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("onset unknown, alerted Oct 11, 2026, 14:03 UTC"))
 
 
 @pytest.mark.unit

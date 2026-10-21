@@ -7,7 +7,7 @@ face in the PDF. Each case is one line and what it says.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
@@ -47,6 +47,50 @@ def test_a_moment_is_said_in_utc_and_keeps_the_instant_it_names() -> None:
         ) \
         .then(
             the_answer_was(Run(text="Oct 14, 2026, 14:03 UTC", role=Role.MOMENT, at=some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_on_the_day_given_is_said_by_its_time_alone() -> None:
+    # The head says the incident's day once. A moment of that day said again
+    # with its date reads as though the day might be another.
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant).said_on(date(2026, 10, 14))
+        ) \
+        .then(
+            the_answer_was(Run(text="14:03 UTC", role=Role.MOMENT, at=some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_on_another_day_keeps_its_date() -> None:
+    Scenario() \
+        .given(
+            some_instant := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: Run.a_moment(some_instant).said_on(date(2026, 10, 13))
+        ) \
+        .then(
+            the_answer_was(Run.a_moment(some_instant))
+        )
+
+
+@pytest.mark.unit
+def test_a_run_that_is_no_moment_is_said_as_it_was() -> None:
+    Scenario() \
+        .given(
+            some_run := Run(text="io-shop", role=Role.CODE)
+        ) \
+        .when(
+            lambda: some_run.said_on(date(2026, 10, 14))
+        ) \
+        .then(
+            the_answer_was(some_run)
         )
 
 

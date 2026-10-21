@@ -9,7 +9,7 @@ it - are separate rows, each saying which it is.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, date, datetime
 from typing import Final
 
 from argus_core.models import (
@@ -111,14 +111,43 @@ def a_head(postmortem: Postmortem,
                 ended_by_whom=ended_by_whom)
 
 
+def the_day_it_is_dated_by(postmortem: Postmortem) -> date | None:
+    """The day the head names for the incident: its onset's, where the
+    timeline places one, and its alert's where it does not - as the write-up
+    dates it. `None` where there is neither.
+
+    Public because every moment below the head of that day is said by its time
+    alone (`rendering`), which leans on the head having said the day."""
+    began = _when_it_began(postmortem)
+    if began is not None:
+        return began.astimezone(UTC).date()
+
+    detection = postmortem.detection
+    return detection.alerted_at.astimezone(UTC).date() if detection is not None else None
+
+
+def _when_it_began(postmortem: Postmortem) -> datetime | None:
+    """Where the metrics stopped, or else where the impact began."""
+    return (_the_marker(postmortem, TimelineMarker.METRICS_STOP)
+            or _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS))
+
+
 def _the_incident_s_window(postmortem: Postmortem) -> Line:
     """From onset to back to normal, the day said once where both fall on it -
     or, where the metrics stopped at the onset, from there with them missing:
-    a service nobody measured from then on may never have left normal."""
+    a service nobody measured from then on may never have left normal.
+
+    With no onset, the alert's moment after it: every moment of that day is
+    said below by its time alone, so the head is where the day is said."""
     stopped = _the_marker(postmortem, TimelineMarker.METRICS_STOP)
-    began = stopped or _the_marker(postmortem, TimelineMarker.IMPACT_BEGINS)
+    began = _when_it_began(postmortem)
     if began is None:
-        return Line(runs=(Run(text="onset unknown"),))
+        detection = postmortem.detection
+        if detection is None:
+            return Line(runs=(Run(text="onset unknown"),))
+
+        return Line(runs=(Run(text="onset unknown, alerted "),
+                          Run.a_moment(detection.alerted_at)))
 
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
     if ended is not None:

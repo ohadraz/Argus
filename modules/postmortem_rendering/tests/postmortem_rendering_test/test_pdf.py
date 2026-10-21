@@ -1053,7 +1053,7 @@ def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words
                  id="code-fix-read"),
     pytest.param(348, 80, "What went wrong", id="what-went-wrong"),
     pytest.param(318, 80, "Where it got lucky", id="where-it-got-lucky"),
-    pytest.param(372, 80, "Lessons learned", id="lessons-set-one-under-another")
+    pytest.param(384, 80, "Lessons learned", id="lessons-set-one-under-another")
 ])
 def test_a_subheading_is_set_on_the_page_what_it_heads_begins_on(
         root_cause_words: int, item_words: int, subheading: str) -> None:

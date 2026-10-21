@@ -1251,6 +1251,34 @@ def test_a_root_cause_saying_a_check_is_missing_is_named(missing_check: str) -> 
 
 
 @pytest.mark.unit
+def test_a_missing_check_is_named_by_its_sentence_and_the_rest_is_kept() -> None:
+    # Handed the whole root cause back, a model moved the missing check out by
+    # deleting the sentence it was in - and with it that the two files name
+    # the port separately, which was the mechanism. Quoting the one sentence
+    # says which words are to move, and that the rest of it stays.
+    the_mechanism = "The scrape config still names the old port, so it finds no target."
+    the_missing_check = ("The two files name the port separately and no check was seen "
+                         "that they agree.")
+
+    Scenario() \
+        .given(
+            an_answer_blaming_a_missing_check_in_its_second_sentence := _an_answer(
+                root_cause=f"{the_mechanism} {the_missing_check}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_blaming_a_missing_check_in_its_second_sentence,
+                              given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(f"[{the_missing_check}]"),
+                _named("keep the rest of the sentence"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_step_of_the_cause_saying_a_check_is_missing_is_named() -> None:
     # The chain's last step said "nothing seen checks that the two names
     # agree", though the chain is told the safeguard is a factor and no step.

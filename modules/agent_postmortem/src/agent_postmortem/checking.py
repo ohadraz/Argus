@@ -133,6 +133,9 @@ _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 # A sentence's stop with another sentence after it.
 _A_SECOND_SENTENCE: Final = re.compile(r"[.!?]\s+\S")
 
+# Where one sentence ends and the next begins, for splitting prose into them.
+_A_SENTENCE_END: Final = re.compile(r"(?<=[.!?])\s+")
+
 # A check said to be missing: nothing (seen) checks, or no (such) check. With
 # a word allowed between, since "nothing seen checks" is how the rule that a
 # safeguard is one not seen has the model say it. A standing check, in the
@@ -256,17 +259,24 @@ def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str
     what to write where the missing check is itself the mechanism - a read
     path that does not check what it loaded - which moved out would leave the
     root cause empty.
+
+    By the sentence the check is in, not the whole field: handed the root
+    cause entire, a model moved the check out by deleting its sentence, and
+    the mechanism the rest of that sentence said went with it.
     """
     said = [prose for prose in [answer.root_cause,
                                 *(step.step for step in answer.causal_chain or [])]
             if prose is not None]
 
-    return [f"[{prose}] says a check is missing - a missing check or safeguard is one of "
-            f"the {CONTRIBUTING_FACTORS_FIELD}: say it there, not in the {ROOT_CAUSE_FIELD} "
-            f"or the {CAUSAL_CHAIN_FIELD} - or, where the missing check is itself the "
-            f"mechanism, say what the code does rather than what it lacks"
+    return [f"[{sentence}] says a check is missing - a missing check or safeguard is one "
+            f"of the {CONTRIBUTING_FACTORS_FIELD}: say it there, not in the "
+            f"{ROOT_CAUSE_FIELD} or the {CAUSAL_CHAIN_FIELD}. Move only the words saying "
+            f"no check was seen, and keep the rest of the sentence - what the code does - "
+            f"where it is; where the missing check is itself the mechanism, say what the "
+            f"code does rather than what it lacks"
             for prose in said
-            if _A_MISSING_CHECK.search(prose)]
+            for sentence in _A_SENTENCE_END.split(prose.strip())
+            if _A_MISSING_CHECK.search(sentence)]
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:

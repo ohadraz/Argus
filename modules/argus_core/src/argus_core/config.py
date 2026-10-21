@@ -378,11 +378,9 @@ class Settings(BaseSettings):
     # a ceiling is not a reservation, so asking for all of it costs nothing
     # for the fixes that turn out to be small.
     codefix_max_output_tokens: int = Field(default=128_000, gt=0)
-    # Sonnet rather than the shared default, at 40% of Opus's rates: the
-    # postmortem reads a finished record and answers once, and every claim it
-    # makes is checked by code before it is accepted. A cost decision, not yet
-    # measured against Opus the way the investigation's model was.
-    postmortem_model: str = Field(default="claude-sonnet-5-5")
+    # The shared default: asked to hold about forty rules at once, Sonnet kept a
+    # different few of them in each of three re-records of one incident.
+    postmortem_model: str = Field(default=DEFAULT_MODEL)
     postmortem_effort: Effort = Field(default=DEFAULT_EFFORT)
 
     # The model that classifies what a person wrote in an incident's thread, and

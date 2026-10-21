@@ -12,18 +12,21 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Iterator, Mapping
-from datetime import datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import on_the_day
+from postmortem_rendering.formatting import on_the_clock, on_the_day
 
 # How a moment is said in the body of the document after its day: its date
 # spelled once, in UTC, which every destination can print and none has to work
 # out.
 _AFTER_THE_DAY: Final = ", %Y, %H:%M"
+
+# How a moment of the day the head names is said: its time alone.
+_THE_TIME_OF_DAY: Final = "%H:%M"
 
 
 class Role(StrEnum):
@@ -74,6 +77,18 @@ class Run(BaseModel):
         """A moment said in UTC, carrying the instant for a destination that
         can say it again on a reader's own clock."""
         return cls(text=f"{on_the_day(at, _AFTER_THE_DAY)} UTC", role=Role.MOMENT, at=at)
+
+    def said_on(self, day: date) -> Run:
+        """This run, said by its time alone where it is a moment falling on
+        `day` in UTC - the day a head says once - and as it was otherwise. A
+        window keeps its words, which already say its day once."""
+        if self.role is not Role.MOMENT or self.at is None or self.until is not None:
+            return self
+
+        if self.at.astimezone(UTC).date() != day:
+            return self
+
+        return self.model_copy(update={"text": f"{on_the_clock(self.at, _THE_TIME_OF_DAY)} UTC"})
 
     @classmethod
     def an_address(cls, address: str) -> Run:

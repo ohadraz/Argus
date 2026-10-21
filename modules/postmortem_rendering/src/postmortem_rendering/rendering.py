@@ -9,7 +9,8 @@ is read here, once, and handed to every part that says it.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Final
+from datetime import date
+from typing import Any, Final
 
 from argus_core.events import IncidentEvent
 from argus_core.models import Alert, Postmortem
@@ -20,7 +21,7 @@ from postmortem_rendering.actions_taken import ActionsTakenSection, the_actions_
 from postmortem_rendering.cause import CauseSection, the_cause
 from postmortem_rendering.cost import the_cost
 from postmortem_rendering.detection import DetectionSection, the_detection
-from postmortem_rendering.head import Head, a_head, a_title
+from postmortem_rendering.head import Head, a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.hypotheses import HypothesesSection, the_hypotheses
 from postmortem_rendering.impact import (
     Card,
@@ -130,7 +131,7 @@ def render(postmortem: Postmortem,
     if impact.finding_label and found:
         rows[impact.finding_label] = Line(runs=(Run(text=found),))
 
-    return RenderedPostmortem(
+    rendered = RenderedPostmortem(
         incident_id=postmortem.incident_id,
         title=a_title(postmortem, alert),
         head=a_head(postmortem, alert, resolution, the_escalation(events)),
@@ -152,6 +153,47 @@ def render(postmortem: Postmortem,
         cost=the_cost(postmortem),
         supporting=supporting,
         review=the_review(postmortem))
+
+    day = the_day_it_is_dated_by(postmortem)
+    if day is None:
+        return rendered
+
+    return rendered.model_copy(update={
+        name: _said_on(getattr(rendered, name), day)
+        for name in RenderedPostmortem.model_fields if name not in _WHERE_THE_DAY_IS_SAID
+    })
+
+
+# What says the incident's day, and so keeps every moment's date: the rest of
+# the document says a moment of that day by its time alone.
+_WHERE_THE_DAY_IS_SAID: Final = frozenset({"title", "head"})
+
+
+def _said_on(value: Any, day: date) -> Any:
+    """`value` with every moment in it that falls on `day` said by its time
+    alone, however deep in a section it sits.
+
+    Here, once, rather than in each section: every section says its moments
+    with `Run.a_moment`, and a section that forgot to pass the day on would
+    say its moments as though on another one - which is the defect this ends.
+    """
+    if isinstance(value, Run):
+        return value.said_on(day)
+
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={name: _said_on(getattr(value, name), day)
+                                        for name in type(value).model_fields})
+
+    if isinstance(value, tuple):
+        return tuple(_said_on(each, day) for each in value)
+
+    if isinstance(value, list):
+        return [_said_on(each, day) for each in value]
+
+    if isinstance(value, dict):
+        return {key: _said_on(each, day) for key, each in value.items()}
+
+    return value
 
 
 def _the_rows(hypotheses: HypothesesSection,

@@ -8,7 +8,7 @@ read off the record reaches every part that says it.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core import new_id
@@ -27,6 +27,7 @@ from argus_core.models import (
     PostmortemLead,
     ResolutionStep,
     TimelineEntry,
+    TimelineMarker,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from postmortem_rendering.lines import Line, Role, Run
@@ -35,6 +36,7 @@ from postmortem_rendering.rendering import RenderedPostmortem, render
 from postmortem_rendering_test.framework.builders import (
     DONT_CARE_MOMENT,
     a_change_read,
+    a_marker,
     a_person_resolved_it,
     a_postmortem,
     an_alert,
@@ -103,6 +105,31 @@ def test_a_document_with_no_summary_says_none_was_written() -> None:
         ) \
         .then(
             the_answer_was("No summary was written."))
+
+
+@pytest.mark.unit
+def test_below_the_head_a_moment_of_the_incident_s_day_says_its_time_alone() -> None:
+    # The head says the day once. Detection and Trigger said every moment of
+    # that same day with its date again, which the write-up had stopped doing.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=SOME_MOMENT + timedelta(minutes=2, seconds=40),
+                                    rule="dont care", onset_at=SOME_MOMENT,
+                                    gap=timedelta(minutes=2, seconds=40)),
+                timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_MOMENT)])
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert("HighErrorRate", "io-shop"), [],
+                           SOME_ADDRESS)
+        ) \
+        .then(
+            all_of(
+                _the_detection_reads("The incident on io-shop began at 14:03 UTC. "
+                                     "HighErrorRate fired at 14:05 UTC, 2m 40s later."),
+                _the_head_s_date_reads("Oct 11, 2026, 14:03 UTC, not seen back to normal")
+            )
+        )
 
 
 @pytest.mark.unit
@@ -449,6 +476,29 @@ def _it_was_ended_everywhere_by(expected: str) -> Assertion[RenderedPostmortem]:
         if said != (expected, expected):
             raise AssertionError(f"Expected the head and the resolution both to name "
                                  f"[{expected}], got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_detection_reads(expected: str) -> Assertion[RenderedPostmortem]:
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        line = rendered.detection.line
+        said = line.said if line is not None else None
+        if said != expected:
+            raise AssertionError(f"Expected Detection to read [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_head_s_date_reads(expected: str) -> Assertion[RenderedPostmortem]:
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        said = rendered.head.date.said
+        if said != expected:
+            raise AssertionError(f"Expected the head's date to read [{expected}], got [{said}].")
 
         return True
 
