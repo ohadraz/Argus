@@ -26,6 +26,7 @@ from agent_postmortem.figures import (
     ACTED_FIGURE,
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
+    ALERTED_AFTER_THE_ONSET_FIGURE,
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
@@ -767,6 +768,9 @@ def test_a_rule_that_waits_for_nothing_still_names_how_long_after_the_onset_it_c
     # A wait of nothing is still a wait the gap comes after. Told only that the
     # rule fires as soon as its condition holds, a write-up left 5m 53s from the
     # onset to the alert unweighed - and said nothing of detection at all.
+    # Named for the onset rather than the wait: beside a sentence saying the
+    # rule waits for nothing, a model citing {after_the_wait} cites a wait that
+    # is not there.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=5, seconds=53)),
@@ -775,12 +779,13 @@ def test_a_rule_that_waits_for_nothing_still_names_how_long_after_the_onset_it_c
         .when(
             lambda: figures_of(evidence, measured)
         ) \
-        .then(
+        .then(all_of(
             _the_figures_include({
-                AFTER_THE_WAIT_FIGURE: Figure(given="5 minutes 53 seconds",
-                                              written="5 minutes 53 seconds")
-            })
-        )
+                ALERTED_AFTER_THE_ONSET_FIGURE: Figure(given="5 minutes 53 seconds",
+                                                       written="5 minutes 53 seconds")
+            }),
+            _the_figures_leave_out(AFTER_THE_WAIT_FIGURE)
+        ))
 
 
 @pytest.mark.unit

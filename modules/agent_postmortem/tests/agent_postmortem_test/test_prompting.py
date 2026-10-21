@@ -35,6 +35,7 @@ from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
+    ALERTED_AFTER_THE_ONSET_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
@@ -963,7 +964,7 @@ def test_a_rule_that_waits_for_nothing_is_told_how_long_after_the_onset_its_aler
         ) \
         .then(
             _says_on_one_line(A_RULE_FIRING_AT_ONCE, "The alert came",
-                              f"{{{AFTER_THE_WAIT_FIGURE}}} after the onset",
+                              f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}} after the onset",
                               "looks back over a window")
         )
 
@@ -983,7 +984,7 @@ def test_an_alert_under_a_minute_after_the_onset_of_a_rule_that_waits_for_nothin
         ) \
         .then(all_of(
             _says("The alert came as soon as its condition held"),
-            _does_not_say(f"{{{AFTER_THE_WAIT_FIGURE}}}")
+            _does_not_say(f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}}")
         ))
 
 

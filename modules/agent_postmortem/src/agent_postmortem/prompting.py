@@ -57,6 +57,7 @@ from agent_postmortem.figures import (
     ACTED_FIGURE,
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
+    ALERTED_AFTER_THE_ONSET_FIGURE,
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
@@ -1446,10 +1447,10 @@ def _the_alert_against_no_wait(evidence: IncidentEvidence,
         return (" The alert came as soon as its condition held, as near as a measured "
                 "onset - a whole minute - can tell.")
 
-    return (f" The alert came {_shown(AFTER_THE_WAIT_FIGURE, figures)} after the onset: where "
-            f"the condition itself looks back over a window - samples missing for some "
-            f"minutes, a rate over some minutes - that window is part of it, and what the "
-            f"alert said may name it.")
+    return (f" The alert came {_shown(ALERTED_AFTER_THE_ONSET_FIGURE, figures)} after the "
+            f"onset: where the condition itself looks back over a window - samples missing "
+            f"for some minutes, a rate over some minutes - that window is part of it, and "
+            f"what the alert said may name it.")
 
 
 def _the_alert_against_its_wait(evidence: IncidentEvidence,
