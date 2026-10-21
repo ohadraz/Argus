@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
     root_cause TEXT,
+    cause_in_plain_words TEXT,
     symptom TEXT,
     -- Three figures rather than one blob, and three rather than two: what the
     -- incident cost the business, what it cost the humans, and what it cost

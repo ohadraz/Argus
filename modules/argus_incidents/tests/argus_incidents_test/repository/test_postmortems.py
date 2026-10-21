@@ -137,6 +137,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "root_cause": "a feature flag was toggled on and the checkout path fell over",
         "executive_summary": "one flag, seven minutes, reverted",
         "symptom": "Checkout failed",
+        "cause_in_plain_words": "A flag change turned off the path checkout relies on.",
         "customer_loss_estimate": Decimal("1840.00"),
         "estimate_currency": "usd",
         "engineer_minutes": 7,

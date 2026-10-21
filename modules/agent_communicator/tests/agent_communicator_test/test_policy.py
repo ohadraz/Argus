@@ -17,8 +17,6 @@ component making an editorial decision in the middle of doing its job.
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
 from agent_communicator.policy import Register, how_it_is_said
 from argus_core import new_id
@@ -251,10 +249,9 @@ def test_a_postmortem_is_filed_rather_than_announced() -> None:
         .given(
             the_write_up := PostmortemWritten(
                 incident_id=AN_INCIDENT,
-                root_cause="monthly-spend-feature divided by a month with no purchases",
-                executive_summary="Account pages failed for a third of shoppers.",
-                customer_loss_estimate=Decimal("1240.50"),
-                estimate_currency="USD",
+                cause_in_plain_words="A month with no purchases broke the account pages.",
+                executive_summary="Account pages failed for a third of shoppers. A month with no "
+                                  "purchases broke the account pages.",
                 engineer_minutes=34
             )
         ) \

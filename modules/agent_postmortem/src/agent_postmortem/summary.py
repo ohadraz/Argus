@@ -14,6 +14,7 @@ what was done, and what is left.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Final
 
@@ -52,6 +53,9 @@ type _Written = Callable[[str], str]
 _RANKS: Final = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh",
                  "eighth", "ninth", "tenth")
 
+# A candidate's label as the summary writes it after the candidate's rank.
+_A_CANDIDATES_LABEL: Final = re.compile(rf" \({CANDIDATE_PREFIX}\d+\)")
+
 
 def the_executive_summary(evidence: IncidentEvidence,
                           measured: Measurements,
@@ -78,6 +82,13 @@ def the_executive_summary(evidence: IncidentEvidence,
         *_what_it_left_to_a_person(evidence),
         *([still_at_risk] if still_at_risk else [])
     ])
+
+
+def said_off_the_page(summary: str) -> str:
+    """The summary as said where the document's rows are not: without the
+    label after each candidate's rank, which leads to its row on the page and
+    to nothing anywhere else. The rank before it still says which it was."""
+    return _A_CANDIDATES_LABEL.sub("", summary)
 
 
 def _when_and_for_how_long(measured: Measurements,

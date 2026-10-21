@@ -133,6 +133,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # page reads as a root cause somebody wrote and left empty, and this
         # document is one nobody can ask a follow-up question of.
         root_cause=answer.root_cause,
+        cause_in_plain_words=answer.cause_in_plain_words,
         # Written by code from the record, around the two sentences only the
         # model can give: the cause in plain words, and what is still at risk.
         executive_summary=the_executive_summary(evidence, measured,

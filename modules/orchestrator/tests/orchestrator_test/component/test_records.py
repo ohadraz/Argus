@@ -17,10 +17,12 @@ from datetime import datetime
 from typing import Final
 
 import pytest
+from agent_postmortem import said_off_the_page
 from argus_core import connect_from_env, utc_now
 from argus_core.events import (
     IncidentEvent,
     LeadWeighed,
+    PostmortemWritten,
     Publisher,
     StatusChanged,
     VerdictReached,
@@ -32,6 +34,7 @@ from argus_core.models import (
     FlagUndo,
     IncidentStatus,
     Meaning,
+    PostmortemDocument,
     Standing,
     ThreadMessage,
     Verdict,
@@ -407,6 +410,77 @@ def test_the_leads_read_are_what_people_told_this_incident(
         .then(
             _the_leads_are([a_lead_here])
         )
+
+
+@pytest.mark.component
+def test_a_write_up_is_said_by_its_summary_as_it_reads_off_the_page_with_its_cause(
+    a_clean_database: None
+) -> None:
+    # Said in a channel, the summary's "(C1)" leads nowhere: there is no row
+    # there for it to name. The cause in plain words travels beside it, as the
+    # part of it a reader scanning a list of endings is looking for.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_cause = "A flag change turned off the fallback checkout relies on."
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_document := _a_document_saying(
+                some_cause,
+                f"{some_cause} Argus did not test the candidate it ranked first (C1): it "
+                f"was held back.")
+        ) \
+        .when(
+            lambda: records.postmortem(incident_id, a_document)
+        ) \
+        .then(
+            _the_write_up_was_said(incident_id, some_cause,
+                                   said_off_the_page(a_document.executive_summary or ""))
+        )
+
+
+def _a_document_saying(cause: str, summary: str) -> PostmortemDocument:
+    """A write-up whose cause and summary are these, and nothing else of it
+    measured."""
+    dont_care_root_cause = "a flag toggle disabled the checkout fallback"
+
+    return PostmortemDocument(
+        root_cause=dont_care_root_cause,
+        cause_in_plain_words=cause,
+        executive_summary=summary,
+        customer_loss_estimate=None,
+        estimate_currency=None,
+        engineer_minutes=None,
+        responders=None,
+        tokens_spent=None,
+        assumptions=[]
+    )
+
+
+def _the_write_up_was_said(incident_id: str,
+                           cause: str,
+                           summary: str) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            narrated = events.get_by_incident(conn, incident_id)
+
+        said = [(event.cause_in_plain_words, event.executive_summary)
+                for event in narrated
+                if isinstance(event, PostmortemWritten)]
+
+        if said != [(cause, summary)]:
+            raise AssertionError(
+                f"Expected the stream to say the postmortem was written once, by the "
+                f"cause [{cause}] and the summary [{summary}], and it said {said}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_lead_written_in(incident_id: str,

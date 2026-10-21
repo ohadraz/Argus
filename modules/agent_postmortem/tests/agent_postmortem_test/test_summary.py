@@ -16,10 +16,10 @@ from decimal import Decimal
 
 import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
-from agent_postmortem.summary import the_executive_summary
+from agent_postmortem.summary import said_off_the_page, the_executive_summary
 from argus_core import level_said_in, to_iso
 from argus_core.models import OpenedPullRequest, Verdict, said_as_money
-from argus_testkit import Assertion, Scenario, the_answer_was
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
     ONSET,
@@ -332,6 +332,28 @@ def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words(
 
 
 @pytest.mark.unit
+def test_a_summary_said_off_the_page_leaves_out_the_labels_that_lead_to_its_rows() -> None:
+    # In a channel there is no row for "(C1)" to lead to, so it points nowhere -
+    # and the rank before it already says which candidate it was.
+    Scenario() \
+        .given(
+            summary := the_executive_summary(
+                an_evidence_bundle(candidates=[a_candidate(
+                    "the rename broke the scrape", tested=False,
+                    result="rolling it back would undo a change somebody meant")]),
+                a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .when(
+            lambda: said_off_the_page(summary)
+        ) \
+        .then(all_of(
+            _says("Argus did not test the candidate it ranked first: rolling it back would "
+                  "undo a change somebody meant."),
+            _does_not_say("(C1)")
+        ))
+
+
+@pytest.mark.unit
 def test_a_held_back_cause_is_ranked_as_its_label_counts_it() -> None:
     # Candidates blaming one move are one row; the label still counts each
     # candidate, and "ranked second (C3)" names a rank the label contradicts.
@@ -441,6 +463,17 @@ def _says(*expected: str) -> Assertion[str]:
         missing = [wanted for wanted in expected if wanted not in summary]
         if missing:
             raise AssertionError(f"Expected the summary to say {missing}, and it said: "
+                                 f"{summary}")
+
+        return True
+
+    return assertion
+
+
+def _does_not_say(unwanted: str) -> Assertion[str]:
+    def assertion(summary: str) -> bool:
+        if unwanted in summary:
+            raise AssertionError(f"Expected the summary not to say [{unwanted}], and it said: "
                                  f"{summary}")
 
         return True

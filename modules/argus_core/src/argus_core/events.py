@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Any, Final, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -691,9 +690,17 @@ class PostmortemWritten(_Event):
     """The incident written up, in the few lines somebody would read first.
 
     The summary rather than the document. The whole postmortem is a row of its
-    own and a page of its own; what an account needs is the sentence a reader
-    stops at - what caused it, what it cost, and how long people spent on it -
-    and a destination that wanted more has somewhere to send them.
+    own and a page of its own; what an account needs is the paragraph a reader
+    stops at - when and for how long, how bad, why, what was done and what is
+    left - and a destination that wanted more has somewhere to send them.
+
+    The summary as it is said off the page, without the labels that lead to
+    the document's rows: an account has no rows for them to lead to. Not the
+    root cause or the loss beside it, which the summary already says - the
+    loss as a floor where the service was not seen back, which a figure said
+    on its own would state as final. The cause in plain words is carried apart
+    from the summary that contains it, as the part a reader scanning a list of
+    endings is looking for.
 
     Every field is optional because the document's are: a postmortem written
     from an incident nobody recorded hours against is still a postmortem, and
@@ -701,14 +708,8 @@ class PostmortemWritten(_Event):
     """
 
     kind: Literal["postmortem-written"] = "postmortem-written"
-    root_cause: str | None = None
+    cause_in_plain_words: str | None = None
     executive_summary: str | None = None
-    customer_loss_estimate: Decimal | None = None
-    # What that figure is in, carried rather than looked up, for the reason the
-    # document carries it: the reporting currency is configured, and an account
-    # that read it back from settings would relabel figures already published
-    # the day somebody changed it.
-    estimate_currency: str | None = None
     engineer_minutes: int | None = None
 
 

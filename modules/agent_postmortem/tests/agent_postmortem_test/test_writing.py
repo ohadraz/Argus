@@ -126,9 +126,11 @@ DONT_CARE_WORKING_YEAR = 2080.0
 
 @pytest.mark.unit
 def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
-    # The root cause crosses unaltered, and the summary is code's, written from
-    # the record around the model's cause in plain words and what is still at
-    # risk - or the document is not the answer that was checked.
+    # The root cause and the cause in plain words cross unaltered, and the
+    # summary is code's, written from the record around that cause and what is
+    # still at risk - or the document is not the answer that was checked. The
+    # cause kept on its own, too: the line saying the postmortem was written
+    # marks it inside the summary, and has nothing else to find it by.
     some_root_cause = "the checkout fallback was disabled by a flag toggle at 12:04"
     some_cause = "A flag change turned off the fallback checkout relies on."
     some_risk = "The fallback can be turned off the same way again."
@@ -153,6 +155,7 @@ def test_the_prose_the_model_wrote_is_what_the_document_says() -> None:
         .then(
             all_of(
                 reports_root_cause(some_root_cause),
+                _reports_cause_in_plain_words(some_cause),
                 reports_executive_summary(
                     the_executive_summary(evidence, measured, some_cause, some_risk))
             )
@@ -1280,6 +1283,18 @@ def _measuring_that_returns(measured: Measurements) -> MagicMock:
     measuring.return_value = measured
 
     return cast(MagicMock, measuring)
+
+
+def _reports_cause_in_plain_words(expected: str) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if document.cause_in_plain_words != expected:
+            raise AssertionError(
+                f"Expected the cause in plain words [{expected}], got "
+                f"[{document.cause_in_plain_words}].")
+
+        return True
+
+    return assertion
 
 
 def _reports_symptom(expected: str) -> Assertion[PostmortemDocument]:

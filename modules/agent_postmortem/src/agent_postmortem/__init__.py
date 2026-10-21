@@ -49,6 +49,7 @@ from agent_postmortem.sources import (
     RateTable,
     Sources,
 )
+from agent_postmortem.summary import said_off_the_page
 from agent_postmortem.writing import write_postmortem
 
 __all__ = [
@@ -84,5 +85,6 @@ __all__ = [
     "RefusalRecord",
     "Sources",
     "postmortem_policy",
+    "said_off_the_page",
     "write_postmortem"
 ]

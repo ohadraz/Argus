@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from decimal import Decimal
 from typing import Any
 
 import httpx2
@@ -907,10 +906,9 @@ def _the_incident_ending(incident_id: str) -> IncidentEvent:
 def _the_write_up_of(incident_id: str) -> IncidentEvent:
     return PostmortemWritten(
         incident_id=incident_id,
-        root_cause="monthly-spend-feature divided by a month with no purchases",
-        executive_summary="Account pages failed for a third of shoppers.",
-        customer_loss_estimate=Decimal("1240.50"),
-        estimate_currency="USD",
+        cause_in_plain_words="A month with no purchases broke the account pages.",
+        executive_summary="Account pages failed for a third of shoppers. A month with no "
+                          "purchases broke the account pages.",
         engineer_minutes=34
     )
 

@@ -19,7 +19,6 @@ level is read belong to `metrics` and `logs`, and are tested there.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 
 import pytest
 from argus_core import new_id
@@ -1757,21 +1756,20 @@ def test_each_wait_is_told_once_by_the_look_that_settled_it() -> None:
 
 
 @pytest.mark.unit
-def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
-    # The write-up in the few lines somebody reads first: what caused it, what
-    # it says, what it cost and how long people spent. The cause is the marked
-    # word - it is what a reader scanning a channel of endings is looking for -
-    # and the money is to the penny, because a figure rounded to the pound in
-    # one place and not in another reads as two different figures.
-    the_cause = "monthly-spend-feature divided by a month with no purchases"
-    the_summary = "Account pages failed for a third of shoppers."
+def test_a_postmortem_line_is_its_summary_with_the_cause_marked() -> None:
+    # The write-up in the few lines somebody reads first. The summary already
+    # says the cause in plain words, and what customers lost as the page says
+    # it - a floor so far where the service was not seen back - so the root
+    # cause and the loss said again beside it were the cause twice and the loss
+    # twice, the second as a final figure. The cause is the marked part: it is
+    # what a reader scanning a channel of endings is looking for.
+    the_cause = "A flag change turned off the fallback checkout relies on."
+    the_summary = f"The service broke at 12:00 UTC. {the_cause} What Argus did: reverted it."
 
     the_write_up = PostmortemWritten(
         incident_id=new_id(),
-        root_cause=the_cause,
+        cause_in_plain_words=the_cause,
         executive_summary=the_summary,
-        customer_loss_estimate=Decimal("1240.5"),
-        estimate_currency="USD",
         engineer_minutes=34
     )
 
@@ -1779,10 +1777,21 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
         .given(the_write_up) \
         .when(lambda: build_narration([the_write_up])) \
         .then(all_of(_the_only_line_marks(the_cause),
-                     _the_only_line_mentions(the_summary),
-                     _the_only_line_mentions("1,240.50 USD"),
-                     _the_only_line_mentions("34 engineer minutes"),
+                     _the_only_line_says(f"Wrote the postmortem - {the_summary}",
+                                         "34 engineer minutes"),
                      _the_lines_are_credited_to(["Postmortem Agent"])))
+
+
+@pytest.mark.unit
+def test_a_postmortem_with_no_summary_is_said_to_have_been_written_and_no_more() -> None:
+    # "Naming no cause" spoke of a root cause the line no longer carries, and a
+    # summary nobody wrote is nothing to say.
+    the_write_up = PostmortemWritten(incident_id=new_id())
+
+    Scenario() \
+        .given(the_write_up) \
+        .when(lambda: build_narration([the_write_up])) \
+        .then(_the_only_line_reads("Wrote the postmortem"))
 
 
 @pytest.mark.unit
@@ -3163,6 +3172,18 @@ def _the_only_line_does_not_mention(unwanted: str) -> Assertion[list[NarrationLi
 
         if unwanted in line.text:
             raise AssertionError(f"Expected no [{unwanted}] in [{line.text}].")
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_reads(expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.text != expected:
+            raise AssertionError(f"Expected the line to read [{expected}], got [{line.text}].")
 
         return True
 

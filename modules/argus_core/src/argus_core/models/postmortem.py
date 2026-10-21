@@ -89,6 +89,11 @@ class PostmortemDocument(BaseModel):
     """
 
     root_cause: str | None
+    # The cause as the summary says it, in the model's one sentence for a
+    # reader who does not work on the service. Kept on its own as well as
+    # inside the summary: a line that sets it apart there has nothing else to
+    # find it by. `None` where the model gave none.
+    cause_in_plain_words: str | None = None
     executive_summary: str | None
     # What a reader saw go wrong, in the model's words and no more - "Account
     # pages failed". The page puts the change it began with beside it from

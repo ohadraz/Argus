@@ -14,6 +14,7 @@ around the graph is where a database is a fact of life.
 
 from __future__ import annotations
 
+from agent_postmortem import said_off_the_page
 from argus_core import Connections
 from argus_core.events import IncidentEvent, LeadWeighed, PostmortemWritten
 from argus_core.models import (
@@ -187,17 +188,19 @@ class Records:
 
         The summary travels on the event rather than being read back from the
         row, so that a destination says what the document said at the moment
-        it was written - and beside the row, inside a savepoint, so a
+        it was written - as it is said off the page, since a destination has
+        none of the rows its labels lead to - and beside the row, inside a savepoint, so a
         subscriber having a bad day cannot lose the document itself. The row
         is stamped with the event's moment, so the page's author line and the
         account's line are one instant.
         """
-        written = PostmortemWritten(incident_id=incident_id,
-                                    root_cause=document.root_cause,
-                                    executive_summary=document.executive_summary,
-                                    customer_loss_estimate=document.customer_loss_estimate,
-                                    estimate_currency=document.estimate_currency,
-                                    engineer_minutes=document.engineer_minutes)
+        summary = document.executive_summary
+        written = PostmortemWritten(
+            incident_id=incident_id,
+            cause_in_plain_words=document.cause_in_plain_words,
+            executive_summary=said_off_the_page(summary) if summary is not None else None,
+            engineer_minutes=document.engineer_minutes
+        )
 
         with self._connections() as conn:
             postmortems.record(conn, incident_id, document, at=written.at)

@@ -84,7 +84,6 @@ from argus_core.models import (
     RetrievalChannel,
     RolloutAccount,
     Undone,
-    said_as_money,
     why_it_was_refused,
 )
 from pydantic import BaseModel, Field
@@ -493,10 +492,10 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         case PostmortemWritten():
             who = _POSTMORTEM
             # The cause is marked because it is what a reader scanning a list
-            # of endings is looking for. Where there is none the line still
-            # exists: "a postmortem was written and could not name a cause" is
-            # itself worth reading, and an empty mark simply marks nothing.
-            emphasis = event.root_cause or ""
+            # of endings is looking for - inside the summary, which says it.
+            # Where there is none the line still exists, and an empty mark
+            # simply marks nothing.
+            emphasis = event.cause_in_plain_words or ""
             text = _the_postmortem_in_short(event)
         case CandidateSelected():
             who = _ARGUS
@@ -1046,29 +1045,20 @@ def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
 
 
 def _the_postmortem_in_short(event: PostmortemWritten) -> str:
-    """The write-up in the few lines a reader stops at, and no more.
+    """The write-up in the few lines a reader stops at: its summary, and the
+    minutes people spent on it.
 
-    Built from whatever the document managed to say rather than from a fixed
-    shape: a postmortem that named no cause, or was written about an incident
-    nobody recorded hours against, is still a postmortem - and a line reading
-    "root cause: None" would be the account inventing a finding.
-
-    The money is to the penny and labelled with the currency it was measured
-    in. A figure rounded in one place and not in another reads as two
-    different figures, and an unlabelled one reads as whatever the reader's
-    own currency is.
+    The summary and no more of the document: it already says the cause in
+    plain words and what customers lost, as the page says it - and said again
+    beside it, each was said twice, the loss the second time as a final
+    figure where the summary says a floor. A postmortem with no summary is
+    still a postmortem, and the line says it was written and nothing it did
+    not say.
     """
     said = [
-        f"Wrote the postmortem - {event.root_cause}" if event.root_cause
-        else "Wrote the postmortem, naming no cause"
+        f"Wrote the postmortem - {event.executive_summary}" if event.executive_summary
+        else "Wrote the postmortem"
     ]
-
-    if event.executive_summary:
-        said.append(event.executive_summary)
-
-    if event.customer_loss_estimate is not None:
-        said.append(f"Estimated customer loss "
-                    f"{said_as_money(event.customer_loss_estimate, event.estimate_currency)}")
 
     # Not at zero: nobody paged, or nobody engaged, is no news in a channel.
     if event.engineer_minutes:
