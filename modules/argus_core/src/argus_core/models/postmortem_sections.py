@@ -56,11 +56,26 @@ class CitedChange(BaseModel):
     short_reference: str
 
 
-class ChainStep(BaseModel):
-    """One step from the symptom towards the cause, and what it rests on."""
+class RuledOut(BaseModel):
+    """Something else the record ruled out, and what ruled it out."""
 
     text: str
     cites: list[CitedEvidence]
+
+
+class ChainStep(BaseModel):
+    """One step from the symptom towards the cause, what it rests on, and what
+    else the record ruled out there.
+
+    What was ruled out is the step's own list rather than a step of the chain:
+    told twice in words to say it at the step that ties the incident to the
+    change, write-ups made it a why of its own. Empty on every step but that
+    one, and on a document written before it was carried.
+    """
+
+    text: str
+    cites: list[CitedEvidence]
+    ruled_out: list[RuledOut] = []
 
 
 class ContributingFactor(BaseModel):

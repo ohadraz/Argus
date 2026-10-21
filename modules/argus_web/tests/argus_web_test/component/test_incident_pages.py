@@ -51,6 +51,7 @@ from argus_core.models import (
     ResolutionStep,
     ReviewCriterion,
     RevisionSource,
+    RuledOut,
     RuleSeriesHarm,
     Standing,
     TimelineEntry,
@@ -1811,6 +1812,16 @@ def test_what_the_alert_said_answers_to_its_label() -> None:
                                              cites=[CitedEvidence(label="C1",
                                                                   text="dont care")])]},
                  id="causal_chain_evidence"),
+    pytest.param({"causal_chain": [ChainStep(text="dont care", cites=[],
+                                             ruled_out=[RuledOut(text="C1 was refuted.",
+                                                                 cites=[])])]},
+                 id="ruled_out"),
+    pytest.param({"causal_chain": [ChainStep(text="dont care", cites=[],
+                                             ruled_out=[RuledOut(
+                                                 text="dont care",
+                                                 cites=[CitedEvidence(label="C1",
+                                                                      text="dont care")])])]},
+                 id="ruled_out_evidence"),
     pytest.param({"contributing_factors": [ContributingFactor(text="C1 was right.",
                                                               addressed_by=[])]},
                  id="contributing_factor"),
@@ -1850,6 +1861,33 @@ def test_a_label_cited_in_any_prose_links_to_its_row(prose: dict[str, object]) -
         .then(
             the_page_links_to("#C1")
         )
+
+
+@pytest.mark.component
+def test_what_a_step_ruled_out_is_said_under_it() -> None:
+    # On the step it was ruled out at, rather than as a step the page would
+    # number among the whys.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert)
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "causal_chain": [ChainStep(text="dont care", cites=[],
+                                       ruled_out=[RuledOut(text="The earlier deploy was healthy.",
+                                                           cites=[])])]
+        }))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says("Ruled out:"),
+            the_page_says("The earlier deploy was healthy.")
+        ))
 
 
 @pytest.mark.component

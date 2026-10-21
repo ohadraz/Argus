@@ -11,9 +11,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import pytest
-from argus_core.models import ChainStep, CitedEvidence, ContributingFactor
+from argus_core.models import ChainStep, CitedEvidence, ContributingFactor, RuledOut
 from argus_testkit import Assertion, Scenario, the_answer_was
-from postmortem_rendering.cause import CauseSection, ChainLink, Factor, the_cause
+from postmortem_rendering.cause import (
+    CauseSection,
+    ChainLink,
+    Factor,
+    RuledOutLine,
+    the_cause,
+)
 from postmortem_rendering.lines import Line, Role, Run
 
 from postmortem_rendering_test.framework.builders import a_postmortem
@@ -99,6 +105,41 @@ def test_a_cited_label_with_no_row_keeps_the_words_it_was_briefed_in() -> None:
 
 
 @pytest.mark.unit
+def test_what_a_step_ruled_out_is_said_under_it_with_what_ruled_it_out() -> None:
+    # Under the step it was ruled out at, and its citations said as the step's
+    # are: by their rows, under their labels.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(causal_chain=[
+                ChainStep(text="dont care", cites=[],
+                          ruled_out=[RuledOut(text="the earlier deploy",
+                                              cites=[CitedEvidence(label="T5",
+                                                                   text="as briefed")])])]),
+            some_rows := {"T5": Line(runs=(Run(text="metrics read healthy"),))}
+        ) \
+        .when(
+            lambda: the_cause(some_postmortem, some_rows).chain[0].ruled_out
+        ) \
+        .then(
+            the_answer_was((
+                RuledOutLine(claim=Line(runs=(Run(text="the earlier deploy", role=Role.PROSE),)),
+                             evidence=(_cited("T5", "metrics read healthy"),)),)))
+
+
+@pytest.mark.unit
+def test_a_step_that_ruled_nothing_out_says_nothing_of_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(causal_chain=[ChainStep(text="dont care", cites=[])])
+        ) \
+        .when(
+            lambda: the_cause(some_postmortem, DONT_CARE_ROWS).chain[0].ruled_out
+        ) \
+        .then(
+            the_answer_was(()))
+
+
+@pytest.mark.unit
 def test_the_chain_and_the_factors_are_headed_and_the_evidence_labelled() -> None:
     Scenario() \
         .given(
@@ -108,7 +149,7 @@ def test_the_chain_and_the_factors_are_headed_and_the_evidence_labelled() -> Non
             lambda: the_cause(dont_care_postmortem, DONT_CARE_ROWS)
         ) \
         .then(
-            _it_is_headed("Causal chain", "Contributing factors", "Evidence:"))
+            _it_is_headed("Causal chain", "Contributing factors", "Evidence:", "Ruled out:"))
 
 
 @pytest.mark.unit
@@ -190,14 +231,16 @@ def _cited(label: str, *said: str) -> Line:
                       *(Run(text=words) for words in said)))
 
 
-def _it_is_headed(chain: str, factors: str, evidence: str) -> Assertion[CauseSection]:
+def _it_is_headed(chain: str, factors: str, evidence: str,
+                  ruled_out: str) -> Assertion[CauseSection]:
     def assertion(cause: CauseSection) -> bool:
-        said = (cause.chain_heading, cause.factors_heading, cause.evidence_label)
+        said = (cause.chain_heading, cause.factors_heading, cause.evidence_label,
+                cause.ruled_out_label)
 
-        if said != (chain, factors, evidence):
+        if said != (chain, factors, evidence, ruled_out):
             raise AssertionError(f"Expected the chain headed [{chain}], the factors "
-                                 f"[{factors}] and the evidence labelled [{evidence}], "
-                                 f"got {said}.")
+                                 f"[{factors}], the evidence labelled [{evidence}] and "
+                                 f"what was ruled out [{ruled_out}], got {said}.")
 
         return True
 

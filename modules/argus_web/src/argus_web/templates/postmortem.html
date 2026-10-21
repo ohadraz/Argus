@@ -178,6 +178,9 @@ document.addEventListener('DOMContentLoaded', function () {
       <p class="claim">{{ said(link.claim, labels, addresses) }}</p>
       {% if link.evidence %}<p class="evidence">{{ cause.evidence_label }}
         {% for cited in link.evidence %}<span class="cited">{{ said(cited, labels, addresses) }}</span>{% endfor %}</p>{% endif %}
+      {% if link.ruled_out %}<p class="evidence">{{ cause.ruled_out_label }}
+        {% for ruled in link.ruled_out %}<span class="cited">{{ said(ruled.claim, labels, addresses) }}</span>
+          {% for cited in ruled.evidence %}<span class="cited">{{ said(cited, labels, addresses) }}</span>{% endfor %}{% endfor %}</p>{% endif %}
     </div>
   </li>
 {% endfor %}

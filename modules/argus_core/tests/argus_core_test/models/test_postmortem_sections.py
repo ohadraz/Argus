@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from argus_core.models import (
     CandidateConsidered,
+    ChainStep,
     Detection,
     HypothesisConsidered,
     RuleSeriesHarm,
@@ -24,6 +25,19 @@ from argus_testkit import Scenario, an_error_was_raised, attempting, the_answer_
 from pydantic import ValidationError
 
 DONT_CARE_MOMENT = datetime(2026, 10, 19, 0, 12, tzinfo=UTC)
+
+
+@pytest.mark.unit
+def test_a_chain_step_stored_before_it_carried_what_was_ruled_out_rules_out_nothing() -> None:
+    # A document written before the list existed is still read: its steps say
+    # nothing of what was ruled out, which is an empty list, not a fault.
+    Scenario() \
+        .when(
+            lambda: ChainStep.model_validate({"text": "dont care", "cites": []}).ruled_out
+        ) \
+        .then(
+            the_answer_was([])
+        )
 
 
 @pytest.mark.unit

@@ -31,6 +31,7 @@ from fpdf.enums import TableBordersLayout, TableBorderStyle, TableCellStyle
 from fpdf.fonts import FontFace
 from fpdf.util import Padding
 
+from postmortem_rendering.cause import RuledOutLine
 from postmortem_rendering.impact import Card
 from postmortem_rendering.lessons import LessonList
 from postmortem_rendering.lines import Line, Role, Run
@@ -1016,7 +1017,8 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         _quiet(pdf, cause.chain_absent)
     for link in cause.chain:
         _a_link_in_the_chain(pdf, link.place, link.claim.runs,
-                             cause.evidence_label, link.evidence)
+                             cause.evidence_label, link.evidence,
+                             cause.ruled_out_label, link.ruled_out)
 
     _a_subheading(pdf, cause.factors_heading, keep_with=_TEXT_KEPT_WITH_A_SUBHEADING)
     if cause.factors_absent:
@@ -1026,11 +1028,13 @@ def _the_cause(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
 
 
 def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence_label: str,
-                         evidence: Sequence[Line]) -> None:
+                         evidence: Sequence[Line], ruled_out_label: str,
+                         ruled_out: Sequence[RuledOutLine]) -> None:
     """One step: its place in a quiet column of its own, the claim beside it,
     and what it rests on under the claim, each item on a line of its own as
     the page sets them - each item's label leading to its row, and whatever
-    its row links, linked."""
+    its row links, linked. What else was ruled out there follows, each with
+    what ruled it out, as the page sets it."""
     left, label_width = pdf.l_margin, 16.0
     pdf.set_x(left)
     pdf.set_font(_BODY, "", _TABLE_PT)
@@ -1040,21 +1044,46 @@ def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence
     _runs(pdf, claim, _TEXT_PT, _LINE)
     pdf.ln(_LINE)
     if evidence:
+        _a_quiet_list(pdf, left + label_width, evidence_label, evidence)
+    if ruled_out:
         pdf.ln(0.4)
         pdf.set_x(left + label_width)
         pdf.set_text_color(*_MUTED)
         pdf.set_font(_BODY, "B", _SMALL_PT)
-        pdf.write(3.8, evidence_label)
-        for cited in evidence:
-            pdf.ln(3.8)
-            _written(pdf, 3.8, [(run, _Look(_BODY, "", _SMALL_PT,
-                                            _LINK if run.role in (Role.CITATION, Role.LINK)
-                                            else _MUTED, run.text))
-                                for run in _cited(pdf, cited.runs)])
+        pdf.write(3.8, ruled_out_label)
         pdf.ln(3.8)
+        for ruled in ruled_out:
+            pdf.set_x(left + label_width)
+            _runs(pdf, ruled.claim.runs, _SMALL_PT, 3.8)
+            pdf.ln(3.8)
+            for cited in ruled.evidence:
+                _a_cited_line(pdf, cited)
+                pdf.ln(3.8)
     pdf.ln(2.2)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
+
+
+def _a_quiet_list(pdf: _Sheet, left: float, label: str, cited_lines: Sequence[Line]) -> None:
+    """A label in small bold, and each cited item under it on a line of its
+    own - its label leading to its row."""
+    pdf.ln(0.4)
+    pdf.set_x(left)
+    pdf.set_text_color(*_MUTED)
+    pdf.set_font(_BODY, "B", _SMALL_PT)
+    pdf.write(3.8, label)
+    for cited in cited_lines:
+        pdf.ln(3.8)
+        _a_cited_line(pdf, cited)
+    pdf.ln(3.8)
+
+
+def _a_cited_line(pdf: _Sheet, cited: Line) -> None:
+    """One cited item, small and quiet, its links in the link colour."""
+    _written(pdf, 3.8, [(run, _Look(_BODY, "", _SMALL_PT,
+                                    _LINK if run.role in (Role.CITATION, Role.LINK)
+                                    else _MUTED, run.text))
+                        for run in _cited(pdf, cited.runs)])
 
 
 def _a_factor(pdf: _Sheet, text: Sequence[Run], addressed_by: Line | None) -> None:

@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from agent_postmortem import DeploymentChangesRecord, EngagementAnswer, NotPaged
@@ -73,15 +74,18 @@ from agent_postmortem.prompting import (
     REACHES_A_CAUSE_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
+    RULED_OUT_FIELD,
     STEP_FIELD,
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
+    WHAT_FIELD,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
+    SubmittedRuledOut,
     SubmittedStep,
     figures_shown,
     opening_ask,
@@ -2283,7 +2287,9 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
         symptom="the symptom",
         assumptions=["an assumption"],
         lead_effects={"L1": "a lead's effect"},
-        causal_chain=[SubmittedStep(step="a step", cites=["T1"])],
+        causal_chain=[SubmittedStep(step="a step", cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what it ruled out",
+                                                                 cites=["T2"])])],
         contributing_factors=[SubmittedFactor(factor="a factor", addressed_by=["AI-1"])],
         action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT)],
         lessons=Lessons(went_well=["went well"], went_wrong=["went wrong"],
@@ -2295,8 +2301,28 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
         ) \
         .then(
             the_answer_was(["the root cause", "the summary", "the symptom", "an assumption",
-                            "a lead's effect", "a step", "a factor", "an item", "went well",
-                            "went wrong", "got lucky"])
+                            "a lead's effect", "a step", "what it ruled out", "a factor",
+                            "an item", "went well", "went wrong", "got lucky"])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_is_rewritten_as_every_other_sentence_is() -> None:
+    # Read by the same fields `sentences` reads: a figure named in what was
+    # ruled out is written in like one named anywhere else.
+    some_answer = SubmittedPostmortem(
+        causal_chain=[SubmittedStep(step="a step", cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what it ruled out",
+                                                                 cites=["T2"])])])
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).causal_chain
+        ) \
+        .then(
+            the_answer_was([SubmittedStep(step="A STEP", cites=["T1"],
+                                          ruled_out=[SubmittedRuledOut(
+                                              what="WHAT IT RULED OUT", cites=["T2"])])])
         )
 
 
@@ -2549,17 +2575,20 @@ def test_a_safeguard_that_did_not_stop_it_is_asked_for_as_a_factor_rather_than_a
 
 
 @pytest.mark.unit
-def test_what_was_ruled_out_is_asked_for_in_its_step_rather_than_as_one() -> None:
-    # Told to say it "at the step that ties the incident to the change", a
-    # write-up listed what it ruled out as a why of its own, which the page
-    # labelled "why 4".
+def test_what_was_ruled_out_is_asked_for_in_its_step_s_own_list_rather_than_as_one() -> None:
+    # Told twice in words to say it "at the step that ties the incident to the
+    # change", write-ups listed what they ruled out as a why of its own, which
+    # the page labelled "why 4". A list on every step, which the model fills on
+    # the one it chooses, leaves the chain no reason to.
     Scenario() \
         .when(
-            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]
         ) \
-        .then(
-            _the_description_mentions("in that step, not as a step of its own")
-        )
+        .then(all_of(
+            _requires_of_each_item(RULED_OUT_FIELD),
+            lambda chain: _the_description_mentions(RULED_OUT_FIELD, "never as a step")(
+                chain["description"])
+        ))
 
 
 @pytest.mark.unit
@@ -2882,6 +2911,60 @@ def test_the_cause_is_read_as_steps_each_citing_its_evidence() -> None:
         .then(
             the_answer_was([SubmittedStep(step="account pages returned 500", cites=["E1", "E2"]),
                             SubmittedStep(step="the divisor was zero", cites=["E3"])])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_is_read_with_what_it_cites() -> None:
+    Scenario() \
+        .given(
+            a_submission_ruling_something_out := {
+                CAUSAL_CHAIN_FIELD: [
+                    {STEP_FIELD: "the deploy renamed the port", CITES_FIELD: ["D1"],
+                     RULED_OUT_FIELD: [{WHAT_FIELD: "the earlier deploy, healthy since",
+                                        CITES_FIELD: ["T5"]}]}
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_ruling_something_out).causal_chain
+        ) \
+        .then(
+            the_answer_was([SubmittedStep(
+                step="the deploy renamed the port", cites=["D1"],
+                ruled_out=[SubmittedRuledOut(what="the earlier deploy, healthy since",
+                                             cites=["T5"])])])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_not_in_its_declared_shape_costs_only_itself() -> None:
+    # As a step does: one with no words is dropped, one citing in the wrong
+    # shape is kept citing nothing, and a list that is not one rules out
+    # nothing - the step itself stands either way.
+    Scenario() \
+        .given(
+            a_submission_ruling_out_badly := {
+                CAUSAL_CHAIN_FIELD: [
+                    {STEP_FIELD: "the deploy renamed the port", CITES_FIELD: ["D1"],
+                     RULED_OUT_FIELD: [{WHAT_FIELD: "the earlier deploy", CITES_FIELD: "T5"},
+                                       {CITES_FIELD: ["T5"]},
+                                       "not a ruling"]},
+                    {STEP_FIELD: "the scrape lost its target", CITES_FIELD: ["F1"],
+                     RULED_OUT_FIELD: "not a list"}
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(a_submission_ruling_out_badly).causal_chain
+        ) \
+        .then(
+            the_answer_was([
+                SubmittedStep(step="the deploy renamed the port", cites=["D1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=[])]),
+                SubmittedStep(step="the scrape lost its target", cites=["F1"])])
         )
 
 
@@ -3426,6 +3509,19 @@ def _the_description_mentions(*expected: str) -> Assertion[str]:
             raise AssertionError(
                 f"Expected the description to mention {missing}, and it does not: "
                 f"[{description}].")
+
+        return True
+
+    return assertion
+
+
+def _requires_of_each_item(field: str) -> Assertion[dict[str, Any]]:
+    def assertion(listed: dict[str, Any]) -> bool:
+        required = listed["items"]["required"]
+
+        if field not in required:
+            raise AssertionError(
+                f"Expected each item to require [{field}], it requires {required}.")
 
         return True
 

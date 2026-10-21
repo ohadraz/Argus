@@ -19,7 +19,7 @@ from postmortem_rendering.actions_taken import (
     the_actions_taken,
     the_person_who_resolved,
 )
-from postmortem_rendering.cause import CauseSection, ChainLink, Factor, the_cause
+from postmortem_rendering.cause import CauseSection, ChainLink, Factor, RuledOutLine, the_cause
 from postmortem_rendering.cost import the_cost
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.formatting import (
@@ -68,6 +68,7 @@ __all__ = [
     "ReviewRow",
     "ReviewSection",
     "Role",
+    "RuledOutLine",
     "Run",
     "StepRow",
     "SupportingSection",

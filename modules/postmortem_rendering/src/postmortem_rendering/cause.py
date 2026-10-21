@@ -17,16 +17,27 @@ from pydantic import BaseModel, ConfigDict
 from postmortem_rendering.lines import Line, Role, Run
 
 
+class RuledOutLine(BaseModel):
+    """Something else the record ruled out at a step, and what ruled it out,
+    each item a line of its own."""
+
+    model_config = ConfigDict(frozen=True)
+
+    claim: Line
+    evidence: tuple[Line, ...]
+
+
 class ChainLink(BaseModel):
     """One step of the chain beside its place in it - the symptom first, then
-    each why asked of the one before - and what it rests on, each item a line
-    of its own."""
+    each why asked of the one before - what it rests on, each item a line of
+    its own, and what else was ruled out there."""
 
     model_config = ConfigDict(frozen=True)
 
     place: str
     claim: Line
     evidence: tuple[Line, ...]
+    ruled_out: tuple[RuledOutLine, ...] = ()
 
 
 class Factor(BaseModel):
@@ -49,6 +60,7 @@ class CauseSection(BaseModel):
     chain_heading: str = "Causal chain"
     factors_heading: str = "Contributing factors"
     evidence_label: str = "Evidence:"
+    ruled_out_label: str = "Ruled out:"
     root_cause: Line | None
     chain: tuple[ChainLink, ...]
     chain_absent: str | None
@@ -62,7 +74,12 @@ def the_cause(postmortem: PostmortemDocument, rows: Mapping[str, Line]) -> Cause
     chain = tuple(ChainLink(place="symptom" if whys == 0 else f"why {whys}",
                             claim=_prose(step.text),
                             evidence=tuple(_as_its_row_says_it(cited, rows)
-                                           for cited in step.cites))
+                                           for cited in step.cites),
+                            ruled_out=tuple(RuledOutLine(
+                                claim=_prose(ruled.text),
+                                evidence=tuple(_as_its_row_says_it(cited, rows)
+                                               for cited in ruled.cites))
+                                for ruled in step.ruled_out))
                   for whys, step in enumerate(postmortem.causal_chain))
 
     factors = tuple(Factor(text=_prose(factor.text),

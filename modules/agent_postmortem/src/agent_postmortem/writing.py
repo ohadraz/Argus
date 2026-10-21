@@ -30,6 +30,7 @@ from argus_core.models import (
     PostmortemDocument,
     PostmortemLead,
     ReviewCriterion,
+    RuledOut,
     labelled,
 )
 
@@ -214,8 +215,13 @@ def _the_chain_as_cited(answer: SubmittedPostmortem,
     """
     by_label = {cited.label: cited for cited in shown}
 
+    def as_cited(labels: list[str]) -> list[CitedEvidence]:
+        return [by_label[label] for label in labels if label in by_label]
+
     return [ChainStep(text=step.step,
-                      cites=[by_label[label] for label in step.cites if label in by_label])
+                      cites=as_cited(step.cites),
+                      ruled_out=[RuledOut(text=ruled.what, cites=as_cited(ruled.cites))
+                                 for ruled in step.ruled_out])
             for step in answer.causal_chain or []]
 
 

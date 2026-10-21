@@ -42,6 +42,7 @@ from agent_postmortem.prompting import (
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
+    SubmittedRuledOut,
     SubmittedStep,
     the_changes_labelled,
     the_deployment_changes_labelled,
@@ -74,6 +75,7 @@ from argus_core.models import (
     PostmortemDocument,
     PostmortemLead,
     ReviewCriterion,
+    RuledOut,
     Standing,
     Verdict,
     Weighing,
@@ -616,6 +618,44 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
             _publishes("the causal chain", lambda document: document.causal_chain, [
                 ChainStep(text="the monthly average divided by zero",
                           cites=[CitedEvidence(label=its_label, text=the_log_line)])
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> None:
+    # As the step does: the label means nothing in the stored document.
+    the_log_line = "ZeroDivisionError in monthly_average"
+    its_label = grouped([the_log_line])[0].label
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[the_log_line])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(
+                                         a_submitted_answer().model_copy(update={
+                                             "causal_chain": [SubmittedStep(
+                                                 step="the monthly average divided by zero",
+                                                 cites=[its_label],
+                                                 ruled_out=[SubmittedRuledOut(
+                                                     what="a slow database, never logged",
+                                                     cites=[its_label])])]
+                                         })),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the causal chain", lambda document: document.causal_chain, [
+                ChainStep(text="the monthly average divided by zero",
+                          cites=[CitedEvidence(label=its_label, text=the_log_line)],
+                          ruled_out=[RuledOut(text="a slow database, never logged",
+                                              cites=[CitedEvidence(label=its_label,
+                                                                   text=the_log_line)])])
             ])
         )
 

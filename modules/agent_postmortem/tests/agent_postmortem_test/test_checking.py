@@ -54,6 +54,7 @@ from agent_postmortem.prompting import (
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
+    SubmittedRuledOut,
     SubmittedStep,
 )
 from argus_core.models import ActionItemType, Lessons, ToolCall, Turn
@@ -988,6 +989,29 @@ def test_a_step_citing_a_candidate_cause_is_named() -> None:
         .then(
             all_of(
                 _named("[C1]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_a_step_ruled_out_citing_a_label_never_given_is_named() -> None:
+    # Held to what a step is held to: a ruling citing nothing that exists only
+    # looks checked.
+    Scenario() \
+        .given(
+            an_answer_ruling_out_on_a_ghost := _an_answer(causal_chain=[
+                SubmittedStep(step="the divisor was zero", cites=["E1"],
+                              ruled_out=[SubmittedRuledOut(what="the earlier deploy",
+                                                           cites=["E40"])])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_ruling_out_on_a_ghost, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[E40]"),
                 _found(1)
             )
         )

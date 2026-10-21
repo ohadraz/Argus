@@ -249,6 +249,13 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
                       for label in step.cites
                       if label in given.hypotheses or label not in given.labels)
 
+        # What the step ruled out is held to what the step is: a ruling citing
+        # nothing that exists only looks checked.
+        faults.extend(_what_is_wrong_with_citing(ruled.what, label, given)
+                      for ruled in step.ruled_out
+                      for label in ruled.cites
+                      if label in given.hypotheses or label not in given.labels)
+
     return faults
 
 

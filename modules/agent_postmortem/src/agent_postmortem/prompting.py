@@ -123,6 +123,10 @@ EFFECT_FIELD: Final = "effect"
 CAUSAL_CHAIN_FIELD: Final = "causal_chain"
 STEP_FIELD: Final = "step"
 CITES_FIELD: Final = "cites"
+# What else the record ruled out, on the step that ties the incident to the
+# change: each what and why, citing what ruled it out.
+RULED_OUT_FIELD: Final = "ruled_out"
+WHAT_FIELD: Final = "what"
 # The conditions that had to hold, each naming the action items that answer it.
 CONTRIBUTING_FACTORS_FIELD: Final = "contributing_factors"
 FACTOR_FIELD: Final = "factor"
@@ -157,11 +161,21 @@ REQUIRED_FIELDS: Final = [
 NOTHING: Final = "none"
 
 
+class SubmittedRuledOut(BaseModel):
+    """Something else the record ruled out, as the model wrote it, and the
+    labels of what ruled it out."""
+
+    what: str
+    cites: list[str]
+
+
 class SubmittedStep(BaseModel):
-    """One step of the cause as the model wrote it, and the labels it cited."""
+    """One step of the cause as the model wrote it, the labels it cited, and
+    what else it ruled out there."""
 
     step: str
     cites: list[str]
+    ruled_out: list[SubmittedRuledOut] = []
 
 
 class SubmittedFactor(BaseModel):
@@ -235,7 +249,9 @@ class SubmittedPostmortem(BaseModel):
                     if prose is not None)
         yield from self.assumptions
         yield from self.lead_effects.values()
-        yield from (step.step for step in self.causal_chain or [])
+        for step in self.causal_chain or []:
+            yield step.step
+            yield from (ruled.what for ruled in step.ruled_out)
         yield from (factor.factor for factor in self.contributing_factors or [])
         yield from (item.item for item in self.action_items or [])
 
@@ -258,7 +274,11 @@ class SubmittedPostmortem(BaseModel):
             LEAD_EFFECTS_FIELD: {lead: rewrite(effect)
                                  for lead, effect in self.lead_effects.items()},
             CAUSAL_CHAIN_FIELD: (None if self.causal_chain is None else
-                                 [SubmittedStep(step=rewrite(step.step), cites=step.cites)
+                                 [SubmittedStep(step=rewrite(step.step), cites=step.cites,
+                                                ruled_out=[SubmittedRuledOut(
+                                                    what=rewrite(ruled.what),
+                                                    cites=ruled.cites)
+                                                    for ruled in step.ruled_out])
                                   for step in self.causal_chain]),
             CONTRIBUTING_FACTORS_FIELD: (None if self.contributing_factors is None else
                                          [SubmittedFactor(factor=rewrite(factor.factor),
@@ -354,7 +374,8 @@ class SubmittedPostmortem(BaseModel):
         return [
             entry if isinstance(entry, SubmittedStep)
             else SubmittedStep(step=entry[STEP_FIELD],
-                               cites=_the_strings_in(entry.get(CITES_FIELD)))
+                               cites=_the_strings_in(entry.get(CITES_FIELD)),
+                               ruled_out=_what_was_ruled_out(entry.get(RULED_OUT_FIELD)))
             for entry in value
             if isinstance(entry, SubmittedStep)
             or (isinstance(entry, dict) and isinstance(entry.get(STEP_FIELD), str))
@@ -431,6 +452,19 @@ def _the_strings_in(value: Any) -> list[str]:
         return []
 
     return [each for each in value if isinstance(each, str)]
+
+
+def _what_was_ruled_out(value: Any) -> list[SubmittedRuledOut]:
+    """What a step ruled out, read as a step is: an entry with no words is
+    dropped, one citing in the wrong shape is kept citing nothing, and a list
+    that is not one rules out nothing - the step stands either way."""
+    if not isinstance(value, list):
+        return []
+
+    return [SubmittedRuledOut(what=entry[WHAT_FIELD],
+                              cites=_the_strings_in(entry.get(CITES_FIELD)))
+            for entry in value
+            if isinstance(entry, dict) and isinstance(entry.get(WHAT_FIELD), str)]
 
 
 def _a_list_of(item_properties: dict[str, Any],
@@ -527,8 +561,16 @@ SUBMIT_POSTMORTEM = ToolDefinition(
              CITES_FIELD: {**_SENTENCES,
                            "description": ("The labels of the evidence that shows "
                                            "this step: T3, G3fa2. Not rows that "
-                                           "merely happened at the same time.")}},
-            [STEP_FIELD, CITES_FIELD],
+                                           "merely happened at the same time.")},
+             RULED_OUT_FIELD: _a_list_of(
+                 {WHAT_FIELD: {"type": "string"},
+                  CITES_FIELD: {**_SENTENCES,
+                                "description": "The labels of what ruled it out."}},
+                 [WHAT_FIELD, CITES_FIELD],
+                 "What else the record ruled out at this step, each what it was and "
+                 "why. Empty on every step but the one that ties the incident to the "
+                 "change that set it off.")},
+            [STEP_FIELD, CITES_FIELD, RULED_OUT_FIELD],
             "The cause as the five whys, from the symptom down: the first step is "
             "what users saw - or, where nobody using the service saw anything "
             "wrong, that and what was seen instead - and each step after it answers "
@@ -545,15 +587,15 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "read - how many replicas run a revision, which way a flag is set - is "
             "known as of the row that read it, by that row's instant, which is its "
             "first figure, as T3.1 is T3's - not from when the change was made. "
-            "At the step that "
-            "ties the incident to the change that set it off, say what else the "
-            "record ruled out and why, in that step, not as a step of its own - an "
-            "earlier change, a flag the provider showed unchanged, a candidate "
-            "refuted - citing what ruled it out. An earlier change is ruled out only "
-            "by the service measured healthy with it in place - in metrics read "
-            "between it and the onset, or after a confirmed action that left it "
-            "there - never by how long before the onset it came. Where the record "
-            "shows neither, say it was not ruled out. Stop where the evidence stops."
+            "What else the record ruled out - an earlier change, a flag the "
+            "provider showed unchanged, a candidate refuted - goes in the "
+            f"{RULED_OUT_FIELD} of the step that ties the incident to the change "
+            "that set it off, citing what ruled it out, and never as a step. An "
+            "earlier change is ruled out only by the service measured healthy with "
+            "it in place - in metrics read between it and the onset, or after a "
+            "confirmed action that left it there - never by how long before the "
+            "onset it came. Where the record shows neither, it was not ruled out: "
+            "say so in that step itself. Stop where the evidence stops."
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
             {FACTOR_FIELD: {"type": "string"},
