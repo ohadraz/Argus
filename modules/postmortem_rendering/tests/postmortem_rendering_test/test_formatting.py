@@ -11,7 +11,13 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from postmortem_rendering.formatting import as_revision, as_span, in_utc, on_the_clock
+from postmortem_rendering.formatting import (
+    as_revision,
+    as_span,
+    in_utc,
+    on_the_clock,
+    on_the_day,
+)
 
 
 @pytest.mark.unit
@@ -181,4 +187,36 @@ def test_a_moment_on_the_clock_is_converted_and_left_unlabelled() -> None:
         ) \
         .then(
             the_answer_was("14:03:09")
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_s_day_is_the_day_it_falls_on_in_utc() -> None:
+    # Past midnight in the connection's zone and still the evening before in
+    # UTC: the day is the one the rest of the page's UTC times fall on.
+    Scenario() \
+        .given(
+            some_moment := datetime(2026, 10, 15, 1, 3, tzinfo=timezone(timedelta(hours=2)))
+        ) \
+        .when(
+            lambda: on_the_day(some_moment)
+        ) \
+        .then(
+            the_answer_was("Oct 14")
+        )
+
+
+@pytest.mark.unit
+def test_a_moment_s_day_is_followed_by_whatever_it_is_asked_for() -> None:
+    # The day the kernel's way, which narration's lines on the same page say
+    # too, and the rest of the moment in whatever pattern the place wants.
+    Scenario() \
+        .given(
+            some_moment := datetime(2026, 10, 14, 14, 3, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: on_the_day(some_moment, ", %Y, %H:%M")
+        ) \
+        .then(
+            the_answer_was("Oct 14, 2026, 14:03")
         )
