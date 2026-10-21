@@ -1780,7 +1780,7 @@ def test_a_postmortem_line_carries_what_a_reader_stops_at() -> None:
         .when(lambda: build_narration([the_write_up])) \
         .then(all_of(_the_only_line_marks(the_cause),
                      _the_only_line_mentions(the_summary),
-                     _the_only_line_mentions("USD 1240.50"),
+                     _the_only_line_mentions("1,240.50 USD"),
                      _the_only_line_mentions("34 engineer minutes"),
                      _the_lines_are_credited_to(["Postmortem Agent"])))
 

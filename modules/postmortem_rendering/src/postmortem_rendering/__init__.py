@@ -23,7 +23,6 @@ from postmortem_rendering.cause import CauseSection, ChainLink, Factor, the_caus
 from postmortem_rendering.cost import the_cost
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.formatting import (
-    as_money,
     as_revision,
     as_span,
     in_utc,
@@ -78,7 +77,6 @@ __all__ = [
     "a_head",
     "a_reference",
     "a_title",
-    "as_money",
     "as_pdf",
     "as_revision",
     "as_span",

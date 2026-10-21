@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Final
 
 from argus_core import level_given_in, level_said_in, parse_iso, said_as_a_level, to_iso
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
-from argus_core.models import CitedEvidence
+from argus_core.models import CitedEvidence, said_as_money
 from pydantic import BaseModel
 
 from agent_postmortem.evidence import IncidentEvidence
@@ -161,9 +161,6 @@ _KINDS: Final = {
 
 # What a ratio is written to: as far as a reader compares two levels by.
 _A_TENTH: Final = Decimal("0.1")
-
-# What money is written to.
-_A_CENT: Final = Decimal("0.01")
 
 # Each operation a working may ask for, as a sentence says it.
 _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
@@ -704,9 +701,8 @@ def _a_span(hours: float) -> Figure:
 
 
 def _an_amount(amount: Decimal, currency: str) -> Figure:
-    """Money to the cent, its thousands grouped and half a cent up, in its
-    currency - as the page says it."""
-    said = f"{amount.quantize(_A_CENT, rounding=ROUND_HALF_UP):,} {currency.upper()}"
+    """Money in its currency, as the page says it."""
+    said = said_as_money(amount, currency)
 
     return Figure(given=said, written=said)
 

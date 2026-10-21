@@ -84,6 +84,7 @@ from argus_core.models import (
     RetrievalChannel,
     RolloutAccount,
     Undone,
+    said_as_money,
     why_it_was_refused,
 )
 from pydantic import BaseModel, Field
@@ -1066,8 +1067,8 @@ def _the_postmortem_in_short(event: PostmortemWritten) -> str:
         said.append(event.executive_summary)
 
     if event.customer_loss_estimate is not None:
-        currency = f"{event.estimate_currency} " if event.estimate_currency else ""
-        said.append(f"Estimated customer loss {currency}{event.customer_loss_estimate:.2f}")
+        said.append(f"Estimated customer loss "
+                    f"{said_as_money(event.customer_loss_estimate, event.estimate_currency)}")
 
     # Not at zero: nobody paged, or nobody engaged, is no news in a channel.
     if event.engineer_minutes:

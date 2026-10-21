@@ -8,56 +8,10 @@ shows it rounds. Each case is one value and the words it must come out as.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import Decimal
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from postmortem_rendering.formatting import as_money, as_revision, as_span, in_utc, on_the_clock
-
-
-@pytest.mark.unit
-def test_money_is_shown_to_two_places_with_its_thousands_grouped() -> None:
-    Scenario() \
-        .given(
-            some_loss := Decimal("1736.68485900091116011163646")
-        ) \
-        .when(
-            lambda: as_money(some_loss)
-        ) \
-        .then(
-            the_answer_was("1,736.68")
-        )
-
-
-@pytest.mark.unit
-def test_half_a_cent_rounds_up() -> None:
-    # As a till rounds, not as a statistician does: a reader checking the
-    # figure by hand rounds half up, and a page rounding half to even would
-    # disagree with them whenever the cent below is even.
-    Scenario() \
-        .given(
-            some_amount := Decimal("0.125")
-        ) \
-        .when(
-            lambda: as_money(some_amount)
-        ) \
-        .then(
-            the_answer_was("0.13")
-        )
-
-
-@pytest.mark.unit
-def test_a_whole_amount_still_shows_its_cents() -> None:
-    Scenario() \
-        .given(
-            some_amount := Decimal("500")
-        ) \
-        .when(
-            lambda: as_money(some_amount)
-        ) \
-        .then(
-            the_answer_was("500.00")
-        )
+from postmortem_rendering.formatting import as_revision, as_span, in_utc, on_the_clock
 
 
 @pytest.mark.unit

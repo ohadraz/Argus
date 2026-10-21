@@ -12,10 +12,17 @@ from __future__ import annotations
 from typing import Final
 
 from argus_core import level_said_in
-from argus_core.models import AlarmClaim, Alert, Impact, ImpactExtent, PostmortemDocument
+from argus_core.models import (
+    AlarmClaim,
+    Alert,
+    Impact,
+    ImpactExtent,
+    PostmortemDocument,
+    said_as_money,
+)
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import as_money, as_span
+from postmortem_rendering.formatting import as_span
 
 # Said under a duration the metrics carry no minute of: what was missing is
 # the metrics, not sight of the service - its logs and its takings may well
@@ -203,7 +210,7 @@ def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:
     if loss == 0:
         return Card(value="none so far" if a_lower_bound else "none", label=label, loss_is=loss_is)
 
-    amount = f"{as_money(loss)} {(postmortem.estimate_currency or '').upper()}".rstrip()
+    amount = said_as_money(loss, postmortem.estimate_currency)
 
     return Card(value=f"at least {amount}" if a_lower_bound else amount,
                 label=label,

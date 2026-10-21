@@ -11,24 +11,13 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
 from typing import Final
-
-_A_CENT: Final = Decimal("0.01")
 
 # A whole commit as git names one: forty hex digits, lower case.
 _A_WHOLE_COMMIT: Final = re.compile(r"[0-9a-f]{40}")
 
 # How much of a commit git shows, and so how much a reader pastes back into it.
 _A_SHORT_COMMIT: Final = 7
-
-
-def as_money(amount: Decimal) -> str:
-    """An amount to the cent, its thousands grouped: `1,736.68`.
-
-    Half a cent rounds up, as a reader checking the figure by hand rounds it.
-    """
-    return f"{amount.quantize(_A_CENT, rounding=ROUND_HALF_UP):,}"
 
 
 def as_span(span: timedelta) -> str:

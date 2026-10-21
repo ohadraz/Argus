@@ -89,6 +89,7 @@ from argus_core.models.model_policy import (
     Effort,
     ModelPolicy,
 )
+from argus_core.models.money import said_as_money
 from argus_core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from argus_core.models.placement import PodPlacement, RecordedPlacement
 from argus_core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
@@ -309,6 +310,7 @@ __all__ = [
     "the_place_of",
     "Refusal",
     "why_it_was_refused",
+    "said_as_money",
     "Report",
     "ReportChannel",
     "RetrievalChannel",
