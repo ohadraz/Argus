@@ -675,9 +675,10 @@ def test_a_flag_history_never_read_says_whether_it_was_asked_for(
 @pytest.mark.component
 def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database: None) -> None:
     # What tells a configuration change from a code change, and what names the
-    # deploy that carried one: every line, under the revision it was read for.
-    # Read twice, one deployment is one row - a row per read would number the
-    # deployments by how often the model happened to ask.
+    # deploy that carried one: every line, under the revision it was read for,
+    # and whether the lines list every file it changed. Read twice, one
+    # deployment is one row - a row per read would number the deployments by
+    # how often the model happened to ask.
     the_diff = ["Deployment of revision 7c3ca00 to io-shop, compared against 1a2b3c4 - "
                 "the revision deployed before it.",
                 "modified deploy/values-production.yaml",
@@ -692,19 +693,24 @@ def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database
             .given(
                 incident_id := _an_incident_that_ended(conn),
                 calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="7c3ca00", said=the_diff))),
+                    incident_id=incident_id, revision="7c3ca00", said=the_diff,
+                    lists_every_file=True))),
                 calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="1a2b3c4", said=another_diff))),
+                    incident_id=incident_id, revision="1a2b3c4", said=another_diff,
+                    lists_every_file=False))),
                 calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="7c3ca00", said=the_diff)))
+                    incident_id=incident_id, revision="7c3ca00", said=the_diff,
+                    lists_every_file=True)))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
                 _carries_the_deployment_changes([
-                    DeploymentChangesRecord(revision="7c3ca00", said=the_diff),
-                    DeploymentChangesRecord(revision="1a2b3c4", said=another_diff)
+                    DeploymentChangesRecord(revision="7c3ca00", said=the_diff,
+                                            lists_every_file=True),
+                    DeploymentChangesRecord(revision="1a2b3c4", said=another_diff,
+                                            lists_every_file=False)
                 ])
             )
 

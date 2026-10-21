@@ -81,10 +81,14 @@ class DeploymentChangesRecord(BaseModel):
     Lines rather than files and hunks, because the lines are what the model was
     shown and what the write-up is shown again - and what names the deploy
     that carried a change is what its own diff shows.
+
+    `lists_every_file` is whether they name every file the deploy changed -
+    where they do, a file they leave out is as it was before it.
     """
 
     revision: str
     said: list[str]
+    lists_every_file: bool = False
 
 
 class RefusalRecord(BaseModel):

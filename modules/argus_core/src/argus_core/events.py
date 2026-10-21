@@ -180,11 +180,17 @@ class DeploymentChangesRead(_Event):
 
     Published only where something was read. A refusal, a comparison nobody
     could make and an answer of nothing are none of them a diff.
+
+    `lists_every_file` is whether the lines name every file the deployed
+    revision differs in from the one compared against - where they do, a file
+    they leave out is as it was there. `False`, claiming nothing, on an event
+    written before it was carried.
     """
 
     kind: Literal["deployment-changes-read"] = "deployment-changes-read"
     revision: str
     said: list[str]
+    lists_every_file: bool = False
 
 
 class RolloutRead(_Event):

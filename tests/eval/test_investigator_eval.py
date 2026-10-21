@@ -15,6 +15,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    DeploymentChanges,
     FailureMode,
     Hypothesis,
     Meaning,
@@ -2337,7 +2338,7 @@ def _the_register_for(incident: Incident) -> Callable[[str], list[ServiceDepende
 
 
 def _what_a_deployment_changed_for(incident: Incident
-                                  ) -> Callable[[str, str], list[str]]:
+                                  ) -> Callable[[str, str], DeploymentChanges]:
     """What the fixture records a deployment as having changed.
 
     Per incident like the register, and evidence for the same reason: two causes
@@ -2348,12 +2349,15 @@ def _what_a_deployment_changed_for(incident: Incident
     than answered emptily. "This deployment changed nothing" rules a deployment
     out, and a case that simply has no diff staged would otherwise rule out the
     deployment it staged.
+
+    Never as listing every file: the fixture's lines are what the case needs
+    the model to see, not a comparison of two revisions.
     """
-    def fetch(dont_care_service: str, revision: str) -> list[str]:
-        return incident.what_each_deployment_changed.get(revision) or [
+    def fetch(dont_care_service: str, revision: str) -> DeploymentChanges:
+        return DeploymentChanges(said=incident.what_each_deployment_changed.get(revision) or [
             f"This evaluation records nothing about what the deployment of "
             f"[{revision}] changed, so take it as unread rather than as empty."
-        ]
+        ], lists_every_file=False)
 
     return fetch
 

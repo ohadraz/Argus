@@ -25,6 +25,7 @@ from argus_core import get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.models import (
     ChangeEvent,
+    DeploymentChanges,
     MetricBucket,
     PodPlacement,
     RolloutAccount,
@@ -105,14 +106,14 @@ def no_dependencies(dont_care_service: str) -> list[ServiceDependency]:
 
 
 def no_deployment_was_read(dont_care_service: str,
-                           dont_care_revision: str) -> list[str]:
+                           dont_care_revision: str) -> DeploymentChanges:
     """A deployment channel that answers about nothing.
 
     Which is honest for every case here: none of them stages a deployment whose
     diff decides anything, and a channel volunteering a diff would put a change
     in front of the model that the scenario never made.
     """
-    return []
+    return DeploymentChanges(said=[], lists_every_file=False)
 
 
 def no_rollout_was_read(dont_care_service: str) -> RolloutAccount:

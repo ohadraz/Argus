@@ -6,6 +6,7 @@ from typing import Protocol
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     ChangeEvent,
+    DeploymentChanges,
     FlagChange,
     MetricBucket,
     PodPlacement,
@@ -74,13 +75,14 @@ class DeploymentDiffFetcher(Protocol):
     but there is more than one deployment, and which one is being asked about is
     the model's to name - so a revision goes in where the others take nothing.
 
-    Answers in lines rather than in a shape of its own. What comes back is a diff
-    and the two revisions it is between, which is prose by nature: a model reads
-    it, and a type with a `patch` field in it would be a shape three modules had
-    to agree on to carry text that is already text.
+    Answers in lines rather than in a shape of a diff's own. What comes back is a
+    diff and the two revisions it is between, which is prose by nature: a model
+    reads it, and a type with a `patch` field in it would be a shape three modules
+    had to agree on to carry text that is already text. Beside the lines, whether
+    they name every file - the one thing about them that is not for the model.
     """
 
-    def __call__(self, service: str, revision: str, /) -> list[str]: ...
+    def __call__(self, service: str, revision: str, /) -> DeploymentChanges: ...
 
 
 class RolloutFetcher(Protocol):
@@ -192,7 +194,7 @@ def fetch_placements(service: str, *, client: McpClient) -> list[PodPlacement]:
 def fetch_what_a_deployment_changed(service: str,
                                     revision: str,
                                     *,
-                                    client: McpClient) -> list[str]:
+                                    client: McpClient) -> DeploymentChanges:
     """What one deployment of this service changed, as lines a model reads.
 
     A named function rather than the client's own passed directly, for the reason

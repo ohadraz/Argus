@@ -7,6 +7,7 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
+    DeploymentChanges,
     MetricBucket,
     PodPlacement,
     RolloutAccount,
@@ -25,7 +26,7 @@ _CHANGE_EVENTS: Final = TypeAdapter(list[ChangeEvent])
 _FLAG_NAMES: Final = TypeAdapter(list[str])
 _SERVICE_DEPENDENCIES: Final = TypeAdapter(list[ServiceDependency])
 _FILE_PATHS: Final = TypeAdapter(list[str])
-_WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(list[str])
+_WHAT_A_DEPLOYMENT_CHANGED: Final = TypeAdapter(DeploymentChanges)
 _ROLLOUT_STATE: Final = TypeAdapter(RolloutAccount)
 _ROLLOUT_PROGRESS: Final = TypeAdapter(RolloutProgress)
 _ALERT_RULE: Final = TypeAdapter(AlertRuleStanding)
@@ -125,9 +126,10 @@ def get_change_events(service: str,
 def get_what_a_deployment_changed(service: str,
                                   revision: str,
                                   *,
-                                  client: McpClient) -> list[str]:
+                                  client: McpClient) -> DeploymentChanges:
     """Reads what one deployment of a service changed - the files that differ
-    from the revision deployed before it, and the change made to each.
+    from the revision deployed before it, and the change made to each - and
+    whether the answer names every one of them.
 
     The evidence that separates a bad deployment from a broken configuration, and
     the only evidence that does. Both arrive as a deployment and are put right the

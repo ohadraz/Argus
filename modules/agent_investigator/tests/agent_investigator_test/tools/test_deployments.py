@@ -39,8 +39,8 @@ from agent_investigator.tools.deployments import (
 from argus_core import new_id
 from argus_core.events import DeploymentChangesRead, IncidentEvent, Narrator
 from argus_core.mcp_transport import McpToolError
-from argus_core.models import ToolCall
-from argus_testkit import Assertion, Scenario, all_of
+from argus_core.models import DeploymentChanges, ToolCall
+from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 SOME_SERVICE = "io-shop"
 
@@ -103,6 +103,23 @@ def test_the_deployment_asked_about_is_the_one_the_model_named() -> None:
         .then(_the_deployment_asked_about_was(
             the_read_tier, SOME_SERVICE, THE_REVISION_DEPLOYED
         ))
+
+
+@pytest.mark.unit
+def test_the_model_is_shown_the_lines_and_nothing_else() -> None:
+    # Whether they list every file is the write-up's to use, never a line the
+    # model reads: what it is shown of a deploy is what it always was.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            ).result.content
+        ) \
+        .then(the_answer_was("\n".join(WHAT_THE_READ_TIER_SAID)))
 
 
 @pytest.mark.unit
@@ -193,12 +210,17 @@ def test_the_channel_records_no_reading() -> None:
 
 
 @pytest.mark.unit
-def test_what_the_deployment_changed_is_published_as_it_was_read() -> None:
+@pytest.mark.parametrize("lists_every_file", [True, False], ids=["whole", "short"])
+def test_what_the_deployment_changed_is_published_as_it_was_read(
+        lists_every_file: bool) -> None:
     # Under the revision the model named, every line unedited: the write-up
     # names the deploy that carried a change by what its own diff shows, and a
-    # summary of the diff would leave it nothing to find that in.
+    # summary of the diff would leave it nothing to find that in. And whether
+    # the lines list every file, which the model is not shown and the write-up
+    # needs - where they do, a file they leave out is as it was before.
     published: list[IncidentEvent] = []
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID,
+                                              lists_every_file=lists_every_file)
 
     Scenario() \
         .given(the_read_tier) \
@@ -209,7 +231,7 @@ def test_what_the_deployment_changed_is_published_as_it_was_read() -> None:
             )
         ) \
         .then(_what_was_read_was_published(
-            published, THE_REVISION_DEPLOYED, WHAT_THE_READ_TIER_SAID
+            published, THE_REVISION_DEPLOYED, WHAT_THE_READ_TIER_SAID, lists_every_file
         ))
 
 
@@ -279,9 +301,10 @@ def a_call_about(revision: str) -> ToolCall:
     )
 
 
-def a_deployment_that_changed(lines: list[str]) -> Any:
+def a_deployment_that_changed(lines: list[str], lists_every_file: bool = True) -> Any:
     the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
-    the_read_tier.return_value = lines
+    the_read_tier.return_value = DeploymentChanges(said=lines,
+                                                   lists_every_file=lists_every_file)
 
     return the_read_tier
 
@@ -361,15 +384,18 @@ def _nothing_was_recorded_as_read() -> Assertion[Any]:
 
 def _what_was_read_was_published(published: list[IncidentEvent],
                                  revision: str,
-                                 said: list[str]) -> Assertion[Any]:
+                                 said: list[str],
+                                 lists_every_file: bool) -> Assertion[Any]:
     def assertion(dont_care_answer: Any) -> bool:
-        read = [(event.revision, event.said) for event in published
+        read = [(event.revision, event.said, event.lists_every_file) for event in published
                 if isinstance(event, DeploymentChangesRead)]
 
-        if read != [(revision, said)]:
+        if read != [(revision, said, lists_every_file)]:
             raise AssertionError(
                 f"Expected one read of what [{revision}] changed, published with "
-                f"every line the read tier said, and what was published is {read}."
+                f"every line the read tier said and that they "
+                f"{'do' if lists_every_file else 'do not'} list every file, and what "
+                f"was published is {read}."
             )
 
         return True

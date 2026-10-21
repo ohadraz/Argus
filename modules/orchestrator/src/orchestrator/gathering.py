@@ -704,8 +704,11 @@ def _what_each_deployment_changed(conn: psycopg.Connection,
     read: dict[str, DeploymentChangesRecord] = {}
     for event in events.get_by_incident(conn, incident_id):
         if isinstance(event, DeploymentChangesRead) and event.revision not in read:
-            read[event.revision] = DeploymentChangesRecord(revision=event.revision,
-                                                           said=event.said)
+            read[event.revision] = DeploymentChangesRecord(
+                revision=event.revision,
+                said=event.said,
+                lists_every_file=event.lists_every_file
+            )
 
     return list(read.values())
 

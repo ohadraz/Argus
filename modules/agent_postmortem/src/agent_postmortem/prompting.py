@@ -983,12 +983,32 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
          None if log_lines else no_logs_listed(evidence.logs_reading)),
         ("Candidates it considered:", candidates, None if candidates else NOTHING),
         ("Actions it took:", actions, None if actions else NOTHING),
-        *([("What each deployment it looked into changed:", looked_into, None)]
+        *([("What each deployment it looked into changed:", looked_into,
+            _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
         *([("What Code-Fix read in the source and proposed - nothing ran its test or its fix:",
             read_in_the_source, _the_diffs_of_what_it_names(evidence, looked_into))]
           if read_in_the_source else [])
     ]
+
+
+def _what_each_whole_diff_leaves_as_it_was(evidence: IncidentEvidence,
+                                           looked_into: list[CitedEvidence]) -> str | None:
+    """Beneath the deployments: of each whose diff lists every file it
+    changed, that a file it does not list is as it was before it - or nothing,
+    where none does.
+
+    A write-up called one side of a cause unverified three times, though the
+    diff listed every file the deploy changed and the file that side rests on
+    was not among them. Said only of a diff that lists them all: one cut short
+    leaves the rest unknown.
+    """
+    said = [f"A file [{diff.label}] does not list is as it was at the revision [{diff.label}] "
+            f"compares against."
+            for record, diff in zip(evidence.deployment_changes, looked_into, strict=True)
+            if record.lists_every_file]
+
+    return " ".join(said) or None
 
 
 def _the_diffs_of_what_it_names(evidence: IncidentEvidence,

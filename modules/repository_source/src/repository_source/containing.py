@@ -19,20 +19,13 @@ from typing import Any, Final
 
 import httpx2
 
-from repository_source.comparing import BETWEEN
+from repository_source.comparing import AHEAD, BETWEEN, IDENTICAL, RELATION_FIELD
 from repository_source.reading import (
     ACCEPT_HEADER,
     HttpGet,
     RepositorySourceSettings,
     RepositoryUnreadable,
 )
-
-# GitHub's word for how the head of a comparison stands to its base, and the
-# two of its four that put the base in the head's history: the head has moved
-# past it, or is it. `behind` and `diverged` are the other two.
-STATUS_FIELD: Final = "status"
-AHEAD_STATUS: Final = "ahead"
-IDENTICAL_STATUS: Final = "identical"
 
 CONTAINING_TIMEOUT_SECONDS: Final = 10.0
 
@@ -65,7 +58,9 @@ def the_branch_contains(branch: str,
             f"[{settings.github_repository}]: {error}"
         ) from error
 
-    return compared.get(STATUS_FIELD) in (AHEAD_STATUS, IDENTICAL_STATUS)
+    # The two of the four words that put the revision in the branch's history:
+    # the branch has moved past it, or is it.
+    return compared.get(RELATION_FIELD) in (AHEAD, IDENTICAL)
 
 
 def _headers(settings: RepositorySourceSettings) -> dict[str, str]:

@@ -30,6 +30,7 @@ from argus_core.mcp_transport import TracedFastMCP
 from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
+    DeploymentChanges,
     MetricBucket,
     PodPlacement,
     RolloutAccount,
@@ -302,9 +303,10 @@ def build_server(endpoint: ReadMcpEndpoint,
         revision: Annotated[
             str, Field(description=descriptions.WHAT_A_DEPLOYMENT_CHANGED_REVISION)
         ]
-    ) -> list[str]:
+    ) -> DeploymentChanges:
         """Returns what one deployment of a service changed - the files that
-        differ from the revision deployed before it, and the change made to each.
+        differ from the revision deployed before it, and the change made to each
+        - and whether the answer names every one of them.
 
         `revision` is the deploy's own reference; the base is read from the
         deployment history rather than asked for, since a caller naming it

@@ -77,7 +77,7 @@ def read_what_a_deployment_changed(
         ))
 
     try:
-        said = fetch_what_a_deployment_changed(service, revision)
+        changes = fetch_what_a_deployment_changed(service, revision)
     except Exception as error:
         return could_not_be_read(
             call,
@@ -88,12 +88,15 @@ def read_what_a_deployment_changed(
             because=str(error)
         )
 
-    if not said:
+    if not changes.said:
         return answered(call, _NOTHING_CAME_BACK)
 
-    narrator.say(DeploymentChangesRead, revision=revision, said=list(said))
+    narrator.say(DeploymentChangesRead, revision=revision, said=list(changes.said),
+                 lists_every_file=changes.lists_every_file)
 
-    return answered(call, "\n".join(said))
+    # The lines alone: whether they list every file is the write-up's to use,
+    # and what the model is shown of a deploy is what it always was.
+    return answered(call, "\n".join(changes.said))
 
 
 def _the_revision_named_in(call: ToolCall) -> str:

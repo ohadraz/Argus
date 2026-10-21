@@ -520,6 +520,31 @@ def test_the_model_is_shown_what_each_deployment_it_looked_into_changed() -> Non
 
 
 @pytest.mark.unit
+def test_a_deployment_whose_diff_lists_every_file_leaves_the_rest_as_they_were() -> None:
+    # The write-up called the scrape side Code-Fix's unverified reading three
+    # times, though D1 listed every file the deploy changed and the scrape
+    # configuration was not among them: under the revision before, the scrape
+    # collected, so it selected what it always had. Said where the diff lists
+    # every file, and only there - one cut short leaves the rest unknown.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[
+                DeploymentChangesRecord(revision="7c3ca00", said=["some line"],
+                                        lists_every_file=True),
+                DeploymentChangesRecord(revision="1a2b3c4", said=["another line"],
+                                        lists_every_file=False)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("A file [D1] does not list is as it was at the revision [D1] compares "
+                  "against."),
+            _does_not_say("A file [D2] does not list")
+        ))
+
+
+@pytest.mark.unit
 def test_an_incident_that_looked_into_no_deployment_is_shown_no_heading_for_one() -> None:
     # A heading over nothing tells the model there is something it has failed
     # to see.
