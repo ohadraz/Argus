@@ -36,6 +36,7 @@ import pytest
 from agent_postmortem import DeploymentChangesRecord, write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
+from agent_postmortem.detection_lesson import the_detection_lesson
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
@@ -495,6 +496,30 @@ def test_the_detection_carries_whether_the_rule_held_before_the_onset_as_measure
         .then(
             _publishes("the detection", lambda document: document.detection,
                        detection_of(evidence, held_before_the_onset=False))
+        )
+
+
+@pytest.mark.unit
+def test_the_detection_lesson_is_worked_out_from_what_was_measured() -> None:
+    # Written by code, never asked of the model: every part of it is measured.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=12)),
+            measured := a_measured_incident(rule_waits=timedelta(0),
+                                            rule_looks_back=timedelta(minutes=5),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the detection lesson", lambda document: document.detection_lesson,
+                       the_detection_lesson(evidence, measured))
         )
 
 

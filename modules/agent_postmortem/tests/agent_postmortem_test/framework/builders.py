@@ -310,7 +310,10 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         rule_wait_unread: bool = False,
                         rule_held_before_the_onset: bool | None = None,
                         rule_series_unit: str | None = None,
-                        rule_looks_back: timedelta | None = None) -> Measurements:
+                        rule_looks_back: timedelta | None = None,
+                        rule_evaluated_every: timedelta | None = None,
+                        rule_past_its_line_at: datetime | None = None,
+                        rule_line_read: bool = False) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -350,7 +353,10 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         rule_wait_unread=rule_wait_unread,
         rule_held_before_the_onset=rule_held_before_the_onset,
         rule_series_unit=rule_series_unit,
-        rule_looks_back=rule_looks_back
+        rule_looks_back=rule_looks_back,
+        rule_evaluated_every=rule_evaluated_every,
+        rule_past_its_line_at=rule_past_its_line_at,
+        rule_line_read=rule_line_read
     )
 
 
@@ -711,11 +717,12 @@ def an_alert_rule(waits_seconds: int | None,
                   series_query: str | None = None,
                   asked: Kept[str] | None = None,
                   series_unit: str | None = None,
-                  looks_back_seconds: int = 0) -> AlertRule:
+                  looks_back_seconds: int = 0,
+                  evaluated_every_seconds: int = 60) -> AlertRule:
     """A rule source answering for the rule that paged: how long it waits before
-    it fires, how far back its condition looks, and the query of the series it
-    watches - nothing at all where the rule could not be read - and noting each
-    rule it was asked about."""
+    it fires, how far back its condition looks, how often it is evaluated, and
+    the query of the series it watches - nothing at all where the rule could not
+    be read - and noting each rule it was asked about."""
     def standing(rule: str) -> AlertRuleStanding | None:
         if asked is not None:
             asked.take(rule)
@@ -724,7 +731,8 @@ def an_alert_rule(waits_seconds: int | None,
             return None
 
         return AlertRuleStanding(rule=rule, is_normal=False, evaluated_at=ONSET,
-                                 range_seconds=looks_back_seconds, interval_seconds=60,
+                                 range_seconds=looks_back_seconds,
+                                 interval_seconds=evaluated_every_seconds,
                                  keep_firing_for_seconds=0, pending_seconds=waits_seconds,
                                  series_query=series_query, series_unit=series_unit)
 

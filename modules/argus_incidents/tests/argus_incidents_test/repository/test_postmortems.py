@@ -20,6 +20,8 @@ from argus_core.models import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    DetectionLesson,
+    DetectionMeasuredFrom,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
@@ -392,6 +394,14 @@ def _every_section_of_the_template() -> dict[str, Any]:
             went_well=["the alert fired within 3 minutes"],
             went_wrong=["no test exercised an empty month"],
             got_lucky=["the fault was behind a flag"]
+        ),
+        "detection_lesson": DetectionLesson(
+            gap=timedelta(minutes=2, seconds=40),
+            measured_from=DetectionMeasuredFrom.LINE_PASSED,
+            rule_waits=timedelta(minutes=1),
+            rule_looks_back=timedelta(minutes=5),
+            rule_evaluated_every=timedelta(seconds=30),
+            scraping_and_storing=timedelta(seconds=30)
         ),
         "timeline": [TimelineEntry(
             at=SOME_MOMENT,

@@ -130,6 +130,37 @@ class Lessons(BaseModel):
     got_lucky: list[str] = []
 
 
+class DetectionMeasuredFrom(StrEnum):
+    """What the time to the alert is weighed from: the onset; the onset where
+    what it dates is the metrics stopping; or the first minute the rule's own
+    series was past its line, where a fault that grows reached it later."""
+
+    ONSET = "onset"
+    METRICS_STOPPED = "metrics stopped"
+    LINE_PASSED = "line passed"
+
+
+class DetectionLesson(BaseModel):
+    """How soon the alert came against what the rule spends before it can
+    fire - written by code from what was measured, never by the model.
+
+    `gap` runs from `measured_from` to the alert. The parts it is weighed
+    against are each carried as read, so the page can say what accounts for
+    the time and not only how much: the rule's wait, the look-back its
+    condition fills (nothing where the gap runs from the series' own line,
+    whose readings already hold it), how often it is evaluated, and the time
+    the samples take to be scraped and stored, which Argus does not read. The
+    whole minute the start is measured to is the page's to add.
+    """
+
+    gap: timedelta
+    measured_from: DetectionMeasuredFrom
+    rule_waits: timedelta
+    rule_looks_back: timedelta
+    rule_evaluated_every: timedelta
+    scraping_and_storing: timedelta
+
+
 class TimelineMarker(StrEnum):
     """The four moments a reader looks for first in a timeline - the first of
     them where the metrics stop at the onset said as that, since what the onset

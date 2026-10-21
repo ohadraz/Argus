@@ -292,6 +292,9 @@ CREATE TABLE IF NOT EXISTS postmortem (
     hypotheses JSONB NOT NULL DEFAULT '[]'::jsonb,
     action_items JSONB NOT NULL DEFAULT '[]'::jsonb,
     lessons JSONB,
+    -- How soon the alert came against what its rule spends before it can
+    -- fire, written by code. Null where the gap cannot be weighed.
+    detection_lesson JSONB,
     timeline JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The changes to production, the log messages and what each deployment
     -- looked into changed and what Code-Fix read in the source, as the model

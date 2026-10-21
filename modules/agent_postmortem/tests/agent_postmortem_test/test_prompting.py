@@ -2780,19 +2780,19 @@ def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_w
 
 
 @pytest.mark.unit
-def test_detection_is_asked_to_go_wrong_only_by_what_came_after_the_rule_s_wait() -> None:
-    # Counted the rule's wait, a write-up still listed the whole gap under what
-    # went wrong. The wait is how the rule was made; only what came after it
-    # is detection going wrong. Said of every rule, it had a write-up of a rule
-    # that waits for nothing work the gap out less a wait the rule never had.
+def test_the_lessons_are_told_how_soon_the_alert_came_is_already_weighed() -> None:
+    # Asked to weigh it, three write-ups of one incident in a row weighed
+    # nothing, and one counted a wait its rule did not have. Every part of it is
+    # measured, so code writes that lesson (`detection_lesson`) and the model is
+    # told so - in the description over all three lists, since none of them is
+    # the place for it again.
     Scenario() \
         .when(
-            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
-                                                [WENT_WRONG_FIELD]["description"]
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("after the alert rule's own wait",
-                                      "fires as soon as its condition holds has no wait")
+            _the_description_mentions("How soon the alert came is weighed by the document "
+                                      "already")
         )
 
 
@@ -3037,21 +3037,16 @@ def test_the_summary_is_asked_for_how_long_by_the_duration_s_name() -> None:
 
 
 @pytest.mark.unit
-def test_how_quickly_the_alert_came_is_asked_to_be_weighed_where_it_was_shown() -> None:
-    # Given the span from the onset to the alert, from a rule that waits for
-    # nothing, a write-up said nothing of detection at all: told only when it
-    # went wrong, it was never asked to weigh it. Only where it was shown: an
-    # incident with no onset measured has no such span to weigh. Asked in the
-    # description over the three lists, the next write-up weighed it in none.
+def test_what_went_wrong_no_longer_asks_for_detection_to_be_weighed() -> None:
+    # The lesson code writes says it; asked here as well, a write-up would say
+    # it a second time, in words that need not agree.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
                                                 [WENT_WRONG_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("Where you are shown how long after the onset",
-                                      "weigh detection", "does not show what took that long",
-                                      f"or under {WENT_WELL_FIELD}")
+            _the_description_avoids("detection")
         )
 
 

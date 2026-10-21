@@ -383,6 +383,35 @@ def rule_held_before_the_onset(buckets: list[MetricBucket],
     return all(reading.is_past_its_line() for reading in readings)
 
 
+def first_minute_past_its_line(buckets: list[MetricBucket],
+                               onset_at: datetime,
+                               alerted_at: datetime) -> datetime | None:
+    """The first minute from the onset to the alert in which the rule's series
+    was past its line - where the time to the alert is measured from, since a
+    fault that grows reaches the rule's line minutes after the onset, and the
+    rule could not fire sooner. `None` where no minute there was past it.
+    """
+    return next((parse_iso(bucket.bucket_id)
+                 for bucket in sorted(buckets, key=lambda each: parse_iso(each.bucket_id))
+                 if bucket.rule_reading is not None
+                 and bucket.rule_reading.line is not None
+                 and onset_at <= parse_iso(bucket.bucket_id) < alerted_at
+                 and bucket.rule_reading.is_past_its_line()),
+                None)
+
+
+def a_line_was_read(buckets: list[MetricBucket],
+                    onset_at: datetime,
+                    alerted_at: datetime) -> bool:
+    """Whether any minute from the onset to the alert carries the rule's series
+    with its line - what tells a line never passed from one never read.
+    """
+    return any(bucket.rule_reading is not None
+               and bucket.rule_reading.line is not None
+               and onset_at <= parse_iso(bucket.bucket_id) < alerted_at
+               for bucket in buckets)
+
+
 def in_the_reporting_currency(taken: Mapping[str, Decimal],
                               rates: RateTable) -> tuple[Decimal, list[str]]:
     """One figure out of several, and whatever could not be converted.

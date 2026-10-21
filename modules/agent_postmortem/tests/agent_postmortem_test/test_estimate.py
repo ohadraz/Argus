@@ -20,9 +20,11 @@ from agent_postmortem.estimate import (
     ErrorRates,
     RuleSeriesLevels,
     Unmeasured,
+    a_line_was_read,
     beyond_the_variation,
     calm_to_read_for,
     error_rates_over,
+    first_minute_past_its_line,
     rule_held_before_the_onset,
     rule_series_over,
     why_no_error_rates,
@@ -934,6 +936,82 @@ def test_a_rule_whose_line_could_not_be_read_says_nothing_of_whether_it_held() -
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_the_rule_s_series_passed_its_line_in_the_first_minute_from_the_onset_past_it() -> None:
+    # Where the gap to the alert is measured from. The onset is the first minute
+    # Argus's own reading departed from calm; a fault that grows takes minutes
+    # more to reach the rule's line, and the rule could not have fired sooner.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START, rule_reading=_a_reading(0.95)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=1),
+                          rule_reading=_a_reading(0.9)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=2),
+                          rule_reading=_a_reading(0.71)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=3),
+                          rule_reading=_a_reading(0.6))
+            ]
+        ) \
+        .when(
+            lambda: first_minute_past_its_line(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(INCIDENT_START + timedelta(minutes=2))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("past_it", [-timedelta(minutes=1), timedelta(minutes=6)],
+                         ids=["before-the-onset", "from-the-alert-on"])
+def test_a_minute_past_its_line_outside_the_onset_to_the_alert_is_not_where_it_passed(
+        past_it: timedelta) -> None:
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START + past_it, rule_reading=_a_reading(0.71)),
+                _a_bucket(at=INCIDENT_START, rule_reading=_a_reading(0.95))
+            ]
+        ) \
+        .when(
+            lambda: first_minute_past_its_line(buckets, INCIDENT_START,
+                                               INCIDENT_START + timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("at", "with_its_line", "read"), [
+    (timedelta(minutes=2), True, True),
+    (timedelta(minutes=2), False, False),
+    (-timedelta(minutes=1), True, False)
+], ids=["a-line-from-the-onset-to-the-alert", "no-line", "a-line-before-the-onset"])
+def test_a_line_was_read_where_a_minute_from_the_onset_to_the_alert_carries_one(
+        at: timedelta, with_its_line: bool, read: bool) -> None:
+    # Told apart from a line never passed: a series read with its line and never
+    # past it before the alert does not bear out when the rule could fire, and
+    # one with no line read says nothing of it either way.
+    some_calm_value = 0.95
+
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START + at,
+                                  rule_reading=(_a_reading(some_calm_value) if with_its_line
+                                                else RuleReading(value=some_calm_value,
+                                                                 worse_when="below")))]
+        ) \
+        .when(
+            lambda: a_line_was_read(buckets, INCIDENT_START,
+                                    INCIDENT_START + timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(read)
         )
 
 

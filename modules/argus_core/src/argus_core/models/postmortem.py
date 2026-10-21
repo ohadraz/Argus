@@ -32,6 +32,7 @@ from argus_core.models.postmortem_sections import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    DetectionLesson,
     HypothesisConsidered,
     Impact,
     Lessons,
@@ -157,6 +158,11 @@ class PostmortemDocument(BaseModel):
     hypotheses: list[HypothesisConsidered] = []
     action_items: list[ActionItem] = []
     lessons: Lessons | None = None
+    # The lesson on detection, which code writes from what was measured and
+    # the page puts first in the list it belongs in. `None` where the gap
+    # cannot be weighed - no onset, no rule read, an alert before the onset or
+    # sooner than the wait - which Detection already says.
+    detection_lesson: DetectionLesson | None = None
     timeline: list[TimelineEntry] = []
     # The changes to production, the log messages and what each deployment it
     # looked into changed, as the model was shown them, each under the label it

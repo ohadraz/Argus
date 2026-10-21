@@ -1035,6 +1035,29 @@ def test_how_far_back_the_paging_rule_s_condition_looks_is_read_off_the_rule_tha
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("rule", "evaluated_every"), [
+    ("dont-care-rule", timedelta(seconds=30)),
+    (None, None)
+], ids=["a-rule-paged", "no-rule-paged"])
+def test_how_often_the_paging_rule_is_evaluated_is_read_off_the_rule_that_paged(
+        rule: str | None, evaluated_every: timedelta | None) -> None:
+    # A condition that comes to hold between two evaluations is seen at the
+    # second, so up to one interval of the time from the onset to the alert is
+    # the rule not having looked yet - which the detection lesson counts.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule=rule)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(0, evaluated_every_seconds=30)))
+        ) \
+        .then(
+            _the_rule_is_evaluated_every(evaluated_every)
+        )
+
+
+@pytest.mark.unit
 def test_the_query_of_the_rules_series_is_read_off_the_rule_that_paged() -> None:
     # What the series is. The alert's words say when the rule pages, and only
     # the rule's query says what it pages on.
@@ -1095,6 +1118,39 @@ def test_whether_the_rule_held_before_the_onset_is_read_off_the_minutes_its_wait
         ) \
         .then(
             the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("onset_at", "past_its_line_at", "read"), [
+    (ONSET, ONSET + timedelta(minutes=2), True),
+    (None, None, False)
+], ids=["an-onset", "no-onset"])
+def test_where_the_rules_series_passed_its_line_is_read_off_the_minutes_from_the_onset_to_the_alert(
+        onset_at: datetime | None, past_its_line_at: datetime | None, read: bool) -> None:
+    # Calm at the onset and past the line two minutes on: the alert is weighed
+    # from there. Without an onset there is no stretch to read it in.
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET + timedelta(minutes=minutes), error_rate=dont_care_error_rate,
+                         rule_reading=RuleReading(value=value, worse_when="below",
+                                                  line=RuleLine(at=0.8, fires_on_it=False)))
+                for minutes, value in ((0, 0.9), (1, 0.85), (2, 0.71))]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=onset_at,
+                                           alerted_at=ONSET + timedelta(minutes=6),
+                                           rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between,
+                                                   alert_rule=an_alert_rule(0)))
+        ) \
+        .then(
+            _the_rules_series_passed_its_line(past_its_line_at, read=read)
         )
 
 
@@ -1537,6 +1593,32 @@ def _the_rule_looks_back(expected: timedelta | None) -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected the rule's condition to look back over [{expected}], got "
                 f"[{measured.rule_looks_back}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rules_series_passed_its_line(at: datetime | None, *,
+                                      read: bool) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_past_its_line_at != at or measured.rule_line_read != read:
+            raise AssertionError(
+                f"Expected the rule's series past its line at [{at}], its line read "
+                f"[{read}], got [{measured.rule_past_its_line_at}], read "
+                f"[{measured.rule_line_read}].")
+
+        return True
+
+    return assertion
+
+
+def _the_rule_is_evaluated_every(expected: timedelta | None) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rule_evaluated_every != expected:
+            raise AssertionError(
+                f"Expected the rule to be evaluated every [{expected}], got "
+                f"[{measured.rule_evaluated_every}].")
 
         return True
 

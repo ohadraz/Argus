@@ -679,24 +679,15 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                            # Left off so a rollback holds, automatic sync was
                            # listed here as well as in the resolution and the
                            # record's own item - and called a failure when it
-                           # went as designed. Detection is asked for here
-                           # rather than over the three lists, where a
-                           # write-up weighed it in none of them.
+                           # went as designed.
                            WENT_WRONG_FIELD: {
                                **_SENTENCES,
                                "description": (
                                    "A change the response left in place on purpose, "
                                    "which one of the record's own action items undoes "
                                    "(automatic sync left off), went as designed and "
-                                   "did not go wrong. Where you are shown how long "
-                                   "after the onset the alert came, weigh detection - "
-                                   f"here, or under {WENT_WELL_FIELD} where it was "
-                                   "quick: that span, and where the record does not "
-                                   "show what took that long, say so. Detection went "
-                                   "wrong only by what came after the alert rule's own "
-                                   "wait; a rule that fires as soon as its condition "
-                                   "holds has no wait to count. Not the root cause or "
-                                   "a contributing factor again - the document says "
+                                   "did not go wrong. Not the root cause or a "
+                                   "contributing factor again - the document says "
                                    "those already."
                                )
                            },
@@ -715,10 +706,16 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                )
                            }},
             "required": [WENT_WELL_FIELD, WENT_WRONG_FIELD, GOT_LUCKY_FIELD],
+            # Asked to weigh it, three write-ups of one incident in a row
+            # weighed nothing. Every part of it is measured, so code writes
+            # that lesson (`detection_lesson`), and none of the lists is the
+            # place to say it again.
             "description": (
                 "What went well, what went wrong, and where the incident got "
                 "lucky - a risk that went unnoticed this time. Any list may be "
-                f"empty. {_A_SAFEGUARD_NOBODY_SAW}"
+                f"empty. {_A_SAFEGUARD_NOBODY_SAW} How soon the alert came is "
+                "weighed by the document already, from what was measured: say "
+                "nothing of it here."
             )
         },
         REACHES_A_CAUSE_FIELD: {

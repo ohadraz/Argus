@@ -36,6 +36,7 @@ from argus_core.models import (
 
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
+from agent_postmortem.detection_lesson import the_detection_lesson
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
@@ -187,6 +188,9 @@ def write_postmortem(evidence: IncidentEvidence,
                               for factor in answer.contributing_factors or []],
         action_items=_the_record_s_items_then_the_model_s(evidence, measured, answer),
         lessons=answer.lessons,
+        # Written by code, never asked of the model: every part is measured,
+        # and three write-ups asked to weigh it weighed nothing.
+        detection_lesson=the_detection_lesson(evidence, measured),
         # Under the labels the model was shown them by, so the prose that cites
         # one has a row to lead to.
         changes_read=the_changes_labelled(evidence),

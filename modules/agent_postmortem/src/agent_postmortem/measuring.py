@@ -52,10 +52,12 @@ from agent_postmortem.estimate import (
     ErrorRates,
     RuleSeriesLevels,
     Unmeasured,
+    a_line_was_read,
     beyond_the_variation,
     calm_to_read_for,
     duration_in_hours,
     error_rates_over,
+    first_minute_past_its_line,
     in_the_reporting_currency,
     rule_held_before_the_onset,
     rule_series_over,
@@ -178,6 +180,18 @@ class Measurements(BaseModel):
     # from an onset to its alert, as the wait is. Nothing for a check that looks
     # back over no range, and `None` where no rule paged or it went unread.
     rule_looks_back: timedelta | None = None
+    # How often the paging rule is evaluated: a condition that comes to hold
+    # between two evaluations is seen at the second, so up to this much of the
+    # time to the alert is the rule not having looked yet. `None` where no rule
+    # paged or it went unread.
+    rule_evaluated_every: timedelta | None = None
+    # The first minute from the onset to the alert in which the rule's series
+    # was past its line - where the time to the alert is weighed from, since a
+    # fault that grows reaches the line after the onset - and whether any minute
+    # there carried the line at all (`rule_line_read`), which tells a line never
+    # passed from one never read. `None` and `False` without an onset.
+    rule_past_its_line_at: datetime | None = None
+    rule_line_read: bool = False
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -285,13 +299,20 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
         rule_looks_back=(timedelta(seconds=alert_rule.range_seconds)
                          if alert_rule is not None else None),
+        rule_evaluated_every=(timedelta(seconds=alert_rule.interval_seconds)
+                              if alert_rule is not None else None),
         rule_wait_unread=evidence.rule is not None and waits is None,
         rule_series_query=alert_rule.series_query if alert_rule is not None else None,
         rule_series_unit=alert_rule.series_unit if alert_rule is not None else None,
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))
-            if evidence.onset_at is not None and waits is not None else None)
+            if evidence.onset_at is not None and waits is not None else None),
+        rule_past_its_line_at=(
+            first_minute_past_its_line(metrics, evidence.onset_at, evidence.alerted_at)
+            if evidence.onset_at is not None else None),
+        rule_line_read=(evidence.onset_at is not None
+                        and a_line_was_read(metrics, evidence.onset_at, evidence.alerted_at))
     )
 
 

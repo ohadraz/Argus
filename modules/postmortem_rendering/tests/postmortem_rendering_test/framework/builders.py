@@ -24,6 +24,7 @@ from argus_core.models import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    DetectionLesson,
     HypothesisConsidered,
     Impact,
     IncidentStatus,
@@ -90,6 +91,7 @@ class _WhatAPostmortemHolds(TypedDict, total=False):
     hypotheses: list[HypothesisConsidered]
     action_items: list[ActionItem]
     lessons: Lessons | None
+    detection_lesson: DetectionLesson | None
     timeline: list[TimelineEntry]
     changes_read: list[CitedChange]
     log_messages_read: list[CitedEvidence]
