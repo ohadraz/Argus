@@ -1314,9 +1314,19 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     A placement of no pods is said as that. It is the platform answering, which
     is a different thing from a platform that would not, and said as an empty
     list the line ends on a dash and reads as one that lost what followed it.
+
+    Several pods all on one card, every one serving long before the onset, are
+    said as how many and which card: listed pod by pod the line is a paragraph
+    telling nothing apart, and every destination carries it.
     """
     if not placement.pods:
         return "", "Recorded where the service's replicas run - the platform reported no pods"
+
+    cards = {pod.accelerator for pod in placement.pods}
+    card = next(iter(cards))
+    if (len(placement.pods) > 1 and len(cards) == 1 and card is not None
+            and not placement.started_at_the_onset()):
+        return "", f"Recorded where the {len(placement.pods)} replicas run - all on {card}"
 
     after = placement.started_after_the_onset()
     before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())

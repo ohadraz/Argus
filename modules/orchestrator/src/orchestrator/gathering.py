@@ -42,7 +42,6 @@ from argus_core.events import (
     IncidentRemembered,
     LogsRetrieved,
     OnsetDetected,
-    PlacementRecorded,
     RecoveryChecked,
     RememberingFailed,
     RetrievalRequested,
@@ -91,10 +90,8 @@ from argus_narration import (
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 
 # The kind a line telling an announcement carries: the event's own, read off
-# its type rather than spelled a second time. And the kind a line telling a
-# placement carries, for the same reason.
+# its type rather than spelled a second time.
 _ACTION_TAKEN: Final[str] = ActionTaken.model_fields["kind"].default
-_PLACEMENT_RECORDED: Final[str] = PlacementRecorded.model_fields["kind"].default
 # And the kind a line telling the gate refusing to act carries.
 _ACTION_REFUSED: Final[str] = ActionRefused.model_fields["kind"].default
 
@@ -177,7 +174,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         rule=_the_rule_that_paged(incident.alert_payload),
         alert_title=_what_was_alerted(incident.alert_payload),
         alert_finding=_what_the_alert_found(incident.alert_payload),
-        timeline=_what_happened(told, [hypothesis.id for hypothesis in considered], account),
+        timeline=_what_happened(told, [hypothesis.id for hypothesis in considered]),
         candidates=_what_was_considered(considered),
         actions=_what_was_done(conn, incident_id, account, told),
         log_lines=_what_was_read(conn, incident_id),
@@ -410,9 +407,7 @@ def _what_the_alert_found(alert_payload: dict[str, object]) -> str | None:
     return summary if isinstance(summary, str) else None
 
 
-def _what_happened(told: list[NarrationLine],
-                   considered: list[str],
-                   account: list[IncidentEvent]) -> list[TimelineEntry]:
+def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[TimelineEntry]:
     """The narration, as the page shows it: who did what, in order.
 
     The page's own renderer rather than a second one written here. The
@@ -429,15 +424,7 @@ def _what_happened(told: list[NarrationLine],
     the hypotheses in the order the document lists them. By id rather than by
     counting: that list is best first across every round, so a second round's
     best sits between the first round's own.
-
-    A line telling a placement carries the placement it tells, from `account`,
-    so the document can lay it out from its values rather than its sentence.
-    By order, as an action's line is found (`_where_each_is_said`): each
-    placement recorded is told as a line of its own, in the order published.
     """
-    placements = [event.placement for event in account if isinstance(event, PlacementRecorded)]
-    placed = iter(placements)
-
     return [
         TimelineEntry(at=line.at,
                       who=line.who,
@@ -445,8 +432,7 @@ def _what_happened(told: list[NarrationLine],
                       candidates=[considered.index(candidate.hypothesis_id)
                                   for candidate in line.candidates
                                   if candidate.hypothesis_id in considered],
-                      outside_the_walk=line.outside_the_walk,
-                      placement=next(placed) if line.kind == _PLACEMENT_RECORDED else None)
+                      outside_the_walk=line.outside_the_walk)
         for line in told
     ]
 

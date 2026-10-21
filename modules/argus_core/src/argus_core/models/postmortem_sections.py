@@ -21,7 +21,6 @@ from pydantic import BaseModel, model_validator
 
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.metrics import WorseWhen
-from argus_core.models.placement import RecordedPlacement
 from argus_core.models.refusal import Refusal
 
 
@@ -150,11 +149,6 @@ class TimelineEntry(BaseModel):
     # the walk's lines (`XW1`), so a message written a second earlier renames
     # nothing the walk said.
     outside_the_walk: bool = False
-    # Where the replicas ran, on the line that recorded it - so whoever shows
-    # the line can lay the placement out from its values rather than from the
-    # sentence, which is what a model was told and stays as it was. `None` on
-    # every other line, and on a document written before it was carried.
-    placement: RecordedPlacement | None = None
 
 
 class CandidateConsidered(BaseModel):

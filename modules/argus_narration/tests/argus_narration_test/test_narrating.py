@@ -2521,6 +2521,32 @@ def test_a_placement_with_no_pod_placed_at_the_onset_says_nothing_about_the_onse
 
 
 @pytest.mark.unit
+def test_a_placement_on_one_card_since_long_before_the_onset_is_said_in_a_line() -> None:
+    # Several pods, every one on the same card and serving long before the
+    # onset: listed pod by pod, the line is a paragraph telling nothing apart,
+    # and the brief, the dashboard and the channel all carry it. How many, and
+    # the card, is the whole of what it tells - that nothing moved.
+    the_card = "Tesla-V100-SXM2-16GB"
+    the_pods = ("io-shop-a", "io-shop-b", "io-shop-c")
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=tuple(_a_pod(pod, the_card, SOME_TIME_LONG_BEFORE_THE_ONSET)
+                       for pod in the_pods)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says(f"{len(the_pods)} replicas", f"all on {the_card}"),
+            _the_only_line_does_not_say(*the_pods)
+        ))
+
+
+@pytest.mark.unit
 def test_a_placement_whose_every_pod_started_at_the_onset_marks_them_all() -> None:
     # Nothing served before the incident, so there is nothing to list ahead of
     # the mark - and every pod there is still has to be the marked part.
