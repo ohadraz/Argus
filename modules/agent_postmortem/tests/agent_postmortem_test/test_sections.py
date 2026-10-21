@@ -896,6 +896,27 @@ def test_every_candidate_is_listed_with_what_became_of_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_never_tried_says_why_where_its_row_recorded_it() -> None:
+    # The gate writes on the row why it held the test back, and "never tried"
+    # alone dropped it - so the table, and the brief that says it in the same
+    # words, left a reader to guess whether the investigation ran out or Argus
+    # declined.
+    some_reason = "some reason the gate held its test back"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care", result=some_reason)])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([f"never tried: {some_reason}"])
+        )
+
+
+@pytest.mark.unit
 def test_each_candidate_is_labelled_as_the_prompt_named_it() -> None:
     # The model cites a candidate in its prose as C1, C2; the row carries the
     # same label, so the page can point the prose at it.

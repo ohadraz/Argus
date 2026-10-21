@@ -535,12 +535,24 @@ class OneCause:
     @property
     def became(self) -> str:
         """What became of the cause, in the words its row and the brief both
-        say it in: its verdict, or that it was never tried, or tried and never
-        judged."""
+        say it in: its verdict, or that it was never tried - and why, where its
+        row recorded it - or tried and never judged.
+
+        The why because the gate writes on the row why it held the test back,
+        and "never tried" alone left a reader to guess whether the
+        investigation ran out or Argus declined."""
         if not self.decided.tested:
-            return NEVER_TRIED
+            why = self.decided.result
+            return f"{NEVER_TRIED}: {why}" if why else NEVER_TRIED
 
         return self.decided.result or NO_VERDICT_RECORDED
+
+
+def was_never_tried(result: str) -> bool:
+    """Whether what became of a cause is that it was never tried - with the
+    reason its row recorded, or without one. A reason read as a verdict would
+    make a cause nobody tested one that was tried and came to nothing."""
+    return result == NEVER_TRIED or result.startswith(f"{NEVER_TRIED}: ")
 
 
 def causes_of(candidates: list[CandidateRecord]) -> list[OneCause]:

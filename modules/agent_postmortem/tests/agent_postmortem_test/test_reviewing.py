@@ -241,6 +241,26 @@ def test_an_analysis_that_tried_no_candidate_is_not_complete() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_never_tried_for_a_reason_is_still_one_nobody_tried() -> None:
+    # Its row says why the test was held back; read as a verdict, the reason
+    # made a candidate nobody tested one that was tried and came to nothing.
+    Scenario() \
+        .given(
+            a_document_trying_nothing := _a_document(hypotheses=[
+                HypothesisConsidered(summary="dont care", confidence=None,
+                                     result="never tried: some reason", label="C1")
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_trying_nothing, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="no candidate was confirmed - none was tried")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("refusal", [
     Refusal.WOULD_UNDO_A_MEANT_CHANGE,
     Refusal.NOT_A_GENERIC_MITIGATION,

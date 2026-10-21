@@ -23,7 +23,7 @@ from argus_core.models import (
     why_it_was_refused,
 )
 
-from agent_postmortem.sections import CODE_READING_PREFIX, NEVER_TRIED
+from agent_postmortem.sections import CODE_READING_PREFIX, was_never_tried
 
 KEY_DATA_COLLECTED: Final = "Key incident data collected"
 IMPACT_ASSESSED: Final = "Impact assessed"
@@ -244,7 +244,7 @@ def _why_nothing_was_confirmed(results: list[str]) -> str:
     """That no candidate was confirmed, and - where it can say - why: none was
     tried, or every one tried was refuted. A candidate withdrawn, escalated or
     left with no verdict was tried all the same, and came to neither."""
-    tried = [result for result in results if result != NEVER_TRIED]
+    tried = [result for result in results if not was_never_tried(result)]
     if not tried:
         return NONE_TRIED
     if all(result == Verdict.REFUTED for result in tried):
