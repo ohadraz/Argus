@@ -427,12 +427,13 @@ def test_a_mode_argus_takes_nothing_for_is_refused_for_its_own_reason(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("mode", [
-    FailureMode.UPSTREAM_DEPENDENCY_FAILURE,
-    FailureMode.MONITORING_CONFIGURATION_DRIFT
+@pytest.mark.parametrize(("mode", "refusal"), [
+    (FailureMode.UPSTREAM_DEPENDENCY_FAILURE, Refusal.SOMEBODY_ELSES_SERVICE),
+    (FailureMode.MONITORING_CONFIGURATION_DRIFT, Refusal.WOULD_UNDO_A_MEANT_CHANGE)
 ], ids=["upstream", "drift"])
 def test_a_mode_argus_takes_nothing_for_ends_the_mitigation_phase(
     mode: FailureMode,
+    refusal: Refusal,
     record_outcome: MagicMock
 ) -> None:
     # The refusal above, and what follows from it. A candidate is the likeliest
@@ -444,7 +445,8 @@ def test_a_mode_argus_takes_nothing_for_ends_the_mitigation_phase(
     #
     # Recorded on the incident rather than read back off the refusal, because the
     # status is derived from the incident and never from what was published; and
-    # narrated, because it moves the incident.
+    # narrated, because it moves the incident - without the refusal's reason,
+    # which the refusal's own line gives one line above.
     Scenario() \
         .given(
             a_gated_incident := _a_mitigating_incident(
@@ -456,7 +458,7 @@ def test_a_mode_argus_takes_nothing_for_ends_the_mitigation_phase(
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP)) \
         .then(all_of(_it_was_recorded_that_the_mode_has_no_mitigation(),
-                     _the_end_of_mitigation_was_narrated()))
+                     _the_end_of_mitigation_was_narrated(refusal)))
 
 
 @pytest.mark.unit
@@ -614,7 +616,7 @@ def test_an_action_nothing_could_confirm_is_refused(
                                      publisher=published.append)) \
         .then(all_of(_the_action_was_cleared(),
                      _the_incident_was_moved_nowhere(),
-                     _the_recommendation_was_narrated(),
+                     _the_recommendation_was_narrated(Refusal.NOTHING_COULD_CONFIRM_IT),
                      _the_refusal_was_published(
                          Refusal.NOTHING_COULD_CONFIRM_IT, published)))
 
@@ -1119,13 +1121,16 @@ def _nothing_was_narrated() -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
+def _the_recommendation_was_narrated(refusal: Refusal) -> Assertion[StateDelta]:
     """The gate accounts for a refusal that ends the mitigation phase.
 
     Four of the others end an attempt and leave the status where it was. This one
     leaves a recommendation, the status derives from that, and the walk refuses
     a move with no account of itself - so silence here is not a quieter gate,
     it is a walk that stops with a `ValueError` at the node.
+
+    Without the refusal's reason, which the refusal's own line already gives:
+    said again on the move, the account reads the same sentence twice in a row.
     """
     def assertion(updates: StateDelta) -> bool:
         if updates.narration is None:
@@ -1133,6 +1138,8 @@ def _the_recommendation_was_narrated() -> Assertion[StateDelta]:
                 "Expected the gate to account for the recommendation, it "
                 "narrated nothing."
             )
+
+        _the_move_does_not_repeat(refusal, updates.narration.said())
 
         return True
 
@@ -1154,11 +1161,12 @@ def _it_was_recorded_that_the_mode_has_no_mitigation() -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_end_of_mitigation_was_narrated() -> Assertion[StateDelta]:
+def _the_end_of_mitigation_was_narrated(refusal: Refusal) -> Assertion[StateDelta]:
     """The gate accounts for ending the mitigation phase.
 
     The same reason the recommendation is narrated: the incident's status moves
-    from this node, and the walk refuses a move with no account of itself.
+    from this node, and the walk refuses a move with no account of itself. And
+    without the refusal's reason, for the same reason too.
     """
     def assertion(updates: StateDelta) -> bool:
         if updates.narration is None:
@@ -1167,9 +1175,21 @@ def _the_end_of_mitigation_was_narrated() -> Assertion[StateDelta]:
                 "it narrated nothing."
             )
 
+        _the_move_does_not_repeat(refusal, updates.narration.said())
+
         return True
 
     return assertion
+
+
+def _the_move_does_not_repeat(refusal: Refusal, said: str) -> None:
+    reason = why_it_was_refused(refusal)
+
+    if reason in said:
+        raise AssertionError(
+            f"Expected the move to leave the refusal's reason to the refusal's own "
+            f"line, it said [{said}] - so the account says [{reason}] twice in a row."
+        )
 
 
 def _the_candidate_was_recorded_as_untried(candidate: Hypothesis,

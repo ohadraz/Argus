@@ -182,8 +182,7 @@ def tier_gate_node(
         return StateDelta(
             proposed_action=None,
             the_mode_has_no_mitigation=True,
-            narration=Narration(action="no mitigation taken",
-                                detail=why_it_was_refused(refusal))
+            narration=Narration(action="no mitigation taken")
         )
 
     return StateDelta(
@@ -195,12 +194,11 @@ def tier_gate_node(
         # nothing accounts for - which is how this was found, one case after the
         # ending was written.
         #
-        # The refusal's own sentence rather than a second one: a reader meeting
-        # this on the timeline and again on the candidate's row is meeting one
-        # fact, and two spellings of it would read as two.
+        # What was done alone, without the reason: the refusal's own line gives
+        # it one line above, and said again on the move the account reads the
+        # same sentence twice in a row.
         narration=(
-            Narration(action="action recommended",
-                      detail=why_it_was_refused(refusal))
+            Narration(action="action recommended")
             if recommended is not None else None
         )
     )
