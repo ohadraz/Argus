@@ -176,11 +176,14 @@ class PostmortemDocument(BaseModel):
     # nowhere to find out what P2 was. A change is kept whole, so its row can
     # name where it can be opened; a deployment's diff is its lines, one to a
     # line of `text`. And what Code-Fix read in the source, which is a
-    # reading nothing ran.
+    # reading nothing ran - and each file it names that ran as other text than
+    # it read, named by its path at the revision on its first line, then the
+    # file as it ran.
     changes_read: list[CitedChange] = []
     log_messages_read: list[CitedEvidence] = []
     deployment_changes_read: list[CitedEvidence] = []
     code_read: list[CitedEvidence] = []
+    as_it_ran_read: list[CitedEvidence] = []
     # What came of reading the deploys, the flags and the logs, for a list of
     # them that is empty: read and found nothing, never asked, and asked with
     # nothing back are three things to know, and an empty list is all three.

@@ -32,7 +32,7 @@ from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
-from argus_core.models.fix import FixOutcome
+from argus_core.models.fix import FileAsItRan, FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.meaning import Meaning
@@ -689,6 +689,9 @@ class FixAttempted(_Event):
     where it was not established. The write-up reads them: a fix written
     against a branch that does not hold what ran changes nothing that runs once
     merged, not until a deploy carries it.
+
+    `as_it_ran` is each file the explanation names, read again at the revision
+    that ran - what settles a reading made on a branch that is other text.
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
@@ -698,6 +701,7 @@ class FixAttempted(_Event):
     explanation: str | None = None
     branch_read: str | None = None
     holds_what_ran: bool | None = None
+    as_it_ran: list[FileAsItRan] = []
 
 
 class PostmortemWritten(_Event):

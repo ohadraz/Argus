@@ -73,6 +73,7 @@ from argus_core.models import (
     ChannelReading,
     CitedEvidence,
     ContributingFactor,
+    FileAsItRan,
     Lessons,
     OpenedPullRequest,
     PostmortemDocument,
@@ -929,6 +930,35 @@ def test_the_document_carries_what_code_fix_read_in_the_source() -> None:
             _publishes("what Code-Fix read in the source",
                        lambda document: document.code_read,
                        [CitedEvidence(label="F1", text="some account of the code")])
+        )
+
+
+@pytest.mark.unit
+def test_the_document_carries_the_files_as_they_ran() -> None:
+    # Under the label the model was shown each by, so a step of the cause
+    # citing S1 has a row to lead to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(update={
+                "files_as_they_ran": [FileAsItRan(
+                    path="deploy/scrape.yaml",
+                    revision="53f02e9f6cb774f7f5869637bcc879941dcbc82d",
+                    as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the files as they ran",
+                       lambda document: document.as_it_ran_read,
+                       [CitedEvidence(label="S1", text="deploy/scrape.yaml at 53f02e9\n"
+                                                       "selector:\n  port: metrics\n")])
         )
 
 

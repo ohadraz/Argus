@@ -75,7 +75,7 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
-from agent_postmortem.sections import action_item_number
+from agent_postmortem.sections import CODE_READING_PREFIX, action_item_number, label_of
 
 # A number said in a word: a count, a ten, a power of ten, or the fraction a
 # decimal is read out in.
@@ -158,7 +158,8 @@ class Given(BaseModel):
     """What the model was handed, as far as a check needs it: the labels it
     could cite and which of them name a hypothesis, how many action items the
     record already held, the revisions the incident read and which of them the
-    deploy that set it off went to, and the figures it gave, by name."""
+    deploy that set it off went to, the figures it gave, by name, and each file
+    shown as it ran, by label."""
 
     labels: frozenset[str] = frozenset()
     hypotheses: frozenset[str] = frozenset()
@@ -167,6 +168,8 @@ class Given(BaseModel):
     # `None` where no deploy set the incident off.
     trigger_revision: str | None = None
     figures: dict[str, Figure] = {}
+    # Each file shown as it ran - its path at its revision - by its label.
+    as_it_ran: dict[str, str] = {}
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -181,6 +184,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _the_trigger_said_again(answer, given)
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
+            + _readings_beside_no_file_as_it_ran(answer, given)
             + _factors_nothing_answers(answer, given)
             + _numbers_in_digits(answer, given)
             + _figures_spelled_out(answer)
@@ -349,6 +353,29 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
                           if label in given.hypotheses or label not in given.labels)
 
     return faults
+
+
+def _readings_beside_no_file_as_it_ran(answer: SubmittedPostmortem,
+                                       given: Given) -> list[str]:
+    """Each step citing Code-Fix's reading and none of the files shown as it
+    ran, where any was shown.
+
+    Six of six write-ups called the scrape config "Code-Fix's reading, nothing
+    ran" while the file as it ran sat beneath that reading. Which file a step's
+    claim is about cannot be told from its words, so any of them will do - and
+    the fault names them all. A matter of labels, not of what the step says.
+    """
+    if not given.as_it_ran:
+        return []
+
+    reading = label_of(CODE_READING_PREFIX, 1)
+    shown = "; ".join(f"[{label}] {what}" for label, what in given.as_it_ran.items())
+
+    return [f"the {CAUSAL_CHAIN_FIELD} step [{step.step}] cites [{reading}], Code-Fix's "
+            f"reading, and none of the files as they ran - {shown}: cite the one it rests "
+            f"on for what the file says"
+            for step in answer.causal_chain or []
+            if reading in step.cites and not set(step.cites) & set(given.as_it_ran)]
 
 
 def _what_is_wrong_with_citing(said: str, kind: str, label: str, given: Given) -> str:

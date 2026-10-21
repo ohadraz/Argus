@@ -46,6 +46,7 @@ from agent_postmortem.prompting import (
     the_code_reading_labelled,
     the_deployment_changes_labelled,
     the_evidence_labelled,
+    the_files_as_they_ran_labelled,
 )
 from agent_postmortem.reviewing import review_of
 from agent_postmortem.sections import (
@@ -204,6 +205,7 @@ def write_postmortem(evidence: IncidentEvidence,
         log_messages_read=grouped(evidence.log_lines, measured.unobserved_from),
         deployment_changes_read=the_deployment_changes_labelled(evidence),
         code_read=the_code_reading_labelled(evidence),
+        as_it_ran_read=the_files_as_they_ran_labelled(evidence),
         deploys_reading=evidence.deploys_reading,
         flags_reading=evidence.flags_reading,
         logs_reading=evidence.logs_reading

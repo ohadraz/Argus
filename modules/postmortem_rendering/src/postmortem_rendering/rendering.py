@@ -92,7 +92,8 @@ class RenderedPostmortem(BaseModel):
     def labels(self) -> frozenset[str]:
         """Every label a row of the document goes by - a hypothesis, a step
         taken, an action item, a labelled line of the timeline, a change, a
-        log message, what a deployment changed or what Code-Fix read, a lead,
+        log message, what a deployment changed, what Code-Fix read or a file
+        as it ran, a lead,
         what the alert said - and so every label the prose can cite with a row
         to lead to."""
         return frozenset({*(label for row in self.hypotheses.rows for label in row.labels),
@@ -103,6 +104,7 @@ class RenderedPostmortem(BaseModel):
                           *(row.label for row in self.supporting.log_messages),
                           *(row.label for row in self.supporting.deployment_changes),
                           *(row.label for row in self.supporting.code_read),
+                          *(row.label for row in self.supporting.as_it_ran),
                           *(lead.label for lead in self.leads),
                           *((self.detection.said.label,) if self.detection.said else ()),
                           *((self.impact.finding_label,) if self.impact.finding_label else ())})
@@ -208,9 +210,9 @@ def _the_rows(hypotheses: HypothesesSection,
     it, not in the words the model was briefed in.
 
     A candidate goes by every label it stands for. A step taken has its
-    outcome after a colon, the outcome having dashes of its own. A diff is
-    named by its first line and what Code-Fix read by its heading: either row
-    can run to pages, and the label leads to it."""
+    outcome after a colon, the outcome having dashes of its own. A diff and a
+    file as it ran are named by their first line and what Code-Fix read by its
+    heading: each row can run to pages, and the label leads to it."""
     rows: dict[str, Line] = {}
     for candidate in hypotheses.rows:
         said = Line(runs=(*candidate.summary.runs, Run(text=" - "),
@@ -227,7 +229,8 @@ def _the_rows(hypotheses: HypothesesSection,
              for line in timeline.rows if line.label}
     rows |= {lead.label: lead.said for lead in leads}
     rows |= {row.label: row.said for row in (*supporting.changes, *supporting.log_messages)}
-    rows |= {row.label: _its_first_line(row.said) for row in supporting.deployment_changes}
+    rows |= {row.label: _its_first_line(row.said)
+             for row in (*supporting.deployment_changes, *supporting.as_it_ran)}
     rows |= {row.label: Line(runs=(Run(text=supporting.code_read_heading),))
              for row in supporting.code_read}
     if detection.said is not None:

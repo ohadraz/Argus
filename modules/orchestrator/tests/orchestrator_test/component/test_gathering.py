@@ -63,6 +63,7 @@ from argus_core.models import (
     ChannelReading,
     DeploymentRollbackUndo,
     FailureMode,
+    FileAsItRan,
     FixOutcome,
     FlagChange,
     FlagUndo,
@@ -1525,6 +1526,36 @@ def test_the_evidence_carries_which_branch_code_fix_read_off_the_reading_that_st
 
 
 @pytest.mark.component
+def test_the_evidence_carries_the_files_as_they_ran_off_the_reading_that_stands(
+    a_clean_database: None
+) -> None:
+    # The files the standing reading names, as they ran: an earlier attempt's
+    # would settle a reading the document no longer shows.
+    the_file = FileAsItRan(path="deploy/scrape.yaml", revision="53f02e9", as_read=False,
+                           content="selector:\n  port: metrics\n")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading",
+                    as_it_ran=[the_file.model_copy(update={"path": "deploy/other.yaml"})]))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands",
+                    as_it_ran=[the_file])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_as_they_ran([the_file])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_what_people_told_the_incident_as_it_was_weighed(
     a_clean_database: None
 ) -> None:
@@ -2143,6 +2174,18 @@ def _carries_what_code_fix_said(expected: str | None) -> Assertion[IncidentEvide
             raise AssertionError(
                 f"Expected what Code-Fix said of the code to be [{expected}], got "
                 f"[{evidence.fix_explanation}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_as_they_ran(expected: list[FileAsItRan]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.files_as_they_ran != expected:
+            raise AssertionError(
+                f"Expected the files Code-Fix's reading names, as they ran, to be "
+                f"{expected}, got {evidence.files_as_they_ran}.")
 
         return True
 

@@ -35,6 +35,7 @@ from agent_postmortem.prompting import (
     the_candidates_labelled,
     the_change_that_set_it_off,
     the_evidence_labelled,
+    the_files_as_they_ran_labelled,
 )
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
 from agent_postmortem.sections import record_action_items_of
@@ -106,8 +107,9 @@ def _what_was_given(evidence: IncidentEvidence,
                     figures: dict[str, Figure]) -> Given:
     """What the answer is held to: the labels it could cite and which of them
     are hypotheses, the items already on the record, the revisions the incident
-    read and the one the deploy that set it off went to, and the figures it may
-    name."""
+    read and the one the deploy that set it off went to, the figures it may
+    name, and each file shown as it ran - named by its first line, its path at
+    its revision."""
     return Given(
         labels=frozenset(label for cited in the_evidence_labelled(evidence,
                                                                   measured.unobserved_from)
@@ -117,7 +119,9 @@ def _what_was_given(evidence: IncidentEvidence,
         items_on_record=len(record_action_items_of(evidence, measured.back_to_normal_at)),
         revisions=revisions_of(evidence),
         trigger_revision=_the_deploy_s_revision(the_change_that_set_it_off(evidence)),
-        figures=figures
+        figures=figures,
+        as_it_ran={cited.label: cited.text.split("\n", 1)[0]
+                   for cited in the_files_as_they_ran_labelled(evidence)}
     )
 
 

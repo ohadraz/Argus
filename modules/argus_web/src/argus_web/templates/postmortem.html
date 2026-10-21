@@ -416,6 +416,18 @@ document.addEventListener('DOMContentLoaded', function () {
   </tbody>
 </table>
 {% endif %}
+{# Each file Code-Fix's reading names that ran as other text than it read, a
+   line to each of its lines as a diff's - and no heading where there is none. #}
+{% if supporting.as_it_ran %}
+<h3>{{ supporting.as_it_ran_heading }}</h3>
+<table class="evidence-read diffs-read">
+  <tbody>
+  {% for row in supporting.as_it_ran %}
+    <tr id="{{ row.label }}"><td class="label">{{ row.label }}</td><td class="diff">{{ said(row.said) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 <h3>{{ supporting.assumptions_heading }}</h3>
 {% if supporting.assumptions %}
 <ul class="assumptions">

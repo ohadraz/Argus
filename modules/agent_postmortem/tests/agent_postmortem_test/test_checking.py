@@ -76,6 +76,11 @@ DONT_CARE_PROSE = "dont care"
 # item already on the record.
 SOME_GIVEN = Given(labels=frozenset({"E1", "E2"}), items_on_record=1)
 
+# What a model shown Code-Fix's reading and one file as it ran was given.
+SOME_GIVEN_WITH_A_FILE_AS_IT_RAN = SOME_GIVEN.model_copy(update={
+    "labels": SOME_GIVEN.labels | {"F1", "S1"},
+    "as_it_ran": {"S1": "deploy/scrape.yaml at 53f02e9"}})
+
 # The figures an incident that recovered gives, which a working is worked out
 # from: it began at noon and recovered ten minutes later.
 SOME_FIGURES = figures_of(an_evidence_bundle(), a_measured_incident())
@@ -970,6 +975,67 @@ def test_a_step_citing_a_label_never_given_is_named() -> None:
                 _named("[E40]"),
                 _found(1)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_step_citing_code_fix_s_reading_and_no_file_as_it_ran_is_named() -> None:
+    # Six of six write-ups called the scrape config "Code-Fix's reading,
+    # nothing ran" while the file as it ran sat beneath that reading. Which file
+    # a step's claim is about cannot be told, so any S row will do - and the
+    # message names them all.
+    Scenario() \
+        .given(
+            an_answer_resting_on_the_reading := _an_answer(causal_chain=[
+                SubmittedStep(step="the scrape still selects the old name", cites=["E1", "F1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_resting_on_the_reading,
+                              given=SOME_GIVEN_WITH_A_FILE_AS_IT_RAN)
+        ) \
+        .then(
+            all_of(
+                _named("[F1]"),
+                _named("[S1] deploy/scrape.yaml at 53f02e9"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_step_citing_code_fix_s_reading_beside_a_file_as_it_ran_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_citing_what_ran := _an_answer(causal_chain=[
+                SubmittedStep(step="the scrape still selects the old name",
+                              cites=["E1", "F1", "S1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_citing_what_ran, given=SOME_GIVEN_WITH_A_FILE_AS_IT_RAN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_step_citing_code_fix_s_reading_with_no_file_as_it_ran_given_is_accepted() -> None:
+    # The reading is then all there is, and saying so is the honest answer.
+    Scenario() \
+        .given(
+            an_answer_resting_on_the_reading := _an_answer(causal_chain=[
+                SubmittedStep(step="the scrape still selects the old name", cites=["E1", "F1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_resting_on_the_reading,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "labels": SOME_GIVEN.labels | {"F1"}}))
+        ) \
+        .then(
+            _found_nothing_wrong()
         )
 
 

@@ -427,6 +427,25 @@ def test_what_code_fix_read_the_prose_cites_leads_to_its_row() -> None:
 
 
 @pytest.mark.unit
+def test_a_file_as_it_ran_the_prose_cites_leads_to_its_row() -> None:
+    some_file = CitedEvidence(label="S1", text="deploy/scrape.yaml at 53f02e9\n"
+                                               "selector:\n"
+                                               "  port: metrics")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="S1 tells it.", as_it_ran_read=[some_file]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("S1 deploy/scrape.yaml at 53f02e9"))
+
+
+@pytest.mark.unit
 def test_a_row_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> None:
     # What Code-Fix read in the source has run to thirteen thousand characters:
     # a row no page holds. It goes on onto the next, and a citation of it still

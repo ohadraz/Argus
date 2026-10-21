@@ -70,6 +70,7 @@ from read_mcp_client import (
 )
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
+from agent_codefix.as_it_ran import the_files_as_they_ran
 from agent_codefix.budget import FixSettings, a_budget_for
 from agent_codefix.opening import (
     the_opening_message,
@@ -352,6 +353,14 @@ def propose_fix(hypothesis: Hypothesis | None,
         leads=leads
     )
 
+    # Read once the model has answered, and only read: no request it is sent
+    # changes, and the write-up can show what ran.
+    as_it_ran = the_files_as_they_ran(submitted.explanation,
+                                      branch=settings.github_base_branch,
+                                      deployed=deployed,
+                                      list_files=list_files,
+                                      read_file=read_file)
+
     if isinstance(submitted, AnswerToTheQuestion):
         # Written and not opened: merged alone it spares nobody. What comes
         # back is what would have to change outside, for whoever takes it
@@ -361,14 +370,16 @@ def propose_fix(hypothesis: Hypothesis | None,
                            explanation=submitted.explanation,
                            needs_code_outside=True,
                            holds_what_ran=holds_what_ran,
-                           branch_read=settings.github_base_branch)
+                           branch_read=settings.github_base_branch,
+                           as_it_ran=as_it_ran)
 
     patch = submitted.patch()
 
     if not patch:
         return ProposedFix(pull_request=None, explanation=submitted.explanation,
                            holds_what_ran=holds_what_ran,
-                           branch_read=settings.github_base_branch)
+                           branch_read=settings.github_base_branch,
+                           as_it_ran=as_it_ran)
 
     # The branch and the pull request are changes to the world, and the turn
     # that produced this patch may have been answered after somebody said stop.
@@ -395,7 +406,8 @@ def propose_fix(hypothesis: Hypothesis | None,
         ),
         explanation=submitted.explanation,
         holds_what_ran=holds_what_ran,
-        branch_read=settings.github_base_branch
+        branch_read=settings.github_base_branch,
+        as_it_ran=as_it_ran
     )
 
 

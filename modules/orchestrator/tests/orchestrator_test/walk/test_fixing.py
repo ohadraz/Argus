@@ -26,6 +26,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    FileAsItRan,
     FixOutcome,
     Hypothesis,
     IncidentStatus,
@@ -250,6 +251,28 @@ def test_the_attempt_keeps_which_branch_code_fix_read_and_whether_it_holds_what_
         ) \
         .then(
             _the_attempt_says_it_read(some_branch, holds_what_ran, published)
+        )
+
+
+@pytest.mark.unit
+def test_the_attempt_keeps_the_files_code_fix_s_reading_names_as_they_ran() -> None:
+    # The write-up reads the attempt: what ran is what settles a reading made
+    # on a branch that is other text.
+    published: list[IncidentEvent] = []
+    some_file = FileAsItRan(path="deploy/scrape.yaml", revision=THE_REVISION_THAT_RAN,
+                            as_read=False, content="selector:\n  port: metrics\n")
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_finding([some_file])
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_found_as_they_ran([some_file], published)
         )
 
 
@@ -760,6 +783,21 @@ def _an_agent_that_read(branch: str, holds_what_ran: bool | None) -> ProposeFix:
     return propose
 
 
+def _an_agent_finding(as_it_ran: list[FileAsItRan]) -> ProposeFix:
+    """Code-Fix, having proposed a fix whose reading names files read again
+    at the revision that ran."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
+        return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
+                           as_it_ran=as_it_ran)
+
+    return propose
+
+
 def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
     """Code-Fix, having written a fix it says helps nobody until code outside
     the repository changes too."""
@@ -971,6 +1009,22 @@ def _the_attempt_says_it_read(branch: str,
             raise AssertionError(
                 f"Expected the attempt to say Code-Fix read [{branch}], holding what "
                 f"ran [{holds_what_ran}], got {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_found_as_they_ran(expected: list[FileAsItRan],
+                                   published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The files Code-Fix's reading names, as they ran, on the attempt."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        found = [event.as_it_ran for event in published if isinstance(event, FixAttempted)]
+        if found != [expected]:
+            raise AssertionError(
+                f"Expected the attempt to carry the files as they ran, {expected}, "
+                f"got {found}."
             )
 
         return True

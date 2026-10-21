@@ -240,7 +240,8 @@ def _said(narrator: Narrator,
     narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail,
                  explanation=read.explanation if read is not None else None,
                  branch_read=read.branch_read if read is not None else None,
-                 holds_what_ran=read.holds_what_ran if read is not None else None)
+                 holds_what_ran=read.holds_what_ran if read is not None else None,
+                 as_it_ran=read.as_it_ran if read is not None else [])
     logger.info("fix attempted", extra={
         "outcome": outcome, "pull_request": proposal.url if proposal is not None else None
     })

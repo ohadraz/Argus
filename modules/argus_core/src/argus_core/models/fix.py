@@ -50,6 +50,22 @@ class FixOutcome(StrEnum):
     NOT_OPENED = "not-opened"
 
 
+class FileAsItRan(BaseModel):
+    """One file Code-Fix's reading names, read again at the revision running
+    when the alert fired.
+
+    `as_read` where it is the file the branch read holds, byte for byte - the
+    reading then stands for what ran, and `content` is `None`. Otherwise the
+    file as it ran, cut where it runs long and saying so: the one thing that
+    shows what ran when the branch read is other text, or has no such file.
+    """
+
+    path: str
+    revision: str
+    as_read: bool
+    content: str | None
+
+
 class ProposedFix(BaseModel):
     """What Code-Fix answered: the draft pull request it opened, `None` where it
     judged there was nothing in the code to change - and what it said of the
@@ -79,3 +95,6 @@ class ProposedFix(BaseModel):
     needs_code_outside: bool = False
     holds_what_ran: bool | None = None
     branch_read: str | None = None
+    # Each file the explanation names, read again at the revision that ran -
+    # empty where no revision is known or nothing was said.
+    as_it_ran: list[FileAsItRan] = []

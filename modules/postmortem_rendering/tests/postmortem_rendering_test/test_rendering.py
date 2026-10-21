@@ -223,8 +223,8 @@ def test_the_incident_s_address_is_what_the_document_links_it_by() -> None:
 @pytest.mark.unit
 def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> None:
     # A hypothesis, a step taken, an action item, a labelled line of the
-    # timeline, a change and a log message read, and a lead each have a row to
-    # lead to; an unlabelled line has no name.
+    # timeline, a change and a log message read, a file as it ran, and a lead
+    # each have a row to lead to; an unlabelled line has no name.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -241,13 +241,14 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
                           TimelineEntry(at=DONT_CARE_MOMENT, who=None, text="dont care")],
                 changes_read=[a_change_read("P1")],
                 log_messages_read=[CitedEvidence(label="G3fa2", text="dont care")],
+                as_it_ran_read=[CitedEvidence(label="S1", text="dont care")],
                 leads=[_a_lead()])
         ) \
         .when(
             lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).labels
         ) \
         .then(
-            the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "L1"})))
+            the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "S1", "L1"})))
 
 
 @pytest.mark.unit
@@ -378,6 +379,24 @@ def test_a_cited_diff_is_named_by_its_first_line() -> None:
         ) \
         .then(
             _the_first_step_rests_on("D1 Deployment of revision x."))
+
+
+@pytest.mark.unit
+def test_a_cited_file_as_it_ran_is_named_by_its_path_at_the_revision() -> None:
+    # The row is the whole file, which the label leads to.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                as_it_ran_read=[CitedEvidence(label="S1",
+                                              text="deploy/scrape.yaml at 53f02e9\n"
+                                                   "selector:\n  port: metrics\n")],
+                causal_chain=_a_step_citing("S1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("S1 deploy/scrape.yaml at 53f02e9"))
 
 
 @pytest.mark.unit

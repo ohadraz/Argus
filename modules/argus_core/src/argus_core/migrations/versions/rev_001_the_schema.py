@@ -301,13 +301,14 @@ CREATE TABLE IF NOT EXISTS postmortem (
     detection_lesson JSONB,
     timeline JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The changes to production, the log messages and what each deployment
-    -- looked into changed and what Code-Fix read in the source, as the model
-    -- was shown them, each under the label the prose cites it by - the kinds
-    -- of evidence no other section is a row for.
+    -- looked into changed, what Code-Fix read in the source and the files it
+    -- names as they ran, as the model was shown them, each under the label the
+    -- prose cites it by - the kinds of evidence no other section is a row for.
     changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     log_messages_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     deployment_changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     code_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    as_it_ran_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- What came of reading the deploys, the flags and the logs - read, only
     -- changes made since Argus first acted (the flags alone), not asked, or
     -- asked with no answer.

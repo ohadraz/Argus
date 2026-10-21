@@ -43,6 +43,7 @@ from argus_core.models import (
     Ask,
     ChangeEvent,
     ChangeKind,
+    FileAsItRan,
     ToolDefinition,
     ToolResults,
     Transcript,
@@ -678,6 +679,39 @@ def test_a_step_resting_on_a_candidate_cause_is_asked_for_again_naming_it() -> N
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, "[C1]"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_step_resting_on_code_fix_s_reading_alone_is_asked_for_again_naming_what_ran() -> None:
+    # The files as they ran are shown beneath the reading, so the check has to
+    # know which labels they are and what each names.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_resting_on_the_reading := a_model_answering_in_turn(
+                an_answer(causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: ["T1", "F1"]}]),
+                an_answer(causal_chain=[{STEP_FIELD: "dont care",
+                                         CITES_FIELD: ["T1", "F1", "S1"]}]),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_resting_on_the_reading,
+                an_evidence_bundle(fix_explanation="dont care").model_copy(update={
+                    "files_as_they_ran": [FileAsItRan(
+                        path="deploy/scrape.yaml",
+                        revision="53f02e9f6cb774f7f5869637bcc879941dcbc82d",
+                        as_read=False, content="selector:\n  port: metrics\n")]}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "[S1] deploy/scrape.yaml at 53f02e9"),
                 _found_no_fault()
             )
         )

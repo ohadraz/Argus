@@ -1409,10 +1409,10 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
     and the assumptions are the list's last entry.
 
     Between the two, the changes and the log messages read, what each
-    deployment looked into changed and what Code-Fix read in the source, each
-    a table of rows under the labels the prose cites them by - the last two
-    only where there is any - and beneath each, what is said of what it does
-    not list."""
+    deployment looked into changed, what Code-Fix read in the source and each
+    file it names as it ran, each a table of rows under the labels the prose
+    cites them by - the last three only where there is any - and beneath each,
+    what is said of what it does not list."""
     supporting = rendered.supporting
     for line in supporting.links:
         opening, *rest = line.runs
@@ -1424,7 +1424,8 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
         (supporting.changes_heading, supporting.changes, supporting.changes_absent),
         (supporting.log_messages_heading, supporting.log_messages, supporting.log_messages_absent),
         (supporting.deployment_changes_heading, supporting.deployment_changes, None),
-        (supporting.code_read_heading, supporting.code_read, None)
+        (supporting.code_read_heading, supporting.code_read, None),
+        (supporting.as_it_ran_heading, supporting.as_it_ran, None)
     ):
         if not rows and absent is None:
             continue

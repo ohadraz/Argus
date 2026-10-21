@@ -55,6 +55,7 @@ from argus_core.models import (
     Effort,
     Evidence,
     FailureMode,
+    FileAsItRan,
     Hypothesis,
     Leads,
     Meaning,
@@ -1274,6 +1275,31 @@ def test_a_proposal_comes_back_naming_the_branch_it_read() -> None:
             )
         ) \
         .then(_it_read("release"))
+
+
+@pytest.mark.unit
+def test_a_proposal_comes_back_with_the_files_its_reading_names_as_they_ran() -> None:
+    # Read after the answer, so the write-up can show what ran rather than
+    # call the file the cause turns on a reading nothing ran.
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH, explanation=f"{SOME_PATH} reads the flag"),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **a_repository().ports()
+            )
+        ) \
+        .then(_it_found_as_they_ran([FileAsItRan(path=SOME_PATH,
+                                                 revision=SOME_REVISION_THAT_RAN,
+                                                 as_read=True, content=None)]))
 
 
 def _the_branch_was_asked(repository: _Repository,
@@ -2898,6 +2924,19 @@ def _it_held_what_ran(expected: bool | None) -> Assertion[ProposedFix]:
             raise AssertionError(
                 f"Expected the proposal to say the branch read holds what ran "
                 f"[{expected}], got [{came_back.holds_what_ran}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_found_as_they_ran(expected: list[FileAsItRan]) -> Assertion[ProposedFix]:
+    def assertion(came_back: ProposedFix) -> bool:
+        if came_back.as_it_ran != expected:
+            raise AssertionError(
+                f"Expected the files its reading names, as they ran, to be {expected}, "
+                f"got {came_back.as_it_ran}."
             )
 
         return True

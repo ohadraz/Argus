@@ -106,6 +106,7 @@ from argus_core.models import (
     ChannelReading,
     CitedChange,
     CitedEvidence,
+    FileAsItRan,
     Lessons,
     OpenedPullRequest,
     Standing,
@@ -177,6 +178,9 @@ A_RULE_FIRING_AT_ONCE = "fires as soon as its condition holds"
 A_WAIT_NOBODY_COULD_READ = "waits before it fires could not be read"
 
 # A clock time carrying a fraction of a second, in either separator ISO allows.
+# A revision a file was read again at, as the brief names it: by its short form.
+SOME_DEPLOYED_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
+
 A_TIME_FINER_THAN_THE_SECOND = re.compile(r"\d{2}:\d{2}:\d{2}[.,]\d")
 
 # Every field the tool offers on an incident nobody wrote about.
@@ -762,6 +766,70 @@ def test_a_reading_whose_branch_holds_what_ran_or_is_not_known_to_says_nothing(
         .then(
             _does_not_say("does not contain the revision running")
         )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_is_evidence_listed_directly_beneath_what_code_fix_read() -> None:
+    # Six of six write-ups called the scrape config "Code-Fix's reading,
+    # nothing ran" - right about where the text came from, since nothing in the
+    # record held the file as it ran. Beneath F, where the model reaches for it
+    # when it reasons about the file, and named by its path and the revision.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                fix_explanation="some account of the code").model_copy(
+                update={"files_as_they_ran": [FileAsItRan(
+                    path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                    as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([("F1", "some account of the code"),
+                                ("S1", "deploy/scrape.yaml at 53f02e9")])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_is_shown_whole_under_a_heading_saying_what_it_is() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"files_as_they_ran": [FileAsItRan(
+                    path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                    as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("What ran, read at the revision running when the alert fired:"),
+            _says_on_one_line("[S1]", "deploy/scrape.yaml at 53f02e9"),
+            _says("port: metrics")
+        ))
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_that_is_what_code_fix_read_is_said_beneath_it_and_not_shown() -> None:
+    # Nothing to show: what Code-Fix read is what ran, and saying so settles
+    # the reading as well as the file would.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "files_as_they_ran": [FileAsItRan(
+                            path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                            as_read=True, content=None)]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("[F1] read deploy/scrape.yaml on main as it was at 53f02e9, which ran."),
+            _does_not_say("What ran, read at the revision")
+        ))
 
 
 @pytest.mark.unit
@@ -3160,15 +3228,18 @@ def test_the_root_cause_is_asked_to_leave_out_what_the_document_states_itself() 
 
 
 @pytest.mark.unit
-def test_the_root_cause_is_asked_to_say_once_that_it_rests_on_a_reading_nothing_ran() -> None:
+def test_the_root_cause_says_once_it_rests_on_a_reading_only_where_nothing_shows_more() -> None:
     # Two write-ups' root causes said twice that the reading of the code they
-    # rested on was unverified.
+    # rested on was unverified. And fifteen of fifteen ended "rests on Code-Fix's
+    # reading, which nothing ran" where a row showed the file as it ran - the
+    # description asked for the hedge whatever else the record held.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("rests on a reading nothing ran, say so once")
+            _the_description_mentions("rests on a reading nothing ran and no S or D row "
+                                      "shows what it rests on, say so once")
         )
 
 
@@ -3293,13 +3364,13 @@ def test_an_action_item_is_asked_not_to_check_what_the_evidence_already_shows() 
 def test_unverified_is_asked_for_of_a_reading_of_the_code_rather_than_of_a_diff() -> None:
     # Told a step resting on a reading of the code counts only where it says
     # "unverified", a write-up called unverified what a diff it was shown said
-    # outright.
+    # outright - and what a file as it ran shows, when there is one.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("D row")
+            _the_description_mentions("an S or D row shows")
         )
 
 

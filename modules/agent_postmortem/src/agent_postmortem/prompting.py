@@ -90,6 +90,7 @@ from agent_postmortem.measuring import Measurements
 from agent_postmortem.revisions import revisions_of
 from agent_postmortem.sections import (
     ACTION_PREFIX,
+    AS_IT_RAN_PREFIX,
     CODE_READING_PREFIX,
     DEPLOYMENT_CHANGES_PREFIX,
     NO_VERDICT_RECORDED,
@@ -560,7 +561,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 f"states each of those itself. Not one of the {CONTRIBUTING_FACTORS_FIELD}: "
                 "a safeguard that would have stopped it with this mechanism unchanged "
                 "is said there, not here. Where the mechanism rests on a reading "
-                "nothing ran, say so once."
+                "nothing ran and no S or D row shows what it rests on, say so once."
             )
         },
         # Asked for the whole summary, write-ups left out how long, told the
@@ -762,8 +763,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "Whether the chain says why the change that set the incident off "
                 "broke the service, rather than stopping at that change. A step "
                 "resting only on F rows - a reading of the code nothing ran - "
-                "counts only where it says the reading is unverified; what a D row's "
-                "diff shows was read, and is not unverified. That a new "
+                "counts only where it says the reading is unverified; what an S or D "
+                "row shows was read, and is not unverified. That a new "
                 "version does worse is what the change did, not why it broke the "
                 "service: answer false where the chain says the evidence does not "
                 "show why."
@@ -971,6 +972,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                         [_an_action_as_a_line(action) for action in evidence.actions])
     looked_into = the_deployment_changes_labelled(evidence)
     read_in_the_source = the_code_reading_labelled(evidence)
+    as_it_ran = the_files_as_they_ran_labelled(evidence)
 
     return [
         ("What Argus did, in order:", narration, None if narration else NOTHING),
@@ -989,9 +991,12 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         *([("What Code-Fix read in the source and proposed - nothing ran its test or its fix:",
             read_in_the_source,
             " ".join(note for note in (_what_its_branch_did_not_hold(evidence),
+                                       _what_it_read_as_it_ran(evidence),
                                        _the_diffs_of_what_it_names(evidence, looked_into))
                      if note) or None)]
-          if read_in_the_source else [])
+          if read_in_the_source else []),
+        *([("What ran, read at the revision running when the alert fired:", as_it_ran, None)]
+          if as_it_ran else [])
     ]
 
 
@@ -1055,6 +1060,42 @@ def _the_diffs_of_what_it_names(evidence: IncidentEvidence,
             if the_revision_named(short, frozenset({record.revision})) == record.revision]
 
     return " ".join(dict.fromkeys(tied)) or None
+
+
+def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:
+    """Beneath what Code-Fix read: the files it names that the revision that
+    ran holds as the branch read does - or nothing, where there are none.
+
+    Said rather than shown: the reading stands for what ran, and a row would
+    repeat the file the reading already describes.
+    """
+    read = [ran for ran in evidence.files_as_they_ran if ran.as_read]
+    if not read:
+        return None
+
+    branch = evidence.fix_branch_read or "the branch it read"
+    as_it_was = "as it was" if len(read) == 1 else "as they were"
+
+    return (f"[{label_of(CODE_READING_PREFIX, 1)}] read "
+            f"{', '.join(ran.path for ran in read)} on {branch} {as_it_was} at "
+            f"{read[0].revision[:7]}, which ran.")
+
+
+def the_files_as_they_ran_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """Each file Code-Fix's reading names that ran as other text than the
+    branch read, under the label the model is shown it by - named by its path
+    and the revision, then the file - or nothing, where there is none.
+
+    Six of six write-ups called the file the cause turned on "Code-Fix's
+    reading, nothing ran": right about where the text came from, since nothing
+    in the record held the file as it ran. Public because the document lists
+    it under the same label the prose cites it by, as it does the changes.
+    """
+    shown = [ran for ran in evidence.files_as_they_ran if not ran.as_read and ran.content]
+
+    return [CitedEvidence(label=label_of(AS_IT_RAN_PREFIX, position),
+                          text=f"{ran.path} at {ran.revision[:7]}\n{ran.content}")
+            for position, ran in enumerate(shown, start=1)]
 
 
 def the_code_reading_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:

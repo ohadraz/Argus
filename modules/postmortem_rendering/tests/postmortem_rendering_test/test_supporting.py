@@ -562,6 +562,52 @@ def test_an_incident_code_fix_said_nothing_of_has_no_row_for_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_file_as_it_ran_is_a_row_under_its_label() -> None:
+    # What settles a reading made on a branch that is other text, and a row
+    # for the same reason the reading is: a citation of it leads here.
+    some_file = CitedEvidence(label="S1",
+                              text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics\n")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(as_it_ran_read=[some_file])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="S1",
+                                        said=Line(runs=(Run(text=some_file.text),))),)))
+
+
+@pytest.mark.unit
+def test_the_files_as_they_ran_are_headed_as_read_at_the_revision_that_ran() -> None:
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran_heading
+        ) \
+        .then(
+            the_answer_was("What ran, read at the revision running when the alert fired"))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_file_as_it_ran_has_no_row_for_one() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(as_it_ran_read=[])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
+        ) \
+        .then(
+            the_answer_was(()))
+
+
+@pytest.mark.unit
 def test_each_assumption_is_a_line_of_prose() -> None:
     Scenario() \
         .given(

@@ -71,9 +71,12 @@ class SupportingSection(BaseModel):
     "none read" under a heading for them would say a read was missed. What
     Code-Fix read in the source and proposed is a row of its own for the same
     reason, and headed as one whose test and fix nothing ran, which is how a
-    cause resting on it is weighed. The log messages' heading names the zone their times are in,
-    since each row says a time as the model was shown it; a change's row says
-    its moment with its zone.
+    cause resting on it is weighed. Each file it names that ran as other text
+    than it read is a row too, named by its path at the revision and said as
+    a diff's row is - what settles a reading made on other text. The log
+    messages' heading names the zone their times are in, since each row says a
+    time as the model was shown it; a change's row says its moment with its
+    zone.
 
     `revision_addresses` is each revision the changes read name - short, as
     the prose writes one, and whole - and where it opens: the prose names a
@@ -100,6 +103,8 @@ class SupportingSection(BaseModel):
     code_read_heading: str = ("What Code-Fix read in the source and proposed - "
                               "nothing ran its test or its fix")
     code_read: tuple[EvidenceRow, ...] = ()
+    as_it_ran_heading: str = "What ran, read at the revision running when the alert fired"
+    as_it_ran: tuple[EvidenceRow, ...] = ()
     assumptions_heading: str = "Assumptions"
     assumptions: tuple[Line, ...]
     assumptions_absent: str | None
@@ -150,6 +155,8 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                                              cited.text, shorts,
                                                              revision_addresses))
                                              for cited in postmortem.code_read),
+                             as_it_ran=tuple(_a_diff_row(cited, revision_addresses, shorts)
+                                             for cited in postmortem.as_it_ran_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
 

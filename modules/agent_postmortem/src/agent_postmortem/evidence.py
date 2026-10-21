@@ -18,6 +18,7 @@ from datetime import datetime
 from argus_core.models import (
     ChangeEvent,
     ChannelReading,
+    FileAsItRan,
     OpenedPullRequest,
     Refusal,
     ThreadMessage,
@@ -201,6 +202,10 @@ class IncidentEvidence(BaseModel):
     # changes nothing that runs once merged, not until a deploy carries it.
     fix_branch_read: str | None = None
     fix_holds_what_ran: bool | None = None
+    # Each file that reading names, read again at the revision that ran - the
+    # file as it ran where it differs from what was read, and what settles a
+    # reading made on other text. Empty where none was read.
+    files_as_they_ran: list[FileAsItRan] = []
     # The action the gate declined because nothing could confirm it. Structured
     # rather than left in `timeline` for the model to notice, for the reason the
     # pull request is: what a reader of the finished document goes on to do is

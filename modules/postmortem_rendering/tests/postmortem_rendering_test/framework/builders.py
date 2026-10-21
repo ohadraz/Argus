@@ -97,6 +97,7 @@ class _WhatAPostmortemHolds(TypedDict, total=False):
     log_messages_read: list[CitedEvidence]
     deployment_changes_read: list[CitedEvidence]
     code_read: list[CitedEvidence]
+    as_it_ran_read: list[CitedEvidence]
     deploys_reading: ChannelReading | None
     flags_reading: ChannelReading | None
     logs_reading: ChannelReading | None
