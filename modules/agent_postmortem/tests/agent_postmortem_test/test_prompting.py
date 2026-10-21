@@ -2008,11 +2008,7 @@ def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("has_a_way_back", "said"),
-                         [(True, "can be put back"), (False, "nothing to put back")],
-                         ids=["a-way-back", "nothing-to-put-back"])
-def test_an_action_is_told_with_whether_it_can_be_put_back(has_a_way_back: bool,
-                                                          said: str) -> None:
+def test_an_action_with_a_way_back_is_told_it_can_be_put_back() -> None:
     # The document's Resolution says it of every action, and the brief said
     # nothing. Left to guess, a model called a restart reversible under what went
     # well, a section away from a row calling it irreversible - and both were
@@ -2023,14 +2019,34 @@ def test_an_action_is_told_with_whether_it_can_be_put_back(has_a_way_back: bool,
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(actions=[
-                an_action(some_action, has_a_way_back=has_a_way_back)])
+            evidence := an_evidence_bundle(actions=[an_action(some_action)])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says(f"{some_action} ({said})"),
+            _says(f"{some_action} (can be put back)"),
+            _does_not_say("irreversible")))
+
+
+@pytest.mark.unit
+def test_an_action_with_no_way_back_is_told_so_once_by_its_standing() -> None:
+    # Its standing is "nothing to put back" whenever it has no way back, so the
+    # same words in brackets beside the action said it twice on one line.
+    some_action = "restart-service on io-shop"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(some_action, standing="nothing to put back",
+                          has_a_way_back=False)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"{some_action} - "),
+            _does_not_say("(nothing to put back)"),
             _does_not_say("irreversible")))
 
 
@@ -3093,7 +3109,8 @@ def test_the_cause_in_plain_words_is_asked_for_in_one_sentence_of_what_the_recor
 @pytest.mark.unit
 def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
     # Nothing at risk is an answer; and what Argus left to a person - a draft
-    # fix, a recommended action - the summary says itself. As of when Argus
+    # fix, automatic sync left off, a recommended action - the summary says
+    # itself, and said here as well it is said twice. As of when Argus
     # stopped, not now: nobody read the service again, and a fault "still in
     # place now" says the draft that would remove it was not merged.
     Scenario() \
@@ -3102,6 +3119,7 @@ def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
         ) \
         .then(all_of(
             _the_description_mentions("one sentence", "Empty where", "left to a person",
+                                      "automatic sync left off",
                                       "when Argus stopped working on the incident",
                                       "only what the record says"),
             _the_description_avoids(" now")

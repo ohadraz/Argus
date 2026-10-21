@@ -78,10 +78,14 @@ CODE_READING_PREFIX: Final = "F"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
-TURN_SYNC_BACK_ON: Final = ("Turn automatic sync of {application} back on once its "
-                            "repository says what should run - until then nothing merged "
-                            "reaches it, and turned on sooner it puts back what the "
-                            "repository says, undoing what Argus changed by hand")
+# When automatic sync an action left off goes back on, and what it does until
+# then and sooner - one way, for the action item and the summary alike.
+SYNC_GOES_BACK_ON: Final = "once its repository says what should run"
+UNTIL_SYNC_IS_BACK_ON: Final = ("until then nothing merged reaches it, and turned on sooner "
+                                "it puts back what the repository says, undoing what Argus "
+                                "changed by hand")
+TURN_SYNC_BACK_ON: Final = (f"Turn automatic sync of {{application}} back on "
+                            f"{SYNC_GOES_BACK_ON} - {UNTIL_SYNC_IS_BACK_ON}")
 
 # How a line of a configuration file says it is a comment: YAML's, TOML's and
 # INI's `#`, INI's `;`, and the `//` of JSON with comments.

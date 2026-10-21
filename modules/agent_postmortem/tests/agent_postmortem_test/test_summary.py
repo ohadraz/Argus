@@ -288,7 +288,9 @@ def test_a_service_back_before_the_action_credited_is_said_back_not_because_of_i
 @pytest.mark.unit
 def test_each_action_is_said_as_the_narration_words_it_after_the_first() -> None:
     # The narration words an action as the opening of a sentence - "Restarted
-    # io-shop" - and set after a semicolon it reads as one.
+    # io-shop" - and set after a semicolon it reads as one. One with no way back
+    # says so once: its standing is "nothing to put back" whenever it has none,
+    # and the same words in brackets beside it said it twice in one clause.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(actions=[
@@ -301,8 +303,7 @@ def test_each_action_is_said_as_the_narration_words_it_after_the_first() -> None
         ) \
         .then(
             _says("What Argus did: reverted the feature flag checkout-v2 (can be put back) - "
-                  "refuted, put back; restarted io-shop (nothing to put back) - confirmed, "
-                  "nothing to put back.")
+                  "refuted, put back; restarted io-shop - confirmed, nothing to put back.")
         )
 
 
@@ -369,6 +370,31 @@ def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> 
             _says("Argus opened a draft fix, pull request #315, for a person to review and "
                   "merge.",
                   "Argus recommends this and did not take it: restart the scorer.")
+        )
+
+
+@pytest.mark.unit
+def test_automatic_sync_left_off_is_said_between_the_draft_fix_and_the_recommendation() -> None:
+    # It decides whether merging the draft does anything, and turning it on too
+    # soon is the one move that puts the fault back - so with when, and with
+    # what sooner does, as the record's own item says it. After the fix, as the
+    # action items take it: the fix is what should arrive when it is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                actions=[an_action(SOME_ACTION, paused_sync_of="io-shop")],
+                pull_request=OpenedPullRequest(number=315, url="https://github.invalid/pull/315",
+                                               branch="dont-care"),
+                recommended_action="restart the scorer")
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("for a person to review and merge. Argus left automatic sync of io-shop off, "
+                  "to be turned back on once its repository says what should run: until then "
+                  "nothing merged reaches it, and turned on sooner it puts back what the "
+                  "repository says, undoing what Argus changed by hand. Argus recommends this")
         )
 
 

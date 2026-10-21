@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Final
 
-from argus_core.models import whether_it_can_be_put_back
+from argus_core.models import ResolutionStep, whether_it_can_be_put_back
 
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import (
@@ -39,6 +39,8 @@ from agent_postmortem.figures import (
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sections import (
     CANDIDATE_PREFIX,
+    SYNC_GOES_BACK_ON,
+    UNTIL_SYNC_IS_BACK_ON,
     causes_of,
     inside_a_sentence,
     resolution_of,
@@ -182,8 +184,7 @@ def _what_argus_did(evidence: IncidentEvidence,
     """Each action with what it came to, in the resolution's words - and where
     the service was back before the action credited with it, that it was, so
     the action is not read as what brought it back."""
-    taken = [f"{inside_a_sentence(step.action)} "
-             f"({whether_it_can_be_put_back(step.has_a_way_back)}) - {step.outcome}"
+    taken = [_an_action_taken(step)
              for step in resolution_of(evidence) if step.label is not None]
     said = [f"What Argus did: {'; '.join(taken)}."] if taken else []
 
@@ -196,12 +197,27 @@ def _what_argus_did(evidence: IncidentEvidence,
     return said
 
 
+def _an_action_taken(step: ResolutionStep) -> str:
+    """An action and what it came to, with whether it can be put back only
+    where it can: one with no way back comes to "nothing to put back", and the
+    same words beside it said it twice in one clause."""
+    way_back = (f" ({whether_it_can_be_put_back(step.has_a_way_back)})"
+                if step.has_a_way_back else "")
+    return f"{inside_a_sentence(step.action)}{way_back} - {step.outcome}"
+
+
 def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     """That Argus handed the incident to a person, where it ran out of moves;
     each cause Argus held back from testing, with why in its own words - not
-    its row's "never tried: ...", which would say it twice - the draft fix, and
-    the action recommended and not taken. Never as having fixed anything:
-    nothing ran the fix, and nothing took the recommendation.
+    its row's "never tried: ...", which would say it twice - the draft fix,
+    automatic sync an action left off, and the action recommended and not
+    taken. Never as having fixed anything: nothing ran the fix, and nothing
+    took the recommendation.
+
+    Sync left off with when it goes back on and what sooner does: it decides
+    whether merging the draft does anything, and turning it on too soon is the
+    one move that puts the fault back. Once for each application, after the
+    fix, as the action items take it.
 
     A cause by its rank, not its summary: that is the investigator's own
     sentences, and set inside this one they run on into the reason. Its rank
@@ -215,11 +231,16 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
                  if not cause.decided.tested and cause.decided.result]
     pull_request = evidence.pull_request
     recommended = evidence.recommended_action
+    left_off = dict.fromkeys(action.paused_sync_of for action in evidence.actions
+                             if action.paused_sync_of is not None)
 
     return [*(["Argus handed the incident to a person."] if evidence.escalated else []),
             *held_back,
             *([f"Argus opened a draft fix, pull request #{pull_request.number}, for a person "
                f"to review and merge."] if pull_request is not None else []),
+            *(f"Argus left automatic sync of {application} off, to be turned back on "
+              f"{SYNC_GOES_BACK_ON}: {UNTIL_SYNC_IS_BACK_ON}."
+              for application in left_off),
             *([f"Argus recommends this and did not take it: {recommended.rstrip('.')}."]
               if recommended else [])]
 

@@ -582,7 +582,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "What was still at risk when Argus stopped working on the incident, "
                 "in one sentence for the same reader - the fault still in place then, "
                 "or the same thing able to happen again. Empty where nothing was. Not "
-                "what Argus left to a person - a draft fix, a recommended action - "
+                "what Argus left to a person - a draft fix, automatic sync left off, "
+                "a recommended action - "
                 "which the document says itself. Say only what the record says: "
                 "nothing after Argus stopped was read."
             )
@@ -1202,8 +1203,12 @@ def _an_action_as_a_line(action: ActionRecord) -> str:
     Whether it can be put back is said in the page's own words: the brief said
     nothing of it, and a model guessed "reversible" a section away from a row
     saying "irreversible" - both the autonomy tier's words, about a restart.
+    Only where there is a way back: one with none stands as "nothing to put
+    back", and the same words beside it said it twice on one line.
     """
-    return (f"{action.action} ({whether_it_can_be_put_back(action.has_a_way_back)}) - "
+    way_back = (f" ({whether_it_can_be_put_back(action.has_a_way_back)})"
+                if action.has_a_way_back else "")
+    return (f"{action.action}{way_back} - "
             f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}")
 
 
