@@ -55,7 +55,7 @@ def test_a_minute_beside_one_on_another_day_carries_its_date() -> None:
     # reader can only read as a bug.
     some_instant = "2026-08-30T19:16:00Z"
     an_instant_the_day_before = "2026-08-29T19:16:00Z"
-    the_date_it_falls_on = "30 Aug"
+    the_date_it_falls_on = "Aug 30"
     the_clock_time_it_reads_as = some_instant[11:16]
 
     Scenario() \
@@ -109,7 +109,7 @@ def test_a_moment_beside_one_on_another_day_carries_its_date() -> None:
     # as one placed the same day.
     some_instant = "2026-09-05T10:13:07Z"
     an_instant_days_before = "2026-08-30T10:13:00Z"
-    the_date_it_falls_on = "05 Sep"
+    the_date_it_falls_on = "Sep 05"
     the_second_it_reads_as = some_instant[11:19]
 
     Scenario() \
@@ -143,7 +143,7 @@ def test_the_first_word_of_a_message_is_not_a_timestamp() -> None:
 
 @pytest.mark.unit
 def test_a_window_with_both_ends_says_how_long_it_was_and_where_it_ended() -> None:
-    # "29 Aug 19:16 to 30 Aug 19:16" is arithmetic the reader has to do to find
+    # "Aug 29 19:16 to Aug 30 19:16" is arithmetic the reader has to do to find
     # out it is a day. The span said outright is the same window already
     # understood, and the end is kept because the end is what it is anchored on.
     some_window_minutes = 10
@@ -172,7 +172,7 @@ def test_a_window_s_span_is_said_as_every_other_span_is(span: timedelta, said: s
     Scenario() \
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end))) \
-        .then(the_answer_was(f"the {said} before {some_end:%d %b %H:%M}"))
+        .then(the_answer_was(f"the {said} before {some_end:%b %d %H:%M}"))
 
 
 @pytest.mark.unit
@@ -202,7 +202,7 @@ def test_a_window_on_another_day_from_its_line_carries_its_date() -> None:
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end),
                                beside=to_iso(the_line_s_moment))) \
-        .then(the_answer_was(f"the 1 hour before {some_end:%d %b %H:%M}"))
+        .then(the_answer_was(f"the 1 hour before {some_end:%b %d %H:%M}"))
 
 
 @pytest.mark.unit
@@ -242,7 +242,7 @@ def test_a_window_anchored_on_another_day_from_its_line_carries_its_date() -> No
     Scenario() \
         .given(some_anchor) \
         .when(lambda: a_window(to_iso(some_anchor), None, beside=to_iso(the_line_s_moment))) \
-        .then(the_answer_was(f"anchored on {some_anchor:%d %b %H:%M}"))
+        .then(the_answer_was(f"anchored on {some_anchor:%b %d %H:%M}"))
 
 
 @pytest.mark.unit
@@ -253,7 +253,7 @@ def test_a_window_reaching_up_to_another_day_from_its_line_carries_its_date() ->
     Scenario() \
         .given(some_end) \
         .when(lambda: a_window(None, to_iso(some_end), beside=to_iso(the_line_s_moment))) \
-        .then(the_answer_was(f"up to {some_end:%d %b %H:%M}"))
+        .then(the_answer_was(f"up to {some_end:%b %d %H:%M}"))
 
 
 @pytest.mark.unit

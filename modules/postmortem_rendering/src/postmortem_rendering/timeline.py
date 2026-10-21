@@ -9,18 +9,15 @@ backwards.
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from typing import Final
 
 from argus_core import said_short
 from argus_core.models import PostmortemDocument
 from argus_narration import as_shown
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import on_the_clock
+from postmortem_rendering.formatting import on_the_clock, on_the_day
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
-
-_THE_DAY: Final = "%b %d"
 
 
 class TimelineRow(BaseModel):
@@ -78,7 +75,7 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     day = None
 
     for entry in postmortem.timeline:
-        said_day = on_the_clock(entry.at, _THE_DAY)
+        said_day = on_the_day(entry.at)
         at = on_the_clock(entry.at) if said_day == day else f"{said_day} {on_the_clock(entry.at)}"
         day = said_day
 

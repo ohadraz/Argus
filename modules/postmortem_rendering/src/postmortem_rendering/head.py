@@ -24,13 +24,13 @@ from argus_core.models import (
 )
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import as_revision, on_the_clock
+from postmortem_rendering.formatting import as_revision, on_the_clock, on_the_day
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
 
-# A moment with its date, as the head says the start of the incident's window.
-_WITH_THE_DAY: Final = "%b %d, %Y, %H:%M"
+# What follows a moment's day, as the head says the start of the incident's window.
+_AFTER_THE_DAY: Final = ", %Y, %H:%M"
 
 # The end of a window that falls on the day it began, which says that day once.
 _THE_TIME_OF_DAY: Final = "%H:%M"
@@ -122,11 +122,11 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
 
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
     if ended is not None:
-        return Line(runs=(Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} to "
-                                   f"{on_the_clock(ended, _the_end_said(began, ended))} UTC",
+        return Line(runs=(Run(text=f"{on_the_day(began, _AFTER_THE_DAY)} to "
+                                   f"{_the_end_said(began, ended)} UTC",
                               role=Role.MOMENT, at=began, until=ended),))
 
-    since = Run(text=f"{on_the_clock(began, _WITH_THE_DAY)} UTC", role=Role.MOMENT, at=began)
+    since = Run(text=f"{on_the_day(began, _AFTER_THE_DAY)} UTC", role=Role.MOMENT, at=began)
     if stopped is not None:
         return Line(runs=(since, Run(text=", metrics missing from then")))
 
@@ -139,13 +139,16 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
     still_not = began + impact.duration
     return Line(runs=(since,
                       Run(text=", not back to normal by "),
-                      Run(text=f"{on_the_clock(still_not, _the_end_said(began, still_not))} UTC",
+                      Run(text=f"{_the_end_said(began, still_not)} UTC",
                           role=Role.MOMENT, at=still_not)))
 
 
 def _the_end_said(began: datetime, ended: datetime) -> str:
-    """How the end of a window is said: its time alone on the day it began."""
-    return _THE_TIME_OF_DAY if ended.date() == began.date() else _WITH_THE_DAY
+    """The end of a window: its time alone on the day it began."""
+    if ended.date() == began.date():
+        return on_the_clock(ended, _THE_TIME_OF_DAY)
+
+    return on_the_day(ended, _AFTER_THE_DAY)
 
 
 def _how_finished(postmortem: Postmortem) -> Line:

@@ -18,11 +18,12 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.formatting import in_utc
+from postmortem_rendering.formatting import on_the_day
 
-# How a moment is said in the body of the document: its date spelled once, in
-# UTC, which every destination can print and none has to work out.
-_A_MOMENT: Final = "%b %d, %Y, %H:%M"
+# How a moment is said in the body of the document after its day: its date
+# spelled once, in UTC, which every destination can print and none has to work
+# out.
+_AFTER_THE_DAY: Final = ", %Y, %H:%M"
 
 
 class Role(StrEnum):
@@ -72,7 +73,7 @@ class Run(BaseModel):
     def a_moment(cls, at: datetime) -> Run:
         """A moment said in UTC, carrying the instant for a destination that
         can say it again on a reader's own clock."""
-        return cls(text=in_utc(at, _A_MOMENT), role=Role.MOMENT, at=at)
+        return cls(text=f"{on_the_day(at, _AFTER_THE_DAY)} UTC", role=Role.MOMENT, at=at)
 
     @classmethod
     def an_address(cls, address: str) -> Run:

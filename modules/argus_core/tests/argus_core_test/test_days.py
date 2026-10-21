@@ -1,9 +1,9 @@
-"""A day said as narration says one beside a time: the day of the month and
-the month, "20 Oct".
+"""A day said as narration says one beside a time: the month and the day of
+the month, "Oct 20" - as the rest of the page says one.
 
 The kernel's, because two parties have to agree on it: narration writes it, and
 the postmortem's reader of figures has to know one when it meets it. Read word by
-word, "20 Oct 20:31" is the figure "20", a word and a time, and the brief offered
+word, "Oct 20 20:31" is a word, the figure "20" and a time, and the brief offered
 the day of the month to the model as a number the incident gave.
 """
 
@@ -17,26 +17,26 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 
 
 @pytest.mark.unit
-def test_a_day_is_said_as_the_day_of_the_month_and_the_month() -> None:
+def test_a_day_is_said_as_the_month_and_the_day_of_the_month() -> None:
     Scenario() \
         .when(
             lambda: said_as_a_day(datetime(2026, 10, 20, 20, 31, 54, tzinfo=UTC))
         ) \
         .then(
-            the_answer_was("20 Oct")
+            the_answer_was("Oct 20")
         )
 
 
 @pytest.mark.unit
 def test_a_day_early_in_the_month_is_said_in_two_digits() -> None:
-    # As every day narration has said: "05 Sep", which is what a reader of it
+    # As every day the page has said: "Sep 05", which is what a reader of it
     # has to recognise.
     Scenario() \
         .when(
             lambda: said_as_a_day(datetime(2026, 9, 5, 10, 13, tzinfo=UTC))
         ) \
         .then(
-            the_answer_was("05 Sep")
+            the_answer_was("Sep 05")
         )
 
 

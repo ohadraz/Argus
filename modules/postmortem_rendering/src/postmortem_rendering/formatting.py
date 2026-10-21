@@ -13,6 +13,8 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from argus_core import said_as_a_day
+
 # A whole commit as git names one: forty hex digits, lower case.
 _A_WHOLE_COMMIT: Final = re.compile(r"[0-9a-f]{40}")
 
@@ -90,3 +92,16 @@ def on_the_clock(moment: datetime, pattern: str = "%H:%M:%S") -> str:
     thing forty times, and that width is the message column's.
     """
     return moment.astimezone(UTC).strftime(pattern)
+
+
+def on_the_day(moment: datetime, then: str = "") -> str:
+    """The day a moment falls on in UTC, said as the kernel says one, and
+    after it whatever of the moment `then` says.
+
+    The kernel's day rather than `strftime`'s `%b`, which follows the locale:
+    narration's lines on the same page say their days the kernel's way, and
+    the two would agree only while the process stayed in the C locale.
+    """
+    at = moment.astimezone(UTC)
+
+    return f"{said_as_a_day(at)}{at.strftime(then)}"

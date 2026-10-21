@@ -73,7 +73,7 @@ def test_an_instant_on_another_day_than_the_one_beside_it_keeps_its_date() -> No
         .given(some_claim_naming_an_instant_a_week_earlier) \
         .when(lambda: said_plainly(some_claim_naming_an_instant_a_week_earlier,
                                    beside="2026-08-30T10:15:00Z")) \
-        .then(the_answer_was("The deploy at 23 Aug 10:14 broke it."))
+        .then(the_answer_was("The deploy at Aug 23 10:14 broke it."))
 
 
 @pytest.mark.unit

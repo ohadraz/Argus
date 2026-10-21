@@ -209,7 +209,7 @@ def test_a_retrieval_line_dates_a_window_from_another_day() -> None:
     Scenario() \
         .given(some_request) \
         .when(lambda: build_narration([some_request])) \
-        .then(_the_only_line_mentions("30 Aug 10:14"))
+        .then(_the_only_line_mentions("Aug 30 10:14"))
 
 
 @pytest.mark.unit
@@ -513,7 +513,7 @@ def test_a_candidate_quoting_an_instant_on_another_day_keeps_its_date() -> None:
     Scenario() \
         .given(some_finding) \
         .when(lambda: build_narration([some_finding])) \
-        .then(_the_only_line_offers_the_causes(["The deploy at 23 Aug 10:14 broke it"]))
+        .then(_the_only_line_offers_the_causes(["The deploy at Aug 23 10:14 broke it"]))
 
 
 @pytest.mark.unit
@@ -526,7 +526,7 @@ def test_an_onset_on_another_day_is_placed_with_its_date() -> None:
     Scenario() \
         .given(some_onset) \
         .when(lambda: build_narration([some_onset])) \
-        .then(_the_only_line_mentions("at 23 Aug 10:14"))
+        .then(_the_only_line_mentions("at Aug 23 10:14"))
 
 
 @pytest.mark.unit
@@ -2603,7 +2603,7 @@ def test_a_pod_placed_after_the_onset_is_said_with_when_it_started() -> None:
     Scenario() \
         .given(some_placement) \
         .when(lambda: build_narration([some_placement])) \
-        .then(_the_only_line_says("io-shop-a on Tesla-T4 at 05 Sep 10:13:07"))
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at Sep 05 10:13:07"))
 
 
 @pytest.mark.unit

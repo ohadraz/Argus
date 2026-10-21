@@ -36,6 +36,7 @@ from argus_core import (
     level_given_in,
     level_said_in,
     parse_iso,
+    said_as_a_day,
     said_as_a_level,
     said_as_a_span,
     to_iso,
@@ -685,10 +686,10 @@ def _as_a_reader_says(at: datetime, day: date | None) -> str:
     seconds = f":{at:%S}" if at.second else ""
 
     if day is None:
-        return f"{at:%b %d, %Y, %H:%M}{seconds} UTC"
+        return f"{said_as_a_day(at)}, {at:%Y, %H:%M}{seconds} UTC"
 
     if at.date() != day:
-        return f"{at:%b %d, %H:%M}{seconds} UTC"
+        return f"{said_as_a_day(at)}, {at:%H:%M}{seconds} UTC"
 
     return f"{at:%H:%M}{seconds} UTC"
 

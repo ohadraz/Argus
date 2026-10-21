@@ -526,7 +526,7 @@ def test_a_line_dating_a_time_is_shown_with_its_day_as_it_was_said() -> None:
         ) \
         .then(
             the_answer_was("Asked for production change events, the 1 {T8.1} day before "
-                           "20 Oct 20:31 {T8.2}")
+                           "Oct 20 20:31 {T8.2}")
         )
 
 
