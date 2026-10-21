@@ -11,6 +11,10 @@ translates these into one.
 Only these. A request the API refused as asked - a 400 - is not the model
 being unavailable: in a replay it is a recording that no longer matches, and it
 has to stay loud.
+
+A streamed answer can fail after its 200 has arrived, as an error event inside
+the stream, and the SDK raises that with the status the response already had -
+so it is told by the type the event names, not by a status.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ import httpx2
 import pytest
 from argus_core.llm import ModelUnavailable
 from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
+from argus_core.models.model_policy import LARGEST_UNSTREAMED_ANSWER
 from argus_core.models.tool_definition import ToolDefinition
 from argus_core.models.transcript import Ask
 from argus_testkit import Assertion, Scenario
@@ -76,15 +81,64 @@ def test_a_request_the_api_refused_as_asked_is_not_said_as_unavailable() -> None
         )
 
 
-def _what_was_raised_by(client: AnthropicLLMClient) -> Exception | None:
+@pytest.mark.unit
+@pytest.mark.parametrize("error_type", ["overloaded_error", "api_error", "rate_limit_error",
+                                        "timeout_error"])
+def test_a_stream_that_failed_for_now_after_it_answered_is_said_as_unavailable(
+        error_type: str) -> None:
+    failure = _an_error_event_in_a_stream(error_type)
+
+    Scenario() \
+        .given(
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         client=_an_api_failing_with(failure))
+        ) \
+        .when(
+            lambda: _what_was_raised_by(client, streamed=True)
+        ) \
+        .then(
+            _the_failure_was_unavailable_for(failure)
+        )
+
+
+@pytest.mark.unit
+def test_a_stream_refused_as_asked_after_it_answered_is_not_said_as_unavailable() -> None:
+    failure = _an_error_event_in_a_stream("invalid_request_error")
+
+    Scenario() \
+        .given(
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         client=_an_api_failing_with(failure))
+        ) \
+        .when(
+            lambda: _what_was_raised_by(client, streamed=True)
+        ) \
+        .then(
+            _the_failure_was_left_as(failure)
+        )
+
+
+def _an_error_event_in_a_stream(error_type: str) -> anthropic.APIStatusError:
+    """What the SDK raises for an error event in a stream that answered 200: a
+    plain status error carrying the event's body."""
+    return anthropic.APIStatusError(
+        "dont care",
+        response=httpx2.Response(200, request=SOME_REQUEST),
+        body={"type": "error", "error": {"type": error_type, "message": "dont care"}})
+
+
+def _what_was_raised_by(client: AnthropicLLMClient,
+                        streamed: bool = False) -> Exception | None:
     """Runs the turn and hands back whatever came out of it - returned rather
-    than allowed to escape, so what was raised can be read."""
+    than allowed to escape, so what was raised can be read. Streamed where
+    asked, by asking for more room than an unstreamed answer may have."""
     dont_care_transcript = [Ask(text="dont care what was asked")]
     dont_care_tool = ToolDefinition(name="dont_care", description="dont care",
                                     properties={}, required=[])
 
     try:
-        client.converse(dont_care_transcript, [dont_care_tool])
+        client.converse(dont_care_transcript, [dont_care_tool],
+                        max_tokens=LARGEST_UNSTREAMED_ANSWER + 1 if streamed else None)
     except Exception as error:
         return error
 

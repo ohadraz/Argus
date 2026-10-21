@@ -192,6 +192,16 @@ _UNAVAILABLE_FOR_NOW: Final = (anthropic.RateLimitError,
                                anthropic.InternalServerError,
                                anthropic.APIConnectionError)
 
+# The same, as the type an error names in its body - which is all there is to
+# go by for an error event inside a stream that has already answered 200: the
+# SDK raises it with the status the response had, as a plain `APIStatusError`.
+RATE_LIMIT_ERROR_TYPE: Final = "rate_limit_error"
+API_ERROR_TYPE: Final = "api_error"
+OVERLOADED_ERROR_TYPE: Final = "overloaded_error"
+TIMEOUT_ERROR_TYPE: Final = "timeout_error"
+_UNAVAILABLE_ERROR_TYPES: Final = frozenset({RATE_LIMIT_ERROR_TYPE, API_ERROR_TYPE,
+                                             OVERLOADED_ERROR_TYPE, TIMEOUT_ERROR_TYPE})
+
 
 def to_messages(transcript: Transcript) -> list[MessageParam]:
     """Renders a conversation Argus is holding as the messages the API expects.
@@ -568,6 +578,12 @@ class AnthropicLLMClient:
         except _UNAVAILABLE_FOR_NOW as unavailable:
             raise ModelUnavailable(f"the model could not be reached for now: "
                                    f"{unavailable}") from unavailable
+        except anthropic.APIStatusError as failed:
+            if failed.type not in _UNAVAILABLE_ERROR_TYPES:
+                raise
+
+            raise ModelUnavailable(f"the model could not be reached for now: "
+                                   f"{failed}") from failed
 
     def _request(self,
                  transcript: Transcript,
