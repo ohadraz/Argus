@@ -837,7 +837,9 @@ def test_the_model_is_told_the_record_holds_nothing_of_the_pull_request_after_it
     # "passed through review" and another that a gap "stayed open until a human
     # reviewed the PR" - neither in the record. Argus never reads the pull
     # request after opening it, so it cannot say it is unreviewed either: what it
-    # knows is what it did, and that nothing after is recorded.
+    # knows is what it did, and that nothing after is recorded. Told that, a
+    # write-up's summary told its reader so too, which the document already
+    # says beside the pull request.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
@@ -851,7 +853,28 @@ def test_the_model_is_told_the_record_holds_nothing_of_the_pull_request_after_it
         .then(
             _says("PR #7 is a draft Argus opened for a person to review and merge. "
                   "The record holds nothing about it after that: do not say it was "
-                  "reviewed, approved or merged, or that it was not.")
+                  "reviewed, approved or merged, or that it was not - nor that the "
+                  "record holds nothing, which the document says itself.")
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_nothing_ran_the_fix_it_proposed() -> None:
+    # Told the pull request was a draft for a person to review, a write-up
+    # praised it for correcting the scrape config - a fix nothing ran.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(
+                    number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                    branch="argus/fix-abc"))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Nothing ran its test or its fix: say what it proposes, not that "
+                  "it corrects anything.")
         )
 
 
@@ -2076,6 +2099,29 @@ def test_the_log_lines_reaching_into_an_unobserved_stretch_are_the_service_s_acc
 
 
 @pytest.mark.unit
+def test_the_service_is_said_to_be_seen_through_the_log_lines_reaching_into_an_unobserved_stretch(
+) -> None:
+    # Told the lines are the service's own account of the stretch, a write-up
+    # still said the shop kept serving "while it went unobserved", citing those
+    # very lines. Seen up to where they reach, and no further: where they end
+    # before the reading did, the service may have stopped with its metrics.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside]),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says_on_one_line("reach into it until",
+                              "up to then the service was seen through them")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("log_lines", "pointed_to"), [
     ([f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"], True),
     ([f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"], False)
@@ -2463,6 +2509,21 @@ def test_what_the_response_did_is_asked_for_under_what_went_wrong_rather_than_as
 
 
 @pytest.mark.unit
+def test_a_factor_is_asked_to_credit_an_alert_with_what_its_rule_watches_alone() -> None:
+    # A write-up's factor said a scrape's empty target list "was found only
+    # when the absence alert fired": the alert found the readings missing, and
+    # nothing read the target list.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("An alert finds what its rule watches, not the "
+                                      "cause behind it")
+        )
+
+
+@pytest.mark.unit
 def test_a_factor_is_asked_for_as_what_would_have_helped_with_the_root_cause_still_true() -> None:
     # Told only that a factor "did not cause it alone", a write-up gave the
     # root cause - no limit on the wait for an optional dependency - again as
@@ -2498,14 +2559,16 @@ def test_a_change_the_response_left_on_purpose_is_asked_for_as_not_having_gone_w
 def test_detection_is_asked_to_go_wrong_only_by_what_came_after_the_rule_s_wait() -> None:
     # Counted the rule's wait, a write-up still listed the whole gap under what
     # went wrong. The wait is how the rule was made; only what came after it
-    # is detection going wrong.
+    # is detection going wrong. Said of every rule, it had a write-up of a rule
+    # that waits for nothing work the gap out less a wait the rule never had.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
                                                 [WENT_WRONG_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("after the alert rule's own wait")
+            _the_description_mentions("after the alert rule's own wait",
+                                      "fires as soon as its condition holds has no wait")
         )
 
 
@@ -2702,18 +2765,35 @@ def test_the_summary_is_asked_to_say_only_what_the_record_says() -> None:
 
 
 @pytest.mark.unit
+def test_the_summary_is_asked_for_how_long_by_the_duration_s_name() -> None:
+    # Asked "for how long", a write-up of a stretch the metrics did not cover
+    # left the span out: the brief says it is no stretch the service is known
+    # to have spent in trouble, and nothing tied the summary's "how long" to it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[EXECUTIVE_SUMMARY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(f"for how long, as {{{DURATION_FIGURE}}}")
+        )
+
+
+@pytest.mark.unit
 def test_how_quickly_the_alert_came_is_asked_to_be_weighed_where_it_was_shown() -> None:
     # Given the span from the onset to the alert, from a rule that waits for
     # nothing, a write-up said nothing of detection at all: told only when it
     # went wrong, it was never asked to weigh it. Only where it was shown: an
-    # incident with no onset measured has no such span to weigh.
+    # incident with no onset measured has no such span to weigh. Asked in the
+    # description over the three lists, the next write-up weighed it in none.
     Scenario() \
         .when(
-            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["description"]
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
         ) \
         .then(
             _the_description_mentions("Where you are shown how long after the onset",
-                                      "weigh detection", "does not show what took that long")
+                                      "weigh detection", "does not show what took that long",
+                                      f"or under {WENT_WELL_FIELD}")
         )
 
 

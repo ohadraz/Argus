@@ -1170,6 +1170,100 @@ def test_a_symptom_of_one_sentence_is_accepted() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("missing_check", [
+    "Nothing checks that the two names agree.",
+    "Nothing seen checks that the two names agree.",
+    "The record shows no check that an old reader survives new entries."
+], ids=["nothing-checks", "nothing-seen-checks", "no-check"])
+def test_a_root_cause_saying_a_check_is_missing_is_named(missing_check: str) -> None:
+    # A missing check is a contributing factor. Told so in the root cause's
+    # own description, three write-ups said one there anyway, in the words of
+    # the reading of the code they cited.
+    Scenario() \
+        .given(
+            an_answer_blaming_a_missing_check := _an_answer(root_cause=missing_check)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_blaming_a_missing_check, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(missing_check),
+                _named(CONTRIBUTING_FACTORS_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_step_of_the_cause_saying_a_check_is_missing_is_named() -> None:
+    # The chain's last step said "nothing seen checks that the two names
+    # agree", though the chain is told the safeguard is a factor and no step.
+    missing_check = "The rename shipped alone, and nothing seen checks that the names agree."
+
+    Scenario() \
+        .given(
+            an_answer_with_a_step_blaming_a_missing_check := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["E1"]),
+                              SubmittedStep(step=missing_check, cites=["E2"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_step_blaming_a_missing_check, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(missing_check),
+                _named(CONTRIBUTING_FACTORS_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("limit_of_the_evidence", [
+    "No test or reproduction was run, so the chain stops here.",
+    "The record does not show why the change was made, or why no test caught it.",
+    "The scrape config is Code-Fix's reading, which nothing verified."
+], ids=["no-test-was-run", "why-no-test-caught-it", "nothing-verified"])
+def test_a_step_of_the_cause_saying_what_the_evidence_does_not_reach_is_accepted(
+        limit_of_the_evidence: str) -> None:
+    # Where the evidence stops is no safeguard missing. The first two are steps
+    # of recorded write-ups, and the third is the hedge an F-only step is asked
+    # for: a check the rule refused in any of them would put back an answer
+    # that said what it was told to.
+    Scenario() \
+        .given(
+            an_answer_with_a_step_at_the_evidence_s_limit := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["E1"]),
+                              SubmittedStep(step=limit_of_the_evidence, cites=["E2"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_step_at_the_evidence_s_limit, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_saying_a_check_is_missing_is_accepted() -> None:
+    # Where the missing check belongs.
+    Scenario() \
+        .given(
+            an_answer_with_a_factor_naming_a_missing_check := _an_answer(
+                contributing_factors=[SubmittedFactor(
+                    factor="Nothing checks that the two names agree.",
+                    addressed_by=["AI-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_factor_naming_a_missing_check, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_turn_submitting_twice_is_named() -> None:
     # Two calls do not say which is the answer. In the turn that showed it the
     # real one came first and a placeholder second, but a model revising its

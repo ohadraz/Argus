@@ -532,8 +532,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "type": "string",
             "description": (
                 "The same incident for a reader who does not work on the "
-                "service: what broke, for how long, who it affected, and what "
-                "was done. No component names unless they are unavoidable. Say "
+                f"service: what broke, for how long, as {{{DURATION_FIGURE}}} - "
+                "whatever stretch the brief says it measures - who it affected, and "
+                "what was done. No component names unless they are unavoidable. Say "
                 "only what the record says - of a change, of the service, of the "
                 "people - and nothing it does not."
             )
@@ -611,8 +612,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "Not the root cause again in other words: a factor is something that, "
             "had it been otherwise, would have stopped or shortened the incident "
             f"even with what {ROOT_CAUSE_FIELD} says still true. "
-            f"{_A_SAFEGUARD_NOBODY_SAW} Each names at least one action item that "
-            "answers it."
+            f"{_A_SAFEGUARD_NOBODY_SAW} An alert finds what its rule watches, not the "
+            "cause behind it: say a fault was found only by what the record shows "
+            "found it. Each names at least one action item that answers it."
         ),
         ACTION_ITEMS_FIELD: _a_list_of(
             {ITEM_FIELD: {"type": "string"},
@@ -646,17 +648,25 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                            # Left off so a rollback holds, automatic sync was
                            # listed here as well as in the resolution and the
                            # record's own item - and called a failure when it
-                           # went as designed.
+                           # went as designed. Detection is asked for here
+                           # rather than over the three lists, where a
+                           # write-up weighed it in none of them.
                            WENT_WRONG_FIELD: {
                                **_SENTENCES,
                                "description": (
                                    "A change the response left in place on purpose, "
                                    "which one of the record's own action items undoes "
                                    "(automatic sync left off), went as designed and "
-                                   "did not go wrong. Detection went wrong only by "
-                                   "what came after the alert rule's own wait. Not "
-                                   "the root cause or a contributing factor again - "
-                                   "the document says those already."
+                                   "did not go wrong. Where you are shown how long "
+                                   "after the onset the alert came, weigh detection - "
+                                   f"here, or under {WENT_WELL_FIELD} where it was "
+                                   "quick: that span, and where the record does not "
+                                   "show what took that long, say so. Detection went "
+                                   "wrong only by what came after the alert rule's own "
+                                   "wait; a rule that fires as soon as its condition "
+                                   "holds has no wait to count. Not the root cause or "
+                                   "a contributing factor again - the document says "
+                                   "those already."
                                )
                            },
                            # Told only that any list may be empty, write-ups
@@ -677,9 +687,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "description": (
                 "What went well, what went wrong, and where the incident got "
                 "lucky - a risk that went unnoticed this time. Any list may be "
-                f"empty. {_A_SAFEGUARD_NOBODY_SAW} Where you are shown how long after "
-                "the onset the alert came, weigh detection in one of them: that span, "
-                "and where the record does not show what took that long, say so."
+                f"empty. {_A_SAFEGUARD_NOBODY_SAW}"
             )
         },
         REACHES_A_CAUSE_FIELD: {
@@ -988,14 +996,19 @@ def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) ->
     record. Nor is the opposite: Argus never reads a pull request after opening
     it, and the incident went to a person with it in hand, so the claim it can
     make is what it did. Both directions are refused, since either one is a state
-    nobody read. Nothing where no pull request was opened.
+    nobody read. Told that, a summary said it to its reader, which the document
+    already does beside the pull request. And that nothing ran the fix: told only
+    it was a draft, a write-up praised it for correcting what it changed.
+    Nothing where no pull request was opened.
     """
     if pull_request is None:
         return []
 
     return [f"PR #{pull_request.number} is a draft Argus opened for a person to review "
             f"and merge. {NOTHING_RECORDED_AFTER_IT_WAS_OPENED}: do not say it "
-            f"was reviewed, approved or merged, or that it was not."]
+            f"was reviewed, approved or merged, or that it was not - nor that the "
+            f"record holds nothing, which the document says itself. Nothing ran its "
+            f"test or its fix: say what it proposes, not that it corrects anything."]
 
 
 def _a_line_of_the_narration(entry: TimelineEntry) -> str:
@@ -1245,6 +1258,11 @@ def _the_logs_reaching_into(evidence: IncidentEvidence,
     Then where the reading ended, since where the lines stop is as often where
     the reading did as where the service did: told only how far they reach, a
     model wrote that nothing was known of the shop after them.
+
+    And that the service was seen through them: told they are its account, a
+    write-up still said it kept serving while it went unobserved, citing them.
+    Up to where they reach and no further - where they end before the reading
+    did, the service may have stopped with its metrics.
     """
     if not evidence.log_lines:
         return "No logs were read."
@@ -1253,7 +1271,8 @@ def _the_logs_reaching_into(evidence: IncidentEvidence,
     reached = (
         f"Log lines read reach into it until {_shown(LOGS_REACH_UNTIL_FIGURE, figures)}: "
         f"{', '.join(f'[{label}]' for label in labels)}. They are the service's own account "
-        f"of that stretch: what they report there is what is known of how it was doing."
+        f"of that stretch: what they report there is what is known of how it was doing, "
+        f"and up to then the service was seen through them."
         if labels else "No log line read reaches into it."
     )
 

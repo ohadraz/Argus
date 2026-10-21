@@ -63,8 +63,10 @@ from agent_postmortem.figures import (
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     CAUSAL_CHAIN_FIELD,
+    CONTRIBUTING_FACTORS_FIELD,
     LEAD_EFFECTS_FIELD,
     REQUIRED_FIELDS,
+    ROOT_CAUSE_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SubmittedPostmortem,
@@ -130,6 +132,16 @@ _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 # A sentence's stop with another sentence after it.
 _A_SECOND_SENTENCE: Final = re.compile(r"[.!?]\s+\S")
 
+# A check said to be missing: nothing (seen) checks, or no (such) check. With
+# a word allowed between, since "nothing seen checks" is how the rule that a
+# safeguard is one not seen has the model say it. A standing check, in the
+# present tense and never a test: "nothing verified" is the hedge an F-only
+# step is asked for, and "no test was run" a limit of the evidence.
+_A_MISSING_CHECK: Final = re.compile(
+    r"\b(?:nothing|nobody|no one)(?:\s+\w+)?\s+(?:checks|verifies|validates|catches)\b"
+    r"|\bno\s+(?:\w+\s+)?(?:checks?|safeguards?)\b",
+    re.IGNORECASE)
+
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
     "write a figure the incident gave as the name shown after it, braces and all, "
@@ -158,6 +170,7 @@ def faults_in(answer: SubmittedPostmortem,
     """Everything about this answer that has to be put right, or nothing."""
     return (_missing_fields(answer)
             + _a_symptom_of_more_than_one_sentence(answer)
+            + _missing_checks_outside_the_factors(answer)
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
             + _factors_nothing_answers(answer, given)
@@ -228,6 +241,27 @@ def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[st
 
     return [f"the {SYMPTOM_FIELD} [{symptom}] is more than one sentence - it is the "
             f"document's title, so say it in one, of a few words"]
+
+
+def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str]:
+    """The root cause and each step of the cause, where it says a check is
+    missing.
+
+    A missing check is a contributing factor: it did not cause the incident,
+    it failed to stop it. Told so in both fields' descriptions, three
+    write-ups said one in the root cause or the chain anyway, in the words of
+    the reading of the code they cited. The fault names the rule, not the
+    words, so the claim moves rather than being said again in others.
+    """
+    said = [prose for prose in [answer.root_cause,
+                                *(step.step for step in answer.causal_chain or [])]
+            if prose is not None]
+
+    return [f"[{prose}] says a check is missing - a missing check or safeguard is one of "
+            f"the {CONTRIBUTING_FACTORS_FIELD}: say it there, not in the {ROOT_CAUSE_FIELD} "
+            f"or the {CAUSAL_CHAIN_FIELD}"
+            for prose in said
+            if _A_MISSING_CHECK.search(prose)]
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:
