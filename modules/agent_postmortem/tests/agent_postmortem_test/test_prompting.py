@@ -1012,15 +1012,22 @@ def test_the_brief_names_the_trigger_s_own_change_where_another_shares_its_insta
 
 
 @pytest.mark.unit
-def test_a_trigger_no_change_read_dates_is_named_by_its_move() -> None:
-    # The change feed read nothing, and the Trigger section still says the
-    # flag went from one state to the other. Said nothing of, the model is not
-    # told the document states it.
+@pytest.mark.parametrize(("from_state", "to_state", "named"), [
+    ("off", "on", "checkout-v2 went from off to on"),
+    (None, "on", "checkout-v2 went from unknown to on"),
+    ("off", None, "checkout-v2 went from off to unknown")
+], ids=["both-ends", "to-state-only", "from-state-only"])
+def test_a_trigger_no_change_read_dates_is_named_by_its_move_as_the_trigger_section_says_it(
+        from_state: str | None, to_state: str | None, named: str) -> None:
+    # The change feed read nothing, and the Trigger section still says what
+    # moved, an end nobody recorded as unknown. Said nothing of, the model is
+    # not told the document states it; said otherwise, the two name one change
+    # two ways.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
                 candidates=[a_candidate("dont care", subject="checkout-v2",
-                                        from_state="off", to_state="on",
+                                        from_state=from_state, to_state=to_state,
                                         tested=True, result=Verdict.CONFIRMED)],
                 changes=[])
         ) \
@@ -1028,8 +1035,7 @@ def test_a_trigger_no_change_read_dates_is_named_by_its_move() -> None:
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(
-            _says_on_one_line("already states what set it off",
-                              "the move of checkout-v2 from off to on")
+            _says_on_one_line("already states what set it off", named)
         )
 
 

@@ -1089,11 +1089,10 @@ def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:
 
 def _the_move_of(subject: str, from_state: str | None, to_state: str | None) -> str:
     """A trigger no change read dates, said as the move its candidate names -
-    as the document's Trigger section says it."""
-    if from_state and to_state:
-        return f"the move of {subject} from {from_state} to {to_state}"
-
-    return f"the move of {subject} to {to_state}" if to_state else f"the change to {subject}"
+    as the document's Trigger section says it, an end nobody recorded as
+    unknown. It always names one end: a trigger nothing moved and nothing read
+    dates is no trigger (`trigger_of`)."""
+    return f"{subject} went from {from_state or 'unknown'} to {to_state or 'unknown'}"
 
 
 def the_change_that_set_it_off(evidence: IncidentEvidence) -> CitedChange | None:
