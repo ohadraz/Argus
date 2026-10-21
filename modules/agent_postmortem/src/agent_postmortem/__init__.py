@@ -27,6 +27,7 @@ from agent_postmortem.assumptions import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.briefing import STANDING_BRIEF, postmortem_policy
+from agent_postmortem.conversation import WRITE_UP_TOOLS
 from agent_postmortem.evidence import (
     ActionRecord,
     CandidateRecord,
@@ -73,6 +74,7 @@ __all__ = [
     "STANDING_BRIEF",
     "UNPRICED_TITLE_ASSUMPTION_LABEL",
     "WORKING_YEAR_ASSUMPTION_LABEL",
+    "WRITE_UP_TOOLS",
     "ActionRecord",
     "CandidateRecord",
     "DeploymentChangesRecord",

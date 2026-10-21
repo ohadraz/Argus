@@ -49,6 +49,7 @@ from typing import Any, Final, NamedTuple
 import httpx2
 import psycopg
 from agent_investigator.tools.answer import ANSWER_TOOL
+from agent_postmortem import WRITE_UP_TOOLS
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load
 from argus_core import get_settings, to_iso
@@ -1520,7 +1521,10 @@ _THE_WRITE_UP_AFRESH: Final = "-write-up-afresh"
 
 
 def _calls_the_write_up(answer: Path) -> bool:
-    return any(block.get("type") == TOOL_USE_TYPE and block.get("name") == SUBMIT_TOOL_NAME
+    """Whether an answer is one of the write-up's - the answer itself, or the
+    order of its chain asked after it - by the tools the agent says its
+    write-up calls."""
+    return any(block.get("type") == TOOL_USE_TYPE and block.get("name") in WRITE_UP_TOOLS
                for block in load(answer.stem).get("content", []))
 
 

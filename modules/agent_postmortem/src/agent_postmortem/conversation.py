@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from typing import Final
 
 from argus_core import A_REVISION
 from argus_core.llm import LLMClient
@@ -22,7 +23,7 @@ from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import Figure, with_figures_written
 from agent_postmortem.measuring import Measurements
-from agent_postmortem.ordering import put_in_order
+from agent_postmortem.ordering import ORDER_TOOL_NAME, put_in_order
 from agent_postmortem.prompting import (
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
@@ -39,6 +40,12 @@ from agent_postmortem.revisions import revisions_of, with_revisions_corrected
 from agent_postmortem.sections import record_action_items_of
 
 logger = logging.getLogger(__name__)
+
+# Every tool the write-up's calls answer with: the answer itself, and the
+# order of its chain asked after it. Declared here, where both calls are made,
+# so whatever reads a recorded write-up knows all of it by one name - and a
+# call the write-up gains is not taken for the walk going on.
+WRITE_UP_TOOLS: Final = frozenset({SUBMIT_TOOL_NAME, ORDER_TOOL_NAME})
 
 
 def answer_worth_writing(llm: LLMClient,
