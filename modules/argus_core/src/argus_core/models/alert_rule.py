@@ -39,6 +39,10 @@ class AlertRuleStanding(BaseModel):
     `series_unit` is the unit that series is in, as Grafana names a unit
     (`ms`, `s`, `percentunit`), and `None` where nothing said one: unknown,
     never guessed, since a level said in the wrong unit is wrong by its scale.
+
+    `series_is_the_error_rate` is that series being the very query the error
+    rate is read by: then what the rule watched is a figure every reader is
+    already given as the error rate, and saying both says it twice.
     """
 
     rule: str
@@ -50,3 +54,4 @@ class AlertRuleStanding(BaseModel):
     pending_seconds: int = Field(ge=0)
     series_query: str | None = None
     series_unit: str | None = None
+    series_is_the_error_rate: bool = False

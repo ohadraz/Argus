@@ -175,6 +175,9 @@ class Measurements(BaseModel):
     # The unit that series is in, as Grafana names a unit - read off the rule's
     # panel or its metric's name - and `None` where neither said one.
     rule_series_unit: str | None = None
+    # Whether that series is the very query the error rate is read by: then what
+    # the rule watched is the error rate, already said as one.
+    rule_series_is_the_error_rate: bool = False
     # How far back the paging rule's condition looks - "no sample for 5m" holds
     # only once five minutes have passed with none - which is part of the time
     # from an onset to its alert, as the wait is. Nothing for a check that looks
@@ -304,6 +307,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_wait_unread=evidence.rule is not None and waits is None,
         rule_series_query=alert_rule.series_query if alert_rule is not None else None,
         rule_series_unit=alert_rule.series_unit if alert_rule is not None else None,
+        rule_series_is_the_error_rate=(alert_rule is not None
+                                       and alert_rule.series_is_the_error_rate),
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))

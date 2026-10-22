@@ -480,6 +480,28 @@ def test_a_series_card_names_the_line_its_rule_pages_past() -> None:
 
 
 @pytest.mark.unit
+def test_a_series_that_is_the_error_rate_leaves_its_worst_minute_to_the_peak_card() -> None:
+    # Its worst minute is the peak error rate, on the card beside it; said again
+    # in the note it is the one figure twice.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=8), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.38,
+                              rule_series_harm=RuleSeriesHarm(before=0.00992, while_broken=0.276,
+                                                              at_its_worst=0.38,
+                                                              worse_when="above", line=0.1,
+                                                              unit="percentunit",
+                                                              is_the_error_rate=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("HighErrorRate")).cards[3].note
+        ) \
+        .then(
+            the_answer_was("the rule's line is 10%"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("harm", "value", "note"), [
     (RuleSeriesHarm(before=120.0, while_broken=640.0, at_its_worst=910.0,
                     worse_when="above", line=600.0, unit="ms"),

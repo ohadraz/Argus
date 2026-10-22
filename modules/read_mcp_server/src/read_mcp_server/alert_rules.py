@@ -41,7 +41,7 @@ from typing import Any, Final, Protocol
 import httpx2
 from argus_core import SettingsSlice
 from argus_core.models import AlertRuleStanding, RuleLine, WorseWhen
-from metrics_source import RuleSeries
+from metrics_source import RuleSeries, is_the_error_rate
 
 from read_mcp_server.units import the_unit_its_name_carries
 
@@ -243,7 +243,8 @@ def how_the_rule_stands(rule: str, *, fetch: FetchFromGrafana) -> AlertRuleStand
             keep_firing_for_seconds=_seconds_in(definition.get(KEEP_FIRING_FOR)),
             pending_seconds=_seconds_in(definition.get(FOR)),
             series_query=series.query if series is not None else None,
-            series_unit=_the_unit_of(rule, definition, series, fetch)
+            series_unit=_the_unit_of(rule, definition, series, fetch),
+            series_is_the_error_rate=series is not None and is_the_error_rate(series.query)
         )
     except AlertRuleUnreadable:
         raise

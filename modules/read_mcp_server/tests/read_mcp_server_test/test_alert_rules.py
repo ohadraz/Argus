@@ -98,6 +98,9 @@ SOME_PANEL = 4
 SOME_RESCALED_QUERY = 'max(http_request_duration_seconds{quantile="0.95"}) * 1000'
 SOME_QUERY_IN_SECONDS = 'max(http_request_duration_seconds{quantile="0.95"})'
 SOME_OTHER_QUERY = "avg(some_other_ratio)"
+# The query the metrics read takes the error rate by.
+THE_ERROR_RATE_QUERY = ('sum(rate(http_requests_total{code=~"5.."}[1m]))'
+                        " / sum(rate(http_requests_total[1m]))")
 
 # Grafana's other words for a rule's state in its Prometheus-compatible answer,
 # which Argus never reads by name: anything but inactive is not normal.
@@ -264,6 +267,26 @@ def test_a_rule_whose_series_argus_cannot_follow_names_no_query() -> None:
                 condition="D"))
         ) \
         .then(_it_watches(None))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (THE_ERROR_RATE_QUERY, True),
+    (SOME_QUERY, False)
+])
+def test_a_rule_says_whether_it_watches_the_error_rate_itself(query: str,
+                                                              expected: bool) -> None:
+    # Then what it watched is a figure every reader is already given as the
+    # error rate, and whoever says both would say it twice.
+    Scenario() \
+        .when(
+            lambda: how_the_rule_stands(SOME_RULE, fetch=a_grafana_holding(
+                steps=(a_query("A", query),
+                       a_reduce("B", of="A"),
+                       a_threshold("C", of="B", evaluator=GT)),
+                condition="C"))
+        ) \
+        .then(_it_watches_the_error_rate(expected))
 
 
 @pytest.mark.unit
@@ -990,6 +1013,20 @@ def _it_watches(expected: str | None) -> Assertion[AlertRuleStanding]:
             raise AssertionError(
                 f"Expected the rule to watch the series [{expected}], got "
                 f"[{standing.series_query}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_watches_the_error_rate(expected: bool) -> Assertion[AlertRuleStanding]:
+    def assertion(standing: AlertRuleStanding) -> bool:
+        if standing.series_is_the_error_rate != expected:
+            raise AssertionError(
+                f"Expected the rule's series [{standing.series_query}] "
+                f"{'to be' if expected else 'not to be'} the error rate, it "
+                f"{'is not' if expected else 'is'}."
             )
 
         return True

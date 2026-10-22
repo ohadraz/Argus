@@ -88,6 +88,16 @@ _EVERY_BUCKET_NEEDS: Final = frozenset(QUERIES) - {
 }
 
 
+def is_the_error_rate(query: str) -> bool:
+    """Whether `query` is the one the error rate is read by, however it is laid
+    out - PromQL reads nothing into whitespace, so neither does this.
+
+    A paging rule over the error rate itself watches the figure every reader of
+    the incident is already given as the error rate, and whoever says what the
+    rule watched would otherwise say that figure twice."""
+    return "".join(query.split()) == "".join(QUERIES["error_rate"].split())
+
+
 def buckets_between(started_at: datetime,
                     ended_at: datetime,
                     settings: MetricsSettings,

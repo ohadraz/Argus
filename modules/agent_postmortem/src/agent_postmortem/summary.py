@@ -28,6 +28,7 @@ from agent_postmortem.figures import (
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
     DURATION_FIGURE,
+    ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
     LOG_READING_ENDED_FIGURE,
@@ -162,16 +163,22 @@ def _how_bad(measured: Measurements, written: _Written) -> list[str]:
     and the series its alert watches where that got worse - each on its own,
     since the series is harm whatever the failed requests did: a fault in what
     the service answers fails no request, and a latency incident with a small
-    rise in failures is not summed up by them."""
+    rise in failures is not summed up by them.
+
+    Except where the series is the error rate itself: then it is the failed
+    requests already said, and only how bad its worst minute got is new."""
     said = []
 
     rates = measured.error_rates
-    if rates is not None and rates.a_rise_was_measured:
+    rose = rates is not None and rates.a_rise_was_measured
+    if rose:
         said.append(f"{written(ERRORS_WHILE_BROKEN_FIGURE)} of requests failed while it was "
                     f"broken, against {written(ERRORS_BEFORE_FIGURE)} before it began.")
 
     levels = measured.rule_series
-    if levels is not None and levels.got_worse:
+    if levels is not None and levels.got_worse and rose and measured.rule_series_is_the_error_rate:
+        said.append(f"At its worst, {written(ERRORS_AT_WORST_FIGURE)} failed.")
+    elif levels is not None and levels.got_worse:
         said.append(f"What its alert watches went from {written(SERIES_BEFORE_FIGURE)} before "
                     f"it began to {written(SERIES_AT_WORST_FIGURE)} at its worst.")
 

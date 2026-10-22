@@ -28,7 +28,7 @@ from argus_testkit import (
     the_error_mentioned,
 )
 from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
-from metrics_source.prometheus_adapter import buckets_between
+from metrics_source.prometheus_adapter import buckets_between, is_the_error_rate
 
 # Prometheus's own vocabulary, spelled out here rather than shared with the
 # module under test: the assertion is that Argus speaks *these* words, and a
@@ -492,6 +492,23 @@ def test_a_rules_query_answered_in_several_series_is_logged_as_a_warning(
                                   "rule query matched several series",
                                   values={"query": some_rule_query, "series": 2})
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (QUERY_FOR["error_rate"], True),
+    ('sum(rate(http_requests_total{code=~"5.."}[1m]))\n  /\n  sum(rate(http_requests_total[1m]))',
+     True),
+    (QUERY_FOR["p95_ms"], False)
+])
+def test_a_query_is_the_error_rate_only_where_it_is_the_one_asked_for_it(query: str,
+                                                                        expected: bool) -> None:
+    # A rule over the error rate itself pages on the figure the postmortem
+    # already gives as the error rate, and said twice it is a repeat. Laid out
+    # differently it is the same query - PromQL reads nothing into spaces.
+    Scenario() \
+        .when(lambda: is_the_error_rate(query)) \
+        .then(the_answer_was(expected))
 
 
 def _every_fixed_query_answering_for(minute: datetime) -> dict[str, list[tuple[float, str]]]:

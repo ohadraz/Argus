@@ -1780,6 +1780,26 @@ def test_impact_carries_the_unit_of_the_rules_series() -> None:
 
 
 @pytest.mark.unit
+def test_impact_carries_that_the_rules_series_is_the_error_rate() -> None:
+    # Then the page already has the error rate's own figures for it, and says
+    # only what those do not.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=0.01, while_broken=0.28,
+                                             at_its_worst=0.38, worse_when="above"),
+                rule_series_is_the_error_rate=True)
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None).rule_series_harm
+        ) \
+        .then(
+            the_answer_was(RuleSeriesHarm(before=0.01, while_broken=0.28, at_its_worst=0.38,
+                                          worse_when="above", is_the_error_rate=True))
+        )
+
+
+@pytest.mark.unit
 def test_impact_carries_no_rules_series_that_held() -> None:
     # Nothing is not a harm, and a series no worse than before carried as one
     # would put a card for it on the page.

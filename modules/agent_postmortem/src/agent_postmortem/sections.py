@@ -206,7 +206,9 @@ def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -
                                                   at_its_worst=series.at_its_worst,
                                                   worse_when=series.worse_when,
                                                   line=series.line,
-                                                  unit=measured.rule_series_unit)
+                                                  unit=measured.rule_series_unit,
+                                                  is_the_error_rate=(
+                                                      measured.rule_series_is_the_error_rate))
                   if series is not None and series.got_worse else None,
                   logs_in_the_gap=logs_in_the_gap)
 

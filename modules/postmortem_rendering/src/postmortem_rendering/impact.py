@@ -249,6 +249,9 @@ def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     And the line the rule pages past, in the same unit, where it was read: the
     alert's words may say "80%" of a series written as 0.459, and the line lets
     a reader bridge the two without the page guessing a unit.
+
+    Without the worst minute where the series is the error rate itself: that is
+    the peak error rate, on its own card already.
     """
     harm = impact.rule_series_harm if impact else None
 
@@ -258,11 +261,12 @@ def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     def said(level: float) -> str:
         return level_said_in(level, harm.unit)
 
-    line = f"; the rule's line is {said(harm.line)}" if harm.line is not None else ""
+    worst = [] if harm.is_the_error_rate else [f"worst minute {said(harm.at_its_worst)}"]
+    line = [f"the rule's line is {said(harm.line)}"] if harm.line is not None else []
 
     return (Card(value=f"{said(harm.before)} to {said(harm.while_broken)}",
                  label=f"what the alert watches, {_BEFORE_AND_WHILE_BROKEN}",
-                 note=f"worst minute {said(harm.at_its_worst)}{line}"),)
+                 note="; ".join([*worst, *line]) or None),)
 
 
 def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:

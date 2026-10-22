@@ -236,6 +236,31 @@ def test_where_both_moved_the_failed_requests_and_what_the_alert_watches_are_bot
 
 
 @pytest.mark.unit
+def test_where_the_alert_watches_the_error_rate_its_worst_is_said_once_as_requests_failing(
+) -> None:
+    # The rule's series is the error rate itself, so what it watched is the
+    # failed requests already said - only how bad the worst minute got is new.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.02, while_broken=0.3, at_its_worst=0.4,
+                                       usual_ceiling=0.03, usual_worst=0.05),
+                rule_series=RuleSeriesLevels(baseline=0.02, while_broken=0.3,
+                                             at_its_worst=0.4, worse_when="above"),
+                rule_series_is_the_error_rate=True)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(all_of(
+            _says("30.0% of requests failed while it was broken, against 2.0% before it began. "
+                  "At its worst, 40.0% failed."),
+            _does_not_say("What its alert watches")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("loss", "back", "said"), [
     (Decimal("500"), True,
      f"The shop's takings fell short of the same hours on earlier weeks by "

@@ -397,6 +397,10 @@ class RuleSeriesHarm(BaseModel):
     `unit` is the unit the levels and the line are in, as Grafana names it, and
     `None` where nothing said one - which a document written before the unit was
     carried reads as.
+
+    `is_the_error_rate` is the series being the very query the error rate is
+    read by: then its worst minute is the peak error rate, already said, and is
+    not said again beside it.
     """
 
     before: float
@@ -405,6 +409,7 @@ class RuleSeriesHarm(BaseModel):
     worse_when: WorseWhen
     line: float | None = None
     unit: str | None = None
+    is_the_error_rate: bool = False
 
 
 class LogsInTheGap(BaseModel):

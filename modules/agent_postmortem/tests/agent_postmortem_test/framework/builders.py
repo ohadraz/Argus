@@ -315,6 +315,7 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         rule_wait_unread: bool = False,
                         rule_held_before_the_onset: bool | None = None,
                         rule_series_unit: str | None = None,
+                        rule_series_is_the_error_rate: bool = False,
                         rule_looks_back: timedelta | None = None,
                         rule_evaluated_every: timedelta | None = None,
                         rule_past_its_line_at: datetime | None = None,
@@ -358,6 +359,7 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         rule_wait_unread=rule_wait_unread,
         rule_held_before_the_onset=rule_held_before_the_onset,
         rule_series_unit=rule_series_unit,
+        rule_series_is_the_error_rate=rule_series_is_the_error_rate,
         rule_looks_back=rule_looks_back,
         rule_evaluated_every=rule_evaluated_every,
         rule_past_its_line_at=rule_past_its_line_at,
@@ -723,7 +725,8 @@ def an_alert_rule(waits_seconds: int | None,
                   asked: Kept[str] | None = None,
                   series_unit: str | None = None,
                   looks_back_seconds: int = 0,
-                  evaluated_every_seconds: int = 60) -> AlertRule:
+                  evaluated_every_seconds: int = 60,
+                  series_is_the_error_rate: bool = False) -> AlertRule:
     """A rule source answering for the rule that paged: how long it waits before
     it fires, how far back its condition looks, how often it is evaluated, and
     the query of the series it watches - nothing at all where the rule could not
@@ -739,7 +742,8 @@ def an_alert_rule(waits_seconds: int | None,
                                  range_seconds=looks_back_seconds,
                                  interval_seconds=evaluated_every_seconds,
                                  keep_firing_for_seconds=0, pending_seconds=waits_seconds,
-                                 series_query=series_query, series_unit=series_unit)
+                                 series_query=series_query, series_unit=series_unit,
+                                 series_is_the_error_rate=series_is_the_error_rate)
 
     return standing
 
