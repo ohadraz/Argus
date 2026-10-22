@@ -123,12 +123,13 @@ _AGENTS = {
 }
 
 # What each retrieval channel is, said so that somebody who has never read the
-# spec knows what was asked for. "changes" in particular: it means deploys and
-# releases that landed on the service, not changes Argus made.
+# spec knows what was asked for. "changes" in particular: it means deploys,
+# releases and flag changes that landed on the service, not changes Argus made.
 _CHANNELS = {
     RetrievalChannel.METRICS: "the service's per-minute metrics",
     RetrievalChannel.LOGS: "the service's log lines",
-    RetrievalChannel.CHANGES: "production change events - deploys and releases on the service"
+    RetrievalChannel.CHANGES: ("production change events - deploys, releases and flag changes "
+                               "on the service")
 }
 
 # Where a person's report reached Argus, said as the place a reader would go to

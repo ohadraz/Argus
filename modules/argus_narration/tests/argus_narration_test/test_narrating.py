@@ -212,6 +212,25 @@ def test_a_retrieval_line_dates_a_window_from_another_day() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_retrieval_line_says_it_asked_for_flag_changes_too() -> None:
+    # The read takes in the flag provider's history beside deploys and
+    # releases. Said as deploys and releases alone, a read that found a flag
+    # change reads as one that could not have, and a write-up blames the read
+    # for missing what it never claimed to look for.
+    some_request = RetrievalRequested(
+        incident_id=new_id(),
+        channel=RetrievalChannel.CHANGES,
+        window_start=AN_EARLIER_MINUTE,
+        window_end=SOME_MINUTE
+    )
+
+    Scenario() \
+        .given(some_request) \
+        .when(lambda: build_narration([some_request])) \
+        .then(_the_only_line_mentions("deploys, releases and flag changes"))
+
+
+@pytest.mark.unit
 def test_a_metrics_retrieval_carries_the_minutes_it_read_back() -> None:
     # The evidence travels on the line that read it, so the story can gather it
     # into a table afterwards. What is marked in that table is `metrics`' own
