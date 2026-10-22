@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSowcKEAgTGAI4AUIIdGhpbmtpbmcSDMjW4AWe/jbG25PaoxoM3Lg7LWHpEulaFbnTIjA83xGgDWMZXeVfzwTIxdzaRF+zPOBCRjgQ0w+3sx8Mou9+AsVbQH5mGAXH5SSRZC8qwAYtO9uNOEIaHOBm7Man1JUkLYxuXzGjoXkmxsFdFm++lVT28BHG3NBKnxhvhlE0Trn8FfKPzbc9cy7X56qX6NNH7KkE4ws+oxKbqxEnMts34QbVGbsSUY6utOdhm7fzMjVmW91EibR1FjHSJjYs36dihbalJEhZGmWsuouRpXnWbXEfqWONQHapVhAaKd+XGewcsOXGFaR8sxU8sJp3Fgq6QddCQP3OdB9ptEa5Lzqtc3xSyg89fbanglTjlWjDaZo1Cg4QtGBxJAxeSBD5OAp55quQOvjBD8zqCS9rTSlucYKJ6Bx7ojz5nXAI6Fk0F8EuU93WU/P9AhkATrh/S1FsQLooKUOmyt3F0KjcEi84k3d/iqAZ0btsvrwzJVnuy+kN31YyLLS2odk1PKAiamREdQu+69JMXEpiHDtCcosPb+sSidHpWk/bACfhoaZZxXEVCBewLuPMR77c+iUcBGUiKxj3sf9ZmxKXgi54Bcg9K9SYwiJqFvJsOE2NUN9Jj0B167ITBPHpSloO5iWYIjURHz1+BXcDQw26HJz20RWsh4+EfXvwJAgXUXwbOA6TI8Ad3LWlmJykSK4Y6TX///CjsriOKaWPHSnqo6m19QGCgvP7E6mhdSvdp7ywAKJx9RM4FAiGHoEPT16EXI6uhN0ympAFFw4wg9SYLx4kZSJdrDSI26j7hwdRCgzOVUHXh4yJvZ161BOiLw5XiLgYNKwz3p2J5PZnIP01wXQPltpzu3CaLAl0WH9VAQdNjB9AQwWUBgdTfQRZaBCIa+93zTzQlY9oJXIoXm4YFmgBLHct/K7/ni3eZnICGZo1JqXmWK3Q+5So1RILcPQpzaWFUkwfLOUSAbDX7LDBFcFqWa3mHCIEjUnPtz50Xz3ufhVp1ZQs7rKFiNN/c7rIaHVJMLYImw7m79WKOKDKT33r5kvwxxXRVPoEyIKpEdKzoLfTtEFBKpYMPsdT+o40EQMqIyzF61rsjZKQ9QsizLPEF3gEwL5W28WuuCmdx90RoiY8MQe+fPpWnbAEzDKyhVjiWfgK5yus7db8xcyDVjvenzZ1ZxgHSKSyEtCLFXUukAqGM80SaXmbLFtdTLkuU+x1n21LGAE=",
+      "thinking": "I'm working out the ordering: symptom first, then the ZeroDivisionError, then why requests reached that failing code because a flag got switched on, and finally the mechanism of how that flag caused the break \u2014 landing on 1, 2, 3, 4.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01NrcThX2Dh9G864MU24gWqF",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgJ35ynMiPm9ygdUwETi1",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 470
+    },
+    "cache_creation_input_tokens": 470,
+    "cache_read_input_tokens": 854,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 221,
+    "output_tokens_details": {
+      "thinking_tokens": 163
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

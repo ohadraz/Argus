@@ -109,6 +109,12 @@ RECORDED_RESOLVED_IN_PAGERDUTY = "flag-toggle-resolved-in-pagerduty"
 RECORDED_RESOLVED_FROM_SLACK = "flag-toggle-resolved-from-slack"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
 RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
+# The flag toggle again, whole, in a world staged around it differently:
+# somebody paged for it, or another flag switched on beside it. Each has a
+# write-up of its own, since the record each is written from is not the plain
+# one's.
+RECORDED_FLAG_TOGGLE_PAGED = "flag-toggle-paged"
+RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER = "flag-toggle-beside-another"
 RECORDED_RESOURCE_LEAK = "resource-leak"
 RECORDED_UPSTREAM_DEPENDENCY_FAILURE = "upstream-dependency-failure"
 RECORDED_CACHE_MISCONFIGURED = "cache-misconfigured"
@@ -145,6 +151,8 @@ RECORDED_LEAD_MID_INVESTIGATION = "competing-flag-changes-lead-mid-investigation
 # hold today.
 THE_RECORDINGS_THAT_MUST_CARRY_A_FIX = frozenset({
     RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_PAGED,
+    RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
     RECORDED_RESOURCE_LEAK,
     RECORDED_MONITORING_CONFIGURATION_DRIFT,
     RECORDED_OUTPUT_QUALITY_DEGRADATION,

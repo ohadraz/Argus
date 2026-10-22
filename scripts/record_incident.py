@@ -85,6 +85,8 @@ from tests.e2e.framework.argus import (
     RECORDED_FALLBACK_DISABLED,
     RECORDED_FLAG_REVERT_LEAVES_A_FLAP,
     RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
+    RECORDED_FLAG_TOGGLE_PAGED,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_HALF_FINISHED_ROLLOUT,
@@ -128,6 +130,8 @@ from tests.e2e.framework.chat import (
 )
 from tests.e2e.framework.flags import (
     THE_DEMO_FLAG,
+    THE_UNRELATED_FLAG,
+    another_flag_was_toggled_on,
     flags_evaluating_true,
     only_the_boot_flags_were_left_in_the_provider,
     the_boot_flags_were_put_back,
@@ -318,6 +322,12 @@ class _Recording(NamedTuple):
     starts this set from, so only the write-up is paid for - and it is written
     about this incident's own shorter record rather than the longer one's.
 
+    `the_whole_walk` takes Code-Fix's answers from it too, for an incident
+    that runs the whole of that walk in a world staged around it differently -
+    somebody paged for it, another flag switched on beside it. The walk is the
+    same queue of answers; the record it leaves is not, and the write-up is
+    written about that record.
+
     `may_take_seconds` is how long the walk is waited for. One figure serves
     every walk whose waits are minutes - judged by the levels, or by a rule
     looking back a minute or two; a walk judged by a rule with a long range
@@ -346,6 +356,7 @@ class _Recording(NamedTuple):
     once_opened: Callable[[str], None] | None = None
     resolved_by: Callable[[str], None] | None = None
     walk_from: str | None = None
+    the_whole_walk: bool = False
     may_take_seconds: float = A_WHOLE_INVESTIGATION_SECONDS
     a_false_alarm: bool = False
 
@@ -444,6 +455,9 @@ _THE_ON_CALL_PERSON_ID: Final = "PSOMEONE"
 _THE_ON_CALL_NOTE: Final = "kept the flag off and paged the checkout team"
 _THE_ON_CALL_INCIDENT_RESOLVED_AFTER: Final = timedelta(minutes=10)
 _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER: Final = timedelta(minutes=1)
+# The second person the paged cases stage, and when they took it up.
+_THE_OTHER_ON_CALL_PERSON_ID: Final = "PSOMEONEELSE"
+_THE_OTHER_ON_CALL_PERSON_ACKNOWLEDGED_AFTER: Final = timedelta(minutes=2)
 
 
 def _argus_has_turned_the_flag_off() -> None:
@@ -488,6 +502,26 @@ def _the_on_call_platform_paged_somebody() -> None:
         acknowledged_after={_THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER},
         resolution_note=_THE_ON_CALL_NOTE
     )()
+
+
+def _two_people_were_paged() -> None:
+    """Stages the PagerDuty incident the paged cases stage: two people, taken
+    up a minute apart, and nobody resolving it while the walk runs."""
+    the_on_call_platform_holds(
+        _THE_ON_CALL_INCIDENT,
+        paged_for=_an_alert_for(THE_SERVICE_NAME, "HighErrorRate", None),
+        paged_at=utc_now(),
+        resolved_after=_THE_ON_CALL_INCIDENT_RESOLVED_AFTER,
+        acknowledged_after={
+            _THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER,
+            _THE_OTHER_ON_CALL_PERSON_ID: _THE_OTHER_ON_CALL_PERSON_ACKNOWLEDGED_AFTER
+        }
+    )()
+
+
+def _another_flag_was_switched_on() -> None:
+    """Switches on the unrelated flag the case stages beside the incident."""
+    another_flag_was_toggled_on(THE_UNRELATED_FLAG)()
 
 
 def _resolved_in_the_on_call_platform(dont_care_incident_id: str) -> None:
@@ -603,6 +637,29 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         once_opened=_WRITTEN_IN_THE_THREAD,
         resolved_by=_PRESSED_IN_THE_THREAD,
         walk_from=RECORDED_FLAG_TOGGLE
+    ),
+    # The same incident, walked the whole way in a world staged around it
+    # differently. The walk is the flag toggle's; the write-up is about what
+    # this world's record holds - somebody paged, or a second flag change.
+    _Recording(
+        RECORDED_FLAG_TOGGLE_PAGED,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED),
+        and_then=_two_people_were_paged,
+        walk_from=RECORDED_FLAG_TOGGLE,
+        the_whole_walk=True
+    ),
+    _Recording(
+        RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
+        "feature-flag-toggle",
+        "HighErrorRate",
+        IncidentStatus.MITIGATED,
+        (_AN_ACTION_WAS_TAKEN, _A_FIX_WAS_PROPOSED),
+        and_then=_another_flag_was_switched_on,
+        walk_from=RECORDED_FLAG_TOGGLE,
+        the_whole_walk=True
     ),
     # The incident whose only evidence is the deploy history. Its alert is
     # latency because nothing here fails - the revision that went out is slower
@@ -1553,9 +1610,9 @@ def _where_the_write_up_begins(stored: str) -> int:
     return begins
 
 
-def _the_walk_is_taken_from(source: str, stored: str) -> None:
-    """Makes `stored` the walk `source` recorded, less Code-Fix's answers, with
-    `source`'s write-up and anchor beside it.
+def _the_walk_is_taken_from(source: str, stored: str, whole: bool = False) -> None:
+    """Makes `stored` the walk `source` recorded, less Code-Fix's answers
+    unless `whole`, with `source`'s write-up and anchor beside it.
 
     The write-up is copied to be replaced: a postmortem-only run records one in
     place of the set's own, and refuses a set holding none. The anchor because
@@ -1574,7 +1631,7 @@ def _the_walk_is_taken_from(source: str, stored: str) -> None:
                                  if ANSWER_TOOL in tools)
     the_write_up = next(position for position, tools in enumerate(called)
                         if SUBMIT_TOOL_NAME in tools)
-    taken = answers[:the_investigations_end + 1] + answers[the_write_up:]
+    taken = answers if whole else answers[:the_investigations_end + 1] + answers[the_write_up:]
 
     for old in _the_set_named(stored):
         old.unlink()
@@ -1732,7 +1789,8 @@ def _capture(recording: _Recording,
     _no_walk_is_live()
 
     if postmortem_only and recording.walk_from:
-        _the_walk_is_taken_from(stored_as(recording.walk_from), stored)
+        _the_walk_is_taken_from(stored_as(recording.walk_from), stored,
+                                whole=recording.the_whole_walk)
 
     begins = _where_the_write_up_begins(stored) if postmortem_only else 0
 

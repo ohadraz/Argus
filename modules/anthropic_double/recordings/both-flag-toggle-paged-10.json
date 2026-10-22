@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSxAgKEAgTGAI4AUIIdGhpbmtpbmcSDI0m5eDHIq8p68SeshoMWCwdm1YA/yO96CEeIjBAUeARNuxOT1ar8vM1gPYoDiJqtNYQQ7buc6vpRIrdL1I+DPoAUfvVfuv5enl1KRUq4Qeple3hCLRE8aSTVmJzadYNLZep9A6j1VuqZ2sHG2GCdX7mYgankYXRMRwkXgCAOqshxS540ChrlOlKxAy7I0C0GaPveMgd/2lN9Zi8iPYU2Q5o7USiZpTN1UQcqthRJENjfWjTCPK+g7MvDd7vbVdPoxEwHZdEMhGa784ttFKLmAroEGIsPR+tHKan+rO1Lfym3j6JQdOmDcOG2l2igWRi3wSmYqbGbz64k6kpOK5pWPBbkHZD3mct635O75RRaEfrDv72opbsEv2Q/EIbreUchfeW76MqQCUCbcB4OARqKPx8oUWtSH+3zBUoT1wxx1JjCZpnJL1c76EV4QWBsBaT7HAmLMpbvo+geM3afwCmdlrlNAibILQybiZJcOL5z6awn4LVAu77Fupk7LYKHJMr6JMsBqjsR2fQ/YGssmIrQjSi2p3gwYWnj3Qm7+vVlnSYGFbTTMjEYTR/5LIdxFlz8uuz+n2bADiIXtffSYd5w/6UzVEJdQCFWzoEFt5SQGZx3Lg56jyW7OFOSYaY90MS0ZTahVtGQrQ8+t6kHU8R2oYQH7j5vrnPxUTQhPeUCzq4t+eyA3xpN0+2a6kILzH54LOZxC/13NKH/OZHckEc0oN1Am3bQnHc0UKJs7uiXJv82Uvl+Ouy6hF2ULNCIujnpWixC95YhgZpLl/rO7b+8IsaqOwbTmU7fHzOVa+m5uk4TMDyD7NMfFRhZXx1Ey9M90km2zO7NKadIW1MnTPyDUqhK90t02OTlYsarya8x9Su4kqrN4Cr8Qo3U88wfnDZuYSvTphDQ1q+TsjG8E7X6u4BKReTeP66HZ1LhR5caNbVtuwJhj5y3MY1cUwtLlxEqmoc7tyqTByzkHvK25A7CG4Wxdb+T0tZmlUB6vcxrPiJGt+8g+dJlImBxt6TpJRn2lFx6wpJkDw96TVUIrHwff/op9NDcMdQPhn005z4OLjU6qMHfnSSFdzMjEN1SOfw6fUFwlVJ024dk1+lKUgmIxtdj94G+jpXPL3u38MdJyjyYhXuZhj3v2eAHHZ75oRos9CobQ8DH1K9QNHKo8iUJOWfjX7HbWtRpfyTZLII+IqUI7XlTj7LnL2zRhUuyPCXesvuTmhAJnGcXy6AozoXzWbX7MeL+VpFEJ4FXgETZa0rvaEZbWmdco0oAK+Q2k1mBiFG/LhmC2lG45XBhKQR7VScFW5+Id+RApaa8idbuN8KokVVp/yFpEUg2e7etx3UFcD885/Gx/NPpLNTmn/Gh8ZMxjEh7Rl3TQgJ5NL0/K/SeP9oLstlpH6gG/74GTweI+N12yadvOxlCCjfxxKxuwIYAQ==",
+      "thinking": "I'm checking the ordering: symptom, then errors, then why the code path was reached because the flag was switched on, then the underlying mechanism of failure\u2014that sequence already flows logically from 1 to 4.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01S8YVmXfnFgibgWSfcT3CQn",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgJ2x5ywubPnfqHAQpqh7",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1388
+    },
+    "cache_creation_input_tokens": 1388,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 294,
+    "output_tokens_details": {
+      "thinking_tokens": 236
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

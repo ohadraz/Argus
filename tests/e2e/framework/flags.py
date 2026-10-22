@@ -53,6 +53,10 @@ THE_DEMO_FLAG = "monthly-spend-feature"
 THE_FALLBACK_FLAG = "legacy-checkout-fallback"
 THE_BOOT_STATE: dict[str, bool] = {THE_DEMO_FLAG: False, THE_FALLBACK_FLAG: True}
 
+# A flag nothing about the incident involves, switched on beside it by a case
+# that needs two changes in the window.
+THE_UNRELATED_FLAG = "an-unrelated-feature"
+
 
 # The provider's table of recorded changes, and the event types that record a
 # flag being switched. Internal to the provider, which is why they are named

@@ -43,6 +43,7 @@ from tests.e2e.framework.argus import (
     INVESTIGATION_TIMEOUT_SECONDS,
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FLAG_TOGGLE,
+    RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     argus_ended_with_status,
     argus_is_triggered_with_alert,
@@ -52,14 +53,13 @@ from tests.e2e.framework.argus import (
 from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.flags import (
     THE_DEMO_FLAG,
+    THE_UNRELATED_FLAG,
     another_flag_was_toggled_on,
     the_flag_provider_forgot_every_change,
     the_flag_provider_reports,
     the_service_returned_to_baseline,
 )
 from tests.e2e.framework.world import a_scenario_was_seeded
-
-SOME_UNRELATED_FLAG = "an-unrelated-feature"
 
 
 @pytest.mark.e2e
@@ -166,9 +166,9 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
     Scenario() \
         .given(
             calling(a_scenario_was_seeded("feature-flag-toggle",
-                                          as_recorded_in=RECORDED_FLAG_TOGGLE)),
-            calling(another_flag_was_toggled_on(SOME_UNRELATED_FLAG)),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE))
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER)),
+            calling(another_flag_was_toggled_on(THE_UNRELATED_FLAG)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
@@ -181,7 +181,7 @@ def test_the_flag_the_investigator_named_is_the_one_reverted() -> None:
                     # Untouched. Naming one flag is not licence to tidy the
                     # other, and a second revert would be a production change
                     # nothing diagnosed.
-                    the_flag_provider_reports(SOME_UNRELATED_FLAG, enabled=True),
+                    the_flag_provider_reports(THE_UNRELATED_FLAG, enabled=True),
                     the_service_returned_to_baseline()
                 ),
                 timeout=MITIGATION_TIMEOUT_SECONDS
