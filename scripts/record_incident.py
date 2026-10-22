@@ -40,7 +40,7 @@ import shutil
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from http import HTTPStatus
 from io import TextIOWrapper
 from pathlib import Path
@@ -52,7 +52,7 @@ from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_postmortem import WRITE_UP_TOOLS
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
 from anthropic_double.recordings import RECORDINGS_DIR, load
-from argus_core import get_settings, to_iso
+from argus_core import get_settings, to_iso, utc_now
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -483,7 +483,7 @@ def _the_on_call_platform_paged_somebody() -> None:
     the_on_call_platform_holds(
         _THE_ON_CALL_INCIDENT,
         paged_for=_an_alert_for(THE_SERVICE_NAME, "HighErrorRate", None),
-        paged_at=datetime.now(UTC),
+        paged_at=utc_now(),
         resolved_after=_THE_ON_CALL_INCIDENT_RESOLVED_AFTER,
         acknowledged_after={_THE_ON_CALL_PERSON_ID: _THE_ON_CALL_INCIDENT_ACKNOWLEDGED_AFTER},
         resolution_note=_THE_ON_CALL_NOTE
@@ -1064,7 +1064,7 @@ def _an_alert_for(service: str,
                     "severity": "critical",
                 },
                 "annotations": {"summary": summary},
-                "startsAt": to_iso(datetime.now(UTC)),
+                "startsAt": to_iso(utc_now()),
                 "endsAt": "0001-01-01T00:00:00Z",
                 "generatorURL": f"http://grafana.local/alerting/grafana/{linked}/view",
                 "fingerprint": "abc123def456"
