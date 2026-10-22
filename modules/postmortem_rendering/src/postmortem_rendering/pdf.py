@@ -36,6 +36,7 @@ from postmortem_rendering.impact import Card
 from postmortem_rendering.lessons import LessonList
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.rendering import RenderedPostmortem
+from postmortem_rendering.review import ReviewRow
 
 _PACKAGE: Final = Path(__file__).parent
 _FONTS: Final = _PACKAGE / "fonts"
@@ -1512,31 +1513,54 @@ def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     status rather than as part of the criterion. What a person would do to
     meet it is a sentence, set quiet under the criterion in the criterion's
     own column, where it wraps rather than running into the status - written
-    run by run, so a label it cites leads to its row."""
+    run by run, so a label it cites leads to its row.
+
+    A row begun on a fresh page where it does not fit what is left of this
+    one and would fit a whole one: set where it stands, its status broke the
+    page and its mark, set back at the row's height, broke the next - a page
+    holding the status alone, and the row on the one after."""
     review = rendered.review
     if review.absent:
         _quiet(pdf, review.absent)
+    for row in review.rows:
+        tall = _how_tall_a_review_row_is(pdf, row)
+        if pdf.will_page_break(tall) and tall <= pdf.h - pdf.b_margin - _BELOW_THE_HEADER:
+            pdf.add_page()
+        _a_review_row(pdf, row)
+
+
+def _a_review_row(pdf: _Sheet, row: ReviewRow) -> None:
     width = _WIDTH - 5 - 42
     right = pdf.r_margin
-    for row in review.rows:
-        y = pdf.get_y()
-        pdf.set_font(_BODY, "", _LABEL_PT)
-        pdf.set_text_color(*_MUTED)
-        pdf.set_xy(_SIDE + _WIDTH - 40, y)
-        pdf.cell(40, _LINE, row.meaning, align="R")
-        pdf.set_xy(_SIDE, y)
-        pdf.set_font(_FALLBACK, "B", _TEXT_PT)
-        pdf.set_text_color(*{"yes": _GREEN, "left": _MUTED}.get(row.met, _RED))
-        pdf.cell(5, _LINE, row.mark)
-        pdf.set_font(_BODY, "", _TEXT_PT)
-        pdf.set_text_color(*_INK)
-        pdf.multi_cell(width, _LINE, row.criterion, align="L", new_x="LEFT", new_y="NEXT")
-        if row.because:
-            pdf.set_right_margin(right + 42)
-            _beneath(pdf, row.because.runs, indent=5, colour=_MUTED, height=4.0,
-                     size=_LABEL_PT, after=0)
-            pdf.set_right_margin(right)
-        pdf.ln(1.2)
+    y = pdf.get_y()
+    pdf.set_font(_BODY, "", _LABEL_PT)
+    pdf.set_text_color(*_MUTED)
+    pdf.set_xy(_SIDE + _WIDTH - 40, y)
+    pdf.cell(40, _LINE, row.meaning, align="R")
+    pdf.set_xy(_SIDE, y)
+    pdf.set_font(_FALLBACK, "B", _TEXT_PT)
+    pdf.set_text_color(*{"yes": _GREEN, "left": _MUTED}.get(row.met, _RED))
+    pdf.cell(5, _LINE, row.mark)
+    pdf.set_font(_BODY, "", _TEXT_PT)
+    pdf.set_text_color(*_INK)
+    pdf.multi_cell(width, _LINE, row.criterion, align="L", new_x="LEFT", new_y="NEXT")
+    if row.because:
+        pdf.set_right_margin(right + 42)
+        _beneath(pdf, row.because.runs, indent=5, colour=_MUTED, height=4.0,
+                 size=_LABEL_PT, after=0)
+        pdf.set_right_margin(right)
+    pdf.ln(1.2)
+
+
+def _how_tall_a_review_row_is(pdf: _Sheet, row: ReviewRow) -> float:
+    """How tall a review row is set from where the page is now, set with no
+    page breaks and the document then put back as it was."""
+    top = pdf.get_y()
+    with pdf.offset_rendering():
+        pdf.set_auto_page_break(False, margin=pdf.b_margin)
+        _a_review_row(pdf, row)
+        bottom = pdf.get_y()
+    return bottom - top
 
 
 # How each section is printed, by the key `render` names it by.

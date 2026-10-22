@@ -1060,6 +1060,32 @@ def test_the_assumptions_are_set_on_one_page_where_they_fit_one(root_cause_words
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("root_cause_words", range(270, 380, 12))
+def test_a_review_row_at_the_foot_of_a_page_is_set_whole_on_one_page(
+        root_cause_words: int) -> None:
+    # A check at the foot of a page set its status first, which broke the
+    # page, then went back up for its mark and broke it again: a page holding
+    # "for a person" and nothing else, and the check itself on the one after.
+    # A root cause of every length here puts the check at every height near
+    # the foot of a page.
+    some_checks = [*(ReviewCriterion(criterion=f"Zmet check {number}", met=True)
+                     for number in range(5)),
+                   ReviewCriterion(criterion="Zlast check", met=None)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(root_cause=" ".join(["word"] * root_cause_words),
+                                                 review=some_checks),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _on_one_page("Zlast check", "for a person"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("root_cause_words", "item_words", "subheading"), [
     pytest.param(468, 80, "Causal chain", id="causal-chain"),
     pytest.param(288, 80, "Contributing factors", id="contributing-factors"),
