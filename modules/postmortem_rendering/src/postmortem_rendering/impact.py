@@ -205,10 +205,14 @@ def _the_logs_in_the_gap(impact: Impact | None) -> Line | None:
 
     who_read = "They were" if logs.labels else "The logs were"
     when = ", when the alert was raised" if logs.read_until_the_alert else ""
+    # Once where the reading ended where they reach: said twice, one instant
+    # reads as two facts.
+    read_until = (Run(text="then"),) if logs.read_until == logs.reach_until else (
+        Run.a_moment(logs.read_until),)
 
     return Line(runs=(*reached,
                       Run(text=f" {who_read} read up to "),
-                      Run.a_moment(logs.read_until),
+                      *read_until,
                       Run(text=f"{when}."),
                       *serving))
 

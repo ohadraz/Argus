@@ -303,6 +303,26 @@ def test_whether_the_logs_show_the_service_serving_as_before_follows_how_far_the
 
 
 @pytest.mark.unit
+def test_logs_reaching_as_far_as_they_were_read_say_the_instant_once() -> None:
+    # Said twice - "until 08:28 UTC: G46bc. They were read up to 08:28 UTC." -
+    # one instant reads as two facts, as it did in the summary.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_unobserved(LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=SOME_MINUTE, read_until=SOME_MINUTE,
+                read_until_the_alert=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            _the_note_reads("The service's own logs reach into the stretch the metrics missed "
+                            "until Oct 21, 2026, 19:12 UTC: G46bc. They were read up to then, "
+                            "when the alert was raised.")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("logs", "said"), [
     (LogsInTheGap(read=True, labels=[], reach_until=None, read_until=SOME_MINUTE,
                   read_until_the_alert=False),
