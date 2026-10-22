@@ -1147,6 +1147,71 @@ def test_a_word_running_into_a_label_through_a_non_breaking_space_goes_on_with_i
 
 
 @pytest.mark.unit
+def test_a_label_that_fits_the_end_of_a_line_only_in_its_margins_starts_the_next() -> None:
+    # fpdf2 keeps a margin inside each side of what it writes, so a label with
+    # room left for it and less than those two margins over was cut: "P" at
+    # the end of a line and "R #1" on the next. Words a letter wide put the
+    # label at every place along a line, finer than the margins.
+    some_factors = [ContributingFactor(text=" ".join(["word"] * length) + " " + "i" * narrow,
+                                       addressed_by=["AI-1"])
+                    for length in range(1, 30) for narrow in range(1, 8)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(contributing_factors=some_factors,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
+
+
+@pytest.mark.unit
+def test_a_label_under_a_check_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
+    # The line under a check was written piece by piece with nothing measuring
+    # a piece's first word, so a label there was cut: "AI-" / "1".
+    some_checks = [ReviewCriterion(criterion="Root-cause analysis complete", met=None,
+                                   because=" ".join(["word"] * length) + " " + "i" * narrow
+                                           + " AI-1 now")
+                   for length in range(1, 30) for narrow in range(1, 8)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(review=some_checks,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
+
+
+@pytest.mark.unit
+def test_a_label_in_an_assumption_that_does_not_fit_the_end_of_a_line_starts_the_next() -> None:
+    # The reference list was written piece by piece with nothing measuring a
+    # piece's first word, so a label in an assumption was cut: "A" / "I-1".
+    some_assumptions = [" ".join(["word"] * length) + " " + "i" * narrow + " AI-1 now"
+                        for length in range(1, 30) for narrow in range(1, 8)]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(assumptions=some_assumptions,
+                                                 action_items=_eighty_items()[:1]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _never_cut_across_lines("AI-1"))
+
+
+@pytest.mark.unit
 def test_a_word_going_on_into_the_next_piece_breaks_a_line_only_where_it_does_not_fit() -> None:
     # The word is measured to see whether it fits what is left of the line,
     # and every piece after it was measured with it: "Agent:" came out 131 mm

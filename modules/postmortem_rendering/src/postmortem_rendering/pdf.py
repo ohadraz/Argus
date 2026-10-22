@@ -252,7 +252,7 @@ def _furniture(pdf: _Sheet, text: str, spacing: float) -> None:
     pdf.set_font(_BODY, "B", _SMALL_PT)
     pdf.set_text_color(*_MUTED)
     pdf.set_char_spacing(spacing)
-    pdf.write(4, text)
+    _written(pdf, 4, [_a_label(text, _SMALL_PT)])
     pdf.set_char_spacing(0)
 
 
@@ -388,7 +388,11 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
     word is measured where it begins, across every run it goes on into and
     each in its own face, as `_where_the_lines_lie` measures a word: a soft
     hyphen takes no room and a non-breaking space joins rather than parts. A
-    word wider than a whole line is left to fpdf2 to cut."""
+    word wider than a whole line is left to fpdf2 to cut.
+
+    The one place inline text is written, a label of the layout's own
+    included: a caller writing a run itself writes it with nothing measuring
+    its first word, which is how a label under a check came to be cut."""
     said = "".join(look.text for _, look in runs)
     begins = list(accumulate((len(look.text) for _, look in runs), initial=0))
 
@@ -410,6 +414,11 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
                 _room_for(pdf, height,
                           _how_wide(pdf, runs, begins, at, _the_end_of_the_word(said, at)))
             written = at
+
+
+def _a_label(text: str, size: float) -> tuple[Run, _Look]:
+    """A label the layout prints, in small bold and muted."""
+    return Run(text=text), _Look(_BODY, "B", size, _MUTED, text)
 
 
 def _a_word_begins_at(said: str, at: int) -> bool:
@@ -440,9 +449,12 @@ def _how_wide(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]], begins: Sequence[i
 
 def _room_for(pdf: _Sheet, height: float, wide: float) -> None:
     """A new line where a word `wide` does not fit what is left of this one
-    and would fit a whole one."""
+    and would fit a whole one - each measured inside the margin fpdf2 keeps at
+    either side of what it writes, since that is the room it breaks a line in."""
     left, right = pdf.l_margin, pdf.w - pdf.r_margin
-    if pdf.get_x() > left + _LEEWAY and wide > right - pdf.get_x() and wide <= right - left:
+    kept = 2 * pdf.c_margin
+    if (pdf.get_x() > left + _LEEWAY and wide > right - pdf.get_x() - kept
+            and wide <= right - left - kept):
         pdf.ln(height)
 
 
@@ -505,10 +517,10 @@ def _beneath(pdf: _Sheet, runs: Sequence[Run], indent: float, colour: tuple[int,
     left = pdf.l_margin
     pdf.set_left_margin(left + indent)
     pdf.set_x(left + indent)
-    for run in _cited(pdf, runs):
-        pdf.set_font(_BODY, "B" if run.role is Role.STATUS else "", size)
-        pdf.set_text_color(*(_LINK if run.role in (Role.CITATION, Role.LINK) else colour))
-        pdf.write(height, run.text, link=_link(pdf, run))
+    _written(pdf, height, [(run, _Look(_BODY, "B" if run.role is Role.STATUS else "", size,
+                                       _LINK if run.role in (Role.CITATION, Role.LINK)
+                                       else colour, run.text))
+                           for run in _cited(pdf, runs)])
     pdf.ln(height + after)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
@@ -1065,9 +1077,7 @@ def _a_link_in_the_chain(pdf: _Sheet, place: str, claim: Sequence[Run], evidence
     if ruled_out:
         pdf.ln(0.4)
         pdf.set_x(left + label_width)
-        pdf.set_text_color(*_MUTED)
-        pdf.set_font(_BODY, "B", _SMALL_PT)
-        pdf.write(3.8, ruled_out_label)
+        _written(pdf, 3.8, [_a_label(ruled_out_label, _SMALL_PT)])
         pdf.ln(3.8)
         for ruled in ruled_out:
             pdf.set_x(left + label_width)
@@ -1086,9 +1096,7 @@ def _a_quiet_list(pdf: _Sheet, left: float, label: str, cited_lines: Sequence[Li
     own - its label leading to its row."""
     pdf.ln(0.4)
     pdf.set_x(left)
-    pdf.set_text_color(*_MUTED)
-    pdf.set_font(_BODY, "B", _SMALL_PT)
-    pdf.write(3.8, label)
+    _written(pdf, 3.8, [_a_label(label, _SMALL_PT)])
     for cited in cited_lines:
         pdf.ln(3.8)
         _a_cited_line(pdf, cited)
@@ -1481,17 +1489,21 @@ def _the_reference(pdf: _Sheet, label: str, values: Sequence[Sequence[Run]]) -> 
         if place:
             pdf.ln(height + 1.0)
             pdf.set_x(left + label_width)
-        for run in _cited(pdf, runs):
-            if run.role is Role.LINK:
-                pdf.set_font(_MONO, "", 7.1)
-                pdf.set_text_color(*_LINK)
-            else:
-                pdf.set_font(_BODY, "B" if run.role is Role.STATUS else "", _TABLE_PT)
-                pdf.set_text_color(*(_LINK if run.role is Role.CITATION else _INK))
-            pdf.write(height, run.text, link=_link(pdf, run))
+        _written(pdf, height, [(run, _the_look_in_a_reference(run))
+                               for run in _cited(pdf, runs)])
     pdf.ln(height + 1.1)
     pdf.set_left_margin(left)
     pdf.set_text_color(*_INK)
+
+
+def _the_look_in_a_reference(run: Run) -> _Look:
+    """A link set as the address it is, in a monospaced face; anything else at
+    the table's size, a citation in the link colour."""
+    if run.role is Role.LINK:
+        return _Look(_MONO, "", 7.1, _LINK, run.text)
+
+    return _Look(_BODY, "B" if run.role is Role.STATUS else "", _TABLE_PT,
+                 _LINK if run.role is Role.CITATION else _INK, run.text)
 
 
 def _the_review(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
