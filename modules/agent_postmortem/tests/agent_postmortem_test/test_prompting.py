@@ -2906,6 +2906,22 @@ def test_an_earlier_change_is_asked_to_be_ruled_out_by_the_service_healthy_with_
 
 
 @pytest.mark.unit
+def test_an_earlier_change_is_ruled_out_by_an_alert_dating_the_harm_after_a_later_one() -> None:
+    # The alert dated the oldest wrong total to after the later deploy, so the
+    # totals reconciled the whole time the earlier one ran alone - yet told
+    # only metrics or a confirmed action rule a change out, the write-up said
+    # the earlier deploy was not ruled out because no metrics were read.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("an alert that dates the first harm itself to after a "
+                                      "later change", "none of these")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("field", [CONTRIBUTING_FACTORS_FIELD, LESSONS_FIELD])
 def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: str) -> None:
     # Told once, in the tool's own description, to state only what the evidence
@@ -3159,6 +3175,23 @@ def test_a_limit_of_the_record_is_asked_for_as_an_assumption_rather_than_as_gone
         ) \
         .then(
             _the_description_mentions("a limit of what the record shows", ASSUMPTIONS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_what_went_wrong_names_the_limits_of_the_record_it_is_not_for() -> None:
+    # Told a limit of what the record shows belongs among the assumptions, a
+    # write-up still listed under what went wrong that logs were not read and
+    # that the metrics stopped short of the onset - limits it did not take for
+    # limits until they were named.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("logs nobody read", "metrics that stop short of the onset",
+                                      "the document says what was read")
         )
 
 

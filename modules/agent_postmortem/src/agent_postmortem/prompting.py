@@ -682,9 +682,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             f"{RULED_OUT_FIELD} of the step that ties the incident to the change "
             "that set it off, citing what ruled it out, and never as a step. An "
             "earlier change is ruled out only by the service measured healthy with "
-            "it in place - in metrics read between it and the onset, or after a "
+            "it in place - in metrics read between it and the onset, in an alert "
+            "that dates the first harm itself to after a later change, or after a "
             "confirmed action that left it there - never by how long before the "
-            "onset it came. Where the record shows neither, it was not ruled out: "
+            "onset it came. Where the record shows none of these, it was not ruled out: "
             "say so in that step itself. Stop where the evidence stops."
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
@@ -759,8 +760,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "(automatic sync left off), went as designed and "
                                    "did not go wrong; so did what the design leaves "
                                    "to a person - a draft fix to review and merge. "
-                                   "Not a limit of what the record shows, which is "
-                                   f"said in {ASSUMPTIONS_FIELD} as what was assumed. "
+                                   "Not a limit of what the record shows - logs "
+                                   "nobody read, metrics that stop short of the "
+                                   "onset: the document says what was read, and "
+                                   f"anything assumed is said in {ASSUMPTIONS_FIELD}. "
                                    "Not the root cause or a contributing factor again "
                                    "- the document says those already."
                                )
