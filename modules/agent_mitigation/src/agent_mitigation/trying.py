@@ -624,6 +624,13 @@ class _Settled(NamedTuple):
     because: str
 
 
+# What a wait somebody withdrew from settles as, wherever in a pass it is asked.
+_WITHDRAWN_FROM_THE_WAIT = _Settled(
+    Verdict.WITHDRAWN,
+    "a person ended the incident before the verification wait reached a verdict"
+)
+
+
 def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBucket]],
                                        has_arrived: HasArrived,
                                        now: Clock,
@@ -755,10 +762,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # stopped has been answered, and a look taken after that - announced on
         # the first pass, and posted to Slack - tells them Argus is still at it.
         if not still_wanted():
-            return _Settled(
-                Verdict.WITHDRAWN,
-                "a person ended the incident before the verification wait reached a verdict"
-            )
+            return _WITHDRAWN_FROM_THE_WAIT
 
         # A read that cannot be taken costs this pass and nothing more. The loop
         # is already a poll against a deadline, so a reading that did not arrive
@@ -767,19 +771,29 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # stopped mid-action, no verdict was recorded, and the incident kept
         # whatever status it was walking under.
         buckets: list[MetricBucket] | None
+        unanswered: Exception | None = None
         try:
             buckets = fetch_metrics()
-        except Exception as unanswered:
+        except Exception as error:
             logger.warning("metrics could not be read", exc_info=True)
             buckets = None
+            unanswered = error
 
-            if incident_id is not None:
-                say(RetrievalUnanswered(
-                    incident_id=incident_id,
-                    what_was_asked="the service's metrics",
-                    because=str(unanswered),
-                    minute=first_whole_minute
-                ))
+        # And asked again once the read is back, before anything is said. A read
+        # on a fast clock is long enough for the stop to land inside it, and
+        # whatever this pass says next - that the read went unanswered, the
+        # wait, what the look found - would be said after the person was
+        # answered.
+        if not still_wanted():
+            return _WITHDRAWN_FROM_THE_WAIT
+
+        if unanswered is not None and incident_id is not None:
+            say(RetrievalUnanswered(
+                incident_id=incident_id,
+                what_was_asked="the service's metrics",
+                because=str(unanswered),
+                minute=first_whole_minute
+            ))
 
         if buckets is None and read_the_rule is not None:
             # On the rule's path the window only dates the recovery, so a window
@@ -861,14 +875,19 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         if read_the_rule is not None:
             try:
                 standing = read_the_rule()
-            except Exception as unanswered:
+            except Exception as rule_unanswered:
                 logger.warning("alert rule could not be read", exc_info=True)
+
+                # Asked after the rule's read for the reason it is asked after
+                # the window's.
+                if not still_wanted():
+                    return _WITHDRAWN_FROM_THE_WAIT
 
                 if incident_id is not None:
                     say(RetrievalUnanswered(
                         incident_id=incident_id,
                         what_was_asked="the alert rule that fired",
-                        because=str(unanswered),
+                        because=str(rule_unanswered),
                         minute=first_whole_minute
                     ))
 
@@ -896,6 +915,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
 
                 sleep(_SECONDS_BETWEEN_METRIC_READS)
                 continue
+
+            if not still_wanted():
+                return _WITHDRAWN_FROM_THE_WAIT
 
             if not the_rule_was_read:
                 # Read off the rule once, as the metrics' deadline is read off
@@ -935,11 +957,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 ))
 
             if not still_wanted():
-                return _Settled(
-                    Verdict.WITHDRAWN,
-                    "a person ended the incident before the verification wait "
-                    "reached a verdict"
-                )
+                return _WITHDRAWN_FROM_THE_WAIT
 
             if resolved:
                 return _Settled(
@@ -1065,10 +1083,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # claiming a confirmation on the pass the walk was stopped would credit
         # Argus with an ending it did not reach.
         if not still_wanted():
-            return _Settled(
-                Verdict.WITHDRAWN,
-                "a person ended the incident before the verification wait reached a verdict"
-            )
+            return _WITHDRAWN_FROM_THE_WAIT
 
         # What the looks judge, in their words: whether the service left the
         # incident's level - never whether it was back at a baseline, which no

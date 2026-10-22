@@ -431,6 +431,75 @@ def test_a_wait_withdrawn_before_its_first_look_announces_nothing_and_looks_at_n
 
 
 @pytest.mark.unit
+def test_a_wait_withdrawn_while_the_service_is_being_read_says_nothing_about_the_wait() -> None:
+    # A read on a fast clock is long enough for the stop to land inside it, and
+    # asked only before the read, the wait was announced and its first look
+    # said after the person who stopped it had been answered.
+    Scenario() \
+        .given(
+            the_stop := _AStopDuringALook(),
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=the_stop.while_reading_the_service(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=the_stop.still_wanted,
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.WITHDRAWN),
+            _nothing_about_the_wait_was_said(published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_wait_withdrawn_while_the_rule_is_being_read_says_nothing_about_the_wait() -> None:
+    # The rule is read after the service, so a stop can land in it with the
+    # service's read already back.
+    Scenario() \
+        .given(
+            the_stop := _AStopDuringALook(),
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=the_stop.still_wanted,
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                rule=SOME_RULE,
+                read_rule=the_stop.while_reading_the_rule(_a_rule_standing(
+                    is_normal=False, evaluated_at=ACTION_TIME + timedelta(minutes=1)
+                )),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.WITHDRAWN),
+            _nothing_about_the_wait_was_said(published)
+        ))
+
+
+@pytest.mark.unit
 def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
     # Not undone here. Putting it back is the withdrawal's own job, done once
     # for every action the incident took and only where the flag still holds
@@ -3237,6 +3306,49 @@ def _the_wait_was_announced(published: list[IncidentEvent], times: int) -> Asser
         if len(announced) != times:
             raise AssertionError(
                 f"Expected [{times}] announcements of the wait, got [{len(announced)}]."
+            )
+
+        return True
+
+    return assertion
+
+
+class _AStopDuringALook:
+    """A person stopping the walk while one of its looks is being taken -
+    wanted until the read given here begins, and withdrawn from then on."""
+
+    def __init__(self) -> None:
+        self._landed = False
+
+    def still_wanted(self) -> bool:
+        return not self._landed
+
+    def while_reading_the_service(self, window: list[MetricBucket]) -> MetricsFetcher:
+        def read(dont_care_rule: str | None, /) -> list[MetricBucket]:
+            self._landed = True
+            return window
+
+        return read
+
+    def while_reading_the_rule(self, standing: AlertRuleStanding) -> RuleReader:
+        def read(dont_care_rule: str, /) -> AlertRuleStanding:
+            self._landed = True
+            return standing
+
+        return read
+
+
+def _nothing_about_the_wait_was_said(published: list[IncidentEvent]) -> Assertion[Outcome]:
+    """No announcement of the wait and no look's finding - what the page and
+    the thread are told while a wait is under way."""
+    def assertion(_outcome: Outcome) -> bool:
+        said = [type(event).__name__ for event in published
+                if isinstance(event, AwaitingRecovery | RecoveryChecked)]
+
+        if said:
+            raise AssertionError(
+                f"Expected nothing said about the wait once it was withdrawn, and "
+                f"it said {said}."
             )
 
         return True
