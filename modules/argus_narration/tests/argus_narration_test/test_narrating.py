@@ -682,8 +682,11 @@ def test_a_look_that_found_the_service_back_says_which_minute_it_came_back_at() 
     (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True),
      "no longer at the incident's level"),
     (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=False),
-     "still at the incident's level")
-], ids=["dated", "undated", "not-yet"])
+     "still at the incident's level"),
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=False,
+                     saw_no_minute=True),
+     "no new minute read yet")
+], ids=["dated", "undated", "not-yet", "nothing-to-judge"])
 def test_a_look_says_what_it_judged_rather_than_that_the_service_was_back_to_normal(
         look: RecoveryChecked, said: str) -> None:
     # A look judges whether the service fell off the incident's own level, which

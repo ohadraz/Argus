@@ -1044,7 +1044,11 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 incident_id=incident_id,
                 minute=first_whole_minute,
                 recovered=recovered,
-                recovered_minute=came_back_at
+                recovered_minute=came_back_at,
+                # Not recovered, and not still failing either: nothing since the
+                # change has been read to say which.
+                saw_no_minute=not any(bucket.bucket_id >= first_whole_minute
+                                      for bucket in buckets)
             ))
 
         # Asked before the recovery is acted on, and it outranks it: an incident

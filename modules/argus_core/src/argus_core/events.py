@@ -474,12 +474,17 @@ class RecoveryChecked(_Event):
     Absent on every look that found the service still failing, since those have
     nothing to date, and absent too on a confirmation nothing can date: the
     verdict is reached on a window whose departure need not have persisted.
+
+    `saw_no_minute` is a look that found no minute since the change to judge:
+    not recovered, because nothing answered yet, and not still at the
+    incident's level either, because nothing was measured to say so.
     """
 
     kind: Literal["recovery-checked"] = "recovery-checked"
     minute: str
     recovered: bool
     recovered_minute: str | None = None
+    saw_no_minute: bool = False
 
 
 class VerdictReached(_Event):

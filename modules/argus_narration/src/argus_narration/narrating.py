@@ -927,7 +927,13 @@ def _what_the_look_settled(event: RecoveryChecked) -> str:
     service back to normal, which is a different question and is not asked here:
     a fix landing mid-minute leaves that minute off the incident's level and still
     outside the range the service keeps when nothing is wrong.
+
+    A look with no minute since the change to judge says that rather than a
+    level: nothing was measured, so neither answer is.
     """
+    if event.saw_no_minute:
+        return "no new minute read yet"
+
     if not event.recovered:
         return "still at the incident's level"
 

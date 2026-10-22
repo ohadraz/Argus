@@ -458,6 +458,35 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
 
 
 @pytest.mark.unit
+def test_a_look_with_no_minute_since_the_action_says_it_saw_none() -> None:
+    # Nothing has answered yet, so the look has no level to report - "still at
+    # the incident's level" said there states what nothing measured.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=False),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+                ),
+                fetch_metrics=_metrics_recovering_only_after_the_action(),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            _the_looks_saw_no_minute(published, True, False)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("some_old_state", [False, True])
 def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
         some_old_state: bool) -> None:
@@ -3220,6 +3249,22 @@ def _each_look_reported(published: list[IncidentEvent],
         if reported != recoveries:
             raise AssertionError(
                 f"Expected the looks to report {recoveries}, got {reported}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_looks_saw_no_minute(published: list[IncidentEvent],
+                             *expected: bool) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        saw = tuple(event.saw_no_minute for event in published
+                    if isinstance(event, RecoveryChecked))
+
+        if saw != expected:
+            raise AssertionError(
+                f"Expected each look's having seen no minute to be {expected}, got {saw}."
             )
 
         return True
