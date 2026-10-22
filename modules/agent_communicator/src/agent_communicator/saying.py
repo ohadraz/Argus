@@ -225,8 +225,12 @@ def _the_chat_line(line: NarrationLine,
     the brackets the walk quotes a name in for its model, and each revision
     the incident read said by its short form, leading to its commit
     (`revisions`).
+
+    With the candidates it carries said after it: the page lays them out
+    beneath the line, and a message that has only the sentence ends on a colon
+    promising a list that never comes.
     """
-    said = shown(line, revisions)
+    said = shown(_with_its_candidates(line), revisions)
 
     return Line(who=said.who,
                 text=said.text,
@@ -236,6 +240,17 @@ def _the_chat_line(line: NarrationLine,
                 aside=said.aside,
                 link=link,
                 links=said.links)
+
+
+def _with_its_candidates(line: NarrationLine) -> NarrationLine:
+    """The line with the candidates it carries said at the end of its text -
+    or the line as it is, where it carries none."""
+    if not line.candidates:
+        return line
+
+    return line.model_copy(update={
+        "text": f"{line.text.rstrip()} "
+                + "; ".join(candidate.summary for candidate in line.candidates)})
 
 
 def _the_offers_retired_by(line: NarrationLine) -> list[str]:
