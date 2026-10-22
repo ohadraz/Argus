@@ -83,7 +83,6 @@ from argus_core.models import (
     ReportChannel,
     RetrievalChannel,
     RolloutAccount,
-    Undone,
     why_it_was_refused,
 )
 from pydantic import BaseModel, Field
@@ -568,7 +567,12 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # it reverses are the same subject a page apart, and a reader
             # matching them up should not have to read two spellings.
             emphasis = event.subject
-            text = f"{emphasis} {_what_became_of_it(event)}"
+            # What became of it is the answer's own detail, verb and all: only
+            # the kind of change knows which verb fits - a flag was put back ON,
+            # a write that failed could not be put back, one half done was only
+            # partly put back. A heading of this line's own in front of it said
+            # the outcome twice, and over a failed write said "could not be read".
+            text = f"{emphasis} {event.detail}"
         case SimilarIncidentsRecalled():
             who = _ARGUS
             # How many, marked, rather than the ids. The count is what a reader
@@ -1213,42 +1217,6 @@ def _and_then_some(action_types: Sequence[ActionType]) -> str:
         return f"{said[0]} was"
 
     return f"{', '.join(said[:-1])} and {said[-1]} were"
-
-
-def _what_became_of_it(undone: ChangeUndone) -> str:
-    """What became of one change an incident made, said after the subject.
-
-    Four answers rather than four shades of "done": a flag left as found is
-    somebody else's now, one nobody could read is a question still open, and
-    figures thrown away were never owed back.
-
-    A restore is said by its own detail alone, which carries the whole predicate
-    - only the kind of change knows which verb fits it: a flag was put back ON, a
-    deployment had its pods let off a card. A phrase of this function's in front
-    of it said the restore twice.
-
-    A match rather than the dictionary this used to be, and the member added to
-    it is the reason. A lookup answers a kind nobody has handled with a
-    `KeyError` at the moment a page is rendered - after the incident, in front
-    of the person reading it, out of the one module whose job is to not be the
-    thing that fails. `assert_never` asks the type checker the same question
-    instead, before anything runs.
-    """
-    match undone.outcome:
-        case Undone.RESTORED:
-            return undone.detail
-        case Undone.LEFT_AS_FOUND:
-            return f"was left as found - {undone.detail}"
-        case Undone.NOT_ESTABLISHED:
-            return f"could not be read - {undone.detail}"
-        case Undone.NO_UNDO_WAS_OWED:
-            # Not "was left alone", which is what an action the gate refused
-            # gets, and not "could not be put back", which says an attempt was
-            # made and failed. Something was done here, and nothing was owed
-            # back for it.
-            return f"needed nothing put back - {undone.detail}"
-
-    assert_never(undone.outcome)
 
 
 def what_the_action_does(action_type: ActionType, subject: str) -> str:

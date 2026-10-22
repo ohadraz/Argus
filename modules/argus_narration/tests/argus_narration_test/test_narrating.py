@@ -1223,53 +1223,30 @@ def test_a_change_put_back_is_said_once_as_its_subject_and_what_became_of_it() -
 
 
 @pytest.mark.unit
-def test_a_flag_somebody_else_touched_is_said_to_have_been_left_alone() -> None:
-    # The distinction the outcome exists for. "Nothing was written" means two
-    # things here, and only one of them is Argus declining to overwrite
-    # somebody else's change - the other is a flag nobody could read. A
-    # withdrawal reported as complete when a flag was left as found would
-    # promise a world Argus did not restore.
-    some_untouched = ChangeUndone(
+@pytest.mark.parametrize(("outcome", "detail"), [
+    (Undone.LEFT_AS_FOUND, "was left as found: somebody else has changed it since Argus did"),
+    (Undone.NOT_ESTABLISHED, "could not be put back ON: the provider would not answer"),
+    (Undone.NO_UNDO_WAS_OWED,
+     "needed nothing put back: what it removed was a copy of records it never touched")
+], ids=["left-as-found", "not-established", "no-undo-owed"])
+def test_every_answer_about_a_change_is_said_as_its_subject_and_what_became_of_it(
+        outcome: Undone, detail: str) -> None:
+    # As a restore is: the answer carries its own verb, because which one fits
+    # is the kind of change's to know - a write that failed could not be put
+    # back, one half done was only partly put back, a flag nobody could account
+    # for was not written. A heading of the line's own over all of them said
+    # "could not be read" over writes that were never a read.
+    some_answer = ChangeUndone(
         incident_id=new_id(),
         subject=SOME_FLAG,
-        outcome=Undone.LEFT_AS_FOUND,
-        detail="somebody else has changed it since Argus did"
+        outcome=outcome,
+        detail=detail
     )
 
     Scenario() \
-        .given(some_untouched) \
-        .when(lambda: build_narration([some_untouched])) \
-        .then(_the_only_line_mentions("left as found"))
-
-
-@pytest.mark.unit
-def test_figures_thrown_away_are_said_to_have_needed_nothing_put_back() -> None:
-    # The fourth answer, and the three phrases beside it are the reason it has
-    # one of its own. "Was put back" claims a restore nobody performed. "Could
-    # not be read" says an attempt was made and did not land, which would send
-    # somebody to look at a store that is exactly as it should be. "Was left as
-    # found" belongs to an action the gate refused, where nothing happened at
-    # all. Something did happen here - the figures are gone - and nothing was
-    # owed back for them.
-    #
-    # The second assertion is the one that costs something. Every other way of
-    # saying this reads as an undo that was attempted, and a reader of a
-    # withdrawn incident acts on which of those they think they are looking at.
-    some_shop = "io-shop"
-    some_withdrawn_discard = ChangeUndone(
-        incident_id=new_id(),
-        subject=some_shop,
-        outcome=Undone.NO_UNDO_WAS_OWED,
-        detail="the figures it threw away were a copy of records it never touched"
-    )
-
-    Scenario() \
-        .given(some_withdrawn_discard) \
-        .when(lambda: build_narration([some_withdrawn_discard])) \
-        .then(all_of(
-            _the_only_line_mentions("needed nothing put back"),
-            _the_only_line_does_not_mention("could not")
-        ))
+        .given(some_answer) \
+        .when(lambda: build_narration([some_answer])) \
+        .then(_the_only_line_reads(f"{SOME_FLAG} {detail}"))
 
 
 @pytest.mark.unit

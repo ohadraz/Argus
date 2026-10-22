@@ -225,7 +225,8 @@ def test_withdrawing_an_incident_that_discarded_figures_says_none_was_owed(
             _nothing_was_undone(undo),
             _one_change_was_reported(published),
             _the_report_names(published, Undone.NO_UNDO_WAS_OWED),
-            _the_report_is_about(published, some_shop)
+            _the_report_is_about(published, some_shop),
+            _the_report_begins(published, "needed nothing put back")
         ))
 
 
@@ -353,6 +354,20 @@ def _the_report_says(published: list[IncidentEvent], detail: str) -> Assertion[N
         if said != detail:
             raise AssertionError(
                 f"Expected the report to read [{detail!r}], got [{said!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_report_begins(published: list[IncidentEvent], words: str) -> Assertion[None]:
+    def assertion(_unwound: None) -> bool:
+        said = _the_changes_undone_in(published)[0].detail
+
+        if not said.startswith(words):
+            raise AssertionError(
+                f"Expected the report to begin [{words}], got [{said}]."
             )
 
         return True

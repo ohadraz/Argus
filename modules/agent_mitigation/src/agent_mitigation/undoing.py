@@ -114,7 +114,7 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"[{application}] could not be put back on the revision at "
+                f"could not be put back on the revision at "
                 f"history entry [{undo_descriptor.was_on_history_id}]: {error}"
             ),
         )
@@ -143,7 +143,7 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -175,7 +175,7 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"[{application}] could not be put back to "
+                f"could not be put back to "
                 f"[{undo_descriptor.was_replicas}] replicas: {error}"
             ),
         )
@@ -204,7 +204,7 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -244,7 +244,7 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"[{application}]'s autoscaler floor could not be put back to "
+                f"could not have its autoscaler floor put back to "
                 f"[{undo_descriptor.was_min_replicas}]: {error}"
             ),
         )
@@ -273,7 +273,7 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -304,7 +304,7 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
         return UndoAttempt(
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
-            detail=f"[{application}]'s pods could not be let off their card: {error}",
+            detail=f"could not have its pods let off their card: {error}",
         )
 
     if restored.pin_put_back and restored.automated_sync_put_back:
@@ -330,7 +330,7 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
         subject=application,
         outcome=Undone.NOT_ESTABLISHED,
         detail=(
-            f"[{application}] was only partly put back - {still_changed} "
+            f"was only partly put back - {still_changed} "
             f"remains as Argus left it"
         ),
     )
@@ -351,9 +351,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"flag [{flag}] was not written: the change does not record when "
-                f"Argus made it, so whether anybody has changed it since cannot "
-                f"be asked"
+                "was not written: the change does not record when Argus made it, "
+                "so whether anybody has changed it since cannot be asked"
             ),
         )
 
@@ -366,8 +365,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"whether anybody changed flag [{flag}] since Argus set it could "
-                f"not be established, so it was not written"
+                "was not written: whether anybody changed it since Argus set it "
+                "could not be established"
             ),
         )
 
@@ -378,8 +377,8 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.LEFT_AS_FOUND,
             detail=(
-                f"flag [{flag}] was left as found: it has been changed from "
-                f"outside since Argus set it"
+                "was left as found: it has been changed from outside since Argus "
+                "set it"
             ),
         )
 
@@ -392,8 +391,7 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
             subject=flag,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"flag [{flag}] could not be put back "
-                f"{state_name(was_enabled)}: {error}"
+                f"could not be put back {state_name(was_enabled)}: {error}"
             ),
         )
 

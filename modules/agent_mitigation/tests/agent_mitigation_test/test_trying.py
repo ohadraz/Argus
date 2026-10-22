@@ -670,7 +670,8 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
             _the_detail_mentions(some_flag),
-            _the_detail_mentions("changed")
+            _the_detail_mentions("changed"),
+            _the_detail_mentions(f"and [{some_flag}] was left as found")
         ))
 
 

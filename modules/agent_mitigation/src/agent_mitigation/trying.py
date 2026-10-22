@@ -1342,14 +1342,14 @@ def _undone(performed: Performed,
             return Outcome(
                 verdict=Verdict.ESCALATED,
                 because=because,
-                detail=f"{taken}, but {because}, and {attempt.detail}",
+                detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
             )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
                 verdict=Verdict.REFUTED,
                 because=because,
-                detail=f"{taken}, but {because}, and {attempt.detail}",
+                detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
             )
         case Undone.RESTORED:

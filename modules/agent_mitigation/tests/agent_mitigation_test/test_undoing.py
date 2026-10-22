@@ -11,6 +11,7 @@ would be overwritten.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TypedDict, Unpack
 from unittest.mock import MagicMock, create_autospec
@@ -72,6 +73,112 @@ THE_CEILING_IT_WAS_HELD_AT = 6
 THE_CARD_IT_WAS_HELD_TO = "Tesla-V100-SXM2-16GB"
 
 
+# Where putting a change back logs from.
+THE_UNDOING = "agent_mitigation.undoing"
+
+# The case lists below hold ways to build what a case is handed rather than the
+# things themselves. A lambda looks its names up when it is called, so the
+# builders it calls can be defined further down, and every case is handed
+# collaborators of its own rather than one mock shared with every other.
+
+# Every kind of change, with the collaborator that puts it back and what the
+# answer is about. One case each, because each kind's restore is its own branch.
+EVERY_KIND_OF_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 DeploymentRestorer, SOME_APPLICATION, id="rollback"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 CapacityRestorer, SOME_APPLICATION, id="scale-out"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 AutoscalingRestorer, SOME_APPLICATION, id="autoscaler-pin"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 AcceleratorPinRestorer, SOME_APPLICATION, id="card-pin"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
+                 FlagSetter, SOME_FLAG, id="flag")
+]
+
+# Every kind of change, with a collaborator that puts the whole of it back.
+EVERY_WHOLE_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 lambda: _a_restorer_that_puts_back(), id="rollback"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 lambda: _a_capacity_restorer_that_puts_back(), id="scale-out"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 lambda: _an_autoscaling_restorer_that_puts_back(), id="autoscaler-pin"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 lambda: _an_accelerator_pin_restorer_that_puts_back(), id="card-pin"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
+                 lambda: _a_flag_setter(), id="flag")
+]
+
+# Every kind that restores two things, answering that only the first went back.
+EVERY_HALF_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 lambda: _a_restorer_that_puts_back(revision=True, automated_sync=False),
+                 id="rollback"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 lambda: _a_capacity_restorer_that_puts_back(count=True, automated_sync=False),
+                 id="scale-out"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 lambda: _an_autoscaling_restorer_that_puts_back(floor=True,
+                                                                 automated_sync=False),
+                 id="autoscaler-pin"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 lambda: _an_accelerator_pin_restorer_that_puts_back(pin=True,
+                                                                     automated_sync=False),
+                 id="card-pin")
+]
+
+# Every answer but a restore, with the collaborators that bring it about.
+EVERY_ANSWER_BUT_A_RESTORE = [
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_deployment=_a_restorer_that_puts_back(automated_sync=False)),
+                 id="rollback-partly"),
+    pytest.param(lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_deployment=_a_collaborator_raising(DeploymentRestorer)),
+                 id="rollback-refused"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_capacity=_a_capacity_restorer_that_puts_back(automated_sync=False)),
+                 id="scale-out-partly"),
+    pytest.param(lambda: a_resize_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_capacity=_a_collaborator_raising(CapacityRestorer)),
+                 id="scale-out-refused"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_autoscaling=_an_autoscaling_restorer_that_puts_back(
+                         automated_sync=False)),
+                 id="autoscaler-pin-partly"),
+    pytest.param(lambda: a_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_autoscaling=_a_collaborator_raising(AutoscalingRestorer)),
+                 id="autoscaler-pin-refused"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_accelerator_pin=_an_accelerator_pin_restorer_that_puts_back(
+                         automated_sync=False)),
+                 id="card-pin-partly"),
+    pytest.param(lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 lambda: _collaborators_with(
+                     restore_accelerator_pin=_a_collaborator_raising(AcceleratorPinRestorer)),
+                 id="card-pin-refused"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                 lambda: _collaborators_with(changed_from_outside=somebody_changed_it()),
+                 id="flag-left-as-found"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                 lambda: _collaborators_with(changed_from_outside=nobody_can_say()),
+                 id="flag-unaccounted-for"),
+    pytest.param(lambda: FlagUndo(flag=SOME_FLAG, was_enabled=True, environment="production"),
+                 lambda: _collaborators_with(),
+                 id="flag-undated"),
+    pytest.param(lambda: an_undo_descriptor_for(SOME_FLAG, was_enabled=True),
+                 lambda: _collaborators_with(set_state=_a_collaborator_raising(FlagSetter)),
+                 id="flag-refused")
+]
+
+
 @pytest.mark.unit
 def test_a_flag_nobody_touched_is_put_back() -> None:
     set_state = _a_flag_setter()
@@ -122,7 +229,9 @@ def test_a_flag_somebody_changed_is_left_as_found() -> None:
         ) \
         .then(all_of(
             _it_reports(Undone.LEFT_AS_FOUND),
-            _nothing_was_written(set_state)
+            _nothing_was_written(set_state),
+            _it_says_exactly("was left as found: it has been changed from outside since "
+                             "Argus set it")
         ))
 
 
@@ -896,35 +1005,21 @@ def _the_autoscaling_restorer_was_not_asked(restore: MagicMock) -> Assertion[Und
     return assertion
 
 
-# Every kind of change, with a collaborator that puts the whole of it back.
-EVERY_WHOLE_RESTORE = [
-    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
-                 _a_restorer_that_puts_back(), id="rollback"),
-    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
-                 _a_capacity_restorer_that_puts_back(), id="scale-out"),
-    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
-                 _an_autoscaling_restorer_that_puts_back(), id="autoscaler-pin"),
-    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
-                 _an_accelerator_pin_restorer_that_puts_back(), id="card-pin"),
-    pytest.param(an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
-                 _a_flag_setter(), id="flag")
-]
-
-
 @pytest.mark.unit
 @pytest.mark.parametrize(("descriptor", "collaborator", "a_whole_restore"),
                          EVERY_WHOLE_RESTORE)
 def test_a_change_put_back_does_not_name_its_subject_again(
-    descriptor: UndoDescriptor, collaborator: str, a_whole_restore: MagicMock
+    descriptor: Callable[[], UndoDescriptor], collaborator: str,
+    a_whole_restore: Callable[[], MagicMock]
 ) -> None:
     # The narration leads with the subject and follows it with this, so a
     # detail that named it again said it twice on one line.
     Scenario() \
         .given(
-            collaborators := _collaborators_with(**{collaborator: a_whole_restore})
+            collaborators := _collaborators_with(**{collaborator: a_whole_restore()})
         ) \
         .when(
-            lambda: undo_change(descriptor, **collaborators)
+            lambda: undo_change(descriptor(), **collaborators)
         ) \
         .then(all_of(
             _it_reports(Undone.RESTORED),
@@ -932,48 +1027,34 @@ def test_a_change_put_back_does_not_name_its_subject_again(
         ))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborators"), EVERY_ANSWER_BUT_A_RESTORE)
+def test_a_change_not_put_back_does_not_name_its_subject_again(
+    descriptor: Callable[[], UndoDescriptor], collaborators: Callable[[], _Collaborators]
+) -> None:
+    # Said as a restore is: the narration leads with the subject and follows it
+    # with this, verb and all - a write that failed could not be put back, one
+    # half done was only partly put back - so a detail naming the subject again
+    # said it twice on one line.
+    Scenario() \
+        .given(
+            handed := collaborators()
+        ) \
+        .when(
+            lambda: undo_change(descriptor(), **handed)
+        ) \
+        .then(
+            _it_does_not_name_its_subject()
+        )
+
+
 # ---- what it logs ----
-
-# Where putting a change back logs from.
-THE_UNDOING = "agent_mitigation.undoing"
-
-# Every kind of change, with the collaborator that puts it back and what the
-# answer is about. One case each, because each kind's restore is its own branch.
-EVERY_KIND_OF_RESTORE = [
-    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
-                 DeploymentRestorer, SOME_APPLICATION, id="rollback"),
-    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
-                 CapacityRestorer, SOME_APPLICATION, id="scale-out"),
-    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
-                 AutoscalingRestorer, SOME_APPLICATION, id="autoscaler-pin"),
-    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
-                 AcceleratorPinRestorer, SOME_APPLICATION, id="card-pin"),
-    pytest.param(an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
-                 FlagSetter, SOME_FLAG, id="flag")
-]
-
-# Every kind that restores two things, answering that only the first went back.
-EVERY_HALF_RESTORE = [
-    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
-                 _a_restorer_that_puts_back(revision=True, automated_sync=False),
-                 id="rollback"),
-    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
-                 _a_capacity_restorer_that_puts_back(count=True, automated_sync=False),
-                 id="scale-out"),
-    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
-                 _an_autoscaling_restorer_that_puts_back(floor=True, automated_sync=False),
-                 id="autoscaler-pin"),
-    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
-                 _an_accelerator_pin_restorer_that_puts_back(pin=True, automated_sync=False),
-                 id="card-pin")
-]
-
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("descriptor", "collaborator", "spec", "subject"),
                          EVERY_KIND_OF_RESTORE)
 def test_a_restore_that_raised_is_logged_as_a_warning(
-    descriptor: UndoDescriptor, collaborator: str, spec: type, subject: str,
+    descriptor: Callable[[], UndoDescriptor], collaborator: str, spec: type, subject: str,
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # The answer says not established and whoever asked escalates on it, and
@@ -984,7 +1065,7 @@ def test_a_restore_that_raised_is_logged_as_a_warning(
         ) \
         .when(
             lambda: undo_change(
-                descriptor, **_collaborators_with(**{collaborator: the_restore_raises})
+                descriptor(), **_collaborators_with(**{collaborator: the_restore_raises})
             )
         ) \
         .then(
@@ -997,17 +1078,18 @@ def test_a_restore_that_raised_is_logged_as_a_warning(
 @pytest.mark.parametrize(("descriptor", "collaborator", "half_a_restore"),
                          EVERY_HALF_RESTORE)
 def test_a_change_only_partly_put_back_is_logged_as_a_warning(
-    descriptor: UndoDescriptor, collaborator: str, half_a_restore: MagicMock,
+    descriptor: Callable[[], UndoDescriptor], collaborator: str,
+    half_a_restore: Callable[[], MagicMock],
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # A deployment that looks right and receives nothing anybody ships to it,
     # which nobody looking at it would notice.
     Scenario() \
         .given(
-            collaborators := _collaborators_with(**{collaborator: half_a_restore})
+            collaborators := _collaborators_with(**{collaborator: half_a_restore()})
         ) \
         .when(
-            lambda: undo_change(descriptor, **collaborators)
+            lambda: undo_change(descriptor(), **collaborators)
         ) \
         .then(
             one_record_was_logged(caplog, THE_UNDOING, logging.WARNING,

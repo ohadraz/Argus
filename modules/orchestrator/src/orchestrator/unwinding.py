@@ -126,9 +126,9 @@ def unwind_incident(incident_id: str,
                         subject=taken_action.subject or "",
                         outcome=Undone.NO_UNDO_WAS_OWED,
                         detail=(
-                            "what it removed was derived from records it never "
-                            "touched, so there was nothing of Argus's to write "
-                            "back"
+                            "needed nothing put back: what it removed was derived "
+                            "from records it never touched, so there was nothing "
+                            "of Argus's to write back"
                         )
                     ),
                     publisher
