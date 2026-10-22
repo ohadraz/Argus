@@ -49,13 +49,26 @@ def test_a_quoted_name_is_shown_without_its_brackets() -> None:
 
 
 @pytest.mark.unit
+def test_a_quoted_name_beside_code_is_still_shown_without_its_brackets() -> None:
+    # Code keeps its brackets, and only code: a name quoted outside it on the
+    # same line is still a name.
+    Scenario() \
+        .when(
+            lambda: as_shown("[io-shop] renamed its ports to `<protocol>[-<purpose>]`")
+        ) \
+        .then(
+            the_answer_was("io-shop renamed its ports to `<protocol>[-<purpose>]`"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("said", [
     "the list read prices[index] and names[0]",
     "it said [a phrase with spaces in it]",
     "see [the runbook](https://runbooks.example/io-shop)",
     "see [docs](https://runbooks.example/io-shop)",
-    "a nested [[name]] stays as it was"
-], ids=["an-index", "a-phrase", "a-link", "a-one-word-link", "nested"])
+    "a nested [[name]] stays as it was",
+    "the estate-wide `<protocol>[-<purpose>]` convention"
+], ids=["an-index", "a-phrase", "a-link", "a-one-word-link", "nested", "in-code"])
 def test_brackets_that_quote_no_name_are_shown_as_written(said: str) -> None:
     # An index belongs to the code it is in, a phrase was bracketed by whoever
     # wrote it for a reason of their own, and a link's text is what it opens.

@@ -9,8 +9,9 @@ So they are left off where a line is shown, and only there: the narration a
 model is told keeps them, and so does the record.
 
 Only the brackets that quote a name: a run with no space in it, at the start
-of a word. An index in code (`prices[0]`) keeps its brackets, as do a phrase
-with spaces in it, a link's text and anything nested. And only on the walk's
+of a word, outside a span of code. An index in code (`prices[0]`) keeps its
+brackets, as does anything between backticks, a phrase with spaces in it, a
+link's text and anything nested. And only on the walk's
 own lines: a line from outside the walk - a person's message, an offer, an
 answer to a question - is shown as it was written, since a person's brackets
 are theirs and a line not written by the walk need not follow its convention.
@@ -40,6 +41,9 @@ from argus_narration.narrating import NarrationLine
 # inside that a phrase or another bracket would have; and not a link's text.
 _A_QUOTED_NAME: Final = re.compile(r"(?<![\w\[])\[([^\s\[\]]+)\](?![(\]])")
 
+# A span of code, between backticks: kept as written, its brackets included.
+_A_CODE_SPAN: Final = re.compile(r"(`[^`]*`)")
+
 
 class ShownRevision(BaseModel):
     """A revision the incident read, as a shown line says it: by its short
@@ -52,8 +56,11 @@ class ShownRevision(BaseModel):
 
 
 def as_shown(text: str) -> str:
-    """`text` with the brackets around each name it quotes left off."""
-    return _A_QUOTED_NAME.sub(r"\1", text)
+    """`text` with the brackets around each name it quotes left off - outside
+    code alone: a bracket in a span of code is the code's, and taken for a
+    name's, "`<protocol>[-<purpose>]`" read as a purpose no longer optional."""
+    return "".join(part if _A_CODE_SPAN.fullmatch(part) else _A_QUOTED_NAME.sub(r"\1", part)
+                   for part in _A_CODE_SPAN.split(text))
 
 
 def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> NarrationLine:
