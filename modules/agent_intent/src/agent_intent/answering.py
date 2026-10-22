@@ -2,7 +2,8 @@
 once more.
 
 The model is given the question exactly as written and the incident's timeline,
-one line per event, as the page and the thread say it, and nothing else. It is
+one line per event, each said in full as the postmortem's timeline gives it,
+and nothing else. It is
 held to that: an answer the record does not support is worse than none,
 because the person reading it has no way to tell. Saying the record is silent
 is an answer.
@@ -23,7 +24,7 @@ from typing import Final
 from argus_core import to_iso
 from argus_core.llm import LLMClient, ModelDidNotAnswer
 from argus_core.models import Ask, ToolDefinition, Transcript, Turn
-from argus_narration import NarrationLine
+from argus_narration import NarrationLine, said_in_full
 
 # The tool's name and its one field, named once: the definition offered to the
 # model and the reading of its call both use them.
@@ -87,9 +88,11 @@ def _the_opening(question: str, story: Sequence[NarrationLine]) -> Transcript:
 
 
 def _the_line_and_its_aside(line: NarrationLine) -> list[str]:
-    """One line of the timeline, and what it says beside itself indented under
-    it, every line of it - which already says whose reading it is."""
-    said = [f"- {to_iso(line.at)} {line.who}: {line.text}"]
+    """One line of the timeline in full - what a page lays out beside its
+    sentence, the move and the candidates, said in it - and what it says
+    beside itself indented under it, every line of it, which already says
+    whose reading it is."""
+    said = [f"- {to_iso(line.at)} {line.who}: {said_in_full(line)}"]
 
     return [*said, indent(line.aside, "  ")] if line.aside else said
 

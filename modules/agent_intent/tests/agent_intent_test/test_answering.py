@@ -23,7 +23,7 @@ from agent_intent.answering import ANSWER_FIELD, ANSWER_TOOL_NAME, answer
 from argus_core import to_iso
 from argus_core.llm import LLMClient, ModelDidNotAnswer
 from argus_core.models import Ask, ToolCall, ToolDefinition, Transcript, Turn
-from argus_narration import NarrationLine
+from argus_narration import CandidateLine, NarrationLine
 from argus_testkit import Assertion, Kept, Scenario, all_of
 
 SOME_QUESTION = "why did you revert the checkout flag?"
@@ -114,6 +114,34 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
         .when(lambda: answer(SOME_QUESTION, some_timeline, a_model)) \
         .then(_the_model_was_shown(asked,
                                    "\n  Code-Fix's reading: scrape.yaml\n  names the old port\n"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("line", "said"), [
+    (NarrationLine(at=datetime(2026, 10, 11, 12, 4, tzinfo=UTC), kind="action-taken",
+                   who="Mitigation Agent", text="Reverted the feature flag checkout, moved ",
+                   moved_from="ON", moved_to="OFF"),
+     "Reverted the feature flag checkout, moved from ON to OFF"),
+    (NarrationLine(at=datetime(2026, 10, 11, 12, 3, tzinfo=UTC), kind="hypothesis-formed",
+                   who="Investigator Agent", text="Formed 1 candidate cause, best first:",
+                   candidates=[CandidateLine(hypothesis_id="h1", rank=1,
+                                             summary="The checkout flag broke the page",
+                                             subject="checkout", confidence="0.8",
+                                             evidence=[])]),
+     "Formed 1 candidate cause, best first: The checkout flag broke the page")
+], ids=["a-move", "candidates"])
+def test_the_model_is_shown_each_line_in_full(line: NarrationLine, said: str) -> None:
+    # Shown the line's text alone, the model read "Reverted the feature flag
+    # monthly-spend-feature, moved " with nowhere it moved to, and "best
+    # first:" with no candidate after it - what a page lays out beside the
+    # sentence, and a thread has only the sentence for.
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, [line], a_model)) \
+        .then(_the_model_was_shown(asked, said))
 
 
 @pytest.mark.unit

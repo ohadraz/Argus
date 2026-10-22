@@ -1,0 +1,40 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "A person asked this in the Slack thread of an incident Argus is responding to:\n\nwhat has Argus done about this so far?\n\nThis is everything Argus has recorded about the incident, oldest first:\n\n- 2026-10-22T22:55:27Z Argus: Received HighErrorRate on io-shop\n- 2026-10-22T22:55:46Z Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n- 2026-10-22T22:55:48Z Argus: Called in the Investigator Agent\n- 2026-10-22T22:56:02Z Investigator Agent: Asked for the service's per-minute metrics, anchored on 22:55:06\n- 2026-10-22T22:56:11Z Investigator Agent: Read back 361 minutes of metrics\n- 2026-10-22T22:56:12Z Investigator Agent: Placed the start of the incident at 22:48\n- 2026-10-22T22:56:12Z Investigator Agent: Recorded where the 3 replicas run - all on Tesla-V100-SXM2-16GB\n- 2026-10-22T22:56:13Z Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 day before Oct 22 22:48\n- 2026-10-22T22:56:15Z Investigator Agent: Read back 1 production change\n- 2026-10-22T22:56:15Z Investigator Agent: Read how far the deployment had rolled out - all 3 replicas run one revision, which the history does not name\n- 2026-10-22T22:56:15Z Investigator Agent: Asked for the service's log lines, the 37 minutes 6 seconds before 22:55:06\n- 2026-10-22T22:56:16Z Investigator Agent: Read back 135 log lines\n- 2026-10-22T22:56:17Z Investigator Agent: Formed 1 candidate cause, best first: The monthly-spend-feature flag was switched on at the onset. This enabled a code path that raises ZeroDivisionError at src/io_shop/spend_summary.py:47, so account page requests failed and the error rate rose from about 1% to about 32%. No deployment or config change is involved, and the rollout had converged.\n- 2026-10-22T22:56:17Z Investigator Agent: Read every channel available\n- 2026-10-22T22:56:18Z Argus: Read the flag provider's history - 1 flag change by anyone but Argus, the 1 hour before 22:56:18\n- 2026-10-22T22:56:22Z Argus: Moved the incident to MITIGATING to act on the leading candidate\n- 2026-10-22T22:56:22Z Argus: Called in the Mitigation Agent\n- 2026-10-22T22:56:22Z Mitigation Agent: Reverted the feature flag monthly-spend-feature, moved from ON to OFF\n- 2026-10-22T22:56:58Z Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 22:57 - up to 120s\n- 2026-10-22T22:56:58Z Mitigation Agent: Looked at the service - still at the incident's level\n- 2026-10-22T22:58:04Z Mitigation Agent: Looked at the service - no longer at the incident's level since 22:57\n- 2026-10-22T22:58:04Z Mitigation Agent: Judged the action CONFIRMED\n- 2026-10-22T22:58:04Z Argus: Moved the incident to MITIGATED - set flag [monthly-spend-feature] OFF and the rule that fired stopped firing\n- 2026-10-22T22:58:11Z Code-Fix Agent: Proposed a fix as a draft pull request - https://github.invalid/ohadraz/repository/pull/1\n- 2026-10-22T22:58:17Z Argus: Filed what was tried on this incident: putting monthly-spend-feature back\n- 2026-10-22T22:58:28Z Postmortem Agent: Wrote the postmortem - The service broke at 22:48 UTC and was back to normal at 22:57 UTC, 9 minutes later. 27.4% of requests failed while it was broken, against 1.0% before it began. At its worst, 35.5% failed. The shop's takings fell short of the same hours on earlier weeks by 5,410.09 USD, beyond how much those hours vary on their own. Switching on a new feature for shoppers' account pages sent those pages through new code that crashed, likely because it divides by the number of purchases made this month, and that number is nothing for shoppers who have not bought anything yet this month. What Argus did: reverted the feature flag monthly-spend-feature (can be put back) - confirmed, still in place. Argus opened a draft fix, PR #1, for a person to review and merge. Only the flag was switched off, so the division in the monthly spend code is still there, and switching monthly-spend-feature back on would likely make account pages fail again for shoppers with no purchases this month.\n\nAnswer only from these lines. Where they do not hold the answer, say that the record does not say, rather than guessing. Do not say Argus will do anything; answer what happened.\n\nCall submit_answer with your answer.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Submit your answer to the person's question about the incident.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "The answer, as it will be posted in the thread: a few plain sentences, addressed to the person who asked.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "type": "object"
+      },
+      "name": "submit_answer",
+      "strict": true
+    }
+  ]
+}
