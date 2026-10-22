@@ -2977,6 +2977,46 @@ def test_the_brief_never_names_an_answer_an_incident_whose_logs_reach_nowhere_is
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("log_lines", [
+    [f"{to_iso(ONSET - timedelta(minutes=4))} WARN io-shop: dont care"],
+    []
+], ids=["none-reaching-in", "none-read"])
+def test_the_brief_says_nothing_is_known_of_the_service_where_no_log_line_reaches_in(
+        log_lines: list[str]) -> None:
+    # The document says how the service did there only from lines that reach
+    # in. With none, a model told nothing of that stretch is free to say the
+    # shop kept serving - unbounded, which is what the bound was there to stop.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=log_lines, logs_read_until=None)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              unobserved_from=ONSET))
+        ) \
+        .then(
+            _says_on_one_line("Nothing is known of how the service did over that stretch: "
+                              "say nothing of it.")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_never_says_nothing_is_known_where_a_log_line_reaches_in() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              unobserved_from=ONSET))
+        ) \
+        .then(
+            _does_not_say("Nothing is known of how the service did")
+        )
+
+
+@pytest.mark.unit
 def test_what_the_response_did_is_asked_for_under_what_went_wrong_rather_than_as_a_factor() -> None:
     # Asked for conditions that had to hold, a write-up listed automatic sync
     # left off by the rollback and "Argus could not act" as factors - things the

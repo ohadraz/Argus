@@ -1502,12 +1502,15 @@ def _how_long_it_was_broken(measured: Measurements,
             f"not cover, not a stretch the service is known to have spent in "
             f"trouble.",
             _the_logs_reaching_into(evidence, measured.unobserved_from, figures),
-            # Only where a line reaches in, which is where the answer it names
-            # is asked for.
-            *([f"How the service did over that stretch is said by the document "
-               f"itself, from your answer to {LOGS_SHOW_SERVING_AS_BEFORE_FIELD}: say "
-               f"nothing of it anywhere else."]
-              if labels_reaching_into(evidence.log_lines, measured.unobserved_from) else [])
+            # Where a line reaches in, the document says it from the answer named
+            # here, which is asked for only then. Where none does, nothing is
+            # known of it: told nothing either, a model is free to say the
+            # service kept serving, unbounded.
+            f"How the service did over that stretch is said by the document "
+            f"itself, from your answer to {LOGS_SHOW_SERVING_AS_BEFORE_FIELD}: say "
+            f"nothing of it anywhere else."
+            if labels_reaching_into(evidence.log_lines, measured.unobserved_from) else
+            "Nothing is known of how the service did over that stretch: say nothing of it."
         ]
 
     if measured.back_to_normal_at is None:
