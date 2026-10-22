@@ -142,26 +142,32 @@ def the_alert_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
 
 
 def logs_in_the_gap_of(evidence: IncidentEvidence,
-                       measured: Measurements) -> LogsInTheGap | None:
+                       measured: Measurements,
+                       serving_as_before: bool | None = None) -> LogsInTheGap | None:
     """What the service's own logs show of the stretch its metrics missed -
     `None` where they never stopped.
 
     Which rows reach in and how far, by the rule the brief tells it by
     (`labels_reaching_into`, `the_last_minute_logged_inside`), and where the
     reading of them ended, at the alert or past it.
+
+    And `serving_as_before`, the model's reading of those rows - only where a
+    row reaches in, since with none there is nothing for it to be a reading of.
     """
     since = measured.unobserved_from
     if since is None:
         return None
 
     read_until = evidence.logs_read_until
+    labels = labels_reaching_into(evidence.log_lines, since)
 
     return LogsInTheGap(
         read=bool(evidence.log_lines) or read_until is not None,
-        labels=labels_reaching_into(evidence.log_lines, since),
+        labels=labels,
         reach_until=the_last_minute_logged_inside(evidence.log_lines, since),
         read_until=read_until,
-        read_until_the_alert=read_until is not None and read_until == evidence.alerted_at
+        read_until_the_alert=read_until is not None and read_until == evidence.alerted_at,
+        serving_as_before=serving_as_before if labels else None
     )
 
 

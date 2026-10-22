@@ -34,6 +34,7 @@ from argus_core.models import (
     CitedChange,
     CitedEvidence,
     Lessons,
+    LogsInTheGap,
     OpenedPullRequest,
     ThreadMessage,
     TimelineEntry,
@@ -59,7 +60,6 @@ from agent_postmortem.figures import (
     ALERT_RAISED_FIGURE,
     ALERTED_AFTER_THE_ONSET_FIGURE,
     ARGUS_STOPPED_FIGURE,
-    AS_FAR_AS_THE_LOGS_SHOW_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
@@ -154,6 +154,10 @@ GOT_LUCKY_FIELD: Final = "got_lucky"
 # Whether the chain says why the change that set the incident off broke the
 # service, rather than stopping at that change.
 REACHES_A_CAUSE_FIELD: Final = "reaches_a_cause"
+# Whether the log lines reaching into a stretch the metrics did not watch show
+# the service serving as before - asked only where one reaches in, and said by
+# the document from the answer rather than by the model in prose.
+LOGS_SHOW_SERVING_AS_BEFORE_FIELD: Final = "logs_show_serving_as_before"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
@@ -254,6 +258,9 @@ class SubmittedPostmortem(BaseModel):
     # names a required field that is `None`, never puts it back - a retry spent
     # on it would ask every answer recorded before the question for a turn more.
     reaches_a_cause: bool = False
+    # `None` where unanswered - which is an answer only where it was not asked
+    # (`checking`).
+    logs_show_serving_as_before: bool | None = None
 
     def sentences(self) -> Iterator[str]:
         """Every sentence the answer would publish as written.
@@ -472,6 +479,14 @@ class SubmittedPostmortem(BaseModel):
         person signs off on, so "yes" in words, a one or a null reads as no."""
         return value is True
 
+    @field_validator(LOGS_SHOW_SERVING_AS_BEFORE_FIELD, mode="before")
+    @classmethod
+    def _a_plain_yes_or_no(cls, value: Any) -> Any:
+        """Yes or no only where the model said one plainly. Anything else is
+        unanswered, which `checking` asks about where it was asked - rather than
+        a refusal of the whole call, or a guess the document then says."""
+        return value if isinstance(value, bool) else None
+
 
 def _the_strings_in(value: Any) -> list[str]:
     """The sentences in a list, and nothing where there is no list."""
@@ -566,8 +581,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 f"states each of those itself. Not one of the {CONTRIBUTING_FACTORS_FIELD}: "
                 "a safeguard that would have stopped it with this mechanism unchanged "
                 "is said there, not here. What the service did over the stretch the "
-                "metrics did not watch is not the mechanism: the first step of the chain "
-                "says it. "
+                "metrics did not watch is not the mechanism: the document says it itself. "
                 "Where the mechanism rests on a reading "
                 "nothing ran and no S or D row shows what it rests on, say so once."
             )
@@ -783,51 +797,78 @@ SUBMIT_POSTMORTEM = ToolDefinition(
 )
 
 
-def submit_postmortem_for(leads: Sequence[ThreadMessage]) -> ToolDefinition:
-    """The tool for this incident: the one every incident gets, and a place to
-    say what each lead changed where people wrote any.
+def submit_postmortem_for(leads: Sequence[ThreadMessage],
+                          logs_in_the_gap: LogsInTheGap | None = None) -> ToolDefinition:
+    """The tool for this incident: the one every incident gets, a place to say
+    what each lead changed where people wrote any, and one to say whether the
+    logs show the service serving as before where any reach into a stretch the
+    metrics did not watch.
 
-    Only where they did. A field for leads offered on an incident nobody wrote
-    about is a question about nothing, and a request that changed for every
-    incident - so that one is sent exactly as it always was.
+    Only where they do. A field offered on an incident it does not fit is a
+    question about nothing, and a request that changed for every incident - so
+    that one is sent exactly as it always was.
 
-    Required where it is offered: the document owes the person who wrote a
-    lead an answer, and an optional field is one a model leaves out whenever
-    its prose reads well without it.
+    Required where offered: the document owes the person who wrote a lead an
+    answer, and says how the service did over the stretch from the other, and
+    an optional field is one a model leaves out whenever its prose reads well
+    without it.
     """
-    if not leads:
+    offered: dict[str, Any] = {}
+
+    if leads:
+        offered[LEAD_EFFECTS_FIELD] = _LEAD_EFFECTS
+
+    if logs_in_the_gap is not None and logs_in_the_gap.labels:
+        offered[LOGS_SHOW_SERVING_AS_BEFORE_FIELD] = _LOGS_SHOW_SERVING_AS_BEFORE
+
+    if not offered:
         return SUBMIT_POSTMORTEM
 
     return SUBMIT_POSTMORTEM.model_copy(update={
+        "properties": {**SUBMIT_POSTMORTEM.properties, **offered},
+        "required": [*REQUIRED_FIELDS, *offered]
+    })
+
+
+# Where what each lead changed is said, offered only where people wrote any.
+_LEAD_EFFECTS: Final[dict[str, Any]] = {
+    "type": "array",
+    "items": {
+        "type": "object",
         "properties": {
-            **SUBMIT_POSTMORTEM.properties,
-            LEAD_EFFECTS_FIELD: {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        LEAD_FIELD: {
-                            "type": "string",
-                            "description": "The lead's label, as the incident gives it: L1, L2."
-                        },
-                        EFFECT_FIELD: {
-                            "type": "string",
-                            "description": (
-                                "One sentence: whether this lead changed what was "
-                                "done, and how - or that it did not."
-                            )
-                        }
-                    },
-                    "required": [LEAD_FIELD, EFFECT_FIELD]
-                },
+            LEAD_FIELD: {
+                "type": "string",
+                "description": "The lead's label, as the incident gives it: L1, L2."
+            },
+            EFFECT_FIELD: {
+                "type": "string",
                 "description": (
-                    "One entry for every lead people wrote in the incident's thread, "
-                    "saying whether it changed what was done."
+                    "One sentence: whether this lead changed what was "
+                    "done, and how - or that it did not."
                 )
             }
         },
-        "required": [*REQUIRED_FIELDS, LEAD_EFFECTS_FIELD]
-    })
+        "required": [LEAD_FIELD, EFFECT_FIELD]
+    },
+    "description": (
+        "One entry for every lead people wrote in the incident's thread, "
+        "saying whether it changed what was done."
+    )
+}
+
+# Whether the logs show the service serving as before, offered only where a
+# line reaches into a stretch the metrics did not watch. Told to bound the
+# claim, a write-up bounded it in one sentence and said it unbounded in the
+# next, two to four times in five; answered here and said by the document, no
+# write-up of five said it anywhere else.
+_LOGS_SHOW_SERVING_AS_BEFORE: Final[dict[str, Any]] = {
+    "type": "boolean",
+    "description": (
+        "Whether the log lines that reach into the stretch the metrics did not "
+        "watch show the service serving as it had before the metrics stopped. The "
+        "document writes that sentence itself, bounded to when the logs were read."
+    )
+}
 
 
 def opening_ask(evidence: IncidentEvidence, measured: Measurements) -> Transcript:
@@ -1461,10 +1502,12 @@ def _how_long_it_was_broken(measured: Measurements,
             f"not cover, not a stretch the service is known to have spent in "
             f"trouble.",
             _the_logs_reaching_into(evidence, measured.unobserved_from, figures),
-            # Beside the figure rather than in the tool every incident is sent:
-            # the name exists only here, and the rule always arrives with it.
-            f"Anything said of the service over that stretch carries "
-            f"{_shown(AS_FAR_AS_THE_LOGS_SHOW_FIGURE, figures)}."
+            # Only where a line reaches in, which is where the answer it names
+            # is asked for.
+            *([f"How the service did over that stretch is said by the document "
+               f"itself, from your answer to {LOGS_SHOW_SERVING_AS_BEFORE_FIELD}: say "
+               f"nothing of it anywhere else."]
+              if labels_reaching_into(evidence.log_lines, measured.unobserved_from) else [])
         ]
 
     if measured.back_to_normal_at is None:

@@ -49,6 +49,7 @@ from agent_postmortem.prompting import (
     CONTRIBUTING_FACTORS_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
     LESSONS_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     ROOT_CAUSE_FIELD,
     STILL_AT_RISK_FIELD,
     SUBMIT_TOOL_NAME,
@@ -80,6 +81,11 @@ SOME_GIVEN = Given(labels=frozenset({"E1", "E2"}), items_on_record=1)
 SOME_GIVEN_WITH_A_FILE_AS_IT_RAN = SOME_GIVEN.model_copy(update={
     "labels": SOME_GIVEN.labels | {"F1", "S1"},
     "as_it_ran": {"S1": "deploy/scrape.yaml at 53f02e9"}})
+
+# What a model whose logs reach into a stretch the metrics did not watch was
+# given: it is asked whether they show the service serving as before.
+SOME_GIVEN_ASKING_HOW_IT_SERVED = SOME_GIVEN.model_copy(
+    update={"serving_as_before_asked": True})
 
 # The figures an incident that recovered gives, which a working is worked out
 # from: it began at noon and recovered ten minutes later.
@@ -166,6 +172,40 @@ def test_a_field_the_tool_never_required_is_not_missed() -> None:
         ) \
         .when(
             lambda: faults_in(an_answer_assuming_nothing, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_how_the_logs_show_the_service_left_out_where_it_was_asked_is_named() -> None:
+    # Asked only where a log line reaches into the stretch the metrics did not
+    # watch, and required there: the document's sentence on that stretch is
+    # written from it, and nothing else in the answer may say it.
+    Scenario() \
+        .given(
+            an_answer_not_saying := _an_answer()
+        ) \
+        .when(
+            lambda: faults_in(an_answer_not_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
+        ) \
+        .then(
+            all_of(
+                _named(LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_how_the_logs_show_the_service_said_where_it_was_asked_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_saying := _an_answer(logs_show_serving_as_before=False)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
         ) \
         .then(
             _found_nothing_wrong()
@@ -1611,6 +1651,7 @@ class _WhatAnAnswerHolds(TypedDict, total=False):
     action_items: list[SubmittedItem] | None
     lessons: Lessons | None
     reaches_a_cause: bool
+    logs_show_serving_as_before: bool | None
 
 
 def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:

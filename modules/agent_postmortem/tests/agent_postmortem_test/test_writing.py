@@ -460,13 +460,14 @@ def test_the_impact_is_the_incident_as_measured_with_the_logs_in_what_the_metric
                                      some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(measured),
-                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     ask=_asking_that_answers(a_submitted_answer().model_copy(
+                                         update={"logs_show_serving_as_before": True})),
                                      disclose=_disclosing_that_returns([]))
         ) \
         .then(
             _publishes("the impact", lambda document: document.impact,
-                       impact_of(measured,
-                                 logs_in_the_gap=logs_in_the_gap_of(evidence, measured)))
+                       impact_of(measured, logs_in_the_gap=logs_in_the_gap_of(
+                           evidence, measured, serving_as_before=True)))
         )
 
 

@@ -176,8 +176,10 @@ def write_postmortem(evidence: IncidentEvidence,
             for label, lead in labelled(evidence.leads)
         ],
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
-        # Written by code from the record, never asked of the model.
-        impact=impact_of(measured, logs_in_the_gap=logs_in_the_gap_of(evidence, measured)),
+        # Written by code from the record - and, of how the service did where
+        # the metrics stopped, from the model's yes or no, never its prose.
+        impact=impact_of(measured, logs_in_the_gap=logs_in_the_gap_of(
+            evidence, measured, answer.logs_show_serving_as_before)),
         detection=detection_of(evidence, measured.rule_waits,
                                rule_wait_unread=measured.rule_wait_unread,
                                held_before_the_onset=measured.rule_held_before_the_onset),

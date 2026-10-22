@@ -24,6 +24,7 @@ conversation a provider will not accept, or one the model cannot make sense of.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -34,10 +35,12 @@ from agent_postmortem.prompting import (
     CAUSE_IN_PLAIN_WORDS_FIELD,
     CITES_FIELD,
     LEAD_EFFECTS_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
     SubmittedPostmortem,
 )
+from argus_core import to_iso
 from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
 from argus_core.models import (
     Ask,
@@ -60,6 +63,7 @@ from argus_testkit import (
 )
 
 from agent_postmortem_test.framework.builders import (
+    ONSET,
     a_candidate,
     a_lead,
     a_measured_incident,
@@ -78,6 +82,9 @@ SOME_COMPUTED_LOSS = Decimal("500")
 
 SOME_INVENTED_FIGURE = "$1,200,000"
 SOME_CAUSE_WITHOUT_A_FIGURE = "checkout failed for several minutes"
+
+# A log line inside the stretch the metrics did not watch, which begins at ONSET.
+A_LINE_INSIDE_THE_GAP = f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"
 
 # What a shop's integrity check reports, in its own words: one figure, which
 # the incident then gives the name A1.
@@ -436,6 +443,56 @@ def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> Non
         ) \
         .then(
             _was_offered_a_place_for(offered, LEAD_EFFECTS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_logs_reach_where_the_metrics_stopped_is_asked_how_they_show_it(
+) -> None:
+    # The document says how the service did over that stretch from this
+    # answer, so the tool for this incident has to offer a place for it.
+    offered: Kept[list[ToolDefinition]] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_noting_its_tools := a_model_answering_in_turn(
+                an_answer() | {LOGS_SHOW_SERVING_AS_BEFORE_FIELD: True},
+                offered_tools=offered)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_noting_its_tools,
+                an_evidence_bundle(log_lines=[A_LINE_INSIDE_THE_GAP]),
+                a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET))
+        ) \
+        .then(
+            _was_offered_a_place_for(offered, LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_silent_on_how_the_logs_show_the_service_is_asked_for_again_naming_it() -> None:
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_that_left_it_out := a_model_answering_in_turn(
+                an_answer(),
+                an_answer() | {LOGS_SHOW_SERVING_AS_BEFORE_FIELD: True},
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_that_left_it_out,
+                an_evidence_bundle(log_lines=[A_LINE_INSIDE_THE_GAP]),
+                a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET))
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
+                _found_no_fault()
+            )
         )
 
 

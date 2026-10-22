@@ -17,6 +17,7 @@ from argus_core.models import (
     Alert,
     Impact,
     ImpactExtent,
+    LogsInTheGap,
     PostmortemDocument,
     said_as_money,
 )
@@ -172,6 +173,10 @@ def _the_logs_in_the_gap(impact: Impact | None) -> Line | None:
     Each row by its label, leading to it: the rows are where a reader checks
     what the logs said there. And said where they show nothing: a note silent
     on the logs reads the same as one whose logs nobody looked at.
+
+    Then whether they show the service serving as before, where that was
+    asked - after where they reach and where the reading ended, so it is
+    bounded by both without saying either again.
     """
     logs = impact.logs_in_the_gap if impact else None
 
@@ -193,8 +198,10 @@ def _the_logs_in_the_gap(impact: Impact | None) -> Line | None:
                    *cited[1:],
                    Run(text="."))
 
+    serving = _whether_serving_as_before(logs)
+
     if logs.read_until is None:
-        return Line(runs=reached)
+        return Line(runs=(*reached, *serving))
 
     who_read = "They were" if logs.labels else "The logs were"
     when = ", when the alert was raised" if logs.read_until_the_alert else ""
@@ -202,7 +209,21 @@ def _the_logs_in_the_gap(impact: Impact | None) -> Line | None:
     return Line(runs=(*reached,
                       Run(text=f" {who_read} read up to "),
                       Run.a_moment(logs.read_until),
-                      Run(text=f"{when}.")))
+                      Run(text=f"{when}."),
+                      *serving))
+
+
+def _whether_serving_as_before(logs: LogsInTheGap) -> tuple[Run, ...]:
+    """Whether the rows reaching in show the service serving as before - or
+    nothing, where that was not asked."""
+    if logs.serving_as_before is None:
+        return ()
+
+    return (Run(text=" As far as they show, the service went on serving as it had before "
+                     "the metrics stopped."
+                if logs.serving_as_before else
+                " They do not show the service serving as it had before the metrics "
+                "stopped."),)
 
 
 def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:

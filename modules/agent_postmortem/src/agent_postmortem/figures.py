@@ -63,7 +63,6 @@ BEGAN_FIGURE: Final = "began"
 BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
 UNOBSERVED_FROM_FIGURE: Final = "metrics_stopped_at"
 LOGS_REACH_UNTIL_FIGURE: Final = "logs_reach_until"
-AS_FAR_AS_THE_LOGS_SHOW_FIGURE: Final = "as_far_as_the_logs_show"
 LOG_READING_ENDED_FIGURE: Final = "log_reading_ended"
 CUSTOMER_LOSS_FIGURE: Final = "customer_loss"
 DURATION_FIGURE: Final = "duration"
@@ -279,13 +278,6 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
                                                      measured.unobserved_from)
         if logged_until is not None:
             figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until, day)
-
-        # The bound on anything said of the service over that stretch, written
-        # in by code. Told in a sentence that the stretch is known only as far
-        # as the logs reach, root causes still said the service "kept serving",
-        # copied from rows that said it unbounded. A clause rather than a
-        # number, and never worked with: its kind is none.
-        figures[AS_FAR_AS_THE_LOGS_SHOW_FIGURE] = _as_far_as_the_logs_show(logged_until, day)
 
         # And where the reading of them ended, which is as often where the
         # lines stop as the service is: told only how far they reach, a model
@@ -701,20 +693,6 @@ def _as_a_reader_says(at: datetime, day: date | None) -> str:
         return f"{said_as_a_day(at)}, {said_as_a_time(at)} UTC"
 
     return f"{said_as_a_time(at)} UTC"
-
-
-def _as_far_as_the_logs_show(logged_until: datetime | None, day: date) -> Figure:
-    """The bound on a claim about a stretch the metrics did not watch: up to
-    the last minute the logs read reach into it, or that none reaches in."""
-    if logged_until is None:
-        said = "though no log line read reaches into that stretch"
-
-        return Figure(given=said, written=said)
-
-    up_to = "as far as its logs show, up to"
-
-    return Figure(given=f"{up_to} {to_iso(logged_until)}",
-                  written=f"{up_to} {_as_a_reader_says(logged_until, day)}")
 
 
 def _a_span(hours: float) -> Figure:

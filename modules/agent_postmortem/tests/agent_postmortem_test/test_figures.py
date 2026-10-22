@@ -28,7 +28,6 @@ from agent_postmortem.figures import (
     ALERT_RAISED_FIGURE,
     ALERTED_AFTER_THE_ONSET_FIGURE,
     ARGUS_STOPPED_FIGURE,
-    AS_FAR_AS_THE_LOGS_SHOW_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
@@ -1033,66 +1032,6 @@ def test_a_metrics_gap_no_log_line_reaches_into_names_no_reach() -> None:
         ) \
         .then(
             _the_figures_leave_out(LOGS_REACH_UNTIL_FIGURE)
-        )
-
-
-@pytest.mark.unit
-def test_how_far_the_logs_bound_a_metrics_gap_is_a_figure_to_write_in() -> None:
-    # Told in a sentence that a stretch nobody watched is known only as far as
-    # the logs reach, root causes still said the shop "kept serving", copied from
-    # rows that said it unbounded. A figure is the bound written in by code.
-    some_minute_logged_inside = ONSET + timedelta(minutes=5)
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(log_lines=[
-                f"{to_iso(some_minute_logged_inside)} WARN io-shop: some warning"]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
-        ) \
-        .when(
-            lambda: figures_of(evidence, measured)
-        ) \
-        .then(
-            _the_figures_include({
-                AS_FAR_AS_THE_LOGS_SHOW_FIGURE: Figure(
-                    given=f"as far as its logs show, up to {to_iso(some_minute_logged_inside)}",
-                    written="as far as its logs show, up to 12:05 UTC")
-            })
-        )
-
-
-@pytest.mark.unit
-def test_a_metrics_gap_no_log_line_reaches_into_is_bounded_by_saying_so() -> None:
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(log_lines=[
-                f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
-        ) \
-        .when(
-            lambda: figures_of(evidence, measured)
-        ) \
-        .then(
-            _the_figures_include({
-                AS_FAR_AS_THE_LOGS_SHOW_FIGURE: Figure(
-                    given="though no log line read reaches into that stretch",
-                    written="though no log line read reaches into that stretch")
-            })
-        )
-
-
-@pytest.mark.unit
-def test_an_incident_the_metrics_watched_throughout_has_no_bound_to_name() -> None:
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(),
-            measured := a_measured_incident(unobserved_from=None)
-        ) \
-        .when(
-            lambda: figures_of(evidence, measured)
-        ) \
-        .then(
-            _the_figures_leave_out(AS_FAR_AS_THE_LOGS_SHOW_FIGURE)
         )
 
 

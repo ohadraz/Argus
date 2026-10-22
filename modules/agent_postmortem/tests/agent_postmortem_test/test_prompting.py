@@ -72,6 +72,7 @@ from agent_postmortem.prompting import (
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
     LESSONS_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     REACHES_A_CAUSE_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
@@ -108,6 +109,7 @@ from argus_core.models import (
     CitedEvidence,
     FileAsItRan,
     Lessons,
+    LogsInTheGap,
     OpenedPullRequest,
     Standing,
     ToolCall,
@@ -2936,38 +2938,41 @@ def test_a_span_is_asked_to_be_set_beside_what_it_times() -> None:
 
 
 @pytest.mark.unit
-def test_the_logs_bound_is_asked_for_beside_its_figure_where_the_metrics_stopped() -> None:
-    # The brief says the service was seen through its logs up to where they
-    # reach, and a write-up still said the shop "stayed healthy while it was
-    # unmonitored", and its logs over the stretch "look the same as before" -
-    # of a stretch they covered only part of. Told so in a sentence, four root
-    # causes of five still said the shop "kept serving"; given the bound as a
-    # figure to write in, one step of five left it out. Said with the figure,
-    # so the rule and the name it uses always arrive together.
+def test_the_brief_says_the_document_says_how_the_service_did_where_a_log_line_reaches_in(
+) -> None:
+    # Given the bound as a figure, steps carried it and root causes and lessons
+    # still said the shop "kept serving" without it, two to four of five. Told
+    # the document says it itself, from an answer of the model's, none did.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle()
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
                                                               unobserved_from=ONSET))
         ) \
         .then(
-            _says_on_one_line("Anything said of the service over that stretch carries",
-                              "{as_far_as_the_logs_show}")
+            _says_on_one_line("How the service did over that stretch is said by the document "
+                              "itself, from your answer to logs_show_serving_as_before: say "
+                              "nothing of it anywhere else.")
         )
 
 
 @pytest.mark.unit
-def test_the_tool_never_names_the_logs_bound_an_incident_may_not_have() -> None:
-    # The figure exists only where the metrics stopped. Named in the tool, which
-    # every incident is sent, it is a name most incidents cannot use.
+def test_the_brief_never_names_an_answer_an_incident_whose_logs_reach_nowhere_is_not_asked(
+) -> None:
     Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET - timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
         .when(
-            lambda: "as_far_as_the_logs_show" in SUBMIT_POSTMORTEM.model_dump_json()
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              unobserved_from=ONSET))
         ) \
         .then(
-            the_answer_was(False)
+            _does_not_say("logs_show_serving_as_before")
         )
 
 
@@ -3268,7 +3273,8 @@ def test_the_root_cause_is_asked_to_leave_out_what_the_document_states_itself() 
 @pytest.mark.unit
 def test_the_root_cause_is_told_what_the_service_did_over_the_gap_is_not_the_mechanism() -> None:
     # Four of five root causes said the shop "kept serving" unbounded, with the
-    # bound a figure away; told the stretch is the first step's to say, two.
+    # bound a figure away; told the stretch is the first step's to say, two;
+    # told the document says it itself, from an answer of its own, none.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
@@ -3276,7 +3282,7 @@ def test_the_root_cause_is_told_what_the_service_did_over_the_gap_is_not_the_mec
         .then(
             _the_description_mentions(
                 "What the service did over the stretch the metrics did not watch is not the "
-                "mechanism: the first step of the chain says it.")
+                "mechanism: the document says it itself.")
         )
 
 
@@ -3546,6 +3552,61 @@ def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> Non
                 _requires(*REQUIRED_FIELDS, LEAD_EFFECTS_FIELD),
                 _accepts_no_number()
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_logs_reach_where_the_metrics_stopped_is_asked_how_they_show_it(
+) -> None:
+    # Required where it is offered, as a lead is: the document's sentence on
+    # that stretch is written from it, and an optional field is one a model
+    # leaves out whenever its prose reads well without it.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=ONSET, read_until=None,
+                read_until_the_alert=False))
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED, LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
+                _requires(*REQUIRED_FIELDS, LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_logs_reach_nowhere_the_metrics_stopped_is_not_asked_how_they_show_it(
+) -> None:
+    # Nothing reaches in for an answer to be a reading of.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], LogsInTheGap(
+                read=True, labels=[], reach_until=None, read_until=None,
+                read_until_the_alert=False))
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED),
+                _requires(*REQUIRED_FIELDS)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_how_the_logs_show_the_service_is_asked_knowing_the_document_says_it_itself() -> None:
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=ONSET, read_until=None,
+                read_until_the_alert=False)
+            ).properties[LOGS_SHOW_SERVING_AS_BEFORE_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                "Whether the log lines that reach into the stretch the metrics did not watch "
+                "show the service serving as it had before the metrics stopped. The document "
+                "writes that sentence itself, bounded to when the logs were read.")
         )
 
 
@@ -4022,6 +4083,30 @@ def test_an_answer_that_never_said_whether_its_chain_reaches_a_cause_reads_as_no
         ) \
         .then(
             the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("answered", "read_as"), [
+    (True, True),
+    (False, False),
+    ("yes", None),
+    (1, None),
+    (None, None)
+], ids=["yes", "no", "a word", "a number", "null"])
+def test_only_a_plain_yes_or_no_reads_as_how_the_logs_show_the_service(
+        answered: object, read_as: bool | None) -> None:
+    # Anything else is unanswered, and asked for again where it was asked -
+    # never a guess the document then says, and never the whole answer refused.
+    Scenario() \
+        .given(
+            a_submission := {LOGS_SHOW_SERVING_AS_BEFORE_FIELD: answered}
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(a_submission).logs_show_serving_as_before
+        ) \
+        .then(
+            the_answer_was(read_as)
         )
 
 

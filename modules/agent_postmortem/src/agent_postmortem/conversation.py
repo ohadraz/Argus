@@ -25,6 +25,7 @@ from agent_postmortem.figures import Figure, with_figures_written
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.ordering import ORDER_TOOL_NAME, put_in_order
 from agent_postmortem.prompting import (
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
     figures_shown,
@@ -38,7 +39,7 @@ from agent_postmortem.prompting import (
     the_files_as_they_ran_labelled,
 )
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
-from agent_postmortem.sections import record_action_items_of
+from agent_postmortem.sections import logs_in_the_gap_of, record_action_items_of
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,13 @@ def answer_worth_writing(llm: LLMClient,
     """
     asked = opening_ask(evidence, measured)
     # The tool for this incident, which asks what each lead changed only where
-    # people wrote any.
-    submit = submit_postmortem_for(evidence.leads)
+    # people wrote any, and how the logs show the service only where a line
+    # reaches into a stretch the metrics did not watch.
+    submit = submit_postmortem_for(evidence.leads, logs_in_the_gap_of(evidence, measured))
     # Every figure the answer may name, each written in as this run measured it.
     figures = figures_shown(evidence, measured)
-    given = _what_was_given(evidence, measured, figures)
+    given = _what_was_given(evidence, measured, figures).model_copy(update={
+        "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required})
     submitted = llm.converse(asked, [submit])
 
     first = _reading_of(submitted, evidence.leads, given, figures)

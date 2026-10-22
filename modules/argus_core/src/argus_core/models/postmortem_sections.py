@@ -419,6 +419,13 @@ class LogsInTheGap(BaseModel):
     it ends unless the investigation asked for more. `read` is whether any
     were read at all: a read that came back empty is a read, and the service
     gone quiet in its logs too is not nobody having looked.
+
+    `serving_as_before` is whether those rows show the service serving as it
+    had before the metrics stopped - the model's reading of them, and the one
+    thing here it gives. Said by the document from this rather than by the
+    model in prose: told to bound the claim, a write-up bounded it in one
+    sentence and said it unbounded in the next. `None` where it was not asked,
+    which is wherever no row reaches in.
     """
 
     read: bool
@@ -426,6 +433,7 @@ class LogsInTheGap(BaseModel):
     reach_until: datetime | None
     read_until: datetime | None
     read_until_the_alert: bool
+    serving_as_before: bool | None = None
 
 
 class Impact(BaseModel):

@@ -1557,6 +1557,51 @@ def test_the_logs_in_a_stretch_the_metrics_missed_are_carried_with_how_far_they_
 
 
 @pytest.mark.unit
+def test_whether_the_logs_show_the_service_serving_as_before_is_carried_beside_them() -> None:
+    # The model's reading of the lines, and the one thing in the note it gives:
+    # the document says it from this, so the model need not say it anywhere.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines, logs_read_until=None),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured, serving_as_before=False)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True,
+                                        labels=labels_reaching_into(some_lines, ONSET),
+                                        reach_until=ONSET + timedelta(minutes=4),
+                                        read_until=None,
+                                        read_until_the_alert=False,
+                                        serving_as_before=False))
+        )
+
+
+@pytest.mark.unit
+def test_no_line_reaching_in_carries_no_reading_of_how_the_service_was_serving() -> None:
+    # Nothing reaches in for it to be a reading of, so it is not asked - and
+    # an answer given anyway says nothing the lines can bound.
+    some_lines = [f"{to_iso(ONSET - timedelta(minutes=4))} WARN io-shop: dont care"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines, logs_read_until=None),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured, serving_as_before=True)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True, labels=[], reach_until=None,
+                                        read_until=None, read_until_the_alert=False,
+                                        serving_as_before=None))
+        )
+
+
+@pytest.mark.unit
 def test_logs_nobody_read_are_carried_as_unread() -> None:
     # Not as read and empty: where the metrics stopped, the service gone quiet
     # in its logs too is not nobody having looked.

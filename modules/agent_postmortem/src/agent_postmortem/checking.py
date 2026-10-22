@@ -68,6 +68,7 @@ from agent_postmortem.prompting import (
     CONTRIBUTING_FACTORS_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
     LEAD_EFFECTS_FIELD,
+    LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
     STILL_AT_RISK_FIELD,
@@ -176,6 +177,9 @@ class Given(BaseModel):
     figures: dict[str, Figure] = {}
     # Each file shown as it ran - its path at its revision - by its label.
     as_it_ran: dict[str, str] = {}
+    # Whether it was asked if the logs show the service serving as before -
+    # which it is wherever a line reaches into a stretch the metrics missed.
+    serving_as_before_asked: bool = False
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -184,6 +188,7 @@ def faults_in(answer: SubmittedPostmortem,
               given: Given) -> list[str]:
     """Everything about this answer that has to be put right, or nothing."""
     return (_missing_fields(answer)
+            + _how_it_served_left_unanswered(answer, given)
             + _a_symptom_of_more_than_one_sentence(answer)
             + _summary_sentences_of_more_than_one(answer)
             + _missing_checks_outside_the_factors(answer)
@@ -244,6 +249,17 @@ def _missing_fields(answer: SubmittedPostmortem) -> list[str]:
     return [f"the field [{field}] was missing from your answer"
             for field in REQUIRED_FIELDS
             if getattr(answer, field) is None]
+
+
+def _how_it_served_left_unanswered(answer: SubmittedPostmortem, given: Given) -> list[str]:
+    """That the answer left out whether the logs show the service serving as
+    before, where it was asked - a required field only some incidents are
+    asked for, and refused as one: the document's sentence on that stretch is
+    written from it."""
+    if not given.serving_as_before_asked or answer.logs_show_serving_as_before is not None:
+        return []
+
+    return [f"the field [{LOGS_SHOW_SERVING_AS_BEFORE_FIELD}] was missing from your answer"]
 
 
 def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[str]:

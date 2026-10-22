@@ -276,6 +276,33 @@ def test_the_logs_reaching_into_the_stretch_the_metrics_missed_are_named_with_ho
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("serving_as_before", "said"), [
+    (True, "As far as they show, the service went on serving as it had before the metrics "
+           "stopped."),
+    (False, "They do not show the service serving as it had before the metrics stopped.")
+], ids=["serving-as-before", "not-as-before"])
+def test_whether_the_logs_show_the_service_serving_as_before_follows_how_far_they_reach(
+        serving_as_before: bool, said: str) -> None:
+    # Said by the document rather than by the model: told to bound the claim, a
+    # write-up bounded it in one sentence and said it unbounded in the next.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(impact=_unobserved(LogsInTheGap(
+                read=True, labels=["G46bc"], reach_until=SOME_MINUTE,
+                read_until=SOME_MINUTE + timedelta(seconds=55), read_until_the_alert=True,
+                serving_as_before=serving_as_before)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
+        ) \
+        .then(
+            _the_note_reads("The service's own logs reach into the stretch the metrics missed "
+                            "until Oct 21, 2026, 19:12 UTC: G46bc. They were read up to "
+                            f"Oct 21, 2026, 19:12:55 UTC, when the alert was raised. {said}")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("logs", "said"), [
     (LogsInTheGap(read=True, labels=[], reach_until=None, read_until=SOME_MINUTE,
                   read_until_the_alert=False),
