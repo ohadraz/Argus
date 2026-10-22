@@ -333,6 +333,29 @@ def test_a_candidate_formed_is_said_by_its_rank_with_what_it_is(
 
 
 @pytest.mark.component
+def test_a_flag_moved_says_from_what_to_what(
+        slack: str, a_clean_database: None) -> None:
+    # The page shows the move as two states, one struck through; a message has
+    # only the sentence, which ended on "moved" with nowhere it moved to.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_the_action_on(incident_id)),
+                                  Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack, "moved from ON to OFF")
+            )
+
+
+@pytest.mark.component
 def test_an_offer_is_a_reply_whose_button_answers_the_person_s_own_message(
         slack: str, a_clean_database: None) -> None:
     # The one line a person answers with a press. The button names the message

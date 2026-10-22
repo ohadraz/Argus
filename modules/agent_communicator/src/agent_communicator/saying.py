@@ -232,7 +232,7 @@ def _the_chat_line(line: NarrationLine,
     per candidate. Never by a C label: the rank restarts with each round of
     the investigation, and the postmortem's C labels count across them.
     """
-    said = shown(_with_its_candidates(line), revisions)
+    said = shown(_with_its_move(_with_its_candidates(line)), revisions)
 
     return Line(who=said.who,
                 text=said.text,
@@ -253,6 +253,22 @@ def _with_its_candidates(line: NarrationLine) -> NarrationLine:
     return line.model_copy(update={
         "text": "; ".join(f"Formed candidate cause #{candidate.rank}: {candidate.summary}"
                           for candidate in line.candidates)})
+
+
+def _with_its_move(line: NarrationLine) -> NarrationLine:
+    """The line ending on what it moved from and to, as `said_in_full` says it
+    - or the line as it is, where it moved nothing. The page shows a move as
+    two states, one struck through; a message has only the sentence, which
+    ended on "moved" with nowhere it moved to."""
+    if not line.moved_to:
+        return line
+
+    move = f" from {line.moved_from} to {line.moved_to}"
+    # The move ends the sentence, so it joins whichever part is said last.
+    ending = ({"after_emphasis": line.after_emphasis.rstrip() + move} if line.emphasis
+              else {"before_emphasis": line.before_emphasis.rstrip() + move})
+
+    return line.model_copy(update={"text": line.text.rstrip() + move, **ending})
 
 
 def _the_offers_retired_by(line: NarrationLine) -> list[str]:
