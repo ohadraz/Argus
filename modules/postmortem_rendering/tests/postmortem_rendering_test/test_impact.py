@@ -502,6 +502,29 @@ def test_a_series_that_is_the_error_rate_leaves_its_worst_minute_to_the_peak_car
 
 
 @pytest.mark.unit
+def test_a_series_that_is_the_error_rate_is_said_on_its_card_as_the_error_rate_is() -> None:
+    # The card read 1.02% where the summary beside it read the same rate as
+    # 1.0%: one figure written two ways. Said as the error rate is said, the
+    # card and the summary agree.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=8), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.38,
+                              rule_series_harm=RuleSeriesHarm(before=0.00992, while_broken=0.276,
+                                                              at_its_worst=0.38,
+                                                              worse_when="above", line=0.1,
+                                                              unit="percentunit",
+                                                              is_the_error_rate=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("HighErrorRate")).cards[3].value
+        ) \
+        .then(
+            the_answer_was("1.0% to 27.6%"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("harm", "value", "note"), [
     (RuleSeriesHarm(before=120.0, while_broken=640.0, at_its_worst=910.0,
                     worse_when="above", line=600.0, unit="ms"),

@@ -12,7 +12,7 @@ one way both of them say it, a share of one as the percentage a reader reads.
 from __future__ import annotations
 
 import pytest
-from argus_core import level_given_in, level_said_in, said_as_a_level
+from argus_core import level_given_in, level_said_in, said_as_a_level, said_as_a_share
 from argus_testkit import Scenario, the_answer_was
 
 
@@ -59,6 +59,25 @@ def test_a_level_is_said_in_its_unit(level: float, unit: str | None, said: str) 
     Scenario() \
         .when(
             lambda: level_said_in(level, unit)
+        ) \
+        .then(
+            the_answer_was(said)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("rate", "said"), [
+    (0.0102, "1.0%"),
+    (0.284, "28.4%"),
+    (0.0, "0.0%")
+], ids=["a-baseline", "while-broken", "nothing"])
+def test_a_share_of_requests_is_said_as_a_percentage_to_one_place(rate: float, said: str) -> None:
+    # The error rate before the onset read 1.0% in the summary and 1.02% in the
+    # card and the cause beside it, where the rule's series was the error rate
+    # itself: one figure written two ways. A share is said one way, here.
+    Scenario() \
+        .when(
+            lambda: said_as_a_share(rate)
         ) \
         .then(
             the_answer_was(said)

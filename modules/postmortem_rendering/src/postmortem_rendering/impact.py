@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import level_said_in
+from argus_core import level_said_in, said_as_a_share
 from argus_core.models import (
     AlarmClaim,
     Alert,
@@ -150,7 +150,8 @@ def _the_errors(impact: Impact | None) -> tuple[Card, ...]:
     levels = impact.error_rates if impact else None
 
     if levels is not None and not levels.rose:
-        return (Card(value=f"{levels.before:.1%} to {levels.while_broken:.1%}",
+        return (Card(value=(f"{said_as_a_share(levels.before)} to "
+                            f"{said_as_a_share(levels.while_broken)}"),
                      label=f"error rate, {_BEFORE_AND_WHILE_BROKEN}",
                      note="no rise"),)
 
@@ -261,10 +262,13 @@ def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     def said(level: float) -> str:
         return level_said_in(level, harm.unit)
 
+    def said_as_measured(level: float) -> str:
+        return said_as_a_share(level) if harm.is_the_error_rate else said(level)
+
     worst = [] if harm.is_the_error_rate else [f"worst minute {said(harm.at_its_worst)}"]
     line = [f"the rule's line is {said(harm.line)}"] if harm.line is not None else []
 
-    return (Card(value=f"{said(harm.before)} to {said(harm.while_broken)}",
+    return (Card(value=f"{said_as_measured(harm.before)} to {said_as_measured(harm.while_broken)}",
                  label=f"what the alert watches, {_BEFORE_AND_WHILE_BROKEN}",
                  note="; ".join([*worst, *line]) or None),)
 

@@ -34,6 +34,13 @@ def said_as_a_level(level: float) -> str:
     return _to_three_figures(Decimal(str(level)))
 
 
+def said_as_a_share(rate: float) -> str:
+    """A share of requests as the percentage it is, to one place - the error
+    rate's own way, and a series that is the error rate's too, so one figure
+    is never written two ways on one page."""
+    return f"{rate:.1%}"
+
+
 def level_said_in(level: float, unit: str | None) -> str:
     """A level to three figures, in its unit - a share of one as the
     percentage it is, scaled exactly before it is cut."""

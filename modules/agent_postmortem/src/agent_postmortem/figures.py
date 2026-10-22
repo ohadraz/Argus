@@ -38,6 +38,7 @@ from argus_core import (
     parse_iso,
     said_as_a_day,
     said_as_a_level,
+    said_as_a_share,
     said_as_a_span,
     said_as_a_time,
     to_iso,
@@ -330,9 +331,10 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     levels = measured.rule_series
     if levels is not None:
         unit = measured.rule_series_unit
-        figures[SERIES_BEFORE_FIGURE] = _a_level(levels.baseline, unit)
-        figures[SERIES_WHILE_BROKEN_FIGURE] = _a_level(levels.while_broken, unit)
-        figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst, unit)
+        the_error_rate = measured.rule_series_is_the_error_rate
+        figures[SERIES_BEFORE_FIGURE] = _a_level(levels.baseline, unit, the_error_rate)
+        figures[SERIES_WHILE_BROKEN_FIGURE] = _a_level(levels.while_broken, unit, the_error_rate)
+        figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst, unit, the_error_rate)
 
     # A loss of nothing is said in words, as the page says it: "0.00 USD"
     # reads as a figure nobody filled in.
@@ -709,12 +711,16 @@ def _an_amount(amount: Decimal, currency: str) -> Figure:
 
 
 def _a_share(rate: float) -> Figure:
-    said = f"{rate:.1%}"
+    said = said_as_a_share(rate)
 
     return Figure(given=said, written=said)
 
 
-def _a_level(level: float, unit: str | None) -> Figure:
+def _a_level(level: float, unit: str | None, is_the_error_rate: bool) -> Figure:
     """A level in the unit the paging rule's series is in, where anything named
-    one - given as measured, and written as a person says it."""
-    return Figure(given=level_given_in(level, unit), written=level_said_in(level, unit))
+    one - given as measured, and written as a person says it: as the error
+    rate is written, where the series is the error rate, since the page says
+    that rate too and one figure written two ways is two to a reader."""
+    written = said_as_a_share(level) if is_the_error_rate else level_said_in(level, unit)
+
+    return Figure(given=level_given_in(level, unit), written=written)

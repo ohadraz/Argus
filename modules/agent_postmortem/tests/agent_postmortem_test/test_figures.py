@@ -1271,6 +1271,32 @@ def test_the_paging_rules_series_is_given_and_written_in_its_unit(
 
 
 @pytest.mark.unit
+def test_a_series_that_is_the_error_rate_is_written_as_the_error_rate_is() -> None:
+    # The summary said the error rate before the onset was 1.0%, and the cause
+    # citing the rule's series - the same rate - said 1.02%. Written the error
+    # rate's way, the two are one figure; given exactly, the model loses nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=0.0102, while_broken=0.284,
+                                             at_its_worst=0.355, worse_when="above"),
+                rule_series_unit="percentunit",
+                rule_series_is_the_error_rate=True)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                SERIES_BEFORE_FIGURE: Figure(given="1.02%", written="1.0%"),
+                SERIES_WHILE_BROKEN_FIGURE: Figure(given="28.4%", written="28.4%"),
+                SERIES_AT_WORST_FIGURE: Figure(given="35.5%", written="35.5%")
+            })
+        )
+
+
+@pytest.mark.unit
 def test_the_alerts_figures_are_among_the_incidents() -> None:
     Scenario() \
         .given(
