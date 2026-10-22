@@ -49,6 +49,9 @@ from typing import Final
 # package's front door to read a name. A rename fails this loudly on every
 # recording at once, which is the cheapest possible way to find out.
 THE_LAST_ANSWER: Final = "submit_postmortem"
+# Asked about the write-up once it is kept, for the order its causal chain is
+# read in - so a finished walk may end on it, and only straight after the above.
+THE_ORDER_ASKED_AFTER: Final = "order_chain"
 # Code-Fix's opening move, and nothing else's - so its presence in a corpus is
 # how a reader of the answers alone can tell that Code-Fix ran at all. The
 # walks that escalate before reaching it have no business submitting a fix,
@@ -141,7 +144,9 @@ def what_gave_up(corpus: str, answers: list[Path]) -> str | None:
     said only "bad" would send a reader to the wrong bound.
     """
     asked_for = [called for answer in answers for called in what_it_asked_for(answer)]
-    ended_on = asked_for[-1] if asked_for else None
+    written_up = (asked_for[:-1] if asked_for[-1:] == [THE_ORDER_ASKED_AFTER]
+                  else asked_for)
+    ended_on = written_up[-1] if written_up else None
 
     if ended_on != THE_LAST_ANSWER:
         return (f"{corpus}: {len(answers)} answers ending on "
