@@ -121,7 +121,7 @@ def _the_thread_was_told_the_answer() -> Assertion[httpx2.Response]:
         said = [message["text"] for message in posted_to_slack()
                 if message.get("thread_ts") == thread]
 
-        if not any(answers[0] in text for text in said):
+        if not any(_unformatted(answers[0]) in _unformatted(text) for text in said):
             raise AssertionError(
                 f"Expected the thread to be told the answer [{answers[0]}], and it "
                 f"was told {said}."
@@ -130,3 +130,14 @@ def _the_thread_was_told_the_answer() -> Assertion[httpx2.Response]:
         return True
 
     return assertion
+
+
+def _unformatted(text: str) -> str:
+    """`text` with the emphasis markers either markup sets it in taken out,
+    and Slack's escapes read back as the characters they stand for - so an
+    answer is found in the thread however each side formats it. The
+    conversion itself is `chat_platform`'s, and its own suite pins it."""
+    for marker in ("*", "_"):
+        text = text.replace(marker, "")
+
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
