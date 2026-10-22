@@ -50,7 +50,7 @@ SOME_MOMENT = datetime(2026, 10, 11, 14, 3, 7, tzinfo=UTC)
 
 EVERY_HEADING = ("Summary", "Impact", "Root cause and contributing factors",
                  "Hypotheses considered", "Trigger", "Resolution", "Detection", "Action items",
-                 "Lessons learned", "Timeline", "What people told Argus", "Cost of the response",
+                 "Lessons learned", "Timeline", "What people told Argus", "Response effort",
                  "Supporting information", "Review checklist")
 
 

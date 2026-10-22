@@ -94,7 +94,7 @@ from argus_web_test.framework.reading import attribute, page_at
 # template puts them.
 POSTMORTEM_SECTIONS = ["summary", "impact", "cause", "hypotheses", "trigger", "resolution",
                        "detection", "action-items", "lessons", "timeline", "leads",
-                       "response-cost", "supporting", "review"]
+                       "response-effort", "supporting", "review"]
 
 
 @pytest.mark.component

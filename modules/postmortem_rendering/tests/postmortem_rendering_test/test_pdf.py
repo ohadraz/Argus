@@ -84,7 +84,7 @@ def test_the_title_comes_first_then_every_section_in_the_page_s_order() -> None:
                                "Root cause and contributing factors", "Hypotheses considered",
                                "Trigger", "Resolution", "Detection", "Action items",
                                "Lessons learned", "Timeline", "What people told Argus",
-                               "Cost of the response", "Supporting information",
+                               "Response effort", "Supporting information",
                                "Review checklist"))
 
 

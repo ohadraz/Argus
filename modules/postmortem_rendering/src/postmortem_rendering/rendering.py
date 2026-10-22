@@ -52,7 +52,7 @@ _HEADINGS: Final = {
     "lessons": "Lessons learned",
     "timeline": "Timeline",
     "leads": "What people told Argus",
-    "response-cost": "Cost of the response",
+    "response-effort": "Response effort",
     "supporting": "Supporting information",
     "review": "Review checklist"
 }

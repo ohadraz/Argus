@@ -1540,7 +1540,7 @@ _SECTIONS: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], None]]] = {
     "lessons": _the_lessons,
     "timeline": _the_timeline,
     "leads": _the_leads,
-    "response-cost": _the_cost,
+    "response-effort": _the_cost,
     "supporting": _the_supporting_information,
     "review": _the_review
 }

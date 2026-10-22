@@ -14,7 +14,7 @@ was composed. Its sections SHALL follow Google's example postmortem in this
 order: Summary, Impact, Root cause and contributing factors, Hypotheses
 considered, Trigger, Resolution, Detection, Action items, Lessons learned,
 Timeline, What people told Argus,
-Cost of the response, Supporting information, Review checklist. A section with
+Response effort, Supporting information, Review checklist. A section with
 nothing to say SHALL say so rather than be left out, except What people told
 Argus, which an incident nobody wrote in has none of.
 
@@ -276,12 +276,13 @@ be stored at the precision it was computed to.
 ### Requirement: No pay-band figure appears in the document
 
 No figure from which a pay band can be read SHALL appear in the document:
-neither a band's endpoints nor the response cost's range. The assumptions SHALL
-say the cost was priced at the midpoint of each title's band, without its
-figures.
+neither a band's endpoints nor the response cost's range. How the response was
+priced - the working year and the band's midpoint - SHALL be stored beside the
+cost and never stated among the document's assumptions.
 
 #### Scenario: A priced response
 - **GIVEN** a responder priced at a band of 190000 to 250000 USD a year
 - **WHEN** the postmortem is written and shown
-- **THEN** neither endpoint, nor the range of the cost, appears in it
+- **THEN** neither endpoint, nor the range of the cost, nor how it was priced,
+  appears in it
 

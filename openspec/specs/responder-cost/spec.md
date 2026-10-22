@@ -53,16 +53,17 @@ smaller cost, it is a wrong one.
 - **THEN** the first reports zero and the second reports no figure, each saying
   which it is
 
-### Requirement: An annual band becomes a per-minute rate through a stated year
+### Requirement: An annual band becomes a per-minute rate through a recorded year
 The system SHALL convert an annual band into a rate per minute using a
-configured number of working hours in a year, and SHALL state that number with
+configured number of working hours in a year, and SHALL store that number with
 the figure. A figure derived from a divisor is reproducible only where the
 divisor is recorded.
 
-#### Scenario: The working year is stated on the document
+#### Scenario: The working year is stored with the figure
 - **GIVEN** a computed responder cost
-- **WHEN** it is reported
-- **THEN** the assumptions state the working hours a year it was derived with
+- **WHEN** it is recorded
+- **THEN** the basis stored beside it states the working hours a year it was
+  derived with, and the postmortem's assumptions do not
 
 #### Scenario: A different working year gives a different rate
 - **GIVEN** two deployments configured with different working years
