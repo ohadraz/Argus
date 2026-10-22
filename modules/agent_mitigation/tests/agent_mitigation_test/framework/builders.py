@@ -404,6 +404,20 @@ def nobody_wants_it_any_more() -> StillWanted:
     return still_wanted
 
 
+def nobody_wants_it_after_the_first_look() -> StillWanted:
+    """A walk somebody stopped while its first look at the service was being
+    taken - wanted when its action was taken and when that look began, and
+    withdrawn from then on."""
+    asked: list[bool] = []
+
+    def still_wanted() -> bool:
+        wanted = len(asked) < 2
+        asked.append(wanted)
+        return wanted
+
+    return still_wanted
+
+
 def nobody_wanted_it_before_it_was_taken() -> StillWanted:
     """A walk somebody stopped between choosing its action and taking it."""
     def still_wanted() -> bool:

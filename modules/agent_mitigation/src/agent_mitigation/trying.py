@@ -751,6 +751,15 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     the_rule_was_read = False
 
     while True:
+        # Asked before each look rather than only after it. A walk somebody
+        # stopped has been answered, and a look taken after that - announced on
+        # the first pass, and posted to Slack - tells them Argus is still at it.
+        if not still_wanted():
+            return _Settled(
+                Verdict.WITHDRAWN,
+                "a person ended the incident before the verification wait reached a verdict"
+            )
+
         # A read that cannot be taken costs this pass and nothing more. The loop
         # is already a poll against a deadline, so a reading that did not arrive
         # is the one kind of failure it is built to absorb - and the alternative

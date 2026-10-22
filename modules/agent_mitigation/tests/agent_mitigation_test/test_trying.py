@@ -96,6 +96,7 @@ from agent_mitigation_test.framework.builders import (
     nobody_can_say,
     nobody_changed_it,
     nobody_wanted_it_before_it_was_taken,
+    nobody_wants_it_after_the_first_look,
     nobody_wants_it_any_more,
     somebody_changed_it,
     the_writes,
@@ -383,7 +384,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 ),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
-                still_wanted=nobody_wants_it_any_more(),
+                still_wanted=nobody_wants_it_after_the_first_look(),
                 sleep=dont_care_sleep,
                 undo=an_undo_nobody_calls()
             )
@@ -391,6 +392,42 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
         .then(
             _the_service_was_looked_at(fetch_metrics, times=1)
         )
+
+
+@pytest.mark.unit
+def test_a_wait_withdrawn_before_its_first_look_announces_nothing_and_looks_at_nothing() -> None:
+    # The person who said stop has been answered. A wait announced after that,
+    # and posted to Slack, tells them Argus is still at it.
+    Scenario() \
+        .given(
+            some_old_state := False,
+            fetch_metrics := _metrics_that_never_recover(),
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                incident_id=_SOME_INCIDENT_ID,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=fetch_metrics,
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=nobody_wants_it_any_more(),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.WITHDRAWN),
+            _the_service_was_looked_at(fetch_metrics, times=0),
+            _the_wait_was_announced(published, times=0)
+        ))
 
 
 @pytest.mark.unit
