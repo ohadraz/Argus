@@ -215,6 +215,22 @@ def test_the_record_is_asked_about_from_the_moment_argus_wrote() -> None:
         )
     
 
+@pytest.mark.unit
+def test_a_flag_put_back_says_what_became_of_it_and_nothing_else() -> None:
+    # What the line says after the flag's name. The name is the subject the
+    # narration already leads with, and the state is the one fact left to say.
+    Scenario() \
+        .given(
+            descriptor := an_undo_descriptor_for(SOME_FLAG, was_enabled=True)
+        ) \
+        .when(
+            lambda: undo_change(descriptor, **_collaborators_with())
+        ) \
+        .then(
+            _it_says_exactly("was put back ON")
+        )
+
+
 def _a_flag_setter() -> MagicMock:
     setter: MagicMock = create_autospec(FlagSetter)
     setter.return_value = an_undo_descriptor_for(SOME_FLAG)
@@ -587,6 +603,32 @@ def _it_says_what_is_still_changed(mentioned: str) -> Assertion[UndoAttempt]:
     return assertion
 
 
+def _it_says_exactly(expected: str) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.detail != expected:
+            raise AssertionError(
+                f"Expected the report to say [{expected}], and it said "
+                f"[{attempt.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_does_not_name_its_subject() -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.subject in attempt.detail:
+            raise AssertionError(
+                f"Expected the report not to name [{attempt.subject}] again, and "
+                f"it said [{attempt.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def a_resize_descriptor_for(application: str,
                             was_syncing_itself: bool = True) -> ReplicaUndo:
     return ReplicaUndo(
@@ -852,6 +894,42 @@ def _the_autoscaling_restorer_was_not_asked(restore: MagicMock) -> Assertion[Und
         return True
 
     return assertion
+
+
+# Every kind of change, with a collaborator that puts the whole of it back.
+EVERY_WHOLE_RESTORE = [
+    pytest.param(a_rollback_descriptor_for(SOME_APPLICATION), "restore_deployment",
+                 _a_restorer_that_puts_back(), id="rollback"),
+    pytest.param(a_resize_descriptor_for(SOME_APPLICATION), "restore_capacity",
+                 _a_capacity_restorer_that_puts_back(), id="scale-out"),
+    pytest.param(a_pin_descriptor_for(SOME_APPLICATION), "restore_autoscaling",
+                 _an_autoscaling_restorer_that_puts_back(), id="autoscaler-pin"),
+    pytest.param(a_card_pin_descriptor_for(SOME_APPLICATION), "restore_accelerator_pin",
+                 _an_accelerator_pin_restorer_that_puts_back(), id="card-pin"),
+    pytest.param(an_undo_descriptor_for(SOME_FLAG, was_enabled=True), "set_state",
+                 _a_flag_setter(), id="flag")
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborator", "a_whole_restore"),
+                         EVERY_WHOLE_RESTORE)
+def test_a_change_put_back_does_not_name_its_subject_again(
+    descriptor: UndoDescriptor, collaborator: str, a_whole_restore: MagicMock
+) -> None:
+    # The narration leads with the subject and follows it with this, so a
+    # detail that named it again said it twice on one line.
+    Scenario() \
+        .given(
+            collaborators := _collaborators_with(**{collaborator: a_whole_restore})
+        ) \
+        .when(
+            lambda: undo_change(descriptor, **collaborators)
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _it_does_not_name_its_subject()
+        ))
 
 
 # ---- what it logs ----

@@ -58,7 +58,7 @@ def state_name(enabled: bool) -> str:
     what it restored - and two spellings of the same state would read as two
     different things having happened.
     """
-    return "on" if enabled else "off"
+    return "ON" if enabled else "OFF"
 
 
 class UndoAttempt(BaseModel):

@@ -124,7 +124,7 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}] was put back on the revision at history "
+                f"was put back on the revision at history "
                 f"entry [{undo_descriptor.was_on_history_id}], and its "
                 f"automated sync was restored"
             ),
@@ -185,7 +185,7 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}] was put back to "
+                f"was put back to "
                 f"[{undo_descriptor.was_replicas}] replicas, and its automated "
                 f"sync was restored"
             ),
@@ -254,9 +254,9 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}]'s autoscaler floor was put back to "
+                f"had its autoscaler floor put back to "
                 f"[{undo_descriptor.was_min_replicas}], and its automated sync "
-                f"was restored"
+                f"restored"
             ),
         )
 
@@ -312,8 +312,8 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"[{application}]'s pods were let off [{undo_descriptor.pinned_to}], "
-                f"and its automated sync was restored"
+                f"had its pods let off [{undo_descriptor.pinned_to}], and its "
+                f"automated sync restored"
             ),
         )
 
@@ -400,5 +400,5 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
     return UndoAttempt(
         subject=flag,
         outcome=Undone.RESTORED,
-        detail=f"flag [{flag}] was put back {state_name(was_enabled)}",
+        detail=f"was put back {state_name(was_enabled)}",
     )

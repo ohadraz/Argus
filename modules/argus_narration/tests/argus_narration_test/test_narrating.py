@@ -1204,6 +1204,25 @@ def test_a_change_put_back_marks_the_flag_it_was_about() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_put_back_is_said_once_as_its_subject_and_what_became_of_it() -> None:
+    # The restore's own answer says what became of the change, verb and all, so
+    # the line is the subject followed by that answer. A verb of the line's own
+    # in front of it said the restore twice: "was put back - flag [X] was put
+    # back ON".
+    some_restore = ChangeUndone(
+        incident_id=new_id(),
+        subject=SOME_FLAG,
+        outcome=Undone.RESTORED,
+        detail="was put back ON"
+    )
+
+    Scenario() \
+        .given(some_restore) \
+        .when(lambda: build_narration([some_restore])) \
+        .then(_the_only_line_reads(f"{SOME_FLAG} was put back ON"))
+
+
+@pytest.mark.unit
 def test_a_flag_somebody_else_touched_is_said_to_have_been_left_alone() -> None:
     # The distinction the outcome exists for. "Nothing was written" means two
     # things here, and only one of them is Argus declining to overwrite
@@ -1864,6 +1883,7 @@ def test_what_memory_recalled_says_how_many_and_which_was_nearest() -> None:
             _the_only_line_marks("2 earlier incidents"),
             _the_only_line_mentions(the_nearest_incident),
             _the_lines_are_credited_to(["Argus"])))
+
 
 
 @pytest.mark.unit

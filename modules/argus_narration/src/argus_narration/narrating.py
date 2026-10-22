@@ -558,7 +558,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # it reverses are the same subject a page apart, and a reader
             # matching them up should not have to read two spellings.
             emphasis = event.subject
-            text = f"{emphasis} {_what_became_of_it(event.outcome)} - {event.detail}"
+            text = f"{emphasis} {_what_became_of_it(event)}"
         case SimilarIncidentsRecalled():
             who = _ARGUS
             # How many, marked, rather than the ids. The count is what a reader
@@ -1190,12 +1190,17 @@ def _and_then_some(action_types: Sequence[ActionType]) -> str:
     return f"{', '.join(said[:-1])} and {said[-1]} were"
 
 
-def _what_became_of_it(outcome: Undone) -> str:
+def _what_became_of_it(undone: ChangeUndone) -> str:
     """What became of one change an incident made, said after the subject.
 
-    Four phrases rather than four shades of "done": a flag left as found is
+    Four answers rather than four shades of "done": a flag left as found is
     somebody else's now, one nobody could read is a question still open, and
     figures thrown away were never owed back.
+
+    A restore is said by its own detail alone, which carries the whole predicate
+    - only the kind of change knows which verb fits it: a flag was put back ON, a
+    deployment had its pods let off a card. A phrase of this function's in front
+    of it said the restore twice.
 
     A match rather than the dictionary this used to be, and the member added to
     it is the reason. A lookup answers a kind nobody has handled with a
@@ -1204,21 +1209,21 @@ def _what_became_of_it(outcome: Undone) -> str:
     thing that fails. `assert_never` asks the type checker the same question
     instead, before anything runs.
     """
-    match outcome:
+    match undone.outcome:
         case Undone.RESTORED:
-            return "was put back"
+            return undone.detail
         case Undone.LEFT_AS_FOUND:
-            return "was left as found"
+            return f"was left as found - {undone.detail}"
         case Undone.NOT_ESTABLISHED:
-            return "could not be read"
+            return f"could not be read - {undone.detail}"
         case Undone.NO_UNDO_WAS_OWED:
             # Not "was left alone", which is what an action the gate refused
             # gets, and not "could not be put back", which says an attempt was
             # made and failed. Something was done here, and nothing was owed
             # back for it.
-            return "needed nothing put back"
+            return f"needed nothing put back - {undone.detail}"
 
-    assert_never(outcome)
+    assert_never(undone.outcome)
 
 
 def what_the_action_does(action_type: ActionType, subject: str) -> str:
