@@ -306,11 +306,11 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
 
 
 @pytest.mark.component
-def test_a_candidate_formed_is_said_by_its_label_with_what_it_is(
+def test_a_candidate_formed_is_said_by_its_rank_with_what_it_is(
         slack: str, a_clean_database: None) -> None:
     # Said each on its own message, "Formed 1 candidate cause, best first:" twice
-    # read as two lists of one. By the label the walk page gives it instead -
-    # its rank, best first - so the two say the same candidate the same way.
+    # read as two lists of one. By its rank as the walk page shows it instead -
+    # never a C label: rank restarts each round, the postmortem's C labels don't.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_summary = "the scrape still selects the port by its old name"
 
@@ -328,7 +328,7 @@ def test_a_candidate_formed_is_said_by_its_label_with_what_it_is(
                                                                           rank=2)),
                                   Register.FOLLOWED)) \
             .then(
-                _that_message_says(slack, f"Formed candidate cause C2: {some_summary}")
+                _that_message_says(slack, f"Formed candidate cause #2: {some_summary}")
             )
 
 
