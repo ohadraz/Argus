@@ -24,6 +24,7 @@ from argus_core.events import (
     ChangesRetrieved,
     LogsRetrieved,
     MetricsRetrieved,
+    QuestionAnswered,
     StatusChanged,
 )
 from argus_core.models import (
@@ -54,6 +55,7 @@ from argus_core.models import (
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
+    Reference,
     Report,
     ReportChannel,
     ResolutionStep,
@@ -2478,6 +2480,34 @@ def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> 
             the_page_says(f'<a href="{commit}" target="_blank" rel="noopener noreferrer">'
                           f'{some_revision[:7]}</a> made every page slow')
         )
+
+
+@pytest.mark.component
+def test_an_answer_in_markdown_is_shown_formatted_on_the_incident_page() -> None:
+    # Shown as the model wrote it, `**` and all, an answer reads as markup
+    # nobody rendered.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, QuestionAnswered(
+            incident_id=incident_id,
+            message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+            answer="**Investigation (14:15)**\n- Reverted the flag"
+        ))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says("<p><strong>Investigation (14:15)</strong></p>"
+                          "<ul><li>Reverted the flag</li></ul>"),
+            _the_page_does_not_read("**Investigation")
+        ))
 
 
 @pytest.mark.component

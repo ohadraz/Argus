@@ -271,6 +271,11 @@ class NarrationLine(BaseModel):
     # destination numbering the walk's lines numbers these apart: counted with
     # them, a message written a second earlier renumbers everything after it.
     outside_the_walk: bool = False
+    # Whether the marked part was written in Markdown - so far, a model's answer
+    # to a question from the thread. Said rather than rendered here: each
+    # destination renders it in its own markup, and one that set it apart as a
+    # word would wrap paragraphs and lists in one emphasis.
+    emphasis_is_markdown: bool = False
     # How many identical looks this line stands for. The wait polls every few
     # seconds and says the same thing each time; a dozen rows saying it is
     # noise, and none at all is a page that looks stuck.
@@ -747,6 +752,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                                     and not event.to_status.accepts_withdrawal()),
         expires_the_offers=isinstance(event, OfferExpired),
         outside_the_walk=_outside_the_walk(event),
+        emphasis_is_markdown=isinstance(event, QuestionAnswered),
         buckets=(
             [a_bucket_row(bucket) for bucket in event.buckets]
             if isinstance(event, MetricsRetrieved)

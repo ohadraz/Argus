@@ -241,7 +241,8 @@ def _the_chat_line(line: NarrationLine,
                 after_emphasis=said.after_emphasis,
                 aside=said.aside,
                 link=link,
-                links=said.links)
+                links=said.links,
+                emphasis_is_markdown=said.emphasis_is_markdown)
 
 
 def _with_its_candidates(line: NarrationLine) -> NarrationLine:

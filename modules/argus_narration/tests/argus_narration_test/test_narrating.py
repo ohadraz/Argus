@@ -1600,6 +1600,38 @@ def test_an_answer_to_a_question_is_said_whole_by_the_intent_agent() -> None:
 
 
 @pytest.mark.unit
+def test_an_answer_is_marked_as_written_in_markdown() -> None:
+    # The model answers in Markdown. Said so rather than rendered here: each
+    # destination renders it in its own markup, and the record keeps what the
+    # model wrote.
+    some_answering = QuestionAnswered(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        answer="**Investigation (14:15)**\n- Reverted the flag"
+    )
+
+    Scenario() \
+        .given(some_answering) \
+        .when(lambda: build_narration([some_answering])) \
+        .then(_the_only_line_is_in_markdown(True))
+
+
+@pytest.mark.unit
+def test_a_line_of_the_walk_s_own_is_not_marked_as_markdown() -> None:
+    some_restore = ChangeUndone(
+        incident_id=new_id(),
+        subject=SOME_FLAG,
+        outcome=Undone.RESTORED,
+        detail="was put back ON"
+    )
+
+    Scenario() \
+        .given(some_restore) \
+        .when(lambda: build_narration([some_restore])) \
+        .then(_the_only_line_is_in_markdown(False))
+
+
+@pytest.mark.unit
 def test_an_offer_not_confirmed_in_time_is_said_by_argus() -> None:
     # The walk waited on a person and went on without them. Argus's own line,
     # because it was Argus that decided to carry on - and it says why, so a
@@ -3141,6 +3173,21 @@ def _the_only_line_is_outside_the_walk(expected: bool) -> Assertion[list[Narrati
             raise AssertionError(
                 f"Expected the line {'' if expected else 'not '}to be written outside "
                 f"the walk, it says [{line.outside_the_walk}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_is_in_markdown(expected: bool) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.emphasis_is_markdown is not expected:
+            raise AssertionError(
+                f"Expected the marked part in Markdown to be [{expected}], got "
+                f"[{line.emphasis_is_markdown}]."
             )
 
         return True

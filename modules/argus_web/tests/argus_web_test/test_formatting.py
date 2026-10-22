@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from argus_web.formatting import with_references
+from argus_web.formatting import from_markdown, with_references
 
 
 @pytest.mark.unit
@@ -49,6 +49,78 @@ def test_a_name_in_prose_with_an_address_opens_there_away_from_the_page() -> Non
                 f'The deploy of revision <a href="{commit}" target="_blank" '
                 f'rel="noopener noreferrer">7c3ca00</a> broke it.'
             )
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_in_markdown_keeps_its_bold_its_italics_and_its_code() -> None:
+    Scenario() \
+        .given(
+            some_answer := "Reverted **the flag** *quickly* with `monthly-spend-feature`."
+        ) \
+        .when(
+            lambda: from_markdown(some_answer)
+        ) \
+        .then(
+            the_answer_was(
+                "<p>Reverted <strong>the flag</strong> <em>quickly</em> with "
+                "<code>monthly-spend-feature</code>.</p>"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_heading_line_and_the_items_under_it_are_a_paragraph_and_a_list() -> None:
+    # The shape the model answers in: a paragraph, then a bolded line with the
+    # steps it covers listed straight under it.
+    Scenario() \
+        .given(
+            some_answer := ("The record:\n\n**Investigation (14:15)**\n"
+                            "- Picked up the alert.\n- Read the metrics.")
+        ) \
+        .when(
+            lambda: from_markdown(some_answer)
+        ) \
+        .then(
+            the_answer_was(
+                "<p>The record:</p><p><strong>Investigation (14:15)</strong></p>"
+                "<ul><li>Picked up the alert.</li><li>Read the metrics.</li></ul>"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_anything_else_in_an_answer_in_markdown_arrives_as_text() -> None:
+    # Model output on a page that marks the result safe: only the allowed few
+    # become markup. A link or raw HTML let through would put the model's
+    # markup on the page.
+    Scenario() \
+        .given(
+            some_answer := ("<script>alert(1)</script> [a link](https://example.invalid) "
+                            "# no heading & **unclosed")
+        ) \
+        .when(
+            lambda: from_markdown(some_answer)
+        ) \
+        .then(
+            the_answer_was(
+                "<p>&lt;script&gt;alert(1)&lt;/script&gt; [a link](https://example.invalid) "
+                "# no heading &amp; **unclosed</p>"
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_is_between_backticks_is_code_and_nothing_else() -> None:
+    Scenario() \
+        .given(
+            some_answer := "`a**b**c`"
+        ) \
+        .when(
+            lambda: from_markdown(some_answer)
+        ) \
+        .then(
+            the_answer_was("<p><code>a**b**c</code></p>")
         )
 
 

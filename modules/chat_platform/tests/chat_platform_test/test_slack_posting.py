@@ -149,6 +149,22 @@ def test_what_slack_reads_as_markup_is_said_as_text() -> None:
 
 
 @pytest.mark.unit
+def test_an_emphasis_written_in_markdown_is_said_in_slack_s_own_markup() -> None:
+    # Slack's bold is one star and its italic an underscore (docs.slack.dev,
+    # "Formatting text for app surfaces"), so Markdown's two and one are
+    # rewritten - and the whole is not set apart, being a whole answer rather
+    # than a word.
+    some_answer = "**Investigation (14:15)**\n- Reverted *the* flag & <waited>"
+    some_line = Line(who=SOME_AGENT, text=some_answer, emphasis=some_answer,
+                     emphasis_is_markdown=True)
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: *Investigation (14:15)*\n"
+                       f"- Reverted _the_ flag &amp; &lt;waited&gt;"))
+
+
+@pytest.mark.unit
 def test_a_message_is_posted_without_previews_of_what_it_links() -> None:
     # Slack previews every link it is posted by default. A commit named
     # mid-sentence would bring a card into the war room on every line, and

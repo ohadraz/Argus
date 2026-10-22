@@ -36,6 +36,7 @@ from argus_core.events import (
     OfferExpired,
     OnsetDetected,
     PostmortemWritten,
+    QuestionAnswered,
     ResolutionOffered,
     StatusChanged,
     WithdrawalOffered,
@@ -250,6 +251,35 @@ def test_what_code_fix_said_of_the_code_reaches_the_thread_with_its_line(
                                   Register.FOLLOWED)) \
             .then(
                 _that_message_says(slack, some_explanation)
+            )
+
+
+@pytest.mark.component
+def test_an_answer_written_in_markdown_is_said_in_slack_s_own_markup(
+        slack: str, a_clean_database: None) -> None:
+    # The model answers in Markdown, and `**` in Slack is two stars. Not set
+    # apart as a whole either: an answer of several paragraphs inside one
+    # emphasis is unreadable.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                              a_narration_line(QuestionAnswered(
+                                  incident_id=incident_id,
+                                  message=Reference(source="some-chat", kind="some-kind",
+                                                    value="some-message"),
+                                  answer="**Investigation (14:15)**\n- Reverted the flag")),
+                              Register.FOLLOWED)) \
+            .then(
+                _that_message_says(slack,
+                                   "the thread: *Investigation (14:15)*\n- Reverted the flag")
             )
 
 
