@@ -1398,7 +1398,7 @@ def _the_leads(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
         pdf.ln(3.0)
 
 
-def _the_cost(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
+def _the_response_effort(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     _tiles(pdf, rendered.cost)
 
 
@@ -1540,7 +1540,7 @@ _SECTIONS: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], None]]] = {
     "lessons": _the_lessons,
     "timeline": _the_timeline,
     "leads": _the_leads,
-    "response-effort": _the_cost,
+    "response-effort": _the_response_effort,
     "supporting": _the_supporting_information,
     "review": _the_review
 }

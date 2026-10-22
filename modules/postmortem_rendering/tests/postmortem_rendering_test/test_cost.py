@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from postmortem_rendering.cost import the_cost
+from postmortem_rendering.cost import the_response_effort
 from postmortem_rendering.impact import Card
 
 from postmortem_rendering_test.framework.builders import a_postmortem
@@ -25,7 +25,7 @@ def test_the_minutes_say_how_many_responded_and_what_they_were_beside_argus_s_to
                                             tokens_spent=81_402)
         ) \
         .when(
-            lambda: the_cost(some_postmortem)
+            lambda: the_response_effort(some_postmortem)
         ) \
         .then(
             the_answer_was((Card(value="47 min",
@@ -41,7 +41,7 @@ def test_one_responder_is_one_responder() -> None:
                                             responder_titles=[])
         ) \
         .when(
-            lambda: the_cost(some_postmortem)[0].label
+            lambda: the_response_effort(some_postmortem)[0].label
         ) \
         .then(
             the_answer_was("engineer time, 1 responder"))
@@ -55,7 +55,7 @@ def test_nothing_recorded_says_so() -> None:
                                             tokens_spent=None)
         ) \
         .when(
-            lambda: the_cost(some_postmortem)
+            lambda: the_response_effort(some_postmortem)
         ) \
         .then(
             the_answer_was((Card(value="not recorded", label="engineer time"),
@@ -71,7 +71,7 @@ def test_no_minutes_spent_reads_as_none() -> None:
             some_postmortem := a_postmortem(engineer_minutes=0, responders=0)
         ) \
         .when(
-            lambda: the_cost(some_postmortem)[0]
+            lambda: the_response_effort(some_postmortem)[0]
         ) \
         .then(
             the_answer_was(Card(value="none", label="engineer time")))
@@ -90,7 +90,8 @@ def test_what_the_minutes_cost_in_pay_is_never_said() -> None:
                                             responder_cost_currency="usd")
         ) \
         .when(
-            lambda: " ".join(f"{card.value} {card.label}" for card in the_cost(some_postmortem))
+            lambda: " ".join(f"{card.value} {card.label}"
+                             for card in the_response_effort(some_postmortem))
         ) \
         .then(
             the_answer_was("47 min engineer time, 1 responder not recorded tokens spent by Argus"))

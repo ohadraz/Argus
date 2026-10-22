@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from postmortem_rendering.action_items import ActionItemsSection, the_action_items
 from postmortem_rendering.actions_taken import ActionsTakenSection, the_actions_taken
 from postmortem_rendering.cause import CauseSection, the_cause
-from postmortem_rendering.cost import the_cost
+from postmortem_rendering.cost import the_response_effort
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.head import Head, a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.hypotheses import HypothesesSection, the_hypotheses
@@ -152,7 +152,7 @@ def render(postmortem: Postmortem,
         lessons=the_lessons(postmortem),
         timeline=timeline,
         leads=leads,
-        cost=the_cost(postmortem),
+        cost=the_response_effort(postmortem),
         supporting=supporting,
         review=the_review(postmortem))
 

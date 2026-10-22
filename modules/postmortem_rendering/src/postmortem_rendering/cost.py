@@ -13,7 +13,7 @@ from argus_core.models import PostmortemDocument
 from postmortem_rendering.impact import Card
 
 
-def the_cost(postmortem: PostmortemDocument) -> tuple[Card, ...]:
+def the_response_effort(postmortem: PostmortemDocument) -> tuple[Card, ...]:
     """The same cards as the impact, figure first: person-minutes, with how
     many people and what they were, and the tokens Argus spent."""
     label = "engineer time"
