@@ -83,12 +83,25 @@ def decorated(line: NarrationLine, *, held: RowsHeld) -> DecoratedLine:
     target, label = _where_to_look(line, held)
 
     return DecoratedLine(
-        **line.model_dump(),
+        **(line.model_dump() | {"links": line.links | _the_incident_it_leads_to(line)}),
         emphasis_class=_dressed_as(line),
         link_target=target,
         link_label=label,
         emphasis_href=_the_marked_word_goes_to(line)
     )
+
+
+def _the_incident_it_leads_to(line: NarrationLine) -> dict[str, str]:
+    """The other incident a line names, leading to that incident's page - or
+    nothing, where it names none.
+
+    Added to the links the shown line carries rather than in their place: a
+    revision the same line names still leads to its commit.
+    """
+    if not line.names_incident:
+        return {}
+
+    return {line.names_incident: f"/incidents/{line.names_incident}"}
 
 
 def _the_marked_word_goes_to(line: NarrationLine) -> str:

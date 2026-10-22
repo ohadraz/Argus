@@ -221,6 +221,11 @@ class NarrationLine(BaseModel):
     # attempt the marked word is the refusal, so a destination that linked
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
+    # The other incident this line is about, where it is about one - so far, the
+    # closest match memory found. Carried as the id rather than as a link, as the
+    # minute is: a destination with a page per incident leads there, and one
+    # without simply reads the sentence.
+    names_incident: str = ""
     # A sentence to show under the line rather than in it - so far, what
     # Code-Fix said of the code where no pull request holds its explanation,
     # labelled as a reading nothing ran so it is not taken for a plan of
@@ -730,6 +735,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_to=moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
+        names_incident=_the_incident_it_names(event),
         aside=_what_it_says_beside_itself(event),
         asks_to_confirm=(event.message
                          if isinstance(event, ResolutionOffered | WithdrawalOffered)
@@ -910,6 +916,19 @@ def _the_minute_it_names(event: IncidentEvent) -> str:
 
     if isinstance(event, RecoveryChecked) and event.recovered_minute is not None:
         return event.recovered_minute
+
+    return ""
+
+
+def _the_incident_it_names(event: IncidentEvent) -> str:
+    """The one other incident a line is about, where it is about one.
+
+    So far the closest match memory found: the record the line after it may
+    move a candidate on the strength of, and named by a whole id - a name a
+    reader can only use where a destination leads them to it.
+    """
+    if isinstance(event, SimilarIncidentsRecalled):
+        return event.incident_ids[0]
 
     return ""
 

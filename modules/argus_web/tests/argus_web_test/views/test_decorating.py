@@ -22,6 +22,7 @@ from argus_core.events import (
     ActionTaken,
     FixAttempted,
     OnsetDetected,
+    SimilarIncidentsRecalled,
     StatusChanged,
     VerdictReached,
 )
@@ -230,6 +231,49 @@ def test_a_fix_that_proposed_nothing_marks_a_word_that_is_not_a_link() -> None:
 
 
 @pytest.mark.unit
+def test_an_earlier_incident_a_line_names_leads_to_that_incident_s_page() -> None:
+    # A whole id is a name nobody looks up by hand, so the word in the sentence
+    # is made the way there. Added to the links a shown line already carries
+    # rather than in place of them: a revision the same line names still leads
+    # to its commit.
+    some_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    some_revision = "7c3ca00"
+    where_it_was_committed = "https://example.invalid/commit/7c3ca00"
+
+    Scenario() \
+        .given(
+            the_recall := a_narration_line(
+                SimilarIncidentsRecalled(
+                    incident_id=new_id(), incident_ids=[some_earlier_incident]
+                )
+            ).model_copy(update={"links": {some_revision: where_it_was_committed}})
+        ) \
+        .when(lambda: decorated(the_recall, held=DONT_CARE_ROWS)) \
+        .then(all_of(
+            _it_links(some_earlier_incident, f"/incidents/{some_earlier_incident}"),
+            _it_links(some_revision, where_it_was_committed)
+        ))
+
+
+@pytest.mark.unit
+def test_a_line_naming_no_earlier_incident_gains_no_link() -> None:
+    Scenario() \
+        .given(
+            the_action := a_narration_line(
+                ActionTaken(
+                    incident_id=new_id(),
+                    hypothesis_id=new_id(),
+                    action_type="revert-feature-flag",
+                    subject=SOME_FLAG,
+                    enabled=False
+                )
+            )
+        ) \
+        .when(lambda: decorated(the_action, held=DONT_CARE_ROWS)) \
+        .then(_it_links_nothing())
+
+
+@pytest.mark.unit
 def test_everything_the_line_already_said_is_still_said() -> None:
     # Dressing a line adds to it and changes nothing: the page shows the same
     # sentence, split the same way, as every other destination.
@@ -286,6 +330,28 @@ def _the_marked_word_is_a_link_to(expected: str) -> Assertion[DecoratedLine]:
                 f"Expected the marked word linking to [{expected}], "
                 f"got [{line.emphasis_href}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _it_links(word: str, address: str) -> Assertion[DecoratedLine]:
+    def assertion(line: DecoratedLine) -> bool:
+        if line.links.get(word) != address:
+            raise AssertionError(
+                f"Expected [{word}] linking to [{address}], got the links {line.links}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_links_nothing() -> Assertion[DecoratedLine]:
+    def assertion(line: DecoratedLine) -> bool:
+        if line.links:
+            raise AssertionError(f"Expected no links, got {line.links}.")
 
         return True
 

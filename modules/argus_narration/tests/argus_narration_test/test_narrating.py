@@ -1885,6 +1885,24 @@ def test_what_memory_recalled_says_how_many_and_which_was_nearest() -> None:
             _the_lines_are_credited_to(["Argus"])))
 
 
+@pytest.mark.unit
+def test_a_recalled_line_names_the_nearest_incident_for_a_destination_to_link() -> None:
+    # Carried as the value it is rather than as a link, as the minute an onset
+    # names is: a destination with a page per incident leads there, and one
+    # without simply reads the sentence.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    some_incident_behind_it = "3f2b1a09-0000-4000-8000-00000000000b"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        incident_ids=[the_nearest_incident, some_incident_behind_it]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_the_only_line_names_the_incident(the_nearest_incident))
+
 
 @pytest.mark.unit
 def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
@@ -3195,6 +3213,21 @@ def _the_only_line_does_not_mention(unwanted: str) -> Assertion[list[NarrationLi
 
         if unwanted in line.text:
             raise AssertionError(f"Expected no [{unwanted}] in [{line.text}].")
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_names_the_incident(expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.names_incident != expected:
+            raise AssertionError(
+                f"Expected the line to name incident [{expected}], got "
+                f"[{line.names_incident}]."
+            )
 
         return True
 
