@@ -114,8 +114,8 @@ THE_METRICS_PORT_RENAMED = DeploymentPair(
 # `monitoring-configuration-drift`: every port named for the protocol it
 # carries, the platform's convention, and the scrape configuration not following.
 THE_PORTS_NAMED_FOR_THEIR_PROTOCOL = DeploymentPair(
-    before="e485a7aeb01d916e904f27f5cb545681a387051f",
-    after="d68de91a9de04d7c1bd679ecd20ce0184a633b68",
+    before="2c8f7311966cf37dee314695fe0060867e1ca954",
+    after="c3c36da3c66c07707f227b7e70b26813083061f3",
     on_main=False
 )
 
