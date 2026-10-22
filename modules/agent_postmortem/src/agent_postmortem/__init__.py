@@ -18,13 +18,9 @@ from agent_postmortem.assumptions import (
     NORMAL_VARIATION_ASSUMPTION_LABEL,
     NOT_PAGED_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
-    PAY_BAND_ASSUMPTION_LABEL,
-    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     RATES_UNAVAILABLE_REASON,
     REVENUE_UNAVAILABLE_ASSUMPTION,
     SHARED_PAGE_ASSUMPTION_LABEL,
-    UNPRICED_TITLE_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.briefing import STANDING_BRIEF, postmortem_policy
 from agent_postmortem.conversation import WRITE_UP_TOOLS
@@ -34,6 +30,12 @@ from agent_postmortem.evidence import (
     DeploymentChangesRecord,
     IncidentEvidence,
     RefusalRecord,
+)
+from agent_postmortem.response_cost_basis import (
+    PAY_BAND_ASSUMPTION_LABEL,
+    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
+    UNPRICED_TITLE_ASSUMPTION_LABEL,
+    WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.reviewing import (
     ANALYSIS_COMPLETE,

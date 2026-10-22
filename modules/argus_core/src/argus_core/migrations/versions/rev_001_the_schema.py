@@ -238,6 +238,11 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- different source than the takings, and nothing here converts one figure
     -- into the other.
     responder_cost_currency TEXT,
+    -- How that cost was arrived at: the working year, the band each title was
+    -- priced at, or what stopped it. Beside the figure rather than among the
+    -- assumptions, because the postmortem says nothing of pay - its readers are
+    -- the people it would price - and whoever is shown the figure reads this.
+    response_cost_basis JSONB NOT NULL DEFAULT '[]'::jsonb,
     tokens_spent INTEGER,
     -- Never null, for the reason `responder_titles` is not: a document that
     -- rested on nothing worth disclosing discloses nothing, and that is an

@@ -147,6 +147,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "responder_cost_minimum": Decimal("24.00"),
         "responder_cost_maximum": Decimal("39.00"),
         "responder_cost_currency": "usd",
+        "response_cost_basis": ["Working year: annual pay bands divided by 2080 hours"],
         "tokens_spent": 48210,
         "assumptions": ["the published rate for the day the incident opened"],
         "recommended_action": "putting monthly-spend-feature back",

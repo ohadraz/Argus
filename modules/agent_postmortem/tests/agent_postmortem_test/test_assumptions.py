@@ -107,114 +107,44 @@ def test_what_the_model_says_it_assumed_is_carried_through() -> None:
 
 
 @pytest.mark.unit
-def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> None:
-    # Both halves of the arithmetic, because neither is measured. The working
-    # year is a convention somebody configured, and the band is a range this
-    # document collapsed to a point - a reader who cannot see either is being
-    # asked to take the figure on trust.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
+@pytest.mark.parametrize("an_incident", [
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE)]),
+        bands={SOME_TITLE: SOME_BAND},
+        cost=DONT_CARE_PUBLISHED_COST),
+        id="a priced response"),
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE_NO_BAND_COVERS)]),
+        bands={SOME_TITLE: SOME_BAND},
+        cost=None),
+        id="an unpriced title"),
+    pytest.param(a_measured_incident(
+        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                   job_title=SOME_TITLE)]),
+        bands=None,
+        cost=None),
+        id="no pay bands")
+])
+def test_how_a_response_was_priced_is_no_assumption_of_the_postmortem(
+        an_incident: Measurements) -> None:
+    # The postmortem is read by the people it would price. How their minutes
+    # were priced - or why they could not be - is kept beside the figure, for
+    # whoever is shown the figure, and is nothing this document assumed.
     Scenario() \
         .given(
-            an_incident_whose_response_was_priced := a_measured_incident(
-                engaged=an_engagement_of([a_responder]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=DONT_CARE_PUBLISHED_COST)
+            an_incident
         ) \
         .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_whose_response_was_priced,
-                                   SOME_WORKING_YEAR_IN_HOURS)
+            lambda: assumptions_of(DONT_CARE_ANSWER, an_incident, SOME_WORKING_YEAR_IN_HOURS)
         ) \
-        .then(
-            all_of(
-                _names_a_line_mentioning(WORKING_YEAR_ASSUMPTION_LABEL,
-                                         str(int(SOME_WORKING_YEAR_IN_HOURS))),
-                _names_a_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
-    # A postmortem is read by the people it prices, and a pay band is not theirs
-    # to read in it. That a midpoint was used is the disclosure; the band's own
-    # figures are what a reader must not be handed.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
-    Scenario() \
-        .given(
-            an_incident_whose_response_was_priced := a_measured_incident(
-                engaged=an_engagement_of([a_responder]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=DONT_CARE_PUBLISHED_COST)
-        ) \
-        .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_whose_response_was_priced,
-                                   SOME_WORKING_YEAR_IN_HOURS)
-        ) \
-        .then(
-            all_of(
-                _names_a_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, "midpoint"),
-                _says_nothing_about(str(SOME_BAND.minimum)),
-                _says_nothing_about(str(SOME_BAND.midpoint)),
-                _says_nothing_about(str(SOME_BAND.maximum))
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_title_two_people_held_is_disclosed_once() -> None:
-    # Two people can hold one title, and both are paid for - but a reader
-    # checking the figure needs the band once. The same sentence twice reads as
-    # a document that priced something twice.
-    two_responders_holding_one_title = [
-        EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE),
-        EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-    ]
-
-    Scenario() \
-        .given(
-            an_incident_two_people_of_one_title_responded_to := a_measured_incident(
-                engaged=an_engagement_of(two_responders_holding_one_title),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=DONT_CARE_PUBLISHED_COST)
-        ) \
-        .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_two_people_of_one_title_responded_to,
-                                   DONT_CARE_WORKING_YEAR)
-        ) \
-        .then(
-            _names_a_line_mentioning_exactly_once(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
-        )
-
-
-@pytest.mark.unit
-def test_an_unpriced_title_is_named_where_no_cost_could_be_published() -> None:
-    # An absent figure is only honest while the document can say which title
-    # left it absent. "No cost available" with nothing beside it reads as a bug
-    # in Argus rather than as a band nobody configured.
-    a_responder_no_band_covers = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                  job_title=SOME_TITLE_NO_BAND_COVERS)
-
-    Scenario() \
-        .given(
-            an_incident_nobody_could_price := a_measured_incident(
-                engaged=an_engagement_of([a_responder_no_band_covers]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=None)
-        ) \
-        .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_nobody_could_price,
-                                   DONT_CARE_WORKING_YEAR)
-        ) \
-        .then(
-            _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
-                                     SOME_TITLE_NO_BAND_COVERS)
-        )
+        .then(all_of(
+            _says_nothing_about(WORKING_YEAR_ASSUMPTION_LABEL),
+            _says_nothing_about(PAY_BAND_ASSUMPTION_LABEL),
+            _says_nothing_about(UNPRICED_TITLE_ASSUMPTION_LABEL),
+            _says_nothing_about(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
+        ))
 
 
 @pytest.mark.unit
@@ -470,30 +400,6 @@ def test_a_page_this_incident_had_alone_needs_no_such_disclosure() -> None:
 
 
 @pytest.mark.unit
-def test_bands_that_could_not_be_read_are_disclosed_where_somebody_responded() -> None:
-    # Two absences with one consequence, and they are not the same sentence: a
-    # response nobody could measure is already disclosed as such, and adding
-    # "no pay bands either" to it would apologise twice for one gap.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
-    Scenario() \
-        .given(
-            an_incident_whose_responders_could_not_be_priced := a_measured_incident(
-                engaged=an_engagement_of([a_responder]),
-                bands=None,
-                cost=None)
-        ) \
-        .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_whose_responders_could_not_be_priced,
-                                   DONT_CARE_WORKING_YEAR)
-        ) \
-        .then(
-            _names(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
-        )
-
-
-@pytest.mark.unit
 def test_a_shortfall_within_what_the_shop_varies_by_is_disclosed_as_no_loss() -> None:
     # A zero beside an incident that plainly took less reads as a figure nobody
     # computed. Said with both amounts, it is a finding a reader can check -
@@ -557,24 +463,6 @@ def test_a_loss_beyond_what_the_shop_varies_by_needs_no_such_disclosure() -> Non
     pytest.param(a_measured_incident(engaged=None), id="no engagement"),
     pytest.param(a_measured_incident().model_copy(update={"engaged": NotPaged()}),
                  id="nobody paged"),
-    pytest.param(a_measured_incident(
-        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                   job_title=SOME_TITLE)]),
-        bands={SOME_TITLE: SOME_BAND},
-        cost=DONT_CARE_PUBLISHED_COST),
-        id="a priced response"),
-    pytest.param(a_measured_incident(
-        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                   job_title=SOME_TITLE_NO_BAND_COVERS)]),
-        bands={SOME_TITLE: SOME_BAND},
-        cost=None),
-        id="an unpriced title"),
-    pytest.param(a_measured_incident(
-        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                   job_title=SOME_TITLE)]),
-        bands=None,
-        cost=None),
-        id="no pay bands"),
     pytest.param(a_measured_incident(
         engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
                                                    job_title=SOME_TITLE)]).model_copy(

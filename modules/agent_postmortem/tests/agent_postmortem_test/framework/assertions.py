@@ -333,6 +333,34 @@ def discloses_an_assumption_mentioning(label: str,
     return assertion
 
 
+def keeps_a_cost_basis_line_mentioning(label: str,
+                                       detail: str) -> Assertion[PostmortemDocument]:
+    """How the response cost was arrived at, kept apart from the assumptions:
+    the postmortem says nothing of pay, and what is shown the figure reads this."""
+    def assertion(document: PostmortemDocument) -> bool:
+        if not any(label in stated and detail in stated
+                   for stated in document.response_cost_basis):
+            raise AssertionError(
+                f"Expected a line of the cost basis mentioning [{label}] and [{detail}], "
+                f"got {document.response_cost_basis}.")
+
+        return True
+
+    return assertion
+
+
+def keeps_the_cost_basis_line(expected: str) -> Assertion[PostmortemDocument]:
+    def assertion(document: PostmortemDocument) -> bool:
+        if expected not in document.response_cost_basis:
+            raise AssertionError(
+                f"Expected the cost basis line [{expected}], got "
+                f"{document.response_cost_basis}.")
+
+        return True
+
+    return assertion
+
+
 def discloses_no_assumption_about(unexpected: str) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if any(unexpected in stated for stated in document.assumptions):

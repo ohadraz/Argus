@@ -42,7 +42,6 @@ from argus_core.models import Verdict
 from argus_testkit import Scenario, all_of
 
 from agent_postmortem_test.framework.assertions import (
-    discloses_an_assumption_mentioning,
     discloses_an_assumption_naming,
     discloses_no_assumption_about,
     discloses_the_assumption,
@@ -50,6 +49,8 @@ from agent_postmortem_test.framework.assertions import (
     estimates_nothing,
     is_marked_complete,
     is_marked_incomplete,
+    keeps_a_cost_basis_line_mentioning,
+    keeps_the_cost_basis_line,
     reports_a_responder_cost_of,
     reports_engineer_minutes,
     reports_engineer_minutes_across,
@@ -368,10 +369,10 @@ def test_the_response_is_priced_on_the_page_and_the_arithmetic_disclosed() -> No
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES),
                 reports_a_responder_cost_of(cost_at_midpoint),
                 reports_the_titles(SOME_TITLE),
-                discloses_an_assumption_mentioning(
+                keeps_a_cost_basis_line_mentioning(
                     WORKING_YEAR_ASSUMPTION_LABEL,
                     str(int(SOME_WORKING_YEAR_IN_HOURS))),
-                discloses_an_assumption_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
+                keeps_a_cost_basis_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
             )
         )
 
@@ -405,7 +406,7 @@ def test_a_title_no_band_covers_leaves_the_minutes_and_takes_the_cost() -> None:
             all_of(
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES * 2),
                 reports_no_responder_cost(),
-                discloses_an_assumption_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
+                keeps_a_cost_basis_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
                                                    SOME_TITLE_NO_BAND_COVERS)
             )
         )
@@ -434,7 +435,7 @@ def test_a_band_source_that_cannot_be_read_costs_nothing_but_the_figure() -> Non
             all_of(
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES),
                 reports_no_responder_cost(),
-                discloses_the_assumption(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
+                keeps_the_cost_basis_line(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
             )
         )
 

@@ -1,8 +1,8 @@
 """What the document admits to having assumed rather than measured.
 
 Every figure in a postmortem is a measurement, but a measurement is only as
-honest as the steps between the source and the page: a rate applied, a band a
-title was priced at, a working year the bands were divided by. Each of those is
+honest as the steps between the source and the page: a rate applied, a
+currency left out, a shortfall within what the shop varies by. Each of those is
 stated here in the reader's own terms, so a number can be argued with rather
 than trusted.
 
@@ -31,7 +31,6 @@ from argus_core.models import said_as_money
 from agent_postmortem.estimate import weeks_back_for
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
-from agent_postmortem.responder_cost import unpriced_titles
 from agent_postmortem.sources import EngagementAnswer, NotPaged
 
 # How a conversion announces itself in the assumptions. A constant rather than
@@ -83,33 +82,12 @@ NOT_PAGED_ASSUMPTION = (
     "No engineer minutes: no on-call incident was linked to this one, so nobody "
     "was paged to respond"
 )
-PAY_BANDS_UNAVAILABLE_ASSUMPTION = (
-    "No responder cost: the pay band source could not be read"
-)
-
-# How the divisor behind the response cost announces itself. An annual band
-# becomes a per-minute rate only by being divided by a working year, and that
-# year is a convention somebody configured rather than anything measured - so a
-# reader reproducing the figure needs it stated beside the figure.
-WORKING_YEAR_ASSUMPTION_LABEL = "Working year"
-
-# How each band the figure rests on announces itself, one line per title. The
-# published figure is a midpoint, which is a range collapsed to a point: saying
-# so is what stops the point being read as a measurement. The band's own
-# figures are not said - the document is read by the people it prices.
-PAY_BAND_ASSUMPTION_LABEL = "Pay band"
-
 # How a response shared with other incidents announces itself. One on-call
 # incident can be about several of Argus's, and its minutes are then reported
 # in full on each - not split, because nothing says how the people on it divided
 # their attention - so a reader adding the documents up counts them twice
 # unless each says so.
 SHARED_PAGE_ASSUMPTION_LABEL = "Shared page"
-
-# How a title nothing could price announces itself. The cost is absent rather
-# than short, and the absence is only honest while the document can say which
-# title caused it.
-UNPRICED_TITLE_ASSUMPTION_LABEL = "Unpriced title"
 
 
 def assumptions_of(answer: SubmittedPostmortem,
@@ -119,9 +97,12 @@ def assumptions_of(answer: SubmittedPostmortem,
 
     The conversions come first - they stand between the money the provider
     reported and the figure published, with the comparison against how much
-    the shop varies on its own - then the pricing, then
-    whatever the model says it assumed in its prose, then the absences, each
-    saying which question went unanswered.
+    the shop varies on its own - then a response shared with other incidents,
+    then whatever the model says it assumed in its prose, then the absences,
+    each saying which question went unanswered.
+
+    Nothing of how the response was priced: the document is read by the people
+    it would price, and that is kept apart, in `response_cost_basis`.
     """
     assumptions: list[str] = []
 
@@ -132,7 +113,6 @@ def assumptions_of(answer: SubmittedPostmortem,
     assumptions.extend(_currencies_left_out_of(measured))
     assumptions.extend(_within_the_shop_s_variation(measured))
 
-    assumptions.extend(_the_pricing_behind(measured, working_hours_a_year))
     assumptions.extend(_a_response_shared_with_others(measured))
 
     assumptions.extend(answer.assumptions)
@@ -146,8 +126,6 @@ def assumptions_of(answer: SubmittedPostmortem,
         assumptions.append(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
     if isinstance(measured.engaged, NotPaged):
         assumptions.append(NOT_PAGED_ASSUMPTION)
-    if isinstance(measured.engaged, EngagementAnswer) and measured.bands is None:
-        assumptions.append(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
 
     return assumptions
 
@@ -193,39 +171,6 @@ def _currencies_left_out_of(measured: Measurements) -> list[str]:
     ]
 
 
-def _the_pricing_behind(measured: Measurements,
-                        working_hours_a_year: float) -> list[str]:
-    """How the response cost was arrived at, or why there is none.
-
-    A published figure discloses both things that are not measurements: the
-    working year the annual bands were divided by, and the band each title was
-    priced at - a midpoint being a range collapsed to a point.
-
-    A figure that could not be published names the titles that stopped it, so
-    the gap reads as a band nobody configured rather than as a fault in Argus.
-    A source that could not be read at all is a different sentence, said by the
-    caller, since there are no titles to blame for it.
-    """
-    engaged, bands = measured.engaged, measured.bands
-    if bands is None or not isinstance(engaged, EngagementAnswer):
-        return []
-
-    if measured.cost is None:
-        return [
-            f"{UNPRICED_TITLE_ASSUMPTION_LABEL}: no responder cost, because no "
-            f"pay band covers [{title}]"
-            for title in unpriced_titles(engaged.engaged, bands)
-        ]
-
-    return [
-        f"{WORKING_YEAR_ASSUMPTION_LABEL}: annual pay bands divided by "
-        f"{working_hours_a_year:g} hours",
-        *(f"{PAY_BAND_ASSUMPTION_LABEL}: {title} priced at the midpoint of "
-          f"the title's band"
-          for title in _the_titles_priced(engaged))
-    ]
-
-
 def _a_response_shared_with_others(measured: Measurements) -> list[str]:
     """The line saying the response was also other incidents', where it was."""
     engaged = measured.engaged
@@ -238,20 +183,6 @@ def _a_response_shared_with_others(measured: Measurements) -> list[str]:
             f"under was also about {others} other incident{'s' if others != 1 else ''}, "
             f"so the engineer minutes are its whole response rather than this "
             f"incident's share"]
-
-
-def _the_titles_priced(engaged: EngagementAnswer) -> list[str]:
-    """What the responders held, each named once, in the order they responded.
-
-    Once, because two people holding one title are priced at one band and the
-    document would otherwise recite it twice; in order, because a reader
-    matching the lines against the timeline reads them the same way round.
-    """
-    return list(dict.fromkeys(
-        responder.job_title
-        for responder in engaged.engaged
-        if responder.job_title is not None
-    ))
 
 
 def _rates_applied(measured: Measurements) -> list[str]:

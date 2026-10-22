@@ -48,6 +48,7 @@ from agent_postmortem.prompting import (
     the_evidence_labelled,
     the_files_as_they_ran_labelled,
 )
+from agent_postmortem.response_cost_basis import response_cost_basis
 from agent_postmortem.reviewing import review_of
 from agent_postmortem.sections import (
     action_item_number,
@@ -176,6 +177,9 @@ def write_postmortem(evidence: IncidentEvidence,
             for label, lead in labelled(evidence.leads)
         ],
         assumptions=disclose(answer, measured, sources.working_hours_a_year),
+        # Beside the cost it explains, never among the assumptions: the
+        # document says nothing of pay.
+        response_cost_basis=response_cost_basis(measured, sources.working_hours_a_year),
         # Written by code from the record - and, of how the service did where
         # the metrics stopped, from the model's yes or no, never its prose.
         impact=impact_of(measured, logs_in_the_gap=logs_in_the_gap_of(

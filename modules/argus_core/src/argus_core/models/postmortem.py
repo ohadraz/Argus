@@ -124,6 +124,11 @@ class PostmortemDocument(BaseModel):
     # `estimate_currency` is: a figure relabelled from settings would rewrite
     # documents already published.
     responder_cost_currency: str | None = None
+    # How that cost was arrived at - the working year, the band each title was
+    # priced at, or what stopped it. Kept beside the figure for whoever is shown
+    # the figure, and apart from `assumptions`: the postmortem says nothing of
+    # pay, since its readers are the people it would price.
+    response_cost_basis: list[str] = []
     tokens_spent: int | None
     assumptions: list[str]
     # Where the permanent fix can be read, for the incidents that produced one.
