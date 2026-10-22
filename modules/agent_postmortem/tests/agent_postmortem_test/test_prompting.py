@@ -3396,6 +3396,20 @@ def test_the_cause_in_plain_words_is_asked_for_in_one_sentence_of_what_the_recor
 
 
 @pytest.mark.unit
+def test_the_cause_in_plain_words_says_what_rests_on_an_unrun_reading_as_likely() -> None:
+    # Told only to say what the record says, a write-up that knew who was hit
+    # from a reading of the code alone carried the reading into the sentence:
+    # "a reading of the code that nothing has tested says this happens for...".
+    # The summary's reader needs who, said as likely, not where it came from.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSE_IN_PLAIN_WORDS_FIELD]["description"]
+        ) \
+        .then(_the_description_mentions("a reading nothing ran", "as likely",
+                                        "without mentioning the reading"))
+
+
+@pytest.mark.unit
 def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
     # Nothing at risk is an answer; and what Argus left to a person - a draft
     # fix, automatic sync left off, a recommended action - the summary says

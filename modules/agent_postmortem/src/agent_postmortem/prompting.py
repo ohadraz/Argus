@@ -598,7 +598,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "When it began, for how long, how bad it got, what customers lost and "
                 "what was done the document says itself - say none of them. Say only "
                 "what the record says - of a change, of the service, of the people - "
-                "and nothing it does not."
+                "and nothing it does not. Where part of it rests only on a reading "
+                "nothing ran, say that part as likely, in plain words, without "
+                "mentioning the reading."
             )
         },
         STILL_AT_RISK_FIELD: {
