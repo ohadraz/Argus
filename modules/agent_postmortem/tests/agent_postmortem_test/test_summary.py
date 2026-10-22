@@ -104,6 +104,28 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
 
 
 @pytest.mark.unit
+def test_logs_reaching_as_far_as_their_reading_ended_say_the_instant_once() -> None:
+    # Said twice - "until 08:28 UTC, and they were read up to 08:28 UTC" - one
+    # instant reads as two facts, and the Slack line the summary becomes says
+    # it twice too.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"],
+                logs_read_until=ONSET + timedelta(minutes=4)),
+            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET,
+                                            duration_in_hours=0.5)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("The service's own logs reach into that stretch until 12:04 UTC, as far as "
+                  "they were read.")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("log_lines", "read_until", "said"), [
     ([], None, "No logs were read."),
     ([], ONSET + timedelta(minutes=20),

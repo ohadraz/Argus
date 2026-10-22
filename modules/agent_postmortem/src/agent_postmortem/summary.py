@@ -134,7 +134,10 @@ def _what_the_logs_show(read: bool,
     lines stop is as often where the reading did. And said where they show
     nothing: a summary silent on the logs reads the same as one whose logs
     nobody looked at. A read that came back empty is a read: the service gone
-    quiet in its logs too is not nobody having looked."""
+    quiet in its logs too is not nobody having looked.
+
+    Once where the two are the same instant as written: said twice, one
+    instant reads as two facts."""
     if not read:
         return "No logs were read."
 
@@ -145,7 +148,13 @@ def _what_the_logs_show(read: bool,
     else:
         logs, they = f"The service's own logs reach into that stretch until {reach}", "they"
 
-    return f"{logs}, and {they} were read up to {ended}." if ended is not None else f"{logs}."
+    if ended is None:
+        return f"{logs}."
+
+    if ended == reach:
+        return f"{logs}, as far as they were read."
+
+    return f"{logs}, and {they} were read up to {ended}."
 
 
 def _how_bad(measured: Measurements, written: _Written) -> list[str]:
