@@ -378,11 +378,20 @@ _RUN_SPECIFIC: Final = re.compile(
     r"|\d+"
 )
 
+# A span of time, masked whole before its digits are: which units it names, and
+# whether each is said in the singular, are run timing as much as its digits are
+# - a span landing on a whole minute drops its seconds, one landing on a single
+# second says "second", and one under a second says neither.
+_A_SPAN: Final = re.compile(
+    r"\b\d+ (?:day|hour|minute|second)s?(?: \d+ (?:day|hour|minute|second)s?)*\b"
+    r"|\bless than a second\b"
+)
+
 
 def _masked(conversation: Any) -> str:
     """A conversation as one canonical text, with everything a run writes
     differently each time masked out."""
-    return _RUN_SPECIFIC.sub("#", json.dumps(conversation, sort_keys=True))
+    return _RUN_SPECIFIC.sub("#", _A_SPAN.sub("#", json.dumps(conversation, sort_keys=True)))
 
 
 def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = None) -> Response:
