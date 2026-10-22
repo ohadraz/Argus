@@ -306,9 +306,11 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
 
 
 @pytest.mark.component
-def test_a_candidate_formed_is_said_with_what_it_is(slack: str, a_clean_database: None) -> None:
-    # Said as the page heads its list - "Formed 1 candidate cause, best first:" -
-    # a message ends on a colon promising a candidate that never comes.
+def test_a_candidate_formed_is_said_by_its_label_with_what_it_is(
+        slack: str, a_clean_database: None) -> None:
+    # Said each on its own message, "Formed 1 candidate cause, best first:" twice
+    # read as two lists of one. By the label the walk page gives it instead -
+    # its rank, best first - so the two say the same candidate the same way.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_summary = "the scrape still selects the port by its old name"
 
@@ -322,10 +324,11 @@ def test_a_candidate_formed_is_said_with_what_it_is(slack: str, a_clean_database
             ) \
             .when(lambda: say(incident_id,
                                   a_narration_line(_a_candidate_formed_on(incident_id,
-                                                                          some_summary)),
+                                                                          some_summary,
+                                                                          rank=2)),
                                   Register.FOLLOWED)) \
             .then(
-                _that_message_says(slack, f"best first: {some_summary}")
+                _that_message_says(slack, f"Formed candidate cause C2: {some_summary}")
             )
 
 
@@ -974,9 +977,9 @@ def _a_candidate_naming_on(incident_id: str, revision: str) -> IncidentEvent:
                              confidence=None)
 
 
-def _a_candidate_formed_on(incident_id: str, summary: str) -> IncidentEvent:
+def _a_candidate_formed_on(incident_id: str, summary: str, rank: int = 1) -> IncidentEvent:
     return HypothesisFormed(incident_id=incident_id, hypothesis_id=new_id(), summary=summary,
-                            failure_mode=None, confidence=None, subject=None, rank=1)
+                            failure_mode=None, confidence=None, subject=None, rank=rank)
 
 
 def _slack_will_refuse(base_url: str) -> None:

@@ -226,9 +226,10 @@ def _the_chat_line(line: NarrationLine,
     the incident read said by its short form, leading to its commit
     (`revisions`).
 
-    With the candidates it carries said after it: the page lays them out
-    beneath the line, and a message that has only the sentence ends on a colon
-    promising a list that never comes.
+    A line carrying candidates says each by the label the walk page gives it -
+    its rank, best first - and what it is: the page lays them out beneath its
+    own line, and a message that has only the sentence ended on a colon
+    promising a list that never came, one "Formed 1" message per candidate.
     """
     said = shown(_with_its_candidates(line), revisions)
 
@@ -243,14 +244,14 @@ def _the_chat_line(line: NarrationLine,
 
 
 def _with_its_candidates(line: NarrationLine) -> NarrationLine:
-    """The line with the candidates it carries said at the end of its text -
-    or the line as it is, where it carries none."""
+    """The line said as the candidates it carries, each by its label and what
+    it is - or the line as it is, where it carries none."""
     if not line.candidates:
         return line
 
     return line.model_copy(update={
-        "text": f"{line.text.rstrip()} "
-                + "; ".join(candidate.summary for candidate in line.candidates)})
+        "text": "; ".join(f"Formed candidate cause C{candidate.rank}: {candidate.summary}"
+                          for candidate in line.candidates)})
 
 
 def _the_offers_retired_by(line: NarrationLine) -> list[str]:
