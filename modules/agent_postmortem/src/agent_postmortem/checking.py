@@ -65,6 +65,7 @@ from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
     LEAD_EFFECTS_FIELD,
@@ -77,7 +78,14 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
-from agent_postmortem.sections import CODE_READING_PREFIX, action_item_number, label_of
+from agent_postmortem.sections import (
+    AS_IT_RAN_PREFIX,
+    CODE_READING_PREFIX,
+    DEPLOYMENT_CHANGES_PREFIX,
+    action_item_number,
+    is_a_code_reading,
+    label_of,
+)
 
 # A number said in a word: a count, a ten, a power of ten, or the fraction a
 # decimal is read out in.
@@ -196,6 +204,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
             + _readings_beside_no_file_as_it_ran(answer, given)
+            + _a_reading_the_answer_says_otherwise_of(answer)
             + _factors_nothing_answers(answer, given)
             + _numbers_in_digits(answer, given)
             + _figures_spelled_out(answer)
@@ -248,7 +257,13 @@ def _missing_fields(answer: SubmittedPostmortem) -> list[str]:
     """
     return [f"the field [{field}] was missing from your answer"
             for field in REQUIRED_FIELDS
-            if getattr(answer, field) is None]
+            if getattr(answer, field) is None and field not in _UNANSWERED_BEFORE_IT_WAS_ASKED]
+
+
+# Required fields whose absence means an answer recorded before the question
+# existed - a live call always sends them - and so is never put back: a retry
+# would ask each such recording for a turn it does not hold.
+_UNANSWERED_BEFORE_IT_WAS_ASKED: Final = frozenset({CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD})
 
 
 def _how_it_served_left_unanswered(answer: SubmittedPostmortem, given: Given) -> list[str]:
@@ -260,6 +275,46 @@ def _how_it_served_left_unanswered(answer: SubmittedPostmortem, given: Given) ->
         return []
 
     return [f"the field [{LOGS_SHOW_SERVING_AS_BEFORE_FIELD}] was missing from your answer"]
+
+
+def _a_reading_the_answer_says_otherwise_of(answer: SubmittedPostmortem) -> list[str]:
+    """Where the answer's word on whether its cause rests on a reading nothing
+    ran is one its own chain contradicts: no, beside a step citing a reading
+    and nothing read that shows the code - so the box would be ticked beside a
+    mechanism nothing read shows - or yes, with no step citing a reading at
+    all, which leaves the document's sentence naming none.
+
+    Not asked of an answer that never said, which was recorded before the
+    question was."""
+    said = answer.cause_rests_on_an_unrun_reading
+    steps = answer.causal_chain or []
+
+    if said is None:
+        return []
+
+    if said:
+        if any(is_a_code_reading(cited) for step in steps for cited in step.cites):
+            return []
+
+        return [f"[{CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD}] says the cause rests on a reading "
+                f"nothing ran, and no {CAUSAL_CHAIN_FIELD} step cites one: cite the "
+                f"{CODE_READING_PREFIX} row it rests on, or answer false"]
+
+    return [f"the {CAUSAL_CHAIN_FIELD} step [{step.step}] rests on "
+            f"[{', '.join(cited for cited in step.cites if is_a_code_reading(cited))}], a "
+            f"reading nothing ran, with no {AS_IT_RAN_PREFIX} or {DEPLOYMENT_CHANGES_PREFIX} "
+            f"row beside it, and [{CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD}] says the cause rests "
+            f"on more: answer true, or cite the row that shows the code"
+            for step in steps
+            if any(is_a_code_reading(cited) for cited in step.cites)
+            and not any(_shows_the_code(cited) for cited in step.cites)]
+
+
+def _shows_the_code(label: str) -> bool:
+    """Whether `label` cites something read that shows the code itself: a file
+    as it ran, or what a deployment changed."""
+    return any(label.startswith(prefix) and label[len(prefix):].isdigit()
+               for prefix in (AS_IT_RAN_PREFIX, DEPLOYMENT_CHANGES_PREFIX))
 
 
 def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[str]:

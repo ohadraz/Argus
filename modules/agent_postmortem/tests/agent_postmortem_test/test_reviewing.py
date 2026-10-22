@@ -577,6 +577,52 @@ def test_a_step_a_reading_and_an_observation_both_support_is_supported() -> None
         )
 
 
+@pytest.mark.unit
+def test_a_cause_the_answer_says_rests_on_an_unrun_reading_is_left_for_a_person() -> None:
+    # Cited beside a line showing the error, the reading still carried the
+    # mechanism alone: the box was ticked beside a root cause calling the cause
+    # unverified. Whether the line shows the mechanism is the model's to judge,
+    # so the box follows its answer.
+    Scenario() \
+        .given(
+            a_document_citing_a_reading_beside_the_error := _a_document(causal_chain=[
+                _a_step("account pages failed"),
+                ChainStep(text="the divisor was zero",
+                          cites=[CitedEvidence(label="F1", text="dont care"),
+                                 CitedEvidence(label="G1", text="dont care")])
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_citing_a_reading_beside_the_error, faults=[],
+                              reaches_a_cause=True, rests_on_an_unrun_reading=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="the cause rests on F1, a reading of the source nothing ran")
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_the_answer_says_rests_on_more_than_a_reading_is_judged_on_the_rest() -> None:
+    # A step citing a reading alone, which the model says something it read
+    # bears out - a diff or a file as it ran shows what the reading says.
+    Scenario() \
+        .given(
+            a_document_resting_on_a_reading := _a_document(causal_chain=[
+                _a_step("account pages failed"),
+                ChainStep(text="the divisor was zero",
+                          cites=[CitedEvidence(label="F1", text="dont care")])
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_resting_on_a_reading, faults=[],
+                              reaches_a_cause=True, rests_on_an_unrun_reading=False)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=True, because=None)
+        )
+
+
 def _says(criterion: str, met: bool | None) -> Assertion[list[ReviewCriterion]]:
     def assertion(review: list[ReviewCriterion]) -> bool:
         said = [entry.met for entry in review if entry.criterion == criterion]

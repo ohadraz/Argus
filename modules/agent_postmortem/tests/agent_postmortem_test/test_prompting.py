@@ -61,6 +61,7 @@ from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CITES_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
@@ -189,7 +190,7 @@ A_TIME_FINER_THAN_THE_SECOND = re.compile(r"\d{2}:\d{2}:\d{2}[.,]\d")
 EVERY_FIELD_ASKED = (ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
                      ASSUMPTIONS_FIELD, CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
                      ACTION_ITEMS_FIELD, LESSONS_FIELD, SYMPTOM_FIELD,
-                     REACHES_A_CAUSE_FIELD)
+                     REACHES_A_CAUSE_FIELD, CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
 
 # Error rates in each relation to their baseline that the prompt tells apart.
 ERRORS_THAT_STAYED_FLAT = ErrorRates(baseline=0.02, while_broken=0.02, at_its_worst=0.03,
@@ -3345,22 +3346,6 @@ def test_the_root_cause_is_told_what_the_service_did_over_the_gap_is_not_the_mec
 
 
 @pytest.mark.unit
-def test_the_root_cause_says_once_it_rests_on_a_reading_only_where_nothing_shows_more() -> None:
-    # Two write-ups' root causes said twice that the reading of the code they
-    # rested on was unverified. And fifteen of fifteen ended "rests on Code-Fix's
-    # reading, which nothing ran" where a row showed the file as it ran - the
-    # description asked for the hedge whatever else the record held.
-    Scenario() \
-        .when(
-            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
-        ) \
-        .then(
-            _the_description_mentions("rests on a reading nothing ran and no S or D row "
-                                      "shows what it rests on, say so once")
-        )
-
-
-@pytest.mark.unit
 def test_an_action_item_is_asked_for_as_one_thing_to_do() -> None:
     # One item asked for the draft's test to be updated to the deployed key and
     # for the scrape change to land on the branch the revision was deployed
@@ -3488,20 +3473,6 @@ def test_an_action_item_is_asked_not_to_check_what_the_evidence_already_shows() 
         ) \
         .then(
             _the_description_mentions("already shows", "a diff")
-        )
-
-
-@pytest.mark.unit
-def test_unverified_is_asked_for_of_a_reading_of_the_code_rather_than_of_a_diff() -> None:
-    # Told a step resting on a reading of the code counts only where it says
-    # "unverified", a write-up called unverified what a diff it was shown said
-    # outright - and what a file as it ran shows, when there is one.
-    Scenario() \
-        .when(
-            lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["description"]
-        ) \
-        .then(
-            _the_description_mentions("an S or D row shows")
         )
 
 
@@ -4180,6 +4151,122 @@ def test_only_a_plain_yes_or_no_reads_as_how_the_logs_show_the_service(
         .then(
             the_answer_was(read_as)
         )
+
+
+@pytest.mark.unit
+def test_whether_the_cause_rests_on_an_unrun_reading_is_asked_knowing_the_document_says_it(
+) -> None:
+    # Told to say so once in the root cause, eight write-ups called the cause
+    # unverified there while the review ticked it as complete. Answered as a
+    # yes or no, the document says it and sets the box from the same answer.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD][
+                "description"]
+        ) \
+        .then(
+            _the_description_mentions("F row", "nothing ran", "no S or D row",
+                                      "the document says itself", "say neither in root_cause")
+        )
+
+
+@pytest.mark.unit
+def test_whether_the_cause_rests_on_an_unrun_reading_is_asked_right_after_whether_it_has_one(
+) -> None:
+    # The two answers are about the same chain, and were measured asked in
+    # this order.
+    Scenario() \
+        .when(
+            lambda: list(SUBMIT_POSTMORTEM.properties)
+        ) \
+        .then(
+            _comes_right_after(REACHES_A_CAUSE_FIELD, CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_the_root_cause_leaves_whether_it_was_verified_to_the_document() -> None:
+    # Said by the document from the answer, so a root cause that says it too
+    # says it twice - or contradicts the box beside it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ROOT_CAUSE_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("the document says itself",
+                                      CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _the_description_avoids("say so once")
+        ))
+
+
+@pytest.mark.unit
+def test_whether_a_chain_reaches_a_cause_leaves_unverified_to_the_other_answer() -> None:
+    # It counted an F-only step only where the chain called it unverified -
+    # words the root cause no longer writes, so the step would stop counting.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[REACHES_A_CAUSE_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions(CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _the_description_avoids("counts only where it says the reading is unverified")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("answered", "read_as"), [
+    (True, True),
+    (False, False),
+    ("yes", None),
+    (1, None),
+    (None, None)
+], ids=["yes", "no", "a word", "a number", "null"])
+def test_only_a_plain_yes_or_no_reads_as_whether_the_cause_rests_on_an_unrun_reading(
+        answered: object, read_as: bool | None) -> None:
+    # Anything else is unanswered - never a guess the document then says.
+    Scenario() \
+        .given(
+            a_submission := {CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: answered}
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission).cause_rests_on_an_unrun_reading
+        ) \
+        .then(
+            the_answer_was(read_as)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_from_before_the_question_leaves_whether_it_rests_on_a_reading_unanswered(
+) -> None:
+    # Every answer recorded before the question existed carries no such field,
+    # and its root cause already says whether the cause is unverified.
+    Scenario() \
+        .given(
+            an_answer_from_before_the_question := an_answer_without(
+                CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                an_answer_from_before_the_question).cause_rests_on_an_unrun_reading
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+def _comes_right_after(earlier: str, later: str) -> Assertion[list[str]]:
+    def assertion(fields: list[str]) -> bool:
+        if later not in fields or earlier not in fields \
+                or fields.index(later) != fields.index(earlier) + 1:
+            raise AssertionError(
+                f"Expected [{later}] right after [{earlier}], got the fields in the "
+                f"order {fields}.")
+
+        return True
+
+    return assertion
 
 
 def _a_change(reference: str = "dont care",

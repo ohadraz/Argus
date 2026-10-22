@@ -412,6 +412,66 @@ def test_the_review_is_told_whether_the_answer_says_its_chain_reaches_a_cause(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("rests_on_an_unrun_reading", [True, False],
+                         ids=["rests on a reading", "rests on more"])
+def test_the_review_is_told_whether_the_answer_says_its_cause_rests_on_an_unrun_reading(
+        rests_on_an_unrun_reading: bool) -> None:
+    # The model's own word, and the review's only source for it: whether a
+    # line cited beside the reading shows the mechanism is a judgement of what
+    # both say.
+    reviewing = _reviewing_that_returns([])
+
+    Scenario() \
+        .given(
+            an_answer_about_its_cause := _asking_that_answers(
+                a_submitted_answer(cause_rests_on_an_unrun_reading=rests_on_an_unrun_reading))
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=an_answer_about_its_cause,
+                                     disclose=_disclosing_that_returns([]),
+                                     review=reviewing)
+        ) \
+        .then(
+            _reviewed_knowing_whether_it_rests_on_a_reading(reviewing,
+                                                            rests_on_an_unrun_reading)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_resting_on_an_unrun_reading_is_called_unverified_beside_it() -> None:
+    # Said by the document rather than the model, so the root cause and the
+    # review's box are written from one answer and cannot disagree - and named
+    # by the readings the chain cites, which a reader can open.
+    some_root_cause = "The average divides by this month's purchases, which can be none."
+
+    Scenario() \
+        .given(
+            an_answer_resting_on_a_reading := _asking_that_answers(
+                a_submitted_answer(root_cause=some_root_cause,
+                                   cause_rests_on_an_unrun_reading=True).model_copy(update={
+                    "causal_chain": [SubmittedStep(step="dont care", cites=["T1"]),
+                                     SubmittedStep(step="dont care", cites=["F1", "T1"])]}))
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=an_answer_resting_on_a_reading,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            reports_root_cause(f"{some_root_cause} It rests on F1, a reading of the source "
+                               f"nothing ran, so it is unverified.")
+        )
+
+
+@pytest.mark.unit
 def test_the_sections_the_record_holds_are_the_sections_published() -> None:
     # Each written by code from the record, and never asked of the model.
     Scenario() \
@@ -1482,6 +1542,23 @@ def _reviewed_knowing(reviewing: MagicMock,
             raise AssertionError(
                 f"Expected the review to be told the chain reaches a cause: "
                 f"{reaches_a_cause}, got {told}.")
+
+        return True
+
+    return assertion
+
+
+def _reviewed_knowing_whether_it_rests_on_a_reading(
+        reviewing: MagicMock, rests_on_an_unrun_reading: bool) -> Assertion[PostmortemDocument]:
+    """The review was told whether the answer says its cause rests on a reading
+    of the source nothing ran."""
+    def assertion(dont_care_document: PostmortemDocument) -> bool:
+        told = reviewing.call_args.kwargs.get("rests_on_an_unrun_reading")
+
+        if told is not rests_on_an_unrun_reading:
+            raise AssertionError(
+                f"Expected the review to be told the cause rests on an unrun reading: "
+                f"{rests_on_an_unrun_reading}, got {told}.")
 
         return True
 

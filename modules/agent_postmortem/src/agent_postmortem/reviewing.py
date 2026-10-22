@@ -23,7 +23,7 @@ from argus_core.models import (
     why_it_was_refused,
 )
 
-from agent_postmortem.sections import CODE_READING_PREFIX, was_never_tried
+from agent_postmortem.sections import is_a_code_reading, was_never_tried
 
 KEY_DATA_COLLECTED: Final = "Key incident data collected"
 IMPACT_ASSESSED: Final = "Impact assessed"
@@ -35,7 +35,8 @@ REVIEWED_AND_SHARED: Final = "Reviewed and shared"
 def review_of(document: PostmortemDocument,
               faults: list[str],
               *,
-              reaches_a_cause: bool) -> list[ReviewCriterion]:
+              reaches_a_cause: bool,
+              rests_on_an_unrun_reading: bool | None = None) -> list[ReviewCriterion]:
     """The five criteria, in Google's order, judged against `document`.
 
     `faults` are what the checks still found in the model's answer. They bear
@@ -52,6 +53,12 @@ def review_of(document: PostmortemDocument,
     box beside it would say the opposite. Not failed either - the analysis went
     as far as the evidence allowed, and what is left is somebody running it.
 
+    Whether it does is `rests_on_an_unrun_reading`, the answer's own word: a
+    reading cited beside a line showing the error still carries the mechanism
+    alone, and only a reader of both can tell. `None` is an answer recorded
+    before the question was asked, and is judged as it always was - on a step
+    citing readings and nothing else.
+
     So is one that confirmed nothing only because the one test of its cause was
     refused at the gate as not Argus's to take, and impact whose loss was
     measured but whose end nothing could measure: a cross means the document
@@ -59,7 +66,8 @@ def review_of(document: PostmortemDocument,
     person's - which is what each says.
     """
     short = _what_the_analysis_lacks(document, faults, reaches_a_cause=reaches_a_cause)
-    unrun = _readings_resting_alone(document) if not short else []
+    unrun = (_the_readings_it_rests_on(document, rests_on_an_unrun_reading)
+             if not short else [])
 
     if unrun:
         analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
@@ -159,6 +167,23 @@ def _a_criterion(criterion: str, lacks: list[str]) -> ReviewCriterion:
                            because="; ".join(lacks) if lacks else None)
 
 
+def _the_readings_it_rests_on(document: PostmortemDocument,
+                              rests_on_an_unrun_reading: bool | None) -> list[str]:
+    """The readings of the source the cause rests on, where it rests on one
+    nothing ran: every one the chain cites where the answer says so, none where
+    it says not, and those a step cites alone where it never said."""
+    if rests_on_an_unrun_reading is None:
+        return _readings_resting_alone(document)
+
+    if not rests_on_an_unrun_reading:
+        return []
+
+    return list(dict.fromkeys(cited.label
+                              for step in document.causal_chain
+                              for cited in step.cites
+                              if is_a_code_reading(cited.label)))
+
+
 def _readings_resting_alone(document: PostmortemDocument) -> list[str]:
     """The labels of the readings of the source some step of the chain rests on
     and on nothing else, in the order the chain cites them.
@@ -171,12 +196,8 @@ def _readings_resting_alone(document: PostmortemDocument) -> list[str]:
     return list(dict.fromkeys(
         cited.label
         for step in document.causal_chain
-        if step.cites and all(_is_a_reading(cited.label) for cited in step.cites)
+        if step.cites and all(is_a_code_reading(cited.label) for cited in step.cites)
         for cited in step.cites))
-
-
-def _is_a_reading(label: str) -> bool:
-    return label.startswith(CODE_READING_PREFIX) and label[len(CODE_READING_PREFIX):].isdigit()
 
 
 def _what_would_confirm(document: PostmortemDocument, readings: list[str]) -> str:

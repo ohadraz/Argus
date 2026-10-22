@@ -46,6 +46,7 @@ from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     HAD_IT_BEEN_OTHERWISE_FIELD,
     LESSONS_FIELD,
@@ -86,6 +87,10 @@ SOME_GIVEN_WITH_A_FILE_AS_IT_RAN = SOME_GIVEN.model_copy(update={
 # given: it is asked whether they show the service serving as before.
 SOME_GIVEN_ASKING_HOW_IT_SERVED = SOME_GIVEN.model_copy(
     update={"serving_as_before_asked": True})
+
+# What a model shown Code-Fix's reading and a deployment's diff was given.
+SOME_GIVEN_WITH_A_READING = SOME_GIVEN.model_copy(update={
+    "labels": SOME_GIVEN.labels | {"F1", "D1"}})
 
 # The figures an incident that recovered gives, which a working is worked out
 # from: it began at noon and recovered ten minutes later.
@@ -206,6 +211,81 @@ def test_how_the_logs_show_the_service_said_where_it_was_asked_is_accepted() -> 
         ) \
         .when(
             lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_said_to_rest_on_more_than_a_reading_nothing_read_bears_out_is_named() -> None:
+    # A step resting on a reading, beside nothing that shows the code - only the
+    # error it caused. Said to rest on more, the box would be ticked beside a
+    # mechanism nothing that was read shows.
+    Scenario() \
+        .given(
+            an_answer_saying_more := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["F1", "E1"])],
+                cause_rests_on_an_unrun_reading=False)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_more, given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(all_of(
+            _named(CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _found(1)
+        ))
+
+
+@pytest.mark.unit
+def test_a_cause_resting_on_a_reading_and_what_was_read_may_rest_on_more() -> None:
+    # A diff or a file as it ran shows the code the reading describes - the
+    # model's to weigh, and not a contradiction.
+    Scenario() \
+        .given(
+            an_answer_saying_more := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["F1", "D1"])],
+                cause_rests_on_an_unrun_reading=False)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_more, given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_said_to_rest_on_a_reading_the_chain_never_cites_is_named() -> None:
+    # The document's sentence names the readings the chain cites, so with none
+    # it would name nothing - and the box would be left for a reading nobody
+    # can open.
+    Scenario() \
+        .given(
+            an_answer_naming_no_reading := _an_answer(cause_rests_on_an_unrun_reading=True)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_no_reading, given=SOME_GIVEN_WITH_A_READING)
+        ) \
+        .then(all_of(
+            _named(CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD),
+            _found(1)
+        ))
+
+
+@pytest.mark.unit
+def test_an_answer_from_before_the_question_is_not_asked_it() -> None:
+    # Recorded before the question existed, so asked for it again it would
+    # need a turn its recording does not hold - and its own root cause already
+    # says whether the cause is unverified.
+    Scenario() \
+        .given(
+            an_answer_from_before_the_question := _an_answer(
+                causal_chain=[SubmittedStep(step=DONT_CARE_PROSE, cites=["F1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_from_before_the_question,
+                              given=SOME_GIVEN_WITH_A_READING)
         ) \
         .then(
             _found_nothing_wrong()
@@ -1652,6 +1732,7 @@ class _WhatAnAnswerHolds(TypedDict, total=False):
     lessons: Lessons | None
     reaches_a_cause: bool
     logs_show_serving_as_before: bool | None
+    cause_rests_on_an_unrun_reading: bool | None
 
 
 def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:

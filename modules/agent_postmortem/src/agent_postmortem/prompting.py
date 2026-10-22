@@ -154,6 +154,10 @@ GOT_LUCKY_FIELD: Final = "got_lucky"
 # Whether the chain says why the change that set the incident off broke the
 # service, rather than stopping at that change.
 REACHES_A_CAUSE_FIELD: Final = "reaches_a_cause"
+# Whether that cause rests on a reading of the source nothing ran, with nothing
+# read showing what it rests on - said by the document from the answer, beside
+# the root cause and in the review's box, rather than by the model in prose.
+CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: Final = "cause_rests_on_an_unrun_reading"
 # Whether the log lines reaching into a stretch the metrics did not watch show
 # the service serving as before - asked only where one reaches in, and said by
 # the document from the answer rather than by the model in prose.
@@ -168,7 +172,8 @@ REQUIRED_FIELDS: Final = [
     CONTRIBUTING_FACTORS_FIELD,
     ACTION_ITEMS_FIELD,
     LESSONS_FIELD,
-    REACHES_A_CAUSE_FIELD
+    REACHES_A_CAUSE_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD
 ]
 
 # What a list of things that happened says when nothing did. Said rather than
@@ -258,6 +263,11 @@ class SubmittedPostmortem(BaseModel):
     # names a required field that is `None`, never puts it back - a retry spent
     # on it would ask every answer recorded before the question for a turn more.
     reaches_a_cause: bool = False
+    # `None` where unanswered, which a live call never is: only an answer
+    # recorded before the question was asked. Never put back for the reason
+    # `reaches_a_cause` is not, and read as that answer's own root cause and the
+    # review's older rule already say it (`reviewing`).
+    cause_rests_on_an_unrun_reading: bool | None = None
     # `None` where unanswered - which is an answer only where it was not asked
     # (`checking`).
     logs_show_serving_as_before: bool | None = None
@@ -479,7 +489,8 @@ class SubmittedPostmortem(BaseModel):
         person signs off on, so "yes" in words, a one or a null reads as no."""
         return value is True
 
-    @field_validator(LOGS_SHOW_SERVING_AS_BEFORE_FIELD, mode="before")
+    @field_validator(LOGS_SHOW_SERVING_AS_BEFORE_FIELD, CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
+                     mode="before")
     @classmethod
     def _a_plain_yes_or_no(cls, value: Any) -> Any:
         """Yes or no only where the model said one plainly. Anything else is
@@ -582,8 +593,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "a safeguard that would have stopped it with this mechanism unchanged "
                 "is said there, not here. What the service did over the stretch the "
                 "metrics did not watch is not the mechanism: the document says it itself. "
-                "Where the mechanism rests on a reading "
-                "nothing ran and no S or D row shows what it rests on, say so once."
+                "Whether it was verified the document says itself, from your answer to "
+                f"{CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD} - do not say it."
             )
         },
         # Asked for the whole summary, write-ups left out how long, told the
@@ -786,12 +797,22 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "description": (
                 "Whether the chain says why the change that set the incident off "
                 "broke the service, rather than stopping at that change. A step "
-                "resting only on F rows - a reading of the code nothing ran - "
-                "counts only where it says the reading is unverified; what an S or D "
-                "row shows was read, and is not unverified. That a new "
+                "resting on F rows - a reading of the code nothing ran - counts: "
+                "whether that leaves the cause unverified is "
+                f"{CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD}'s to say. That a new "
                 "version does worse is what the change did, not why it broke the "
                 "service: answer false where the chain says the evidence does not "
                 "show why."
+            )
+        },
+        CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: {
+            "type": "boolean",
+            "description": (
+                f"Whether the mechanism in {ROOT_CAUSE_FIELD} rests on an F row - a "
+                "reading of the code nothing ran - with no S or D row showing what it "
+                "rests on. Where you answer true, the document says itself, beside the "
+                "root cause, that the cause is unverified, and leaves its root-cause "
+                f"review box for a person: say neither in {ROOT_CAUSE_FIELD}."
             )
         }
     },

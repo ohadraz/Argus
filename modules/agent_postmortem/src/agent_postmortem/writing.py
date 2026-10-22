@@ -55,6 +55,7 @@ from agent_postmortem.sections import (
     detection_of,
     hypotheses_of,
     impact_of,
+    is_a_code_reading,
     logs_in_the_gap_of,
     record_action_items_of,
     resolution_of,
@@ -99,7 +100,8 @@ class Review(Protocol):
                  document: PostmortemDocument,
                  faults: list[str],
                  *,
-                 reaches_a_cause: bool) -> list[ReviewCriterion]: ...
+                 reaches_a_cause: bool,
+                 rests_on_an_unrun_reading: bool | None = None) -> list[ReviewCriterion]: ...
 
 
 def write_postmortem(evidence: IncidentEvidence,
@@ -135,7 +137,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # Absent rather than empty where the model never answered: a blank on a
         # page reads as a root cause somebody wrote and left empty, and this
         # document is one nobody can ask a follow-up question of.
-        root_cause=answer.root_cause,
+        root_cause=_the_root_cause(answer),
         cause_in_plain_words=answer.cause_in_plain_words,
         # Written by code from the record, around the two sentences only the
         # model can give: the cause in plain words, and what is still at risk.
@@ -219,8 +221,28 @@ def write_postmortem(evidence: IncidentEvidence,
 
     # Reviewed last, because what it reviews is the document as written.
     return document.model_copy(update={
-        "review": review(document, faults, reaches_a_cause=answer.reaches_a_cause)
+        "review": review(document, faults, reaches_a_cause=answer.reaches_a_cause,
+                         rests_on_an_unrun_reading=answer.cause_rests_on_an_unrun_reading)
     })
+
+
+def _the_root_cause(answer: SubmittedPostmortem) -> str | None:
+    """The model's root cause, and - where it says the cause rests on a reading
+    of the source nothing ran - the document's own sentence saying it is
+    unverified, naming the readings the chain cites.
+
+    The document's rather than the model's, so the root cause and the review's
+    box are written from one answer: told to say it in prose, eight write-ups
+    called the cause unverified beside a box ticked complete.
+    """
+    if answer.root_cause is None or not answer.cause_rests_on_an_unrun_reading:
+        return answer.root_cause
+
+    readings = list(dict.fromkeys(cited for step in answer.causal_chain or []
+                                  for cited in step.cites if is_a_code_reading(cited)))
+    rests = f"It rests on {', '.join(readings)}, a" if readings else "It rests on a"
+
+    return f"{answer.root_cause} {rests} reading of the source nothing ran, so it is unverified."
 
 
 def _the_chain_as_cited(answer: SubmittedPostmortem,

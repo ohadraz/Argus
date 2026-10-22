@@ -643,6 +643,11 @@ def label_of(prefix: str, position: int) -> str:
     return f"{prefix}{position}"
 
 
+def is_a_code_reading(label: str) -> bool:
+    """Whether `label` cites a reading of the source - one nothing ran."""
+    return label.startswith(CODE_READING_PREFIX) and label[len(CODE_READING_PREFIX):].isdigit()
+
+
 def action_item_number(position: int) -> str:
     """What the action item at `position` (from 1) is called in conversation."""
     return f"{ACTION_ITEM_PREFIX}{position}"

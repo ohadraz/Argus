@@ -32,6 +32,7 @@ from agent_postmortem.prompting import (
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
     CITES_FIELD,
     CONTRIBUTING_FACTORS_FIELD,
     EFFECT_FIELD,
@@ -776,6 +777,7 @@ def an_answer(root_cause: str = "dont care",
               lessons: dict[str, Any] | None = None,
               symptom: str = "dont care",
               reaches_a_cause: bool = True,
+              cause_rests_on_an_unrun_reading: bool = False,
               still_at_risk: str = "") -> dict[str, Any]:
     """The arguments of a submission that would be accepted as it stands.
 
@@ -801,7 +803,8 @@ def an_answer(root_cause: str = "dont care",
         ACTION_ITEMS_FIELD: action_items if action_items is not None else [],
         LESSONS_FIELD: (lessons if lessons is not None
                         else {WENT_WELL_FIELD: [], WENT_WRONG_FIELD: [], GOT_LUCKY_FIELD: []}),
-        REACHES_A_CAUSE_FIELD: reaches_a_cause
+        REACHES_A_CAUSE_FIELD: reaches_a_cause,
+        CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: cause_rests_on_an_unrun_reading
     }
 
     if lead_effects is not None:
@@ -823,6 +826,7 @@ def a_submitted_answer(root_cause: str = "dont care",
                        assumptions: list[str] | None = None,
                        lead_effects: Mapping[str, str] | None = None,
                        reaches_a_cause: bool = True,
+                       cause_rests_on_an_unrun_reading: bool = False,
                        still_at_risk: str = ""
                        ) -> SubmittedPostmortem:
     """The same submission, once it has been read out of the call.
@@ -833,7 +837,8 @@ def a_submitted_answer(root_cause: str = "dont care",
     """
     return SubmittedPostmortem.model_validate(
         an_answer(root_cause, cause_in_plain_words, assumptions, lead_effects,
-                  reaches_a_cause=reaches_a_cause, still_at_risk=still_at_risk))
+                  reaches_a_cause=reaches_a_cause, still_at_risk=still_at_risk,
+                  cause_rests_on_an_unrun_reading=cause_rests_on_an_unrun_reading))
 
 
 def a_model_answering(root_cause: str = "dont care",
