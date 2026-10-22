@@ -17,7 +17,13 @@ from __future__ import annotations
 import httpx2
 import psycopg
 import pytest
-from agent_postmortem import ITEMS_OWNED_AND_DATED, REVIEWED_AND_SHARED
+from agent_postmortem import (
+    ANALYSIS_COMPLETE,
+    IMPACT_ASSESSED,
+    ITEMS_OWNED_AND_DATED,
+    KEY_DATA_COLLECTED,
+    REVIEWED_AND_SHARED,
+)
 from argus_core.models import ActionItemStatus, Postmortem, TimelineMarker
 from argus_incidents.repository import postmortems
 from argus_testkit import Assertion, Scenario, all_of, calling
@@ -37,6 +43,7 @@ from tests.e2e.framework.builders import a_grafana_style_alert_with
 from tests.e2e.framework.world import a_scenario_was_seeded
 
 LEFT_FOR_PEOPLE = {ITEMS_OWNED_AND_DATED, REVIEWED_AND_SHARED}
+TICKED_FROM_THE_RECORD = {KEY_DATA_COLLECTED, IMPACT_ASSESSED}
 
 
 @pytest.mark.e2e
@@ -142,15 +149,27 @@ def _every_step_of_the_cause_carries_what_it_read() -> Assertion[httpx2.Response
 
 
 def _the_review_leaves_to_people_what_only_people_can_do() -> Assertion[httpx2.Response]:
-    """Neither met nor failed: a box Argus can never tick is left for a person."""
+    """The boxes only a person can tick left for one, the ones the record
+    answers ticked, and the root cause ticked or left open saying what would
+    settle it - open where it rests on a reading nothing ran, since a ticked
+    box beside that would say the opposite."""
     def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
+        ticked = {entry.criterion for entry in postmortem.review if entry.met is True}
         left = {entry.criterion for entry in postmortem.review if entry.met is None}
+        analysis = next((entry for entry in postmortem.review
+                         if entry.criterion == ANALYSIS_COMPLETE), None)
+        analysis_holds = analysis is not None and (
+            analysis.met is True or (analysis.met is None and bool(analysis.because)))
 
-        if left != LEFT_FOR_PEOPLE:
+        if not (left >= LEFT_FOR_PEOPLE and ticked >= TICKED_FROM_THE_RECORD
+                and analysis_holds):
+            said = [(entry.criterion, entry.met, entry.because) for entry in postmortem.review]
             raise AssertionError(
-                f"Postmortem for [{postmortem.incident_id}] leaves {sorted(left)} "
-                f"for a person, expected {sorted(LEFT_FOR_PEOPLE)}.")
+                f"Expected postmortem [{postmortem.incident_id}] to tick "
+                f"{sorted(TICKED_FROM_THE_RECORD)}, leave {sorted(LEFT_FOR_PEOPLE)} for a "
+                f"person, and tick [{ANALYSIS_COMPLETE}] or leave it open saying why; its "
+                f"review was {said}.")
 
         return True
 
