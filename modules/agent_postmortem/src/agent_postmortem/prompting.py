@@ -917,7 +917,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
                                   _the_logs_reaching_in(evidence, measured), figures),
         *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
                                     measured.rule_series_unit, evidence,
-                                    measured.error_rates, figures),
+                                    measured.error_rates, figures,
+                                    is_the_error_rate=measured.rule_series_is_the_error_rate),
         _what_customers_lost(measured, figures),
         *(line
           for heading, cited, beneath in _the_evidence_by_kind(evidence,
@@ -1898,7 +1899,8 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
                                unit: str | None,
                                evidence: IncidentEvidence,
                                rates: ErrorRates | None,
-                               figures: Mapping[str, Figure]) -> list[str]:
+                               figures: Mapping[str, Figure],
+                               is_the_error_rate: bool) -> list[str]:
     """The series the alert rule evaluates, at the error rate's levels.
 
     Nothing at all where the metrics carry no such series - not a line saying it
@@ -1929,7 +1931,10 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
     said to be the harm as well - every request succeeded, and a write-up
     reading the failed requests alone called the harm "small to none" while its
     series tripled. A series that held is asked neither: nothing is not a harm,
-    and a model asked to say what it meant has to make a meaning up.
+    and a model asked to say what it meant has to make a meaning up. Nor is a
+    series that is the error rate itself: what it getting worse meant for the
+    people using the service is the symptom, said already, and asked it again
+    write-ups said the symptom twice.
     """
     if levels is None:
         return []
@@ -1950,15 +1955,17 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
         f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
         f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst."
         f"{no_unit}{in_words}",
-        *_what_it_meant(levels, rates)
+        *_what_it_meant(levels, rates, is_the_error_rate)
     ]
 
 
-def _what_it_meant(levels: RuleSeriesLevels, rates: ErrorRates | None) -> list[str]:
+def _what_it_meant(levels: RuleSeriesLevels, rates: ErrorRates | None,
+                   is_the_error_rate: bool) -> list[str]:
     """What the model is asked of the series beyond its levels: nothing where it
-    held, and what it meant for the people using the service where it got worse
-    - as the harm itself where the failed requests did not rise."""
-    if not levels.got_worse:
+    held or is the error rate itself, and what it meant for the people using the
+    service where it got worse - as the harm itself where the failed requests
+    did not rise."""
+    if not levels.got_worse or is_the_error_rate:
         return []
 
     if rates is not None and rates.a_rise_was_measured:

@@ -2025,11 +2025,28 @@ def test_where_the_errors_rose_they_are_left_to_say_what_the_harm_was() -> None:
 
 
 @pytest.mark.unit
-def test_where_the_errors_rose_the_model_is_still_asked_what_the_series_meant_for_users() -> None:
-    # The rule that pages on the error rate: its series rose with the failed
-    # requests, and those stay the harm. What the rise meant for the people
-    # using the service is still the write-up's to say - asked only where
-    # nothing failed, it was never asked of the incident most rules page on.
+def test_where_the_errors_rose_another_series_is_still_asked_what_it_meant_for_users() -> None:
+    # A rule watching something besides the failed requests - a latency, a
+    # share filed with confidence - says something of its own about the people
+    # using the service, and the failed requests rising does not say it for it.
+    Scenario() \
+        .given(
+            an_incident_paged_on_another_series := a_measured_incident(
+                error_rates=ERRORS_THAT_ROSE, rule_series=SOME_RULE_SERIES)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_another_series)
+        ) \
+        .then(
+            _says(WHAT_IT_MEANT_FOR_USERS)
+        )
+
+
+@pytest.mark.unit
+def test_a_rule_paging_on_the_error_rate_is_not_asked_what_its_series_meant_for_users() -> None:
+    # Its series is the failed requests, so what their rise meant for the
+    # people using the service is the symptom the write-up has already said -
+    # and asked it again, about 8 write-ups in 28 said the symptom twice.
     the_error_rate_as_the_rules_series = RuleSeriesLevels(
         baseline=ERRORS_THAT_ROSE.baseline, while_broken=ERRORS_THAT_ROSE.while_broken,
         at_its_worst=ERRORS_THAT_ROSE.at_its_worst, worse_when="above")
@@ -2037,13 +2054,14 @@ def test_where_the_errors_rose_the_model_is_still_asked_what_the_series_meant_fo
     Scenario() \
         .given(
             an_incident_paged_on_its_error_rate := a_measured_incident(
-                error_rates=ERRORS_THAT_ROSE, rule_series=the_error_rate_as_the_rules_series)
+                error_rates=ERRORS_THAT_ROSE, rule_series=the_error_rate_as_the_rules_series,
+                rule_series_is_the_error_rate=True)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_its_error_rate)
         ) \
         .then(
-            _says(WHAT_IT_MEANT_FOR_USERS)
+            _does_not_say(WHAT_IT_MEANT_FOR_USERS)
         )
 
 
