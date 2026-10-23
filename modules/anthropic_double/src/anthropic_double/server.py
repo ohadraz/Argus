@@ -408,8 +408,9 @@ _A_DAY: Final = re.compile(
 # minute a line - said as one row, after the digits are masked. How many
 # minutes a read covers is run timing too: a walk reading one minute later
 # than its recording holds one more row, and the question is the same one.
-# Matched in the dumped text, where a line ends in an escaped newline.
-_A_RUN_OF_ROWS: Final = re.compile(r"(?:[-.,:TZ ]*#[-#.,:TZ ]*\\n)+")
+# Matched in the dumped text, where a line ends in an escaped newline, and
+# only from a line's start: a line that merely ends in figures is not a row.
+_A_RUN_OF_ROWS: Final = re.compile(r"(?<=\\n)(?:[-.,:TZ ]*#[-#.,:TZ ]*\\n)+")
 
 
 def _masked(conversation: Any) -> str:
