@@ -34,7 +34,7 @@ from __future__ import annotations
 from typing import Final, Protocol
 
 from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
-from argus_core.models import ChangeEvent, DeploymentChanges
+from argus_core.models import ChangeEvent, DeploymentChanges, DeploymentComparison
 from deployment_platform import DeploymentPlatformReads
 from repository_source import (
     BEHIND,
@@ -117,7 +117,7 @@ def what_a_deployment_changed(service: str,
             f"what changed about it is reported by "
             f"{THE_CHANNEL_THAT_REPORTS_FLAG_CHANGES} - a flag has no revision "
             f"and no diff to read."
-        ], lists_every_file=False)
+        ], lists_every_file=False, comparison=DeploymentComparison.NOT_DEPLOYED)
 
     if landed == 0:
         return DeploymentChanges(said=[
@@ -125,7 +125,7 @@ def what_a_deployment_changed(service: str,
             f"history holds, so there is no earlier deployment to compare it "
             f"against. What it changed cannot be read; what it shipped can, by "
             f"reading the repository at that revision."
-        ], lists_every_file=False)
+        ], lists_every_file=False, comparison=DeploymentComparison.NOTHING_BEFORE_IT)
 
     before = deployed[landed - 1].reference
     difference = compare(before, revision, the_source_settings(settings))

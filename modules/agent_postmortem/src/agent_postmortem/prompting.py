@@ -33,6 +33,7 @@ from argus_core.models import (
     ChangeEvent,
     CitedChange,
     CitedEvidence,
+    DeploymentComparison,
     Lessons,
     LogsInTheGap,
     OpenedPullRequest,
@@ -52,7 +53,7 @@ from argus_core.models import (
 from pydantic import BaseModel, field_validator
 
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
-from agent_postmortem.evidence import ActionRecord, IncidentEvidence
+from agent_postmortem.evidence import ActionRecord, DeploymentChangesRecord, IncidentEvidence
 from agent_postmortem.figures import (
     A_MINUTE,
     ACTED_FIGURE,
@@ -1171,7 +1172,8 @@ def _the_diffs_of_what_it_names(evidence: IncidentEvidence,
     Code-Fix reads a branch, and says when the deployed revision is not one it
     read. A write-up then asked somebody to check what that revision holds,
     beside the diff showing it: the reading and the diff were both in front of
-    it, and nothing between them said they were about one revision.
+    it, and nothing between them said they were about one revision. Only a
+    deployment that was compared has a diff to say.
     """
     if evidence.fix_explanation is None:
         return None
@@ -1181,6 +1183,7 @@ def _the_diffs_of_what_it_names(evidence: IncidentEvidence,
     tied = [f"[{reading}] names revision {short} and [{diff.label}] is that revision's own "
             f"diff - say what it shows rather than ask for it to be checked."
             for record, diff in zip(evidence.deployment_changes, looked_into, strict=True)
+            if record.comparison is DeploymentComparison.COMPARED
             for short in named
             if the_revision_named(short, frozenset({record.revision})) == record.revision]
 
@@ -1246,11 +1249,34 @@ def the_deployment_changes_labelled(evidence: IncidentEvidence) -> list[CitedEvi
     """What each deployment the investigation looked into changed, under the
     label the model is shown it by - every line as it was read, one to a line.
 
+    A deployment nothing was compared for is said in the write-up's own words:
+    the read tier's answer was written for the Investigator, bracketed for a
+    model and with advice to one - "what it shipped can [be read], by reading
+    the repository" - which write-ups proposed as an item. It is a fact about
+    the history rather than a diff, and its row says what the history held.
+
     Public because the document lists them under the same labels the prose
     cites them by, as it does the changes.
     """
     return _numbered(DEPLOYMENT_CHANGES_PREFIX,
-                     ["\n".join(looked_into.said) for looked_into in evidence.deployment_changes])
+                     [_what_a_deployment_read_found(looked_into)
+                      for looked_into in evidence.deployment_changes])
+
+
+def _what_a_deployment_read_found(looked_into: DeploymentChangesRecord) -> str:
+    """A deployment's diff, every line as it was read - or, where nothing was
+    compared, what the history held instead."""
+    match looked_into.comparison:
+        case DeploymentComparison.COMPARED:
+            return "\n".join(looked_into.said)
+        case DeploymentComparison.NOTHING_BEFORE_IT:
+            return (f"{looked_into.revision} is the earliest deployment of "
+                    f"{looked_into.service} the deployment history holds, so there was "
+                    f"nothing before it to compare it against, and what it changed was not "
+                    f"read.")
+        case DeploymentComparison.NOT_DEPLOYED:
+            return (f"The deployment history holds no deployment of {looked_into.service} "
+                    f"at revision {looked_into.revision}, so nothing was compared.")
 
 
 def the_changes_labelled(evidence: IncidentEvidence) -> list[CitedChange]:

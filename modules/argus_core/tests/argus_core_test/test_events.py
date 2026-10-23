@@ -55,6 +55,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
+    DeploymentComparison,
     IncidentStatus,
     Meaning,
     PodPlacement,
@@ -188,6 +189,26 @@ def test_what_a_deployment_changed_reads_back_as_it_was_read() -> None:
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(_it_is(published))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("comparison", [DeploymentComparison.NOT_DEPLOYED,
+                                        DeploymentComparison.NOTHING_BEFORE_IT])
+def test_an_answer_with_no_comparison_behind_it_that_names_no_service_is_refused(
+        comparison: DeploymentComparison) -> None:
+    # Every reader but the model says such an answer in its own words, of the
+    # service whose history was read - and one naming none would say it of
+    # nothing. Only a comparison may name none, as every event written before
+    # the service was carried does.
+    Scenario() \
+        .given(comparison) \
+        .when(attempting(lambda: DeploymentChangesRead.model_validate({
+            "incident_id": new_id(),
+            "revision": "7c3ca00",
+            "said": ["dont care"],
+            "comparison": comparison
+        }))) \
+        .then(_it_was_refused())
 
 
 @pytest.mark.unit

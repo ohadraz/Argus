@@ -721,7 +721,9 @@ def _what_each_deployment_changed(conn: psycopg.Connection,
             read[event.revision] = DeploymentChangesRecord(
                 revision=event.revision,
                 said=event.said,
-                lists_every_file=event.lists_every_file
+                lists_every_file=event.lists_every_file,
+                comparison=event.comparison,
+                service=event.service
             )
 
     return list(read.values())

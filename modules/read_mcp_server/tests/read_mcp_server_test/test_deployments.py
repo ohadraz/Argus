@@ -29,11 +29,12 @@ the question, and hide it as an empty answer.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from argus_core.models import DeploymentChanges
+from argus_core.models import DeploymentChanges, DeploymentComparison
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_answer_was
 from argus_testkit.scenario import Scenario, attempting
 from deployment_platform import DeploymentPlatformReads, DeploymentRecord
@@ -597,6 +598,33 @@ def test_a_deployment_with_nothing_before_it_lists_no_file() -> None:
             ).lists_every_file
         ) \
         .then(the_answer_was(False))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("revision", "platform", "comparison"), [
+    (THE_REVISION_DEPLOYED, lambda: an_application_deployed_twice(),
+     DeploymentComparison.COMPARED),
+    (THE_REVISION_DEPLOYED_BEFORE, lambda: an_application_deployed_once(),
+     DeploymentComparison.NOTHING_BEFORE_IT),
+    (A_FLAG_NAME, lambda: an_application_deployed_twice(),
+     DeploymentComparison.NOT_DEPLOYED)
+], ids=["compared", "nothing-before-it", "not-deployed"])
+def test_the_answer_says_whether_a_comparison_was_made_and_why_not_where_none_was(
+        revision: str, platform: Callable[[], Any], comparison: DeploymentComparison) -> None:
+    # Only a comparison is a diff. The other two answers are facts about the
+    # history, said to a model in its words - and every other reader says them
+    # in its own, which it can do only knowing which answer this is.
+    Scenario() \
+        .when(
+            lambda: what_a_deployment_changed(
+                SOME_SERVICE,
+                revision,
+                some_settings(),
+                platform=platform(),
+                compare=a_comparison_finding()
+            ).comparison
+        ) \
+        .then(the_answer_was(comparison))
 
 
 @pytest.mark.unit

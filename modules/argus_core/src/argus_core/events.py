@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal, Protocol
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
 from argus_core.ids import UuidStr, new_id
 from argus_core.models.action import (
@@ -30,6 +30,7 @@ from argus_core.models.action import (
 from argus_core.models.actor import Actor
 from argus_core.models.alert import Alert
 from argus_core.models.change_event import ChangeEvent
+from argus_core.models.deployment_changes import DeploymentComparison
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
 from argus_core.models.fix import FileAsItRan, FixOutcome
@@ -178,19 +179,40 @@ class DeploymentChangesRead(_Event):
     leave it nothing to find that in, and the transcript the model read is not
     something the write-up holds.
 
-    Published only where something was read. A refusal, a comparison nobody
-    could make and an answer of nothing are none of them a diff.
+    Published only where the read tier answered about the deployment. A
+    refusal, a comparison nobody could make and an answer of nothing are none
+    of them that.
 
     `lists_every_file` is whether the lines name every file the deployed
     revision differs in from the one compared against - where they do, a file
     they leave out is as it was there. `False`, claiming nothing, on an event
     written before it was carried.
+
+    `comparison` is whether the lines are a diff at all: an answer that no
+    deployment has the revision, or that none came before it, is a fact about
+    the history, which every reader but the model says in its own words - of
+    `service`, the one whose history was read. Compared, and of no service
+    named, on an event written before they were carried, as every one of
+    those claimed to be a diff.
     """
 
     kind: Literal["deployment-changes-read"] = "deployment-changes-read"
     revision: str
     said: list[str]
     lists_every_file: bool = False
+    comparison: DeploymentComparison = DeploymentComparison.COMPARED
+    service: str | None = None
+
+    @model_validator(mode="after")
+    def _names_its_service_where_nothing_was_compared(self) -> DeploymentChangesRead:
+        """In the type rather than in the one caller that publishes it, as
+        `SimilarIncidentsRecalled` holds its ids: a row is read back by every
+        reader that says it, and one with no service would say it of nothing."""
+        if self.comparison is not DeploymentComparison.COMPARED and self.service is None:
+            raise ValueError(f"An answer that is {self.comparison.value}, not a diff, "
+                             f"names the service whose history was read.")
+
+        return self
 
 
 class RolloutRead(_Event):

@@ -92,10 +92,12 @@ def read_what_a_deployment_changed(
         return answered(call, _NOTHING_CAME_BACK)
 
     narrator.say(DeploymentChangesRead, revision=revision, said=list(changes.said),
-                 lists_every_file=changes.lists_every_file)
+                 lists_every_file=changes.lists_every_file, comparison=changes.comparison,
+                 service=service)
 
-    # The lines alone: whether they list every file is the write-up's to use,
-    # and what the model is shown of a deploy is what it always was.
+    # The lines alone: whether they list every file, and whether they are a
+    # diff at all, is the write-up's to use, and what the model is shown of a
+    # deploy is what it always was.
     return answered(call, "\n".join(changes.said))
 
 

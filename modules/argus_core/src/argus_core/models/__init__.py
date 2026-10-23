@@ -66,7 +66,7 @@ from argus_core.models.change_event import (
 )
 from argus_core.models.circumstances import Circumstances
 from argus_core.models.code_search import CodeSearch
-from argus_core.models.deployment_changes import DeploymentChanges
+from argus_core.models.deployment_changes import DeploymentChanges, DeploymentComparison
 from argus_core.models.disproof import Disproof
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
@@ -233,6 +233,7 @@ __all__ = [
     "as_a_change",
     "Circumstances",
     "DeploymentChanges",
+    "DeploymentComparison",
     "CodeSearch",
     "Disproof",
     "EstablishedOnset",

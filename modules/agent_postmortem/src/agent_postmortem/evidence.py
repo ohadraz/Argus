@@ -18,6 +18,7 @@ from datetime import datetime
 from argus_core.models import (
     ChangeEvent,
     ChannelReading,
+    DeploymentComparison,
     FileAsItRan,
     OpenedPullRequest,
     Refusal,
@@ -85,11 +86,17 @@ class DeploymentChangesRecord(BaseModel):
 
     `lists_every_file` is whether they name every file the deploy changed -
     where they do, a file they leave out is as it was before it.
+
+    `comparison` is whether they are a diff at all: where nothing was
+    compared, the write-up says what the history held in its own words, of
+    `service`, the one whose history was read.
     """
 
     revision: str
     said: list[str]
     lists_every_file: bool = False
+    comparison: DeploymentComparison = DeploymentComparison.COMPARED
+    service: str | None = None
 
 
 class RefusalRecord(BaseModel):

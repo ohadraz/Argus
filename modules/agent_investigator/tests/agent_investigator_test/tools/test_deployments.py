@@ -39,7 +39,7 @@ from agent_investigator.tools.deployments import (
 from argus_core import new_id
 from argus_core.events import DeploymentChangesRead, IncidentEvent, Narrator
 from argus_core.mcp_transport import McpToolError
-from argus_core.models import DeploymentChanges, ToolCall
+from argus_core.models import DeploymentChanges, DeploymentComparison, ToolCall
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 SOME_SERVICE = "io-shop"
@@ -236,6 +236,27 @@ def test_what_the_deployment_changed_is_published_as_it_was_read(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("comparison", list(DeploymentComparison))
+def test_what_the_deployment_changed_is_published_with_whether_it_was_compared(
+        comparison: DeploymentComparison) -> None:
+    # Only a comparison is a diff. An answer that there was nothing to compare
+    # is still what the model was told, and every other reader says it in its
+    # own words - of the service whose history was read.
+    published: list[IncidentEvent] = []
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID, comparison=comparison)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                Narrator(new_id(), published.append)
+            )
+        ) \
+        .then(_published_as(published, comparison, SOME_SERVICE))
+
+
+@pytest.mark.unit
 def test_a_call_naming_no_revision_publishes_nothing_read() -> None:
     # What is published is what was read about a deployment, and a refusal is
     # nothing read about any.
@@ -301,10 +322,13 @@ def a_call_about(revision: str) -> ToolCall:
     )
 
 
-def a_deployment_that_changed(lines: list[str], lists_every_file: bool = True) -> Any:
+def a_deployment_that_changed(lines: list[str], lists_every_file: bool = True,
+                              comparison: DeploymentComparison = DeploymentComparison.COMPARED
+                              ) -> Any:
     the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
     the_read_tier.return_value = DeploymentChanges(said=lines,
-                                                   lists_every_file=lists_every_file)
+                                                   lists_every_file=lists_every_file,
+                                                   comparison=comparison)
 
     return the_read_tier
 
@@ -449,6 +473,24 @@ def _nothing_was_asked_of(the_read_tier: Any) -> Assertion[Any]:
             raise AssertionError(
                 f"Expected a call with no revision to cost no retrieval, and "
                 f"{the_read_tier.call_args_list} was asked for."
+            )
+
+        return True
+
+    return assertion
+
+
+def _published_as(published: list[IncidentEvent],
+                  comparison: DeploymentComparison,
+                  service: str) -> Assertion[Any]:
+    def assertion(dont_care_answer: Any) -> bool:
+        read = [(event.comparison, event.service) for event in published
+                if isinstance(event, DeploymentChangesRead)]
+
+        if read != [(comparison, service)]:
+            raise AssertionError(
+                f"Expected one read published as [{comparison}] of [{service}], and what "
+                f"was published is {read}."
             )
 
         return True

@@ -80,6 +80,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    DeploymentComparison,
     Evidence,
     FailureMode,
     FixOutcome,
@@ -407,6 +408,28 @@ def test_a_read_of_what_a_deployment_changed_names_the_deployment() -> None:
         .given(some_read) \
         .when(lambda: build_narration([some_read])) \
         .then(_the_only_line_says("what the deployment of 7c3ca00 changed"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("comparison", "said"), [
+    (DeploymentComparison.NOTHING_BEFORE_IT,
+     "it is the earliest deployment of io-shop the history holds, so there was nothing "
+     "before it to compare it against"),
+    (DeploymentComparison.NOT_DEPLOYED, "no deployment of io-shop has that revision")
+], ids=["nothing-before-it", "not-deployed"])
+def test_a_read_with_no_comparison_behind_it_says_why_and_claims_no_diff_read(
+        comparison: DeploymentComparison, said: str) -> None:
+    # Nothing was compared, so "read what it changed" would be false: what came
+    # back is a fact about the history, and the line says which.
+    some_read = DeploymentChangesRead(incident_id=new_id(), revision="7c3ca00",
+                                      said=["dont care"], comparison=comparison,
+                                      service="io-shop")
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_says("Asked what the deployment of 7c3ca00 changed", said),
+                     _the_only_line_does_not_say("Read what the deployment")))
 
 
 @pytest.mark.unit

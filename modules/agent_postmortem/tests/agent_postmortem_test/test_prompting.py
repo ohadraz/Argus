@@ -99,6 +99,7 @@ from agent_postmortem.prompting import (
     rejecting,
     submit_postmortem_for,
     the_changes_labelled,
+    the_deployment_changes_labelled,
     the_evidence_labelled,
 )
 from argus_core import to_iso
@@ -110,6 +111,7 @@ from argus_core.models import (
     ChannelReading,
     CitedChange,
     CitedEvidence,
+    DeploymentComparison,
     FileAsItRan,
     Lessons,
     LogsInTheGap,
@@ -668,6 +670,35 @@ def test_what_each_deployment_changed_is_evidence_a_step_of_the_cause_may_cite()
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("comparison", "said"), [
+    (DeploymentComparison.NOTHING_BEFORE_IT,
+     "4c810f2 is the earliest deployment of io-shop the deployment history holds, so there "
+     "was nothing before it to compare it against, and what it changed was not read."),
+    (DeploymentComparison.NOT_DEPLOYED,
+     "The deployment history holds no deployment of io-shop at revision 4c810f2, so nothing "
+     "was compared.")
+], ids=["nothing-before-it", "not-deployed"])
+def test_a_deployment_with_no_comparison_behind_it_is_said_in_the_write_up_s_own_words(
+        comparison: DeploymentComparison, said: str) -> None:
+    # The read tier's answer is the Investigator's: bracketed for a model, and
+    # with advice to one - "what it shipped can [be read], by reading the
+    # repository at that revision" - which write-ups proposed as an item in 3
+    # of 5. Only a comparison is a diff; the row of anything else says what
+    # the history held.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(deployment_changes=[
+                DeploymentChangesRecord(revision="4c810f2", said=["dont care"],
+                                        comparison=comparison, service="io-shop")])
+        ) \
+        .when(
+            lambda: the_deployment_changes_labelled(evidence)
+        ) \
+        .then(
+            the_answer_was([CitedEvidence(label="D1", text=said)]))
+
+
+@pytest.mark.unit
 def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothing_ran() -> None:
     # The mechanism, as Code-Fix read it off the code - and said to be a
     # reading, since nothing ran it: a cause resting on it rests on that.
@@ -762,6 +793,30 @@ def test_a_reading_naming_no_revision_a_diff_was_read_for_is_tied_to_none() -> N
                 deployment_changes=[DeploymentChangesRecord(
                     revision="53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901",
                     said=["+ portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("[F1] names revision")
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_code_fix_names_whose_read_compared_nothing_is_tied_to_no_diff() -> None:
+    # "[D1] is that revision's own diff" said of a deployment nothing was
+    # compared for would ask the model to say what a diff shows that nobody
+    # read.
+    some_revision = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation=f"Revision {some_revision[:7]} is not in main's history and I "
+                                f"have not read it.",
+                deployment_changes=[DeploymentChangesRecord(
+                    revision=some_revision, said=["dont care"],
+                    comparison=DeploymentComparison.NOTHING_BEFORE_IT, service="io-shop")])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())

@@ -62,6 +62,7 @@ from argus_core.models import (
     ChangeEvent,
     ChangeKind,
     ChannelReading,
+    DeploymentComparison,
     DeploymentRollbackUndo,
     FailureMode,
     FileAsItRan,
@@ -714,6 +715,33 @@ def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database
                                             lists_every_file=True),
                     DeploymentChangesRecord(revision="1a2b3c4", said=another_diff,
                                             lists_every_file=False)
+                ])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_whether_each_deployment_read_was_compared(
+        a_clean_database: None) -> None:
+    # Only a comparison is a diff. A deployment with nothing before it, or a
+    # revision no deployment has, is said in the write-up's own words, of the
+    # service whose history was read.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="7c3ca00", said=["dont care"],
+                    comparison=DeploymentComparison.NOTHING_BEFORE_IT, service="io-shop"))),
+                calling(lambda: events.record(conn, DeploymentChangesRead(
+                    incident_id=incident_id, revision="1a2b3c4", said=["dont care"])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_each_deployment_read_as([
+                    ("7c3ca00", DeploymentComparison.NOTHING_BEFORE_IT, "io-shop"),
+                    ("1a2b3c4", DeploymentComparison.COMPARED, None)
                 ])
             )
 
@@ -2398,6 +2426,24 @@ def _carries_the_deployment_changes(
             raise AssertionError(
                 f"Expected the evidence to carry what each deployment read changed, "
                 f"{expected}, and it carried {evidence.deployment_changes}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _carries_each_deployment_read_as(
+        expected: list[tuple[str, DeploymentComparison, str | None]]
+        ) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        carried = [(record.revision, record.comparison, record.service)
+                   for record in evidence.deployment_changes]
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry each deployment read as {expected} - "
+                f"whether it was compared, and of which service - and it carried {carried}."
             )
 
         return True

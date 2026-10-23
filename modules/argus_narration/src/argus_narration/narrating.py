@@ -73,6 +73,7 @@ from argus_core.models import (
     ActionType,
     Actor,
     ChangeEvent,
+    DeploymentComparison,
     FixOutcome,
     FlagChange,
     IncidentStatus,
@@ -405,7 +406,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = f"Read back {read} production change{'s' if read != 1 else ''}"
         case DeploymentChangesRead():
             who = _INVESTIGATOR
-            text = f"Read what the deployment of {event.revision} changed"
+            text = _what_a_deployment_read_found(event)
         case RolloutRead():
             who = _INVESTIGATOR
             text = (f"Read how far the deployment had rolled out - "
@@ -774,6 +775,22 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             [a_candidate_line(event)] if isinstance(event, HypothesisFormed) else []
         )
     )
+
+
+def _what_a_deployment_read_found(event: DeploymentChangesRead) -> str:
+    """A read of what a deployment changed, said as what came back: a diff
+    read, or the fact about the history that stood in for one - for where
+    nothing was compared, "read what it changed" would say a diff was read."""
+    asked = f"Asked what the deployment of {event.revision} changed"
+
+    match event.comparison:
+        case DeploymentComparison.COMPARED:
+            return f"Read what the deployment of {event.revision} changed"
+        case DeploymentComparison.NOTHING_BEFORE_IT:
+            return (f"{asked} - it is the earliest deployment of {event.service} the "
+                    f"history holds, so there was nothing before it to compare it against")
+        case DeploymentComparison.NOT_DEPLOYED:
+            return f"{asked} - no deployment of {event.service} has that revision"
 
 
 def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
