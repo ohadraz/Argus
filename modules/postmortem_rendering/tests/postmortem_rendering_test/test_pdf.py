@@ -1263,6 +1263,31 @@ def test_a_word_going_on_into_the_next_piece_breaks_a_line_only_where_it_does_no
 
 
 @pytest.mark.unit
+def test_a_name_too_wide_for_its_column_breaks_only_after_an_underscore() -> None:
+    # A lessons column is a third of the page wide, and a name wider than it
+    # was cut wherever the line ran out: "record_purchase_deriving_the_mon" /
+    # "th". Words of every length before it put the name at every place along
+    # a line.
+    some_name = "record_purchase_deriving_the_month_from_every_account_history"
+    some_lengths = range(1, 12)
+    some_lessons = Lessons(went_well=[" ".join(["word"] * length) + f" {some_name} now"
+                                      for length in some_lengths],
+                           went_wrong=["dont care"],
+                           got_lucky=["dont care"])
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(lessons=some_lessons), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after_an_underscore(some_name, times=len(some_lengths)))
+
+
+@pytest.mark.unit
 def test_each_item_a_step_rests_on_is_set_on_a_line_of_its_own() -> None:
     # As the page sets them. Run together after semicolons, where one item
     # ends and the next begins is the reader's to find.
@@ -1989,6 +2014,30 @@ def _never_cut_across_lines(word: str) -> Assertion[bytes]:
 def _spelled(text: str) -> str:
     """`text` as a pattern, a non-breaking space in it matching either space."""
     return re.escape(text).replace("\u00a0", "[ \u00a0]")
+
+
+def _cut_only_after_an_underscore(word: str, times: int) -> Assertion[bytes]:
+    """`word` is set `times` times, and wherever a line of the PDF's text ends
+    partway through it, with the next going on with the rest of it, the line
+    ends just after an underscore."""
+    # Whatever the text comes back with between each two of its letters.
+    spaced = "".join(f"{re.escape(letter)}(\\s*)" for letter in word[:-1]) + re.escape(word[-1])
+
+    def assertion(pdf: bytes) -> bool:
+        text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+        found = list(re.finditer(spaced, text))
+        cuts = [f"{word[:at + 1]} / {word[at + 1:]}" for each in found
+                for at, between in enumerate(each.groups())
+                if "\n" in between and word[at] != "_"]
+
+        if len(found) != times or cuts:
+            raise AssertionError(f"Expected [{word}] set {times} times and cut across lines only "
+                                 f"after an underscore, and the PDF sets it {len(found)} times "
+                                 f"and cuts it as {cuts}.")
+
+        return True
+
+    return assertion
 
 
 def _a_link_out_to(address: str, covering: str) -> Assertion[bytes]:

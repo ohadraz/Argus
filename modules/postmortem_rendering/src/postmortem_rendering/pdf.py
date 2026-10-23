@@ -20,6 +20,7 @@ line while fpdf2 logs it, so the file is still made.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from itertools import accumulate, pairwise
@@ -388,23 +389,30 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
     the line runs out: "(A" on one line and "I-2)" on the next. So each such
     word is measured where it begins, across every run it goes on into and
     each in its own face, as `_where_the_lines_lie` measures a word: a soft
-    hyphen takes no room and a non-breaking space joins rather than parts. A
-    word wider than a whole line is left to fpdf2 to cut.
+    hyphen takes no room and a non-breaking space joins rather than parts.
+
+    A word wider than a whole line is cut, and only after an underscore in it
+    - a name in code, read at a glance as one, whose parts each still read as
+    words: so each part is measured as a word is, the underscore ending it. A
+    part wider than a whole line is left to fpdf2 to cut.
 
     The one place inline text is written, a label of the layout's own
     included: a caller writing a run itself writes it with nothing measuring
     its first word, which is how a label under a check came to be cut."""
     said = "".join(look.text for _, look in runs)
     begins = list(accumulate((len(look.text) for _, look in runs), initial=0))
+    ends = _where_each_piece_ends(pdf, runs, begins, said)
 
     for place, (run, look) in enumerate(runs):
         start, end = begins[place], begins[place + 1]
         # Where a word fpdf2 cannot break before begins in this run: at its
-        # start, and after its last break where the word goes on past it.
+        # start, and after its last break where the word goes on past it -
+        # and each part of a word too wide for a line.
         last = max(said.rfind(each, start, end) for each in _BREAKS) + 1
-        checks = [at for at in {start, last}
+        checks = {at for at in {start, last}
                   if start <= at < end and _a_word_begins_at(said, at)
-                  and (at == start or _the_end_of_the_word(said, at) > end)]
+                  and (at == start or _the_end_of_the_word(said, at) > end)}
+        checks |= {at for at in ends if start <= at < end}
 
         written = start
         for at in [*sorted(checks), end]:
@@ -413,8 +421,26 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
                 pdf.write(height, said[written:at], link=_link(pdf, run))
             if at < end:
                 _room_for(pdf, height,
-                          _how_wide(pdf, runs, begins, at, _the_end_of_the_word(said, at)))
+                          _how_wide(pdf, runs, begins, at,
+                                    ends.get(at, _the_end_of_the_word(said, at))))
             written = at
+
+
+def _where_each_piece_ends(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]],
+                           begins: Sequence[int], said: str) -> dict[int, int]:
+    """Where each part of a word too wide for a whole line begins in `said`,
+    and where it ends: just after the next underscore in the word, or where
+    the word does. A word that fits a line has no parts."""
+    room = pdf.w - pdf.l_margin - pdf.r_margin - 2 * pdf.c_margin
+    parts: dict[int, int] = {}
+    for word in re.finditer(r"[^ \n]+", said):
+        if "_" not in word.group() or _how_wide(pdf, runs, begins, *word.span()) <= room:
+            continue
+        starts = [word.start(), *(word.start() + found.end()
+                                  for found in re.finditer("_", word.group())
+                                  if found.end() < len(word.group()))]
+        parts |= dict(zip(starts, [*starts[1:], word.end()], strict=True))
+    return parts
 
 
 def _a_label(text: str, size: float) -> tuple[Run, _Look]:
