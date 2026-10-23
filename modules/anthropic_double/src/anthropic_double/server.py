@@ -396,10 +396,19 @@ _A_SPAN: Final = re.compile(
 )
 
 
+# A day as a reader says one - "Oct 16" - masked whole before its digits are:
+# the shift follows the day a replay runs, so its month moves as its digits
+# do. Only beside a day number, so "May" as a word is still compared.
+_A_DAY: Final = re.compile(
+    r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b"
+)
+
+
 def _masked(conversation: Any) -> str:
     """A conversation as one canonical text, with everything a run writes
     differently each time masked out."""
-    return _RUN_SPECIFIC.sub("#", _A_SPAN.sub("#", json.dumps(conversation, sort_keys=True)))
+    said = json.dumps(conversation, sort_keys=True)
+    return _RUN_SPECIFIC.sub("#", _A_SPAN.sub("#", _A_DAY.sub("#", said)))
 
 
 def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = None) -> Response:
