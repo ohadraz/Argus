@@ -404,11 +404,20 @@ _A_DAY: Final = re.compile(
 )
 
 
+# A run of rows that are nothing but masked figures - a metrics table, one
+# minute a line - said as one row, after the digits are masked. How many
+# minutes a read covers is run timing too: a walk reading one minute later
+# than its recording holds one more row, and the question is the same one.
+# Matched in the dumped text, where a line ends in an escaped newline.
+_A_RUN_OF_ROWS: Final = re.compile(r"(?:[-.,:TZ ]*#[-#.,:TZ ]*\\n)+")
+
+
 def _masked(conversation: Any) -> str:
     """A conversation as one canonical text, with everything a run writes
     differently each time masked out."""
     said = json.dumps(conversation, sort_keys=True)
-    return _RUN_SPECIFIC.sub("#", _A_SPAN.sub("#", _A_DAY.sub("#", said)))
+    said = _RUN_SPECIFIC.sub("#", _A_SPAN.sub("#", _A_DAY.sub("#", said)))
+    return _A_RUN_OF_ROWS.sub(r"#\\n", said)
 
 
 def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = None) -> Response:
