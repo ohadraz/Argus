@@ -32,6 +32,7 @@ from agent_postmortem import CandidateRecord, DeploymentChangesRecord, IncidentE
 from argus_core import connect_from_env, new_id, parse_iso, utc_now
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.events import (
+    ActionRecommended,
     ActionRefused,
     ActionTaken,
     AlertAcknowledged,
@@ -100,6 +101,7 @@ from argus_incidents.repository import (
     replay,
     taken_actions,
 )
+from argus_narration import what_to_do
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from argus_testkit.assertions import an_error_was_raised
 from argus_testkit.scenario import attempting
@@ -1144,6 +1146,30 @@ def test_an_incident_argus_never_escalated_is_not_said_to_have_been_handed_over(
 
 
 @pytest.mark.component
+def test_an_action_left_for_a_person_is_said_as_an_instruction(a_clean_database: None) -> None:
+    # It becomes an action item, in a list that says everything else as
+    # something to do, and is said there in the narration's own words.
+    some_service = "io-shop"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                the_recommendation := ActionRecommended(incident_id=incident_id,
+                                                        hypothesis_id=None,
+                                                        action_type=ROLL_BACK_DEPLOYMENT,
+                                                        subject=some_service)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, the_recommendation)
+            ) \
+            .then(
+                _recommends(what_to_do(ROLL_BACK_DEPLOYMENT, some_service))
+            )
+
+
+@pytest.mark.component
 def test_an_action_nothing_put_back_is_said_to_be_still_in_place(a_clean_database: None) -> None:
     # After a resolution nothing is unwound, so a flag Argus turned off is off
     # when the document is written - and a responder reading it needs to know
@@ -1643,6 +1669,42 @@ def test_an_alert_that_said_nothing_carries_no_finding(a_clean_database: None) -
 
 
 @pytest.mark.component
+def test_the_evidence_carries_when_the_alert_said_the_incident_began(
+        a_clean_database: None) -> None:
+    # A check that reconciles stored figures dates the fault itself, by the
+    # oldest record it found wrong, and finds it on its own schedule - so the
+    # time from that onset to the alert is the schedule, not detection.
+    some_onset = parse_iso("2026-10-15T19:56:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, stated_onset=some_onset)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_stated_onset(some_onset)
+            )
+
+
+@pytest.mark.component
+def test_an_alert_that_dated_nothing_carries_no_stated_onset(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_stated_onset(None)
+            )
+
+
+@pytest.mark.component
 def test_a_postmortem_is_written_from_the_sources_it_was_handed(
     a_clean_database: None
 ) -> None:
@@ -2085,6 +2147,18 @@ def _was_escalated(expected: bool) -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _recommends(expected: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.recommended_action != expected:
+            raise AssertionError(
+                f"Expected the evidence to recommend [{expected}], got "
+                f"[{evidence.recommended_action}].")
+
+        return True
+
+    return assertion
+
+
 def _was_watched_and_never_recovered(expected: bool) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.watched_and_never_recovered != expected:
@@ -2114,6 +2188,18 @@ def _carries_the_alert_finding(expected: str | None) -> Assertion[IncidentEviden
         if evidence.alert_finding != expected:
             raise AssertionError(
                 f"Expected the alert's finding [{expected}], got [{evidence.alert_finding}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_stated_onset(expected: datetime | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.onset_stated_by_the_alert != expected:
+            raise AssertionError(
+                f"Expected the onset the alert stated, [{expected}], got "
+                f"[{evidence.onset_stated_by_the_alert}].")
 
         return True
 
@@ -2353,7 +2439,8 @@ def _a_message_understood_as(conn: psycopg.Connection,
 def _an_incident_that_ended(conn: psycopg.Connection,
                             rule: str | None = None,
                             summary: str | None = None,
-                            started_at: datetime | None = None) -> str:
+                            started_at: datetime | None = None,
+                            stated_onset: datetime | None = None) -> str:
     """An incident with both a row and an account of itself.
 
     The events as well as the rows, because the document is written from the
@@ -2362,7 +2449,7 @@ def _an_incident_that_ended(conn: psycopg.Connection,
     read.
     """
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary,
-                       started_at=started_at)
+                       started_at=started_at, stated_onset=stated_onset)
     incident_id = incidents.create(conn, some_alert, at=utc_now())
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
     incidents.transition(

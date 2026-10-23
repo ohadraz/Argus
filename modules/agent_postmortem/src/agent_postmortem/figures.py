@@ -347,6 +347,16 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     return figures
 
 
+def with_every_day_said(figures: Mapping[str, Figure]) -> dict[str, Figure]:
+    """The figures with every instant written with its day - for a paragraph
+    said where no head dates the incident, about an incident that ran across
+    days: there an instant on the day it began, said as a bare time, reads as
+    the day the paragraph is read."""
+    return {name: Figure(given=figure.given, written=_with_its_day(parse_iso(figure.given)))
+            if _AN_INSTANT.fullmatch(figure.given) else figure
+            for name, figure in figures.items()}
+
+
 def the_day_it_began(evidence: IncidentEvidence, measured: Measurements) -> date:
     """The day the incident began, which every instant written on it leaves
     unsaid - the page dates the incident once, in its head."""
@@ -692,9 +702,16 @@ def _as_a_reader_says(at: datetime, day: date | None) -> str:
         return f"{said_as_a_day(at)}, {at:%Y}, {said_as_a_time(at)} UTC"
 
     if at.date() != day:
-        return f"{said_as_a_day(at)}, {said_as_a_time(at)} UTC"
+        return _with_its_day(at)
 
     return f"{said_as_a_time(at)} UTC"
+
+
+def _with_its_day(at: datetime) -> str:
+    """An instant with its day and without its year."""
+    at = at.astimezone(UTC)
+
+    return f"{said_as_a_day(at)}, {said_as_a_time(at)} UTC"
 
 
 def _a_span(hours: float) -> Figure:

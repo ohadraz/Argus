@@ -855,6 +855,35 @@ def what_was_done(action_type: ActionType, subject: str) -> str:
     return f"{_an_action_said(action_type)} {subject}"
 
 
+def what_to_do(action_type: ActionType, subject: str) -> str:
+    """An action left for a person, said as the instruction an action item is.
+
+    The verb `what_the_action_does` uses, so the item and the line that left
+    it read as one action; but told rather than named, since the list it sits
+    in says everything else as something to do - "Review and merge the
+    proposed fix" - and a gerund there reads as a phrase left unfinished.
+
+    Exhaustive on the tag, with no fallback, for the reason that one is.
+    """
+    match action_type:
+        case "revert-feature-flag":
+            return f"Put {subject} back"
+        case "restart-service":
+            return f"Restart {subject}"
+        case "roll-back-deployment":
+            return f"Roll {subject} back"
+        case "scale-out":
+            return f"Scale {subject} out"
+        case "pin-autoscaler":
+            return f"Hold {subject}'s autoscaler still"
+        case "discard-cache-entries":
+            return f"Discard {subject}'s stale cached figures"
+        case "pin-to-accelerator":
+            return f"Hold {subject}'s pods to one accelerator card"
+
+    assert_never(action_type)
+
+
 def said_in_full(line: NarrationLine) -> str:
     """One line as a single sentence, for a destination with no page around it.
 

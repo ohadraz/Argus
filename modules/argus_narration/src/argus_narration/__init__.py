@@ -31,7 +31,7 @@ from argus_narration.narrating import (
     build_narration,
     each_wait_told_once,
     said_in_full,
-    what_the_action_does,
+    what_to_do,
     what_was_done,
     where_a_report_came_from,
 )
@@ -66,7 +66,7 @@ __all__ = [
     "shown",
     "the_minutes_logged",
     "the_revisions",
-    "what_the_action_does",
+    "what_to_do",
     "what_was_done",
     "where_a_report_came_from"
 ]

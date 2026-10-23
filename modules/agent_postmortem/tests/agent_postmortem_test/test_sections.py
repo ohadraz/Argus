@@ -356,6 +356,67 @@ def test_a_revision_is_found_among_the_words_of_the_state_it_moved_to() -> None:
 
 
 @pytest.mark.unit
+def test_a_revision_blamed_by_name_moved_from_the_one_deployed_before_it() -> None:
+    # The investigation named the revision as its subject and gave no states,
+    # so the trigger said a deploy happened and not what it put out. What it
+    # replaced is the deploy just before it - the one its diff is compared
+    # against - not an older one, and not one that came after.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_REVISION)],
+                changes=[_a_deploy_of("some-older-revision", at="2026-10-15T11:41:00Z"),
+                         _a_deploy_of(SOME_EARLIER_REVISION, at="2026-10-15T15:41:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-10-15T19:41:00Z"),
+                         _a_deploy_of("some-later-revision", at="2026-10-15T23:41:00Z")])
+        ) \
+        .when(
+            lambda: _the_move(trigger_of(evidence))
+        ) \
+        .then(
+            the_answer_was((SOME_EARLIER_REVISION, SOME_REVISION))
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_blamed_by_name_with_no_deploy_read_before_it_moved_from_unknown() -> None:
+    # What it put out is its own; what it replaced is only known where that
+    # deploy was read, and is not guessed.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_REVISION)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-10-15T19:41:00Z")])
+        ) \
+        .when(
+            lambda: _the_move(trigger_of(evidence))
+        ) \
+        .then(
+            the_answer_was((None, SOME_REVISION))
+        )
+
+
+@pytest.mark.unit
+def test_a_revision_blamed_by_name_did_not_replace_itself() -> None:
+    # Deployed again with nothing changed - a re-sync - it is still the
+    # revision it replaced that the trigger names, not itself.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_REVISION)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-10-15T15:41:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-10-15T19:41:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-10-15T19:51:00Z")])
+        ) \
+        .when(
+            lambda: _the_move(trigger_of(evidence))
+        ) \
+        .then(
+            the_answer_was((SOME_EARLIER_REVISION, SOME_REVISION))
+        )
+
+
+@pytest.mark.unit
 def test_a_reference_that_is_only_part_of_a_word_dates_nothing() -> None:
     # A whole word of the state or nothing: a short reference found inside a
     # longer one is a coincidence of spelling, not the same change.
@@ -1823,6 +1884,10 @@ def _a_deploy_of(revision: str, at: str, actor: str | None = None) -> ChangeEven
                        reference=revision,
                        summary="dont care",
                        actor=actor)
+
+
+def _the_move(trigger: Trigger | None) -> tuple[str | None, str | None] | None:
+    return (trigger.from_state, trigger.to_state) if trigger is not None else None
 
 
 def _a_change_to(subject: str, at: str) -> ChangeEvent:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from datetime import UTC
 from typing import Final
 
 from argus_core.models import ResolutionStep, whether_it_can_be_put_back
@@ -37,6 +38,8 @@ from agent_postmortem.figures import (
     SERIES_BEFORE_FIGURE,
     UNOBSERVED_FROM_FIGURE,
     figures_of,
+    the_day_it_began,
+    with_every_day_said,
 )
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sections import (
@@ -63,8 +66,14 @@ def the_executive_summary(evidence: IncidentEvidence,
                           cause: str | None,
                           still_at_risk: str | None) -> str:
     """The summary in one paragraph: the record's facts around the model's two
-    sentences, either left out where the model gave none."""
+    sentences, either left out where the model gave none.
+
+    Every instant with its day where Argus stopped on another day than the one
+    the incident began: the paragraph is posted where no head dates the
+    incident, and there a bare time reads as the day it is read."""
     figures = figures_of(evidence, measured)
+    if evidence.ended_at.astimezone(UTC).date() != the_day_it_began(evidence, measured):
+        figures = with_every_day_said(figures)
 
     def written(name: str) -> str:
         return figures[name].written
@@ -270,7 +279,8 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
             *(f"Argus left automatic sync of {application} off, to be turned back on "
               f"{SYNC_GOES_BACK_ON}: {UNTIL_SYNC_IS_BACK_ON}."
               for application in left_off),
-            *([f"Argus recommends this and did not take it: {recommended.rstrip('.')}."]
+            *([f"Argus recommends this and did not take it: "
+               f"{inside_a_sentence(recommended).rstrip('.')}."]
               if recommended else [])]
 
 

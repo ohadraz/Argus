@@ -129,6 +129,12 @@ class IncidentEvidence(BaseModel):
     # `None` where nothing measured one, in which case the alert's own time is
     # the best available answer and the document is written from that.
     onset_at: datetime | None = None
+    # When the alert said the incident began, where it said - a check that
+    # reconciles stored figures dates the fault by the oldest record it found
+    # wrong, and finds it on its own schedule. `onset_at` is this where no
+    # series measured one, and then the time to the alert is that schedule
+    # rather than anything detection took. `None` where the alert said nothing.
+    onset_stated_by_the_alert: datetime | None = None
     # When the service came back, as Mitigation recorded it at the time - the
     # onset's counterpart, read off the account for the same reason. The minute
     # was measured on the window the verification wait was polling, and this

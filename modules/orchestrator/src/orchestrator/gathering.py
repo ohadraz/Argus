@@ -84,7 +84,7 @@ from argus_narration import (
     build_narration,
     each_wait_told_once,
     said_in_full,
-    what_the_action_does,
+    what_to_do,
     what_was_done,
 )
 
@@ -171,6 +171,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         ended_at=incident.ended_at,
         alerted_at=_when_it_was_alerted(incident.alert_payload) or incident.created_at,
         onset_at=_when_it_actually_began(conn, incident_id),
+        onset_stated_by_the_alert=_when_the_alert_said_it_began(incident.alert_payload),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
         escalated=_it_was_handed_to_a_person(account),
@@ -229,15 +230,16 @@ def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | Non
 
     Said through the narration's own renderer rather than assembled here. The
     dashboard, the Slack message and this document all say what Argus would
-    have done, and three spellings of one action is three things a reader has
-    to recognise as the same.
+    have done, and three verbs for one action is three things a reader has to
+    recognise as the same. Told rather than named, because here it becomes an
+    action item.
 
     The last one, for the reason the proposal above takes the last: the walk can
     reach the gate more than once, and what is owed is whatever stands at the
     end rather than whatever was refused first.
     """
     recommended = [
-        what_the_action_does(event.action_type, event.subject or "")
+        what_to_do(event.action_type, event.subject or "")
         for event in events.get_by_incident(conn, incident_id)
         if isinstance(event, ActionRecommended)
     ]
@@ -394,6 +396,13 @@ def _when_it_was_alerted(alert_payload: dict[str, object]) -> datetime | None:
     """When the alert fired, as its sender dated it, read back through the
     alert's own model as the rule is - `None` where the sender dated nothing."""
     return Alert.model_validate(alert_payload).started_at
+
+
+def _when_the_alert_said_it_began(alert_payload: dict[str, object]) -> datetime | None:
+    """When the alert said the incident began, read back through the alert's
+    own model as the rule is - `None` where it said nothing, as almost every
+    alert does."""
+    return Alert.model_validate(alert_payload).stated_onset
 
 
 def _what_was_alerted(alert_payload: dict[str, object]) -> str:

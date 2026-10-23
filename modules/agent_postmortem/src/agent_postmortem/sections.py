@@ -237,6 +237,10 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
     it, or the deploy whose diff carried it. Never where the leader was
     refuted, and never on the candidate's word alone with no change read to
     point at.
+
+    A candidate naming a deployed revision as its subject, with no states, is
+    given the deploy's: the revision it put out, and the one it replaced. Left
+    without them, the trigger says a deploy happened and not what it deployed.
     """
     confirmed = _the_confirmed(evidence.candidates)
     suspect = _the_untested_leader(evidence.candidates) if confirmed is None else None
@@ -257,10 +261,14 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
         return None
 
     dated = latest or (carrier[1] if carrier is not None else None)
+    from_state, to_state = blamed.from_state, blamed.to_state
+    if (not moved and latest is not None and latest.kind is ChangeKind.DEPLOY
+            and latest.reference == blamed.subject):
+        from_state, to_state = _the_revision_deployed_before(latest, evidence), latest.reference
 
     return Trigger(subject=blamed.subject,
-                   from_state=blamed.from_state,
-                   to_state=blamed.to_state,
+                   from_state=from_state,
+                   to_state=to_state,
                    changed_at=parse_iso(dated.occurred_at) if dated else None,
                    kind=latest.kind if latest else None,
                    actor=dated.actor if dated else None,
@@ -269,6 +277,21 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
                                if carrier is not None else None),
                    dated_by=(label_of(PRODUCTION_CHANGE_PREFIX, found[0])
                              if found is not None else None))
+
+
+def _the_revision_deployed_before(deploy: ChangeEvent, evidence: IncidentEvidence) -> str | None:
+    """The revision `deploy` replaced: the one the deploy just before it put
+    out, which is what its own diff is compared against - or `None` where no
+    deploy before it was read, since a revision nobody read is not guessed.
+    Never itself: deployed again with nothing changed, it replaced what came
+    before that."""
+    at = parse_iso(deploy.occurred_at)
+    before = [change for change in evidence.changes
+              if change.kind is ChangeKind.DEPLOY and parse_iso(change.occurred_at) < at
+              and change.reference != deploy.reference]
+    latest = max(before, key=lambda change: parse_iso(change.occurred_at), default=None)
+
+    return latest.reference if latest is not None else None
 
 
 def _the_deploy_that_carried(blamed: CandidateRecord,

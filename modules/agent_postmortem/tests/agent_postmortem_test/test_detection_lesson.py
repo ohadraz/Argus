@@ -130,6 +130,29 @@ def test_where_the_metrics_stopped_at_the_onset_the_alert_is_weighed_from_their_
 
 
 @pytest.mark.unit
+def test_an_onset_the_alert_stated_where_the_metrics_stopped_keeps_its_lesson() -> None:
+    # An absence rule dates the incident too - the minute it last heard from
+    # the service - and that is the minute the metrics stopped. It watches all
+    # the time, so the gap to the alert is its own, unlike a check that
+    # reconciles on a schedule of its own.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_stated_by_the_alert=ONSET,
+                                           alerted_at=ONSET + timedelta(minutes=5, seconds=8)),
+            measured := a_measured_incident(rule_waits=timedelta(0),
+                                            rule_looks_back=timedelta(minutes=5),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            unobserved_from=ONSET)
+        ) \
+        .when(
+            lambda: the_detection_lesson(evidence, measured)
+        ) \
+        .then(
+            _measured_from(DetectionMeasuredFrom.METRICS_STOPPED)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("onset_at", "after_the_onset", "rule_waits", "unread", "line_read"), [
         (None, timedelta(minutes=5), timedelta(0), False, False),
@@ -161,6 +184,28 @@ def test_a_gap_that_cannot_be_weighed_is_no_lesson(
                 rule_looks_back=timedelta(minutes=5) if rule_read else None,
                 rule_evaluated_every=timedelta(minutes=1) if rule_read else None,
                 rule_line_read=line_read)
+        ) \
+        .when(
+            lambda: the_detection_lesson(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_an_onset_the_alert_dated_itself_is_no_lesson() -> None:
+    # A check that reconciles stored figures dates the fault by the oldest
+    # record it found wrong, and finds it on its own schedule - a week later,
+    # by design. The gap is that schedule, which the alert says, and the
+    # rule's own timing accounts for none of it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_stated_by_the_alert=ONSET,
+                                           alerted_at=ONSET + timedelta(days=7)),
+            measured := a_measured_incident(rule_waits=timedelta(minutes=1),
+                                            rule_looks_back=timedelta(minutes=5),
+                                            rule_evaluated_every=timedelta(seconds=30))
         ) \
         .when(
             lambda: the_detection_lesson(evidence, measured)

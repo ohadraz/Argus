@@ -78,6 +78,31 @@ def test_a_service_never_seen_back_is_said_broken_for_at_least_as_long_as_argus_
 
 
 @pytest.mark.unit
+def test_an_incident_that_spans_days_dates_every_instant_in_its_summary() -> None:
+    # The page dates the incident once, in its head, and leaves the day it
+    # began unsaid after that. The summary is posted to Slack too, where there
+    # is no head: an onset a week before the alert, said as a bare time, reads
+    # as that evening.
+    a_week_on = ONSET + timedelta(days=7, seconds=49)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(ended_at=a_week_on),
+            measured := a_measured_incident(back_to_normal_at=None,
+                                            duration_in_hours=(a_week_on - ONSET)
+                                            / timedelta(hours=1))
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("The service broke at Sep 02, 12:00 UTC and was not back to normal when "
+                  "Argus stopped working on the incident at Sep 09, 12:00:49 UTC, at least "
+                  "7 days 49 seconds later.")
+        )
+
+
+@pytest.mark.unit
 def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_their_reading_ended(
 ) -> None:
     # Not a stretch the service is known to have spent broken: its own logs
@@ -433,7 +458,7 @@ def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> 
             evidence := an_evidence_bundle(
                 pull_request=OpenedPullRequest(number=315, url="https://github.invalid/pull/315",
                                                branch="dont-care"),
-                recommended_action="restart the scorer")
+                recommended_action="Restart the scorer")
         ) \
         .when(
             lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")

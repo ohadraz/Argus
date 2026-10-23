@@ -55,10 +55,13 @@ def the_action_items(postmortem: PostmortemDocument) -> ActionItemsSection:
                          unassigned=item.owner is None)
                  for item in postmortem.action_items)
 
+    # Held as the instruction its action item is, and lowered to go on inside
+    # the sentence.
     recommended = None
     if postmortem.recommended_action:
+        said = postmortem.recommended_action
         recommended = Line(runs=(Run(text="Argus declined to act, and recommends: "),
-                                 Run(text=postmortem.recommended_action, role=Role.PROSE)))
+                                 Run(text=said[:1].lower() + said[1:], role=Role.PROSE)))
 
     return ActionItemsSection(headings=_HEADINGS,
                               rows=rows,

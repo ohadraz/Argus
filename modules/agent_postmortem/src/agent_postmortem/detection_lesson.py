@@ -41,8 +41,17 @@ def the_detection_lesson(evidence: IncidentEvidence,
     alert (often the minute it passed was not read yet), or past it too late
     for the alert to have waited out the rule's wait after. Weighed from the
     onset instead, the fault's own growth would be called slow detection.
+
+    Nor where the alert's own dating of the fault is all that dates the onset:
+    the check that raised it found it on its own schedule, which the alert
+    says, and the rule's timing accounts for none of the time to it. An
+    absence rule dates the minute the metrics stopped, and watches all the
+    time: that gap is its own, and weighed.
     """
-    if (measured.onset_at is None or measured.rule_waits is None
+    dated_only_by_the_alert = (measured.onset_at == evidence.onset_stated_by_the_alert
+                               and measured.unobserved_from is None)
+    if (measured.onset_at is None or dated_only_by_the_alert
+            or measured.rule_waits is None
             or measured.rule_looks_back is None or measured.rule_evaluated_every is None):
         return None
 

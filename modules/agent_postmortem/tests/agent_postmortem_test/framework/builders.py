@@ -182,7 +182,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        watched_and_never_recovered: bool = False,
                        alerted_at: datetime | None = None,
                        logs_read_until: datetime | None = None,
-                       escalated: bool = False
+                       escalated: bool = False,
+                       onset_stated_by_the_alert: datetime | None = None
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -231,7 +232,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         # test says the two differ.
         alerted_at=alerted_at if alerted_at is not None else started_at,
         logs_read_until=logs_read_until,
-        escalated=escalated
+        escalated=escalated,
+        onset_stated_by_the_alert=onset_stated_by_the_alert
     )
 
 

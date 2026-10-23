@@ -75,6 +75,7 @@ from argus_core.models import (
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionIdentity,
+    ActionType,
     Actor,
     Alert,
     ChangeEvent,
@@ -109,6 +110,7 @@ from argus_narration.narrating import (
     build_narration,
     each_wait_told_once,
     said_in_full,
+    what_to_do,
     what_was_done,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
@@ -868,6 +870,31 @@ def test_an_action_done_is_said_in_words_rather_than_by_its_tag() -> None:
         .then(
             _ends_with(f"Reverted the feature flag {SOME_FLAG}")
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("action_type", "said"), [
+    (REVERT_FEATURE_FLAG, "Put some-subject back"),
+    (RESTART_SERVICE, "Restart some-subject"),
+    (ROLL_BACK_DEPLOYMENT, "Roll some-subject back"),
+    (SCALE_OUT, "Scale some-subject out"),
+    (PIN_AUTOSCALER, "Hold some-subject's autoscaler still"),
+    (DISCARD_CACHE_ENTRIES, "Discard some-subject's stale cached figures"),
+    (PIN_TO_ACCELERATOR, "Hold some-subject's pods to one accelerator card")
+])
+def test_an_action_left_to_do_is_said_as_an_instruction(action_type: ActionType,
+                                                         said: str) -> None:
+    # An action item is something a person does, and the list it sits in says
+    # the rest as instructions - "Review and merge the proposed fix". The
+    # gerund the account's own line uses, "rolling io-shop back", reads there
+    # as a phrase left unfinished. The same verb, so the item and the line
+    # read as one action.
+    some_subject = "some-subject"
+
+    Scenario() \
+        .given(some_subject) \
+        .when(lambda: what_to_do(action_type, some_subject)) \
+        .then(the_answer_was(said))
 
 
 @pytest.mark.unit

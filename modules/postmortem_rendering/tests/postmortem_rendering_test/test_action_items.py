@@ -109,9 +109,11 @@ def test_no_items_says_so() -> None:
 
 @pytest.mark.unit
 def test_what_argus_declined_to_do_is_recommended_to_a_person() -> None:
+    # Held as the instruction its action item is, and lowered to go on inside
+    # the sentence.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(recommended_action="roll io-shop back to 4c810f2")
+            some_postmortem := a_postmortem(recommended_action="Roll io-shop back to 4c810f2")
         ) \
         .when(
             lambda: the_action_items(some_postmortem).recommended
