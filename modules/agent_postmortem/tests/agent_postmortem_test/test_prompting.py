@@ -2906,18 +2906,23 @@ def test_an_earlier_change_is_asked_to_be_ruled_out_by_the_service_healthy_with_
 
 
 @pytest.mark.unit
-def test_an_earlier_change_is_ruled_out_by_an_alert_dating_the_harm_after_a_later_one() -> None:
+def test_an_earlier_change_is_ruled_out_by_an_alert_dating_the_harm_at_or_after_a_later_one(
+) -> None:
     # The alert dated the oldest wrong total to after the later deploy, so the
     # totals reconciled the whole time the earlier one ran alone - yet told
     # only metrics or a confirmed action rule a change out, the write-up said
-    # the earlier deploy was not ruled out because no metrics were read.
+    # the earlier deploy was not ruled out because no metrics were read. Told
+    # "after", write-ups of an absence alert dating its first missing sample to
+    # the later deploy's own instant called that instant after it: at is said
+    # as at, and rules the earlier change out as surely.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("an alert that dates the first harm itself to after a "
-                                      "later change", "none of these")
+            _the_description_mentions("an alert that dates the first harm itself at or after "
+                                      "a later change", "where the two instants are the same",
+                                      "none of these")
         )
 
 
