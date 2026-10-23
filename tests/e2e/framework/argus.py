@@ -897,7 +897,8 @@ def _seed_the_answers(control: httpx2.Client,
             "/double-control/seed",
             json={"recording": answered_once, "repeat": 1}
             if shift is None
-            else {"body": _rebased(load(answered_once), shift), "repeat": 1}
+            else {"body": _rebased(load(answered_once), shift), "recorded_as": answered_once,
+                  "repeat": 1}
         ).raise_for_status()
 
 

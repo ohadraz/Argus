@@ -78,6 +78,11 @@ class Seed(BaseModel):
     recording: str | None = None
     status: int = 200
     body: dict[str, Any] | None = None
+    # The recording a `body` was made from - a recorded answer rebased onto
+    # this run's world. Not served, the body is; compared, as a recording's own
+    # question is, so a rebased answer to a question that has since changed is
+    # listed in `/double-control/state` like any other.
+    recorded_as: str | None = None
     # How many calls this seed answers before the queue moves on. `None` means
     # "until reset", which is the only honest way to express a condition the
     # SDK retries through: it answers a 429 up to `max_retries` times on its
@@ -95,6 +100,9 @@ class Seed(BaseModel):
             )
         if self.recording is not None and self.body is not None:
             raise ValueError("a seed carries either a recording or a body, not both")
+        if self.recorded_as is not None and self.body is None:
+            raise ValueError("`recorded_as` names the recording a body was made from - "
+                             "a seed with no body was made from nothing")
         if self.repeat is not None and self.repeat < 1:
             raise ValueError("a seed answers at least one call, or `null` for until-reset")
         return self
@@ -406,13 +414,17 @@ def _serve(seed: Seed, streaming: bool = False, asked: dict[str, Any] | None = N
     assertions are - but the name goes on the list `/double-control/state`
     reports, which is what a partial re-record is chosen from.
     """
-    if seed.recording is not None:
-        recorded_question = recordings.load_question(seed.recording)
-        if recorded_question is not None and asked is not None:
+    # A body rebased from a recording is compared as that recording: the
+    # question it answered is the recording's, whatever instants it now names.
+    named = seed.recording or seed.recorded_as
+    if named is not None and asked is not None:
+        recorded_question = recordings.load_question(named)
+        if recorded_question is not None:
             differs = _the_part_that_differs(recorded_question, asked)
             if differs is not None:
-                _state.diverged[seed.recording] = differs
+                _state.diverged[named] = differs
 
+    if seed.recording is not None:
         answered = recordings.load(seed.recording)
         if streaming:
             return StreamingResponse(as_stream(answered), media_type=SSE_MEDIA_TYPE)
