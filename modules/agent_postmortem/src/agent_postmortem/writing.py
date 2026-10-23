@@ -199,9 +199,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # The model's sections. Each empty where unanswered - a section of many
         # has no list to be absent from - and the review says what that costs.
         causal_chain=_the_chain_as_cited(answer, shown),
-        contributing_factors=[ContributingFactor(text=factor.factor,
-                                                 addressed_by=factor.addressed_by)
-                              for factor in answer.contributing_factors or []],
+        contributing_factors=_the_factors_with_what_answers_them(evidence, measured, answer),
         action_items=_the_record_s_items_then_the_model_s(evidence, measured, answer),
         lessons=answer.lessons,
         # Written by code, never asked of the model: every part is measured,
@@ -264,6 +262,29 @@ def _the_chain_as_cited(answer: SubmittedPostmortem,
                       ruled_out=[RuledOut(text=ruled.what, cites=as_cited(ruled.cites))
                                  for ruled in step.ruled_out])
             for step in answer.causal_chain or []]
+
+
+def _the_factors_with_what_answers_them(evidence: IncidentEvidence,
+                                        measured: Measurements,
+                                        answer: SubmittedPostmortem) -> list[ContributingFactor]:
+    """Each factor with the items that answer it, by number: the record's own
+    it named, then each proposal naming it by its label, in the order given.
+
+    Linked the way the answer could write them - each link to something
+    already written - and published the way a reader looks them up. The label
+    stays in the answer: the reader is never shown it.
+    """
+    on_record = len(record_action_items_of(evidence, measured.back_to_normal_at))
+    proposals = answer.action_items or []
+
+    return [ContributingFactor(
+                text=factor.factor,
+                addressed_by=[*factor.addressed_by,
+                              *(action_item_number(on_record + position)
+                                for position, proposed in enumerate(proposals, start=1)
+                                if factor.label is not None
+                                and factor.label in proposed.answers)])
+            for factor in answer.contributing_factors or []]
 
 
 def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,

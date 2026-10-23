@@ -56,6 +56,10 @@ NOT_TAKEN = "not taken"
 # How an action item is named in conversation: `AI-1`, `AI-2`.
 ACTION_ITEM_PREFIX = "AI-"
 
+# How a contributing factor is labelled in the model's answer, for the items it
+# proposes to name: `CF-1`, `CF-2`. Never shown to a reader.
+CONTRIBUTING_FACTOR_PREFIX: Final = "CF-"
+
 # How each kind of evidence is labelled for citing: a line of the narration
 # `T1`, a change to production `P1`, a candidate `C1`, an action `M1` - and a
 # group of log lines by its message, `G3fa2` (`log_groups`). Not `A` for an
@@ -674,6 +678,11 @@ def is_a_code_reading(label: str) -> bool:
 def action_item_number(position: int) -> str:
     """What the action item at `position` (from 1) is called in conversation."""
     return f"{ACTION_ITEM_PREFIX}{position}"
+
+
+def contributing_factor_label(position: int) -> str:
+    """The label the contributing factor at `position` (from 1) is given under."""
+    return f"{CONTRIBUTING_FACTOR_PREFIX}{position}"
 
 
 def record_action_items_of(evidence: IncidentEvidence,

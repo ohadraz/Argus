@@ -58,6 +58,7 @@ from agent_postmortem.log_groups import grouped
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
     ADDRESSED_BY_FIELD,
+    ANSWERS_FIELD,
     ASSUMPTIONS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
@@ -70,6 +71,7 @@ from agent_postmortem.prompting import (
     HAD_IT_BEEN_OTHERWISE_FIELD,
     ITEM_FIELD,
     ITEM_TYPE_FIELD,
+    LABEL_FIELD,
     LEAD_EFFECTS_FIELD,
     LEAD_FIELD,
     LESSONS_FIELD,
@@ -691,6 +693,25 @@ def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothin
 
 
 @pytest.mark.unit
+def test_what_code_fix_read_is_asked_to_be_said_no_wider_than_it_read_it() -> None:
+    # Two ways a write-up said Code-Fix's reading more absolutely than it was
+    # given: "nothing in main does that" became "nothing in the running code
+    # works it out", and "by default it only reports" became "report-only".
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care")
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Say what the files Code-Fix read do, with the conditions it gives - a "
+                  "default as a default, never as all it does - and no wider: 'nothing in the "
+                  "files it read', never 'nothing in the code'.")
+        )
+
+
+@pytest.mark.unit
 def test_the_candidates_are_shown_as_the_investigator_s_words() -> None:
     # "The shop itself kept serving normally" was a candidate's, written before
     # anything was tried, and came back in the root cause as what happened.
@@ -849,9 +870,37 @@ def test_a_file_as_it_ran_that_is_what_code_fix_read_is_said_beneath_it_and_not_
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says("[F1] read deploy/scrape.yaml on main as it was at 53f02e9, which ran."),
+            _says("[F1] read deploy/scrape.yaml on main as it was at 53f02e9, which ran. "
+                  "What [F1] says of that file holds for what ran; what it says of the "
+                  "rest of main does not."),
             _does_not_say("What ran, read at the revision")
         ))
+
+
+@pytest.mark.unit
+def test_what_code_fix_says_of_files_that_ran_is_said_to_hold_for_those_files_alone() -> None:
+    # Told only that the reading stood for what ran, a write-up carried
+    # Code-Fix's "nothing in main does that" - said of the whole branch - over
+    # to the running revision: "nothing in the running code works it out".
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "files_as_they_ran": [
+                            FileAsItRan(path="src/io_shop/spend_summary.py",
+                                        revision=SOME_DEPLOYED_REVISION, as_read=True,
+                                        content=None),
+                            FileAsItRan(path="src/io_shop/accounts.py",
+                                        revision=SOME_DEPLOYED_REVISION, as_read=True,
+                                        content=None)]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("What [F1] says of those files holds for what ran; what it says of the "
+                  "rest of main does not.")
+        )
 
 
 @pytest.mark.unit
@@ -2786,7 +2835,7 @@ def test_what_a_factor_would_have_changed_is_rewritten_as_every_other_sentence_i
     # Read by the same fields `sentences` reads: a figure named in what a
     # factor would have changed is written in like one named anywhere else.
     some_answer = SubmittedPostmortem(
-        contributing_factors=[SubmittedFactor(factor="a factor",
+        contributing_factors=[SubmittedFactor(label="CF-1", factor="a factor",
                                               had_it_been_otherwise="had it been otherwise",
                                               addressed_by=["AI-1"])])
 
@@ -2795,9 +2844,26 @@ def test_what_a_factor_would_have_changed_is_rewritten_as_every_other_sentence_i
             lambda: some_answer.with_each_sentence(str.upper).contributing_factors
         ) \
         .then(
-            the_answer_was([SubmittedFactor(factor="A FACTOR",
+            the_answer_was([SubmittedFactor(label="CF-1", factor="A FACTOR",
                                             had_it_been_otherwise="HAD IT BEEN OTHERWISE",
                                             addressed_by=["AI-1"])])
+        )
+
+
+@pytest.mark.unit
+def test_the_factors_an_item_answers_survive_the_rewrite() -> None:
+    # Labels, not prose: rewriting the item's words leaves what it answers.
+    some_answer = SubmittedPostmortem(
+        action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT,
+                                    answers=["CF-1"])])
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper).action_items
+        ) \
+        .then(
+            the_answer_was([SubmittedItem(item="AN ITEM", type=ActionItemType.PREVENT,
+                                          answers=["CF-1"])])
         )
 
 
@@ -3401,6 +3467,110 @@ def test_an_action_item_is_asked_for_as_one_thing_to_do() -> None:
 
 
 @pytest.mark.unit
+def test_each_factor_is_asked_for_under_a_label_of_its_own() -> None:
+    # What an item that answers it names it by. Never in the prose: the reader
+    # never sees a factor's label, and one written there leads nowhere.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD][
+                "items"]["properties"][LABEL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("CF-1 for the first factor, CF-2 for the next, and so on",
+                                      "never in your prose")
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_is_asked_to_name_only_the_record_s_own_items() -> None:
+    # The record's items are numbered before the model is asked, and the brief
+    # gives each its number; the model's own are not. Asked to cite those too,
+    # by numbers it had to work out, a write-up cited each one off. Empty is
+    # said to be an answer, or the number comes back out of habit.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD][
+                "items"]["properties"][ADDRESSED_BY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("The record's own action items that answer it",
+                                      "Empty where none of them does",
+                                      "Never an item you propose")
+        )
+
+
+@pytest.mark.unit
+def test_a_proposed_item_is_asked_for_the_factors_it_answers() -> None:
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD][
+                "items"]["properties"][ANSWERS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("The labels of the contributing factors it answers")
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_s_label_and_an_item_s_answers_are_both_required() -> None:
+    Scenario() \
+        .when(
+            lambda: [field in SUBMIT_POSTMORTEM.properties[listed]["items"]["required"]
+                     for listed, field in [(CONTRIBUTING_FACTORS_FIELD, LABEL_FIELD),
+                                           (ACTION_ITEMS_FIELD, ANSWERS_FIELD)]]
+        ) \
+        .then(
+            the_answer_was([True, True])
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_is_asked_to_be_answered_by_an_item_of_the_record_s_or_one_proposed() -> None:
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("named in its addressed_by",
+                                      "or one you propose, whose answers name it")
+        )
+
+
+@pytest.mark.unit
+def test_the_brief_says_which_way_each_link_runs() -> None:
+    # Told the model's own items are "numbered after these", a write-up cited
+    # them by numbers it worked out, each one off.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle()
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("In a contributing factor's addressed_by, name the record's own action "
+                  "items that answer it, by their number",
+                  "an item you propose names the factors it answers in its answers, by their "
+                  "labels"),
+            _does_not_say("numbered after these")
+        ))
+
+
+@pytest.mark.unit
+def test_the_label_given_as_an_example_is_one_the_record_numbers() -> None:
+    # The example was AI-3 - with two items on the record, the model's own
+    # first proposal, which it is now told never to name by number.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.description
+        ) \
+        .then(all_of(
+            _the_description_mentions("(T2, G3fa2, C1, AI-1)"),
+            _the_description_avoids("AI-3")
+        ))
+
+
+@pytest.mark.unit
 def test_what_an_f_row_says_to_check_is_answered_from_a_diff_that_shows_it() -> None:
     # An F row said to check which key the deployed revision used before
     # merging; the deployed diff showed it, and a write-up passed the check on
@@ -3833,14 +4003,16 @@ def test_a_chain_step_not_in_its_declared_shape_costs_only_itself() -> None:
 
 
 @pytest.mark.unit
-def test_a_contributing_factor_is_read_with_the_items_that_answer_it() -> None:
+def test_a_contributing_factor_is_read_with_its_label_and_the_record_s_items_that_answer_it(
+) -> None:
     Scenario() \
         .given(
             a_submission_with_a_factor := {
                 CONTRIBUTING_FACTORS_FIELD: [
-                    {FACTOR_FIELD: "the canary started at 40%",
+                    {LABEL_FIELD: "CF-1",
+                     FACTOR_FIELD: "the canary started at 40%",
                      HAD_IT_BEEN_OTHERWISE_FIELD: "a smaller canary would have failed fewer",
-                     ADDRESSED_BY_FIELD: ["AI-2", "AI-4"]}
+                     ADDRESSED_BY_FIELD: ["AI-2"]}
                 ]
             }
         ) \
@@ -3850,9 +4022,10 @@ def test_a_contributing_factor_is_read_with_the_items_that_answer_it() -> None:
         ) \
         .then(
             the_answer_was([SubmittedFactor(
+                label="CF-1",
                 factor="the canary started at 40%",
                 had_it_been_otherwise="a smaller canary would have failed fewer",
-                addressed_by=["AI-2", "AI-4"])])
+                addressed_by=["AI-2"])])
         )
 
 
@@ -3876,6 +4049,32 @@ def test_a_proposed_item_of_a_kind_nobody_declared_costs_only_itself() -> None:
         .then(
             the_answer_was([SubmittedItem(item="add a test for an empty month",
                                           type=ActionItemType.PREVENT)])
+        )
+
+
+@pytest.mark.unit
+def test_a_proposed_item_is_read_with_the_factors_it_answers() -> None:
+    # The item names the factors, by the labels they were written under, rather
+    # than a factor naming the item: told to cite items it had not yet written,
+    # by numbers it had to work out, a write-up cited each one number off.
+    Scenario() \
+        .given(
+            a_submission_proposing_one := {
+                ACTION_ITEMS_FIELD: [
+                    {ITEM_FIELD: "add a test for an empty month",
+                     ITEM_TYPE_FIELD: "prevent",
+                     ANSWERS_FIELD: ["CF-1", "CF-3"]}
+                ]
+            }
+        ) \
+        .when(
+            lambda: SubmittedPostmortem.model_validate(
+                a_submission_proposing_one).action_items
+        ) \
+        .then(
+            the_answer_was([SubmittedItem(item="add a test for an empty month",
+                                          type=ActionItemType.PREVENT,
+                                          answers=["CF-1", "CF-3"])])
         )
 
 

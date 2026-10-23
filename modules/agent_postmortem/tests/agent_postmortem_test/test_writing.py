@@ -692,6 +692,50 @@ def test_the_model_s_proposals_are_numbered_after_the_record_s_own_items() -> No
 
 
 @pytest.mark.unit
+def test_a_factor_is_published_with_its_record_items_and_the_proposals_naming_it() -> None:
+    # The model links each proposal to the factors it answers, by label; the
+    # reader is shown each factor's items by number, as the record's are -
+    # its own first, then each proposal that names it, in the order given.
+    evidence = an_evidence_bundle(pull_request=OpenedPullRequest(
+        number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"))
+
+    Scenario() \
+        .given(
+            a_model_linking_by_label := _asking_that_answers(
+                a_submitted_answer().model_copy(update={
+                    "contributing_factors": [
+                        SubmittedFactor(label="CF-1", factor="the canary started large",
+                                        had_it_been_otherwise="dont care",
+                                        addressed_by=["AI-1"]),
+                        SubmittedFactor(label="CF-2", factor="no test covered an empty month",
+                                        had_it_been_otherwise="dont care", addressed_by=[])
+                    ],
+                    "action_items": [
+                        SubmittedItem(item="test an empty month", type=ActionItemType.PREVENT,
+                                      answers=["CF-1", "CF-2"]),
+                        SubmittedItem(item="alert on account pages", type=ActionItemType.DETECT,
+                                      answers=["CF-2"])
+                    ]}))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=a_model_linking_by_label,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the contributing factors",
+                       lambda document: document.contributing_factors,
+                       [ContributingFactor(text="the canary started large",
+                                           addressed_by=["AI-1", "AI-2"]),
+                        ContributingFactor(text="no test covered an empty month",
+                                           addressed_by=["AI-2", "AI-3"])])
+        )
+
+
+@pytest.mark.unit
 def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
     # The label means nothing outside the prompt it was given in, and the
     # stored document is read without one.

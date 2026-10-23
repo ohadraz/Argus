@@ -44,6 +44,7 @@ from agent_postmortem.estimate import ErrorRates
 from agent_postmortem.figures import Figure, figures_of
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
+    ANSWERS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
     CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
@@ -1309,7 +1310,7 @@ def test_a_contributing_factor_nothing_answers_is_named() -> None:
     Scenario() \
         .given(
             an_answer_with_an_unanswered_factor := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="the canary started large",
+                SubmittedFactor(label="CF-1", factor="the canary started large",
                                 had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=[])
             ])
         ) \
@@ -1332,7 +1333,8 @@ def test_a_factor_not_saying_what_it_would_have_changed_is_named() -> None:
     Scenario() \
         .given(
             an_answer_with_an_unweighed_factor := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="the canary started large", addressed_by=["AI-1"])
+                SubmittedFactor(label="CF-1", factor="the canary started large",
+                                addressed_by=["AI-1"])
             ])
         ) \
         .when(
@@ -1356,7 +1358,7 @@ def test_a_factor_answering_what_it_would_have_changed_with_nothing_is_named(
     Scenario() \
         .given(
             an_answer_with_a_blank_otherwise := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="the canary started large",
+                SubmittedFactor(label="CF-1", factor="the canary started large",
                                 had_it_been_otherwise=blank, addressed_by=["AI-1"])
             ])
         ) \
@@ -1377,7 +1379,7 @@ def test_a_factor_naming_an_item_that_does_not_exist_is_named() -> None:
     Scenario() \
         .given(
             an_answer_naming_a_ghost_item := _an_answer(contributing_factors=[
-                SubmittedFactor(factor="no test covered an empty month",
+                SubmittedFactor(label="CF-1", factor="no test covered an empty month",
                                 had_it_been_otherwise=DONT_CARE_PROSE,
                                 addressed_by=["AI-9"])
             ])
@@ -1394,24 +1396,146 @@ def test_a_factor_naming_an_item_that_does_not_exist_is_named() -> None:
 
 
 @pytest.mark.unit
-def test_a_factor_may_name_an_item_on_the_record_or_one_the_answer_proposes() -> None:
-    # One item on the record, so the answer's first proposal is AI-2.
+def test_a_factor_may_be_answered_by_an_item_on_the_record_and_by_one_the_answer_proposes(
+) -> None:
+    # The record's item by its number, in the factor; the answer's own by the
+    # factor's label, in the item - each link written after what it names.
     Scenario() \
         .given(
             an_answer_naming_both := _an_answer(
                 contributing_factors=[
-                    SubmittedFactor(factor="no test covered an empty month",
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
                                     had_it_been_otherwise=DONT_CARE_PROSE,
-                                    addressed_by=["AI-1", "AI-2"])
+                                    addressed_by=["AI-1"])
                 ],
                 action_items=[SubmittedItem(item="add a test for an empty month",
-                                            type=ActionItemType.PREVENT)])
+                                            type=ActionItemType.PREVENT, answers=["CF-1"])])
         ) \
         .when(
             lambda: faults_in(an_answer_naming_both, given=SOME_GIVEN)
         ) \
         .then(
             _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_answered_only_by_an_item_the_answer_proposes_is_accepted() -> None:
+    # None of the record's items answers it, so its own list is empty - an
+    # answer, not a fault.
+    Scenario() \
+        .given(
+            an_answer_answering_by_a_proposal := _an_answer(
+                contributing_factors=[
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=[])
+                ],
+                action_items=[SubmittedItem(item="add a test for an empty month",
+                                            type=ActionItemType.PREVENT, answers=["CF-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_answering_by_a_proposal, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_naming_an_item_the_answer_proposes_is_named() -> None:
+    # One item on the record, so AI-2 is the answer's own first proposal -
+    # a number it had to work out, which is how a write-up came to cite each
+    # of its items one off. The proposal names the factor instead.
+    Scenario() \
+        .given(
+            an_answer_numbering_its_own_item := _an_answer(
+                contributing_factors=[
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE,
+                                    addressed_by=["AI-2"])
+                ],
+                action_items=[SubmittedItem(item="add a test for an empty month",
+                                            type=ActionItemType.PREVENT, answers=["CF-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_numbering_its_own_item, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[AI-2]"),
+                _named(ANSWERS_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("second_label", ["CF-3", None], ids=["skipped", "missing"])
+def test_a_factor_labelled_out_of_order_is_named(second_label: str | None) -> None:
+    # The labels run CF-1, CF-2 and so on, as the factors are given: a label
+    # that is not where its place says is one an item could name wrongly.
+    Scenario() \
+        .given(
+            an_answer_mislabelling_a_factor := _an_answer(contributing_factors=[
+                SubmittedFactor(label="CF-1", factor="the canary started large",
+                                had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=["AI-1"]),
+                SubmittedFactor(label=second_label, factor="no test covered an empty month",
+                                had_it_been_otherwise=DONT_CARE_PROSE, addressed_by=["AI-1"])
+            ])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_mislabelling_a_factor, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("no test covered an empty month"),
+                _named("CF-2"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_item_answering_a_label_no_factor_has_is_named() -> None:
+    Scenario() \
+        .given(
+            an_answer_answering_a_ghost := _an_answer(
+                contributing_factors=[
+                    SubmittedFactor(label="CF-1", factor="no test covered an empty month",
+                                    had_it_been_otherwise=DONT_CARE_PROSE,
+                                    addressed_by=["AI-1"])
+                ],
+                action_items=[SubmittedItem(item="add a test for an empty month",
+                                            type=ActionItemType.PREVENT, answers=["CF-9"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_answering_a_ghost, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[CF-9]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_factor_s_label_written_in_the_prose_is_named() -> None:
+    # The reader never sees a factor's label: written into a sentence, it is a
+    # name that leads nowhere.
+    Scenario() \
+        .given(
+            an_answer_citing_a_factor_in_prose := _an_answer(
+                root_cause="The canary started large, as CF-2 says.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_citing_a_factor_in_prose, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named("[CF-2]"),
+                _found(1)
+            )
         )
 
 
@@ -1656,6 +1780,7 @@ def test_a_factor_saying_a_check_is_missing_is_accepted() -> None:
         .given(
             an_answer_with_a_factor_naming_a_missing_check := _an_answer(
                 contributing_factors=[SubmittedFactor(
+                    label="CF-1",
                     factor="Nothing checks that the two names agree.",
                     had_it_been_otherwise=DONT_CARE_PROSE,
                     addressed_by=["AI-1"])])

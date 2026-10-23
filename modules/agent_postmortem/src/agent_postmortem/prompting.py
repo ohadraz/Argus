@@ -135,17 +135,21 @@ CITES_FIELD: Final = "cites"
 # change: each what and why, citing what ruled it out.
 RULED_OUT_FIELD: Final = "ruled_out"
 WHAT_FIELD: Final = "what"
-# The conditions that had to hold, each naming the action items that answer it.
+# The conditions that had to hold, each under a label of its own (`CF-1`) and
+# naming the record's own action items that answer it.
 CONTRIBUTING_FACTORS_FIELD: Final = "contributing_factors"
+LABEL_FIELD: Final = "label"
 FACTOR_FIELD: Final = "factor"
 # What a factor, had it been otherwise, would have changed with the root cause
 # still true - the question a restatement of the root cause cannot answer.
 HAD_IT_BEEN_OTHERWISE_FIELD: Final = "had_it_been_otherwise"
 ADDRESSED_BY_FIELD: Final = "addressed_by"
-# What the model proposes be done, each of one of the four kinds.
+# What the model proposes be done, each of one of the four kinds and naming the
+# factors it answers by their labels.
 ACTION_ITEMS_FIELD: Final = "action_items"
 ITEM_FIELD: Final = "item"
 ITEM_TYPE_FIELD: Final = "type"
+ANSWERS_FIELD: Final = "answers"
 # Google's three lists.
 LESSONS_FIELD: Final = "lessons"
 WENT_WELL_FIELD: Final = "went_well"
@@ -200,21 +204,27 @@ class SubmittedStep(BaseModel):
 
 
 class SubmittedFactor(BaseModel):
-    """One contributing factor as the model wrote it, what it would have
-    changed had it been otherwise, and the items it named. `None` where it did
-    not say, which `checking` names."""
+    """One contributing factor as the model wrote it, the label it wrote it
+    under, what it would have changed had it been otherwise, and the record's
+    items it named. `None` where it did not say, which `checking` names."""
 
+    label: str | None = None
     factor: str
     had_it_been_otherwise: str | None = None
     addressed_by: list[str]
 
 
 class SubmittedItem(BaseModel):
-    """One action item the model proposed. Unnumbered: its number is its place
-    after the record's own."""
+    """One action item the model proposed, and the labels of the factors it
+    answers. Unnumbered: its number is its place after the record's own.
+
+    The item names the factors rather than a factor naming the item: the
+    factors are written first, and told to cite items it had not yet written,
+    by numbers it had to work out, a write-up cited each one number off."""
 
     item: str
     type: ActionItemType
+    answers: list[str] = []
 
 
 class SubmittedPostmortem(BaseModel):
@@ -320,13 +330,13 @@ class SubmittedPostmortem(BaseModel):
                                                     for ruled in step.ruled_out])
                                   for step in self.causal_chain]),
             CONTRIBUTING_FACTORS_FIELD: (None if self.contributing_factors is None else
-                                         [SubmittedFactor(factor=rewrite(factor.factor),
-                                                          had_it_been_otherwise=rewritten(
-                                                              factor.had_it_been_otherwise),
-                                                          addressed_by=factor.addressed_by)
+                                         [factor.model_copy(update={
+                                             FACTOR_FIELD: rewrite(factor.factor),
+                                             HAD_IT_BEEN_OTHERWISE_FIELD: rewritten(
+                                                 factor.had_it_been_otherwise)})
                                           for factor in self.contributing_factors]),
             ACTION_ITEMS_FIELD: (None if self.action_items is None else
-                                 [SubmittedItem(item=rewrite(item.item), type=item.type)
+                                 [item.model_copy(update={ITEM_FIELD: rewrite(item.item)})
                                   for item in self.action_items]),
             LESSONS_FIELD: (None if self.lessons is None else
                             self.lessons.model_copy(update={
@@ -432,7 +442,8 @@ class SubmittedPostmortem(BaseModel):
 
         return [
             entry if isinstance(entry, SubmittedFactor)
-            else SubmittedFactor(factor=entry[FACTOR_FIELD],
+            else SubmittedFactor(label=_a_string_or_none(entry.get(LABEL_FIELD)),
+                                 factor=entry[FACTOR_FIELD],
                                  had_it_been_otherwise=_a_string_or_none(
                                      entry.get(HAD_IT_BEEN_OTHERWISE_FIELD)),
                                  addressed_by=_the_strings_in(entry.get(ADDRESSED_BY_FIELD)))
@@ -456,7 +467,8 @@ class SubmittedPostmortem(BaseModel):
 
         return [
             entry if isinstance(entry, SubmittedItem)
-            else SubmittedItem(item=entry[ITEM_FIELD], type=ActionItemType(entry[ITEM_TYPE_FIELD]))
+            else SubmittedItem(item=entry[ITEM_FIELD], type=ActionItemType(entry[ITEM_TYPE_FIELD]),
+                               answers=_the_strings_in(entry.get(ANSWERS_FIELD)))
             for entry in value
             if isinstance(entry, SubmittedItem)
             or (isinstance(entry, dict)
@@ -553,6 +565,16 @@ _A_SAFEGUARD_NOBODY_SAW: Final = (
     "write that no check was seen, not that none ran."
 )
 
+# Said beneath what Code-Fix read. Its reading was restated more absolutely
+# than it was given, both ways: "nothing in main does that" became "nothing in
+# the running code works it out", and "by default it only reports" became
+# "report-only".
+_SAY_IT_NO_WIDER_THAN_IT_WAS_READ: Final = (
+    "Say what the files Code-Fix read do, with the conditions it gives - a "
+    "default as a default, never as all it does - and no wider: 'nothing in the "
+    "files it read', never 'nothing in the code'."
+)
+
 
 SUBMIT_POSTMORTEM = ToolDefinition(
     name=SUBMIT_TOOL_NAME,
@@ -574,7 +596,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "\"for several minutes\", never \"twenty minutes\", \"a third\" or "
         "\"tripled\". A number is a figure even with a unit or a clock's marks "
         "on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a "
-        "name - a label you cite (T2, G3fa2, C1, AI-3), a version (v2), a "
+        "name - a label you cite (T2, G3fa2, C1, AI-1), a version (v2), a "
         "revision, a pod - and is written as given. State only what the "
         "evidence you are shown says: where the record does not show something "
         "- a check that was or was not run, how many replicas - leave it out "
@@ -690,7 +712,15 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "say so in that step itself. Stop where the evidence stops."
         ),
         CONTRIBUTING_FACTORS_FIELD: _a_list_of(
-            {FACTOR_FIELD: {"type": "string"},
+            {LABEL_FIELD: {
+                 "type": "string",
+                 "description": (
+                     "CF-1 for the first factor, CF-2 for the next, and so on in the "
+                     f"order you give them. Written here and in an item's {ANSWERS_FIELD}, "
+                     "never in your prose: the reader never sees it."
+                 )
+             },
+             FACTOR_FIELD: {"type": "string"},
              HAD_IT_BEEN_OTHERWISE_FIELD: {
                  "type": "string",
                  "description": (
@@ -700,9 +730,16 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                      "root cause again cannot answer this: leave it out of the list."
                  )
              },
-             ADDRESSED_BY_FIELD: {**_SENTENCES,
-                                  "description": "The action items that answer it: AI-2."}},
-            [FACTOR_FIELD, HAD_IT_BEEN_OTHERWISE_FIELD, ADDRESSED_BY_FIELD],
+             ADDRESSED_BY_FIELD: {
+                 **_SENTENCES,
+                 "description": (
+                     "The record's own action items that answer it, by the numbers the "
+                     "record gives them: AI-1. Empty where none of them does. Never an "
+                     "item you propose: that item names, in its own "
+                     f"{ANSWERS_FIELD}, the factors it answers."
+                 )
+             }},
+            [LABEL_FIELD, FACTOR_FIELD, HAD_IT_BEEN_OTHERWISE_FIELD, ADDRESSED_BY_FIELD],
             "Conditions that had to hold for the incident to happen and did not "
             "cause it alone - a safeguard that did not stop it, a gap in detection "
             "or review. A factor held before the incident began: what the response "
@@ -713,13 +750,20 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             f"even with what {ROOT_CAUSE_FIELD} says still true. "
             f"{_A_SAFEGUARD_NOBODY_SAW} An alert finds what its rule watches, not the "
             "cause behind it: say a fault was found only by what the record shows "
-            "found it. Each names at least one action item that answers it."
+            "found it. Each is answered by at least one action item: one of the "
+            f"record's, named in its {ADDRESSED_BY_FIELD}, or one you propose, whose "
+            f"{ANSWERS_FIELD} name it."
         ),
         ACTION_ITEMS_FIELD: _a_list_of(
             {ITEM_FIELD: {"type": "string"},
              ITEM_TYPE_FIELD: {"type": "string",
-                               "enum": [kind.value for kind in ActionItemType]}},
-            [ITEM_FIELD, ITEM_TYPE_FIELD],
+                               "enum": [kind.value for kind in ActionItemType]},
+             ANSWERS_FIELD: {**_SENTENCES,
+                             "description": (
+                                 "The labels of the contributing factors it answers: "
+                                 "CF-1. Empty where it answers none."
+                             )}},
+            [ITEM_FIELD, ITEM_TYPE_FIELD, ANSWERS_FIELD],
             "What should be done that the record does not already hold, each "
             "one thing a person could take on: two things to do are two items. "
             "Empty where the record's own "
@@ -958,9 +1002,10 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
         *_what_set_it_off(evidence),
         "",
-        f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label, and name action items "
-        f"in {CONTRIBUTING_FACTORS_FIELD} by their number. Items you propose in "
-        f"{ACTION_ITEMS_FIELD} are numbered after these, in the order you give them.",
+        f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label. In a contributing "
+        f"factor's {ADDRESSED_BY_FIELD}, name the record's own action items that answer "
+        f"it, by their number; an item you propose names the factors it answers in its "
+        f"{ANSWERS_FIELD}, by their labels.",
         *_what_people_told_it(evidence.leads)
     ])
 
@@ -1069,7 +1114,8 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         *([(f"What Code-Fix read in the source and proposed, in Code-Fix's words - nothing "
             f"ran its test or its fix, and what it claims {_NOT_WHAT_HAPPENED}:",
             read_in_the_source,
-            " ".join(note for note in (_what_its_branch_did_not_hold(evidence),
+            " ".join(note for note in (_SAY_IT_NO_WIDER_THAN_IT_WAS_READ,
+                                       _what_its_branch_did_not_hold(evidence),
                                        _what_it_read_as_it_ran(evidence),
                                        _the_diffs_of_what_it_names(evidence, looked_into))
                      if note) or None)]
@@ -1146,18 +1192,24 @@ def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:
     ran holds as the branch read does - or nothing, where there are none.
 
     Said rather than shown: the reading stands for what ran, and a row would
-    repeat the file the reading already describes.
+    repeat the file the reading already describes. For those files alone, and
+    said so: told only that it stood for what ran, a write-up carried "nothing
+    in main does that" - said of the whole branch - over to the running code.
+    Not "of the branch alone" for the rest: told that, write-ups doubted what
+    the record shows of other revisions, and proposed checking it.
     """
     read = [ran for ran in evidence.files_as_they_ran if ran.as_read]
     if not read:
         return None
 
+    reading = label_of(CODE_READING_PREFIX, 1)
     branch = evidence.fix_branch_read or "the branch it read"
     as_it_was = "as it was" if len(read) == 1 else "as they were"
+    those = "that file" if len(read) == 1 else "those files"
 
-    return (f"[{label_of(CODE_READING_PREFIX, 1)}] read "
-            f"{', '.join(ran.path for ran in read)} on {branch} {as_it_was} at "
-            f"{read[0].revision[:7]}, which ran.")
+    return (f"[{reading}] read {', '.join(ran.path for ran in read)} on {branch} "
+            f"{as_it_was} at {read[0].revision[:7]}, which ran. What [{reading}] says of "
+            f"{those} holds for what ran; what it says of the rest of {branch} does not.")
 
 
 def the_files_as_they_ran_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:

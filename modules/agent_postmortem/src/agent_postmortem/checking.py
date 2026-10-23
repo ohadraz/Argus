@@ -63,6 +63,8 @@ from agent_postmortem.figures import (
 )
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
+    ADDRESSED_BY_FIELD,
+    ANSWERS_FIELD,
     CAUSAL_CHAIN_FIELD,
     CAUSE_IN_PLAIN_WORDS_FIELD,
     CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD,
@@ -81,8 +83,10 @@ from agent_postmortem.revisions import unknown_revisions_in
 from agent_postmortem.sections import (
     AS_IT_RAN_PREFIX,
     CODE_READING_PREFIX,
+    CONTRIBUTING_FACTOR_PREFIX,
     DEPLOYMENT_CHANGES_PREFIX,
     action_item_number,
+    contributing_factor_label,
     is_a_code_reading,
     label_of,
 )
@@ -161,6 +165,9 @@ _A_MISSING_CHECK: Final = re.compile(
     r"|\bno\s+(?:\w+\s+)?(?:checks?|safeguards?)\b",
     re.IGNORECASE)
 
+# A factor's label written as a word of the prose.
+_A_FACTOR_S_LABEL: Final = re.compile(rf"\b{re.escape(CONTRIBUTING_FACTOR_PREFIX)}\d+\b")
+
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
     "write a figure the incident gave as the name shown after it, braces and all, "
@@ -206,6 +213,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _readings_beside_no_file_as_it_ran(answer, given)
             + _a_reading_the_answer_says_otherwise_of(answer)
             + _factors_nothing_answers(answer, given)
+            + _factor_labels_in_the_prose(answer)
             + _numbers_in_digits(answer, given)
             + _figures_spelled_out(answer)
             + _figures_said_in_a_word(answer)
@@ -469,17 +477,32 @@ def _what_is_wrong_with_citing(said: str, kind: str, label: str, given: Given) -
 
 
 def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[str]:
-    """Each factor naming no action item, and each item named that does not exist.
+    """Each factor not under its place's label, naming an item that is not the
+    record's, or answered by nothing - and each proposal answering a label no
+    factor has.
 
-    The items that exist are the record's and the answer's own proposals, which
-    are numbered after the record's in the order the answer gave them.
+    Each link runs back to what was written before it: a factor names the
+    record's items, by the numbers the brief gave them, and a proposal names
+    the factors it answers, by label. Told to cite the answer's own items from
+    its factors - items not yet written, by numbers it had to work out - a
+    write-up cited each one off, and every number it gave was an item's.
     """
-    proposed = len(answer.action_items or [])
-    items = {action_item_number(position)
-             for position in range(1, given.items_on_record + proposed + 1)}
+    on_record = {action_item_number(position)
+                 for position in range(1, given.items_on_record + 1)}
+    factors = answer.contributing_factors or []
+    labels = {contributing_factor_label(position) for position in range(1, len(factors) + 1)}
+    proposals = answer.action_items or []
+    answered = {label for item in proposals for label in item.answers}
     faults: list[str] = []
 
-    for factor in answer.contributing_factors or []:
+    for position, factor in enumerate(factors, start=1):
+        placed = contributing_factor_label(position)
+        if factor.label != placed:
+            faults.append(f"the contributing factor [{factor.factor}] is labelled "
+                          f"[{factor.label or 'nothing'}] where its place makes it "
+                          f"[{placed}] - label the factors CF-1, CF-2 and so on, in the "
+                          f"order you give them")
+
         # Blank as well as absent: a strict tool guarantees a string arrives,
         # not that it says anything.
         if not (factor.had_it_been_otherwise or "").strip():
@@ -488,16 +511,35 @@ def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[
                           f"{HAD_IT_BEEN_OTHERWISE_FIELD}, with what {ROOT_CAUSE_FIELD} says "
                           f"still true")
 
-        if not factor.addressed_by:
-            faults.append(f"the contributing factor [{factor.factor}] names no action "
-                          f"item that answers it - name one in {ACTION_ITEMS_FIELD} or "
-                          f"on the record")
+        if not factor.addressed_by and factor.label not in answered:
+            faults.append(f"nothing answers the contributing factor [{factor.factor}] - name "
+                          f"one of the record's action items in its {ADDRESSED_BY_FIELD}, or "
+                          f"propose one in {ACTION_ITEMS_FIELD} whose {ANSWERS_FIELD} name it")
 
-        faults.extend(f"the contributing factor [{factor.factor}] names [{number}], "
-                      f"which is not an action item"
-                      for number in factor.addressed_by if number not in items)
+        faults.extend(f"the contributing factor [{factor.factor}] names [{number}] in its "
+                      f"{ADDRESSED_BY_FIELD}, which is not one of the record's action items - "
+                      f"an item you propose names the factors it answers, in its "
+                      f"{ANSWERS_FIELD}"
+                      for number in factor.addressed_by if number not in on_record)
+
+    faults.extend(f"the action item [{item.item}] answers [{label}], which is not the label "
+                  f"of one of your contributing factors"
+                  for item in proposals for label in item.answers if label not in labels)
 
     return faults
+
+
+def _factor_labels_in_the_prose(answer: SubmittedPostmortem) -> list[str]:
+    """Each factor's label written into a sentence the document publishes.
+
+    The reader never sees a factor's label - the document says which items
+    answer a factor by their numbers - so one written in the prose is a name
+    that leads nowhere.
+    """
+    return [f"your answer writes [{label}] in its prose - a factor's label is for an "
+            f"item's {ANSWERS_FIELD} alone, and the reader never sees it: say the factor "
+            f"in words"
+            for prose in answer.sentences() for label in _A_FACTOR_S_LABEL.findall(prose)]
 
 
 def _numbers_in_digits(answer: SubmittedPostmortem, given: Given) -> list[str]:
