@@ -235,6 +235,31 @@ def test_a_finding_naming_a_minute_the_page_holds_leads_to_it() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("named", "said"), [("2026-08-30T10:13Z", "10:13"),
+                                             ("2026-08-29T10:13Z", "Aug 29 10:13")],
+                         ids=["the-day-it-opened", "another-day"])
+def test_an_instant_a_candidate_names_is_said_as_the_timeline_says_it(named: str,
+                                                                     said: str) -> None:
+    # The candidate says it as the Investigator wrote it, in the wire format
+    # its tools speak, and the timeline above says the same words on a clock.
+    # Left so, one page says one instant two ways. A clock time is read as
+    # the day the incident opened, so an instant on any other keeps its date.
+    an_incident = _an_incident()
+
+    Scenario() \
+        .given(
+            a_candidate_naming_an_instant := _a_candidate(
+                an_incident.id, subject="a-flag", rank=1, summary=f"the deploy at {named} broke it")
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_naming_an_instant],
+            attempts=NOTHING_WAS_TRIED
+        )) \
+        .then(_the_first_candidate_says(f"the deploy at {said} broke it"))
+
+
+@pytest.mark.unit
 def test_an_incident_is_shown_with_the_alert_it_opened_on() -> None:
     # The row stores the alert as the JSON it was normalized into. A reader
     # gets the alert back, not the payload it was stored as.
@@ -276,10 +301,11 @@ def _a_candidate(incident_id: str,
                  rank: int,
                  evidence: list[Evidence] | None = None,
                  from_state: str | None = None,
-                 to_state: str | None = None) -> Hypothesis:
+                 to_state: str | None = None,
+                 summary: str | None = None) -> Hypothesis:
     return Hypothesis(
         incident_id=incident_id,
-        summary=f"dont care - {subject}",
+        summary=summary or f"dont care - {subject}",
         failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         supporting_evidence=evidence or [],
@@ -443,6 +469,18 @@ def _the_only_candidate_moved(was: str, now: str) -> Assertion[IncidentDetail]:
                 f"Expected the candidate to have moved [{was}] to [{now}], "
                 f"got [{candidate.moved_from}] to [{candidate.moved_to}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_first_candidate_says(expected: str) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        said = _the_first(detail).summary
+
+        if said != expected:
+            raise AssertionError(f"Expected the candidate to say [{expected}], got [{said}].")
 
         return True
 

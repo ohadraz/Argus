@@ -7,6 +7,8 @@ Each case is one postmortem and the table the section says it as.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from argus_core.models import CandidateConsidered, HypothesisConsidered
 from argus_testkit import Scenario, the_answer_was
@@ -118,6 +120,28 @@ def test_a_revision_a_candidate_names_is_said_short_and_leads_where_it_opens(nam
                 Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
                     address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}"),
                 Run(text=" made every page slow")))))
+
+
+@pytest.mark.unit
+def test_an_instant_a_candidate_names_is_said_as_a_moment() -> None:
+    # The candidate says it as the Investigator wrote it, in the wire format
+    # its tools speak, and the rest of the document says the same instant as
+    # a moment. Left so, one document says one instant two ways, and only one
+    # of them is said again on a reader's own clock.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(summary="the deploy at 2026-10-16T10:55Z broke it",
+                                     confidence=0.8, result="confirmed", label="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="the deploy at "),
+                Run.a_moment(datetime(2026, 10, 16, 10, 55, tzinfo=UTC)),
+                Run(text=" broke it")))))
 
 
 @pytest.mark.unit

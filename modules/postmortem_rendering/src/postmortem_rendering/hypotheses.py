@@ -6,21 +6,29 @@ A candidate names a revision as the model wrote it - whole, mostly, or by as
 much of it as the model liked - and the trigger and the timeline beside it say
 it short. So it is said short here too, and leads to its commit: one document
 naming one revision two ways reads as naming two.
+
+An instant it names is said as a moment, for the same reason: the model writes
+it in the wire format its tools speak, and the rest of the document does not.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Final
 
-from argus_core import said_short
+from argus_core import parse_iso, said_short
 from argus_core.models import HypothesisConsidered, PostmortemDocument
 from pydantic import BaseModel, ConfigDict
 
-from postmortem_rendering.lines import Line, Run
+from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
 
 _HEADINGS: Final = ("", "Hypothesis", "Confidence", "Result")
+
+# An instant as the tools speak one, to the minute or the second, its zone
+# marker optional.
+_AN_INSTANT: Final = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)")
 
 
 class HypothesisRow(BaseModel):
@@ -68,7 +76,8 @@ def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
     addresses = the_revision_addresses(postmortem.changes_read)
 
     def said(summary: str) -> tuple[Run, ...]:
-        return Run(text=said_short(summary, shorts)).with_links(addresses)
+        return tuple(said for linked in Run(text=said_short(summary, shorts)).with_links(addresses)
+                     for said in _with_moments(linked))
 
     rows = tuple(row
                  for hypothesis in postmortem.hypotheses
@@ -94,6 +103,26 @@ def _the_rows_of_several(hypothesis: HypothesisConsidered,
                       confidence=_to_two_places(member.confidence),
                       result=hypothesis.result_of(member))
         for member in hypothesis.members)
+
+
+def _with_moments(run: Run) -> tuple[Run, ...]:
+    """The run cut at every instant in its words, each said as a moment and
+    the words between them left as they were. A link is left whole, and so is
+    a string shaped like an instant that names no day there is."""
+    if run.role is not Role.PLAIN:
+        return (run,)
+
+    # `split` puts what the group matched at every odd place.
+    return tuple(_a_moment(piece) if place % 2 else run.model_copy(update={"text": piece})
+                 for place, piece in enumerate(_AN_INSTANT.split(run.text)) if piece)
+
+
+def _a_moment(said: str) -> Run:
+    """An instant as a moment, or its words as they came where it is none."""
+    try:
+        return Run.a_moment(parse_iso(said))
+    except ValueError:
+        return Run(text=said)
 
 
 def _to_two_places(confidence: float | None) -> str:

@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from argus_core import UuidStr
+from argus_core import UuidStr, to_iso
 from argus_core.models import (
     Alert,
     FailureMode,
@@ -24,7 +24,7 @@ from argus_core.models import (
     TakenAction,
     Verdict,
 )
-from argus_narration import Finding, a_finding, said_as_a_state
+from argus_narration import Finding, a_finding, said_as_a_state, said_plainly
 from pydantic import BaseModel
 
 
@@ -125,6 +125,9 @@ def build_incident_detail(
     `minutes` and `logged` are the rows the page holds - the minutes read and
     the minutes logged - so a finding naming one of them leads to it, as the
     same finding does in the timeline. Empty, a finding leads nowhere.
+
+    A candidate's words are said as the timeline says them, an instant in
+    them on the clock and read against the day the incident opened.
     """
     attached: dict[str, list[Attempt]] = {}
     unattributed: list[Attempt] = []
@@ -142,7 +145,8 @@ def build_incident_detail(
         status=incident.status,
         created_at=incident.created_at,
         candidates=[
-            _a_candidate(candidate, attached.get(candidate.id, []), minutes, logged)
+            _a_candidate(candidate, attached.get(candidate.id, []), minutes, logged,
+                         opened=to_iso(incident.created_at))
             for candidate in candidates
         ],
         unattributed_attempts=unattributed
@@ -182,7 +186,8 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
 def _a_candidate(hypothesis: Hypothesis,
                  attempts: list[Attempt],
                  minutes: Sequence[str],
-                 logged: Sequence[str]) -> Candidate:
+                 logged: Sequence[str],
+                 opened: str) -> Candidate:
     """One hypothesis row, with the attempts made for it.
 
     A candidate the walk never reached comes back with no attempts and
@@ -191,7 +196,7 @@ def _a_candidate(hypothesis: Hypothesis,
     """
     return Candidate(
         rank=hypothesis.rank,
-        summary=hypothesis.summary,
+        summary=said_plainly(hypothesis.summary, beside=opened),
         failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,
         subject=hypothesis.subject,
