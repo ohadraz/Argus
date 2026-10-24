@@ -35,7 +35,7 @@ from argus_narration.narrating import (
     what_was_done,
     where_a_report_came_from,
 )
-from argus_narration.prose import said_plainly
+from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
 from argus_narration.showing import ShownRevision, as_shown, shown, the_revisions
 
 __all__ = [
@@ -43,6 +43,7 @@ __all__ = [
     "CandidateLine",
     "Finding",
     "FlagToggleRow",
+    "InstantInProse",
     "LogLine",
     "NarrationLine",
     "ShownRevision",
@@ -64,6 +65,7 @@ __all__ = [
     "said_in_full",
     "said_plainly",
     "shown",
+    "the_instants_in",
     "the_minutes_logged",
     "the_revisions",
     "what_to_do",

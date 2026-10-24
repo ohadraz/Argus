@@ -9,26 +9,25 @@ naming one revision two ways reads as naming two.
 
 An instant it names is said as a moment, for the same reason: the model writes
 it in the wire format its tools speak, and the rest of the document does not.
+Found as the page finds one (`the_instants_in`), so the two never disagree about
+which of a candidate's words are instants.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
+from datetime import date
 from typing import Final
 
-from argus_core import parse_iso, said_short
+from argus_core import said_short
 from argus_core.models import HypothesisConsidered, PostmortemDocument
+from argus_narration import the_instants_in
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import the_revision_addresses, the_short_forms
 
 _HEADINGS: Final = ("", "Hypothesis", "Confidence", "Result")
-
-# An instant as the tools speak one, to the minute or the second, its zone
-# marker optional.
-_AN_INSTANT: Final = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)")
 
 
 class HypothesisRow(BaseModel):
@@ -62,8 +61,13 @@ class HypothesesSection(BaseModel):
     absent: str | None
 
 
-def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
+def the_hypotheses(postmortem: PostmortemDocument,
+                   day: date | None = None) -> HypothesesSection:
     """Every candidate ranked, in the order the investigation ranked them.
+
+    `day` is the one the document is dated by: a clock time a candidate names
+    with the wire's zone marker is put on it, as the page puts one on the day
+    of its line - and is left as it was written where the document names none.
 
     Candidates the record merged are each a row of their own, in their own
     words and confidence, the result saying whose test reached it: on one row
@@ -77,7 +81,7 @@ def the_hypotheses(postmortem: PostmortemDocument) -> HypothesesSection:
 
     def said(summary: str) -> tuple[Run, ...]:
         return tuple(said for linked in Run(text=said_short(summary, shorts)).with_links(addresses)
-                     for said in _with_moments(linked))
+                     for said in _with_moments(linked, day))
 
     rows = tuple(row
                  for hypothesis in postmortem.hypotheses
@@ -105,24 +109,21 @@ def _the_rows_of_several(hypothesis: HypothesisConsidered,
         for member in hypothesis.members)
 
 
-def _with_moments(run: Run) -> tuple[Run, ...]:
+def _with_moments(run: Run, day: date | None) -> tuple[Run, ...]:
     """The run cut at every instant in its words, each said as a moment and
-    the words between them left as they were. A link is left whole, and so is
-    a string shaped like an instant that names no day there is."""
+    the words between them left as they were. A link is left whole."""
     if run.role is not Role.PLAIN:
         return (run,)
 
-    # `split` puts what the group matched at every odd place.
-    return tuple(_a_moment(piece) if place % 2 else run.model_copy(update={"text": piece})
-                 for place, piece in enumerate(_AN_INSTANT.split(run.text)) if piece)
+    runs: list[Run] = []
+    written = 0
+    for instant in the_instants_in(run.text, day):
+        runs += [run.model_copy(update={"text": run.text[written:instant.start]}),
+                 Run.a_moment(instant.at)]
+        written = instant.end
+    runs.append(run.model_copy(update={"text": run.text[written:]}))
 
-
-def _a_moment(said: str) -> Run:
-    """An instant as a moment, or its words as they came where it is none."""
-    try:
-        return Run.a_moment(parse_iso(said))
-    except ValueError:
-        return Run(text=said)
+    return tuple(each for each in runs if each.text)
 
 
 def _to_two_places(confidence: float | None) -> str:

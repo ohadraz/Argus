@@ -119,7 +119,8 @@ def render(postmortem: Postmortem,
     `incident_address`, its page's full address."""
     resolution = the_reported_resolution(events)
     leads = the_leads(postmortem)
-    hypotheses = the_hypotheses(postmortem)
+    day = the_day_it_is_dated_by(postmortem)
+    hypotheses = the_hypotheses(postmortem, day)
     actions_taken = the_actions_taken(postmortem, resolution)
     action_items = the_action_items(postmortem)
     timeline = the_timeline(postmortem)
@@ -156,7 +157,6 @@ def render(postmortem: Postmortem,
         supporting=supporting,
         review=the_review(postmortem))
 
-    day = the_day_it_is_dated_by(postmortem)
     if day is None:
         return rendered
 

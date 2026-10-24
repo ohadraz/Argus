@@ -21,8 +21,10 @@ the same sentence this page does.
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 import pytest
-from argus_narration.prose import said_plainly
+from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
 from argus_testkit import Scenario, the_answer_was
 
 
@@ -117,3 +119,24 @@ def test_a_clock_time_the_model_already_wrote_is_left_exactly_as_it_is() -> None
         .given(some_claim_naming_a_clock_time) \
         .when(lambda: said_plainly(some_claim_naming_a_clock_time)) \
         .then(the_answer_was(some_claim_naming_a_clock_time))
+
+
+@pytest.mark.unit
+def test_every_instant_in_a_sentence_is_found_with_the_moment_it_names() -> None:
+    # One finder for every reader of a model's words: the page says each on
+    # its clock, and the postmortem as a moment of its own. Left two, one
+    # reader found a zoned clock time and the other did not. A zoned clock time
+    # is put on the day the sentence is read on.
+    a_wire_instant = "2026-10-18T16:36:00Z"
+    a_zoned_clock_time = "19:29:35Z"
+    some_claim = f"Stale from {a_wire_instant}, and served stale at {a_zoned_clock_time}."
+    first, second = some_claim.index(a_wire_instant), some_claim.index(a_zoned_clock_time)
+
+    Scenario() \
+        .given(some_claim) \
+        .when(lambda: the_instants_in(some_claim, date(2026, 10, 18))) \
+        .then(the_answer_was([
+            InstantInProse(start=first, end=first + len(a_wire_instant),
+                           at=datetime(2026, 10, 18, 16, 36, tzinfo=UTC)),
+            InstantInProse(start=second, end=second + len(a_zoned_clock_time),
+                           at=datetime(2026, 10, 18, 19, 29, 35, tzinfo=UTC))]))

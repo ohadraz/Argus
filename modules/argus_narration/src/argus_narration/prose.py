@@ -18,15 +18,20 @@ this page says the time. It stays *here* rather than following the others to
 the acceptance seam for the same reason - rendering an instant on the way in
 would store `21:48` in place of the moment it names, throwing the date away,
 and a postmortem is entitled to say the date.
+
+Finding the instants is the part every reader of a model's words shares, so it
+is public (`the_instants_in`): the postmortem says each as a moment of its own
+rather than on this page's clock, and two finders were two answers to which of
+a sentence's words are instants.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import UTC
-from typing import Final
+from datetime import UTC, date, datetime
+from typing import Final, NamedTuple
 
-from argus_core import parse_iso
+from argus_core import parse_iso, to_iso
 
 from argus_narration.clock import a_moment, is_a_moment
 
@@ -47,11 +52,54 @@ _A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2})?Z?")
 
 # The day a clock time is put on where no line says which: any will do, since
 # a time said beside nothing is said without one.
-_ANY_DAY: Final = "1970-01-01"
+_ANY_DAY: Final = date(1970, 1, 1)
+
+
+class InstantInProse(NamedTuple):
+    """An instant a model wrote in a sentence: where in it, and the moment it
+    names."""
+
+    start: int
+    end: int
+    at: datetime
+
+
+def the_instants_in(prose: str, day: date | None) -> list[InstantInProse]:
+    """Every instant a model wrote in `prose`, in either shape that is not how
+    a page says the time, and the moment each names.
+
+    A bare `21:48Z` is a wire-format time with its date left off, which nothing
+    can parse into an instant - so it is put on `day`, the day of whatever the
+    sentence is read beside, and names none where there is no such day. A full
+    timestamp is parsed as it came, because only parsing it can put it in UTC.
+    A string shaped like an instant that names no moment is left out, and
+    stays in the words as it came.
+    """
+    found = []
+    for match in _A_TIME_IN_PROSE.finditer(prose):
+        said = match.group(0)
+        if _A_BARE_CLOCK.fullmatch(said):
+            if day is None:
+                continue
+            said = f"{day.isoformat()}T{said.removesuffix('Z')}Z"
+
+        try:
+            at = parse_iso(said)
+        except ValueError:
+            continue
+
+        found.append(InstantInProse(start=match.start(), end=match.end(), at=at))
+
+    return found
 
 
 def said_plainly(prose: str, beside: str | None = None) -> str:
     """A model's sentence, with its instants said the way the page says them.
+
+    `21:48Z` is what the tools speak to each other; a person reading a page
+    beside a wall clock wants `21:48`. Only the format changes - the moment is
+    the one the model named, and every other time on the page is rendered the
+    same way.
 
     A claim arrives here already on one line - that is settled where the answer
     is accepted - so an instant is never split across a break by the time these
@@ -60,39 +108,19 @@ def said_plainly(prose: str, beside: str | None = None) -> str:
     `beside` is the moment of the line the sentence sits on. A clock time is
     read as that line's day, so an instant on any other keeps its date.
     """
-    return _with_readable_times(prose, beside)
+    said, written = [], 0
+    for instant in the_instants_in(prose, _the_day_of(beside)):
+        said += [prose[written:instant.start], a_moment(to_iso(instant.at), beside=beside)]
+        written = instant.end
+
+    return "".join([*said, prose[written:]])
 
 
-def _with_readable_times(prose: str, beside: str | None) -> str:
-    """Wire-format instants inside a sentence, said as a clock says them.
-
-    `21:48Z` is what the tools speak to each other; a person reading a page
-    beside a wall clock wants `21:48`. Only the format changes - the moment is
-    the one the model named, and every other time on the page is rendered the
-    same way.
-    """
-    return _A_TIME_IN_PROSE.sub(lambda found: _on_the_clock(found.group(0), beside), prose)
-
-
-def _on_the_clock(said: str, beside: str | None) -> str:
-    """One quoted time as a clock reads it, whatever shape it arrived in.
-
-    A bare `21:48Z` is a wire-format time with its date left off, which nothing
-    can parse into an instant - so it is put on the day of the line it sits on,
-    as the sentence reads it, and said as every instant is. A full timestamp is
-    parsed as it came, because only parsing it can put it in UTC.
-    """
-    if _A_BARE_CLOCK.fullmatch(said):
-        return a_moment(f"{_the_day_of(beside)}T{said.removesuffix('Z')}Z", beside=beside)
-
-    return a_moment(said, beside=beside)
-
-
-def _the_day_of(beside: str | None) -> str:
+def _the_day_of(beside: str | None) -> date:
     """The UTC day of the line a clock time sits on, or any day where there is
     no such line to read one from - said beside nothing, a time is never dated,
     so the day only places it."""
     if beside is None or not is_a_moment(beside):
         return _ANY_DAY
 
-    return parse_iso(beside).astimezone(UTC).date().isoformat()
+    return parse_iso(beside).astimezone(UTC).date()

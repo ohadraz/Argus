@@ -7,7 +7,7 @@ Each case is one postmortem and the table the section says it as.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from argus_core.models import CandidateConsidered, HypothesisConsidered
@@ -142,6 +142,26 @@ def test_an_instant_a_candidate_names_is_said_as_a_moment() -> None:
                 Run(text="the deploy at "),
                 Run.a_moment(datetime(2026, 10, 16, 10, 55, tzinfo=UTC)),
                 Run(text=" broke it")))))
+
+
+@pytest.mark.unit
+def test_a_zoned_clock_time_a_candidate_names_is_said_as_a_moment_on_the_document_s_day() -> None:
+    # The model writes a clock time with the wire's zone marker too - "served
+    # stale at 19:29:35Z" - and it is put on the day the document is dated by,
+    # as the page puts one on the day of its line.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(summary="served stale at 19:29:35Z",
+                                     confidence=0.8, result="confirmed", label="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem, day=date(2026, 10, 18)).rows[0].summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="served stale at "),
+                Run.a_moment(datetime(2026, 10, 18, 19, 29, 35, tzinfo=UTC))))))
 
 
 @pytest.mark.unit
