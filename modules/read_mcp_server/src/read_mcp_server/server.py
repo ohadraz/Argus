@@ -30,6 +30,7 @@ from argus_core.mcp_transport import TracedFastMCP
 from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
+    CodeOutsideThePatch,
     DeploymentChanges,
     MetricBucket,
     PodPlacement,
@@ -349,6 +350,22 @@ def build_server(endpoint: ReadMcpEndpoint,
         return rollouts.how_far_the_rollout_has_got(
             service, platform=platform
         )
+
+    @mcp.tool()
+    def get_code_outside_the_patch(files: dict[str, str], ref: str) -> CodeOutsideThePatch:
+        """Returns how the service's own code at `ref` uses what a patch -
+        `files`, each path's whole new content - changes, line by line with what
+        each line does, and every function and class defined outside the
+        patch's files.
+
+        Read by Code-Fix before its submission is asked anything: a sentence
+        about several pieces of code outside the patch is put back with these
+        rows, because what each of those lines does is the syntax tree's to say
+        and not the model's. Not offered to a model. A source that could not be
+        read raises rather than answering that nothing uses what changed. The
+        behavior lives in `repository.read_code_outside_the_patch`; this is
+        registration only."""
+        return repository.read_code_outside_the_patch(files, ref, repository_settings)
 
     @mcp.tool()
     def get_alert_rule(rule: str) -> AlertRuleStanding:

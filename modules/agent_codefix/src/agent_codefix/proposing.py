@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from functools import partial
-from typing import Final, Protocol
+from typing import Final, NamedTuple, Protocol
 
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.llm import (
@@ -40,6 +40,8 @@ from argus_core.llm import (
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     Ask,
+    CodeOutsideThePatch,
+    CodeUse,
     Exchange,
     Hypothesis,
     Leads,
@@ -61,6 +63,7 @@ from argus_core.replay import nobody as records_nothing
 from pydantic import ValidationError
 from read_mcp_client import (
     branch_contains_revision,
+    get_code_outside_the_patch,
     get_repository_index_freshness,
     list_repository_files,
     offered,
@@ -72,6 +75,7 @@ from write_mcp_client import commit_to_new_branch, open_pull_request
 
 from agent_codefix.as_it_ran import the_files_as_they_ran
 from agent_codefix.budget import FixSettings, a_budget_for
+from agent_codefix.grouping import the_group_outside
 from agent_codefix.opening import (
     the_opening_message,
     what_it_concluded,
@@ -83,6 +87,7 @@ from agent_codefix.prompting import (
     EXPLANATION_FIELD,
     NOT_AN_ANSWER,
     NOT_RUN_WHILE_ASKED,
+    NOT_RUN_WHILE_PUT_BACK,
     REPORT_TOOL_NAME,
     STANDING_BRIEF,
     SUBMIT_TOOL_NAME,
@@ -93,6 +98,7 @@ from agent_codefix.prompting import (
 )
 from agent_codefix.retrieval import (
     BranchMembership,
+    CodeOutsideReader,
     FileLister,
     FileReader,
     IndexNotice,
@@ -222,6 +228,20 @@ _A_TURN_THAT_ASKED_FOR_NOTHING: Final = (
 )
 
 
+# What a submission speaking of several pieces of code outside its patch at once
+# is told, around the paragraph that does it and what that code does.
+_SPOKEN_OF_TOGETHER: Final = (
+    "That submission was not opened. A paragraph of its explanation speaks of "
+    "several pieces of code outside your patch at once:"
+)
+_SAY_ONLY_YOUR_OWN: Final = (
+    "Submit again with every line of code as it was, and the explanation and the "
+    "comments in your files saying what the files your patch changes do - nothing "
+    "of what code outside them does or does not do, beyond what the "
+    "investigation's evidence names."
+)
+
+
 def fixes_over(read: McpClient,
                write: McpClient,
                settings: FixSettings,
@@ -249,6 +269,7 @@ def fixes_over(read: McpClient,
         list_files=partial(list_repository_files, client=read),
         contains=partial(branch_contains_revision, client=read),
         read_file=partial(read_repository_file, client=read),
+        code_outside=partial(get_code_outside_the_patch, client=read),
         write_branch=partial(commit_to_new_branch, client=write),
         open_pull_request=partial(open_pull_request, client=write),
         recorder=recorder
@@ -266,6 +287,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                 list_files: FileLister,
                 contains: BranchMembership,
                 read_file: FileReader,
+                code_outside: CodeOutsideReader,
                 write_branch: BranchWriter,
                 open_pull_request: PullRequestOpener,
                 converse: Conversation | None = None,
@@ -328,7 +350,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     tier declares them - asked once, before the conversation starts.
     """
     holds_what_ran = whether_it_holds_what_ran(settings, deployed, contains)
-    submitted = _what_the_model_submitted(
+    submitted, uses_outside = _what_the_model_submitted(
         hypothesis,
         settings=settings,
         read_tier_tools=read_tier_tools,
@@ -339,6 +361,7 @@ def propose_fix(hypothesis: Hypothesis | None,
         holds_what_ran=holds_what_ran,
         deployed=deployed,
         read_file=read_file,
+        code_outside=code_outside,
         converse=converse or conversations(
             incident_id,
             recorder,
@@ -371,7 +394,8 @@ def propose_fix(hypothesis: Hypothesis | None,
                            needs_code_outside=True,
                            holds_what_ran=holds_what_ran,
                            branch_read=settings.github_base_branch,
-                           as_it_ran=as_it_ran)
+                           as_it_ran=as_it_ran,
+                           uses_outside=uses_outside)
 
     patch = submitted.patch()
 
@@ -402,12 +426,13 @@ def propose_fix(hypothesis: Hypothesis | None,
             head_branch=branch,
             base_branch=settings.github_base_branch,
             title=title,
-            body=_the_case_for(submitted, hypothesis, incident_id)
+            body=_the_case_for(submitted, hypothesis, incident_id, uses_outside)
         ),
         explanation=submitted.explanation,
         holds_what_ran=holds_what_ran,
         branch_read=settings.github_base_branch,
-        as_it_ran=as_it_ran
+        as_it_ran=as_it_ran,
+        uses_outside=uses_outside
     )
 
 
@@ -422,11 +447,20 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               holds_what_ran: bool | None,
                               deployed: str | None,
                               read_file: FileReader,
+                              code_outside: CodeOutsideReader,
                               converse: Conversation,
                               still_wanted: StillWanted,
-                              leads: Leads) -> SubmittedFix | AnswerToTheQuestion:
+                              leads: Leads
+                              ) -> tuple[SubmittedFix | AnswerToTheQuestion, list[CodeUse]]:
     """The conversation, until the model submits and answers for its patch, or
-    runs out of budget.
+    runs out of budget - with how the code outside that patch uses what it
+    changes.
+
+    A submission whose explanation speaks of several pieces of code outside
+    its patch at once is put back before it is asked anything, with what those
+    pieces do as the code says it. Every slip of that kind was a sentence about
+    a group: each piece said right alone, and the sentence about all of them
+    counting among them the one that does something else.
 
     Every turn that is not a submission is answered and put back, including the
     ones that failed: a model guessing at a path is doing its job badly for one
@@ -437,8 +471,10 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     users only once code outside the repository changes too, and the answer
     decides: no, and the submission comes back to be opened; yes, and the answer
     comes back instead, to be held. A patch sent on the last call the budget
-    allows gets one more for its answer - the answer is part of the submission,
-    not another read - and a report made once asked is a verdict like any other.
+    allows gets one more for its answer, and one put back there one more for
+    its rewrite - each is part of the submission, not another read - and a
+    report made once asked is a verdict like any other. Each stretch is given
+    once: a model resubmitting in the room for its answer is not given another.
 
     Raises rather than returning nothing when the budget runs out. What
     stopped it is the whole of what a reader can act on, and only here is it
@@ -456,13 +492,27 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         ))
     ]
     spend = a_budget_for(settings)
-    # The submission the question is open about, and whether the budget has
-    # been stretched by one turn so it can be answered.
+    # The submission the question is open about, and how the code outside its
+    # patch uses what it changes.
     asked: SubmittedFix | None = None
+    asked_outside: list[CodeUse] = []
+    # Whether a submission has been put back for speaking of code outside its
+    # patch as a group - which happens once.
+    put_back = False
+    # Whether the last submission was put back, for any reason, with nothing
+    # submitted since.
+    last_put_back = False
+    # Whether the budget is stretched past its bounds by one call, for the
+    # rewrite of a submission put back or for the answer to its question - and
+    # whether the answer's has been given. Each is given once, and the
+    # rewrite's never after the answer's: a rewrite then would be written and
+    # never asked about.
+    room_for_its_rewrite = False
     room_for_its_answer = False
+    answer_room_given = False
 
-    while not spend.bounds_reached() or room_for_its_answer:
-        room_for_its_answer = False
+    while not spend.bounds_reached() or room_for_its_rewrite or room_for_its_answer:
+        room_for_its_rewrite = room_for_its_answer = False
 
         if not still_wanted():
             logger.info("fix stopped, incident no longer wanted")
@@ -494,7 +544,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         verdict = _the_verdict_in(turn)
 
         if verdict is not None:
-            return verdict
+            return verdict, []
 
         submitted = _the_submission_in(turn)
         answered = _the_answer_in(turn)
@@ -504,15 +554,34 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         if submitted is not None and submitted.files and not (
             the_paths_whose_content_is_not_source(submitted.files)
         ):
-            # Asked about rather than returned. A second submission replaces
-            # the first, and is asked about in turn.
-            asked = submitted
-            room_for_its_answer = bool(spend.bounds_reached())
-            results = [_the_question_or_not_run(call) for call in turn.tool_calls]
+            outside = _the_code_outside(submitted, settings, code_outside, list_files)
+            group = (the_group_outside(submitted.explanation or "", submitted.patch(),
+                                       outside.listing, outside.read.defined)
+                     if outside is not None and not put_back else None)
+
+            if outside is not None and group is not None:
+                # Put back before it is asked anything, with what the code
+                # outside the patch does said by the code itself - once, as an
+                # empty patch is, before it is believed: a rewrite that still
+                # trips the check is asked its question rather than put back
+                # until the budget runs out and the fix with it.
+                logger.info("explanation speaks of code outside the patch as a group")
+                put_back = last_put_back = True
+                room_for_its_rewrite = bool(spend.bounds_reached()) and not answer_room_given
+                results = _put_back(turn, _spoken_of_together(turn, group, outside.read))
+            else:
+                # Asked about rather than returned. A second submission
+                # replaces the first, and is asked about in turn.
+                last_put_back = False
+                asked = submitted
+                asked_outside = outside.read.uses if outside is not None else []
+                room_for_its_answer = bool(spend.bounds_reached()) and not answer_room_given
+                answer_room_given = answer_room_given or room_for_its_answer
+                results = [_the_question_or_not_run(call) for call in turn.tool_calls]
         elif answered is not None and asked is not None and submitted is None:
             # The answer about the patch in hand. Yes holds it back; no lets it
             # be opened.
-            return answered if answered.answer else asked
+            return (answered if answered.answer else asked), asked_outside
         elif submitted is not None and submitted.files:
             not_source = the_paths_whose_content_is_not_source(submitted.files)
 
@@ -521,7 +590,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # propose. Put back for the reason an empty one is: the model has
             # decided what to write and is one turn from writing it properly.
             logger.warning("patch is not source", extra={"paths": not_source})
-            results = [_that_is_not_source(turn, not_source)]
+            last_put_back = True
+            results = _put_back(turn, _that_is_not_source(turn, not_source))
         elif submitted is not None:
             # A patch with nothing in it, which the submission's own schema
             # refuses - so this is one whose every entry was dropped as
@@ -536,7 +606,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # model that keeps sending this runs out instead, and running out
             # is what a reader is told.
             logger.warning("patch was empty")
-            results = [_no_patch_was_attached(turn)]
+            last_put_back = True
+            results = _put_back(turn, _no_patch_was_attached(turn))
         else:
             results = [
                 _an_answer_that_counts_for_nothing(call, asked)
@@ -546,6 +617,12 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                 )
                 for call in turn.tool_calls
             ]
+
+        if last_put_back:
+            # A submission put back withdraws the one asked before it, as a
+            # second submission replaces the first: what is awaited now is the
+            # submission sent again, and no question is open.
+            asked, asked_outside = None, []
 
         # Asked after every turn, as `still_wanted` is before one: a person
         # writes while the model reads, and what they wrote rides on this
@@ -573,10 +650,18 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     # "turns" while the call count was the only way to run out; there are
     # three ways now, they are widened in three different places, and
     # widening the one that was never the problem is a wasted afternoon.
+    bounds = ", ".join(bound.value for bound in spend.bounds_reached())
+
+    # A submission was made and sent back, which is not the same as none made:
+    # told none was, a reader looks at an agent that never got as far as a fix.
+    if last_put_back:
+        raise FixNotAnswered(
+            f"the agent's last submission was put back, and it ran out of {bounds} "
+            "before submitting again"
+        )
+
     raise FixNotAnswered(
-        "the agent read until it ran out of "
-        f"{', '.join(bound.value for bound in spend.bounds_reached())} "
-        "without submitting a fix"
+        f"the agent read until it ran out of {bounds} without submitting a fix"
     )
 
 
@@ -627,6 +712,23 @@ def _what_it_is_told_next(results: list[ToolResult],
             failed=last.failed
         )
     ])
+
+
+def _put_back(turn: Turn, submission: ToolResult) -> list[ToolResult]:
+    """What each call in a turn whose submission was put back is told.
+
+    One result for every call, as a turn asked its question has: the API
+    refuses a request whose calls are not all answered. The submission gets
+    why it was put back; anything sent with it waits for the submission sent
+    again - including an answer, which no question is open for.
+    """
+    return [
+        submission if call.id == submission.call_id
+        else ToolResult(call_id=call.id, content=NOT_AN_ANSWER, failed=True)
+        if call.name == ANSWER_TOOL_NAME
+        else ToolResult(call_id=call.id, content=NOT_RUN_WHILE_PUT_BACK)
+        for call in turn.tool_calls
+    ]
 
 
 def _no_patch_was_attached(turn: Turn) -> ToolResult:
@@ -687,6 +789,79 @@ def _that_is_not_source(turn: Turn, paths: list[str]) -> ToolResult:
         ),
         failed=True
     )
+
+
+class _OutsideRead(NamedTuple):
+    """How the code outside a patch uses what it changes, and every file the
+    repository holds - what a sentence about that code is recognised by."""
+
+    read: CodeOutsideThePatch
+    listing: list[str]
+
+
+def _the_code_outside(submitted: SubmittedFix,
+                      settings: FixSettings,
+                      code_outside: CodeOutsideReader,
+                      list_files: FileLister) -> _OutsideRead | None:
+    """How the code outside a submission's patch uses what it changes - `None`
+    where the read tier could not say.
+
+    Checked rather than blocked on: a source that could not be fetched is no
+    reason to hold back a fix, and the warning is the one place a skipped check
+    is said to have been skipped."""
+    try:
+        return _OutsideRead(
+            read=code_outside(submitted.patch(), settings.github_base_branch),
+            listing=list_files(settings.github_base_branch)
+        )
+    except Exception:
+        logger.warning("code outside the patch could not be read", exc_info=True)
+
+        return None
+
+
+def _spoken_of_together(turn: Turn, paragraph: str, outside: CodeOutsideThePatch) -> ToolResult:
+    """The submission put back, quoting the paragraph that speaks of several
+    pieces of code outside its patch at once, with what that code does said by
+    the code itself.
+
+    A failure rather than a remark, as a patch that is not source is: something
+    to recover from. Every file stays as it was - nothing is wrong with the
+    patch - and what is asked again is the words: the explanation, and the
+    comments in the files, where the same sentence was found living too.
+    """
+    submitting = next(
+        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
+    )
+    names = list(dict.fromkeys(use.name for use in outside.uses))
+    rows = "\n".join(_a_row(use) for use in outside.uses)
+    what_it_does = (
+        f"How the code outside your patch uses {_listed(names)}, which your patch "
+        f"changes, is published beside the explanation, said by Argus from the code "
+        f"itself:\n{rows}\n\nSo the explanation does not say it. "
+        if outside.uses else ""
+    )
+
+    return ToolResult(
+        call_id=submitting.id if submitting is not None else "",
+        content=(
+            f"{_SPOKEN_OF_TOGETHER}\n\n{paragraph}\n\n{what_it_does}{_SAY_ONLY_YOUR_OWN}"
+        ),
+        failed=True
+    )
+
+
+def _a_row(use: CodeUse) -> str:
+    """One line outside a patch, where it is and what it does - said the same
+    way to the model and to whoever reads the pull request."""
+    function = f", in {use.function}" if use.function else ""
+
+    return f"  {use.path}:{use.line}{function}: {use.does}"
+
+
+def _listed(names: list[str]) -> str:
+    """Names as a sentence lists them."""
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def _the_verdict_in(turn: Turn) -> SubmittedFix | None:
@@ -796,16 +971,29 @@ def _a_branch_for(incident_id: str) -> str:
 
 def _the_case_for(submitted: SubmittedFix,
                   hypothesis: Hypothesis | None,
-                  incident_id: str) -> str:
+                  incident_id: str,
+                  uses_outside: list[CodeUse]) -> str:
     """What a person reads before deciding whether to merge.
 
     The model's explanation, and the incident it came from, said plainly. The
     provenance is not decoration: whoever opens this needs to know an agent
     proposed it and which incident it answers, so the change can be judged
     against something rather than taken on trust.
+
+    Beside the explanation, how the code the patch does not touch uses what it
+    changes, said by the code itself - what a model got wrong when it said it,
+    and what Code-Fix is told is published here.
     """
+    outside = [
+        "",
+        "How the code outside this patch uses what it changes, read by Argus off "
+        "the code itself:",
+        *(_a_row(use) for use in uses_outside)
+    ] if uses_outside else []
+
     return "\n".join([
         submitted.explanation or "No explanation was given.",
+        *outside,
         "",
         "---",
         "",

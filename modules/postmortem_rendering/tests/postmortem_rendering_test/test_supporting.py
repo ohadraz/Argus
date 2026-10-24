@@ -608,6 +608,44 @@ def test_an_incident_with_no_file_as_it_ran_has_no_row_for_one() -> None:
 
 
 @pytest.mark.unit
+def test_a_use_outside_the_patch_is_a_row_under_its_label() -> None:
+    # What a line outside Code-Fix's patch does with what it changes, read off
+    # the code - a row because a citation of it leads here.
+    some_use = CitedEvidence(label="U1",
+                             text="total_this_month_cents at src/io_shop/spend_reconciliation.py"
+                                  ":109, in reconcile_monthly_totals: compares it with "
+                                  "_bought_this_month(account)")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(uses_outside_read=[some_use])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).uses_outside
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="U1",
+                                        said=Line(runs=(Run(text=some_use.text),))),)))
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_are_headed_as_read_off_the_code() -> None:
+    # Code-Fix's reading sits above them in its own words; these are the code's.
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).uses_outside_heading
+        ) \
+        .then(
+            the_answer_was("How the code outside Code-Fix's patch uses what it changes, "
+                           "read off the code"))
+
+
+@pytest.mark.unit
 def test_each_assumption_is_a_line_of_prose() -> None:
     Scenario() \
         .given(

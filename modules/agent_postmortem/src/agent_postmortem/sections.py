@@ -83,6 +83,8 @@ PRODUCTION_CHANGE_PREFIX: Final = "P"
 DEPLOYMENT_CHANGES_PREFIX: Final = "D"
 CODE_READING_PREFIX: Final = "F"
 AS_IT_RAN_PREFIX: Final = "S"
+# How the code outside Code-Fix's patch uses what it changes, read off the code.
+USES_OUTSIDE_PREFIX: Final = "U"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"

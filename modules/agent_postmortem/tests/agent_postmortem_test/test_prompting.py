@@ -112,6 +112,7 @@ from argus_core.models import (
     ChannelReading,
     CitedChange,
     CitedEvidence,
+    CodeUse,
     DeploymentComparison,
     FileAsItRan,
     Lessons,
@@ -959,6 +960,63 @@ def test_what_code_fix_says_of_files_that_ran_is_said_to_hold_for_those_files_al
             _says("What [F1] says of those files holds for what ran; what it says of the "
                   "rest of main does not.")
         )
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_are_evidence_listed_beneath_what_code_fix_read() -> None:
+    # A write-up wrote "nothing derived the month from history" from a reading
+    # that listed the one reader adding it up to check it among those trusting
+    # it. What each of those lines does is read off the code, and beneath F the
+    # model has it where it reasons about the reading.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                fix_explanation="some account of the code").model_copy(
+                update={"uses_outside": [
+                    CodeUse(name="total_this_month_cents", path="src/io_shop/spend_summary.py",
+                            line=47, function="average_spend_per_item_this_month",
+                            does="divides with it: account.total_this_month_cents // count"),
+                    CodeUse(name="total_this_month_cents",
+                            path="src/io_shop/spend_reconciliation.py", line=109,
+                            function="reconcile_monthly_totals",
+                            does="compares it with _bought_this_month(account)")]})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([
+                ("F1", "some account of the code"),
+                ("U1", "total_this_month_cents at src/io_shop/spend_summary.py:47, in "
+                       "average_spend_per_item_this_month: divides with it"),
+                ("U2", "total_this_month_cents at src/io_shop/spend_reconciliation.py:109, in "
+                       "reconcile_monthly_totals: compares it with _bought_this_month(account)")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_the_uses_outside_the_patch_stand_where_code_fix_says_otherwise_of_them() -> None:
+    # The reading is Code-Fix's words and the rows are the code's: where the two
+    # disagree about one of those lines, the write-up is told which stands.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"uses_outside": [
+                    CodeUse(name="total_this_month_cents",
+                            path="src/io_shop/spend_reconciliation.py", line=109,
+                            function="reconcile_monthly_totals",
+                            does="compares it with _bought_this_month(account)")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("How the code outside Code-Fix's patch uses what it changes, read off the "
+                  "code by Argus:"),
+            _says("Where [F1] says otherwise of these lines, they stand.")
+        ))
 
 
 @pytest.mark.unit

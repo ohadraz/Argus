@@ -615,6 +615,9 @@ NOT_AN_ANSWER: Final = (
 )
 NOT_RUN_WHILE_ASKED: Final = "Not run: answer the question first."
 
+# What every other call in a turn whose submission was put back is told.
+NOT_RUN_WHILE_PUT_BACK: Final = "Not run: your submission was put back - submit again first."
+
 
 class AnswerToTheQuestion(BaseModel):
     """The model's answer to the question a submission is asked.

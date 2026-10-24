@@ -18,6 +18,7 @@ from datetime import datetime
 from argus_core.models import (
     ChangeEvent,
     ChannelReading,
+    CodeUse,
     DeploymentComparison,
     FileAsItRan,
     OpenedPullRequest,
@@ -219,6 +220,10 @@ class IncidentEvidence(BaseModel):
     # file as it ran where it differs from what was read, and what settles a
     # reading made on other text. Empty where none was read.
     files_as_they_ran: list[FileAsItRan] = []
+    # How the code outside that reading's patch uses what it changes, said by
+    # the syntax tree - what the reading got wrong when it surveyed those
+    # readers in its own words. Empty where nothing does.
+    uses_outside: list[CodeUse] = []
     # The action the gate declined because nothing could confirm it. Structured
     # rather than left in `timeline` for the model to notice, for the reason the
     # pull request is: what a reader of the finished document goes on to do is

@@ -44,7 +44,13 @@ from agent_codefix import FixSettings, SubmittedFix, propose_fix
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.models import FailureMode, Hypothesis, ProposedFix, ToolDefinition
+from argus_core.models import (
+    CodeOutsideThePatch,
+    FailureMode,
+    Hypothesis,
+    ProposedFix,
+    ToolDefinition,
+)
 from argus_testkit import Assertion, Scenario, all_of, calling
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
@@ -118,6 +124,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     list_files=_no_files,
                     contains=_contained,
                     read_file=_an_empty_file,
+                    code_outside=_nothing_outside,
                     write_branch=partial(commit_to_new_branch, client=write),
                     open_pull_request=partial(open_pull_request, client=write)
                 )
@@ -174,6 +181,10 @@ def _contained(_branch: str, _revision: str, /) -> bool:
 
 def _an_empty_file(_path: str, _ref: str, /) -> str:
     return ""
+
+
+def _nothing_outside(_files: dict[str, str], _ref: str, /) -> CodeOutsideThePatch:
+    return CodeOutsideThePatch(uses=[], defined={})
 
 
 def _the_patch_in(recording: str) -> dict[str, str]:

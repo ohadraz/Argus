@@ -446,6 +446,26 @@ def test_a_file_as_it_ran_the_prose_cites_leads_to_its_row() -> None:
 
 
 @pytest.mark.unit
+def test_a_use_outside_the_patch_the_prose_cites_leads_to_its_row() -> None:
+    some_use = CitedEvidence(label="U1",
+                             text="total_this_month_cents at src/io_shop/spend_reconciliation.py"
+                                  ":109, in reconcile_monthly_totals: compares it with "
+                                  "_bought_this_month(account)")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="U1 tells it.", uses_outside_read=[some_use]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("U1 total_this_month_cents at src/io_shop/spend_reconciliation.py"))
+
+
+@pytest.mark.unit
 def test_a_row_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> None:
     # What Code-Fix read in the source has run to thirteen thousand characters:
     # a row no page holds. It goes on onto the next, and a citation of it still

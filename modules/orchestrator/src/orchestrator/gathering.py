@@ -190,6 +190,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         fix_branch_read=reading.branch_read if reading is not None else None,
         fix_holds_what_ran=reading.holds_what_ran if reading is not None else None,
         files_as_they_ran=reading.as_it_ran if reading is not None else [],
+        uses_outside=reading.uses_outside if reading is not None else [],
         recommended_action=_what_is_still_owed(conn, incident_id),
         refusals=_what_was_refused(account, told),
         # Off the record rather than the account: the account says a lead was

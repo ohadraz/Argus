@@ -72,6 +72,7 @@ from argus_core.models import (
     ChangeKind,
     ChannelReading,
     CitedEvidence,
+    CodeUse,
     ContributingFactor,
     FileAsItRan,
     Lessons,
@@ -1064,6 +1065,38 @@ def test_the_document_carries_the_files_as_they_ran() -> None:
                        lambda document: document.as_it_ran_read,
                        [CitedEvidence(label="S1", text="deploy/scrape.yaml at 53f02e9\n"
                                                        "selector:\n  port: metrics\n")])
+        )
+
+
+@pytest.mark.unit
+def test_the_document_carries_how_the_code_outside_the_patch_uses_what_it_changes() -> None:
+    # Under the label the model was shown each by, so a step of the cause
+    # citing U1 has a row to lead to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(update={
+                "uses_outside": [CodeUse(
+                    name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
+                    line=109, function="reconcile_monthly_totals",
+                    does="compares it with _bought_this_month(account)")]})
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("how the code outside the patch uses what it changes",
+                       lambda document: document.uses_outside_read,
+                       [CitedEvidence(
+                           label="U1",
+                           text="total_this_month_cents at src/io_shop/spend_reconciliation.py"
+                                ":109, in reconcile_monthly_totals: compares it with "
+                                "_bought_this_month(account)")])
         )
 
 

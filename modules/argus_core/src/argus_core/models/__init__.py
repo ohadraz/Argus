@@ -71,7 +71,13 @@ from argus_core.models.disproof import Disproof
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
 from argus_core.models.findings import Findings
-from argus_core.models.fix import FileAsItRan, FixOutcome, ProposedFix
+from argus_core.models.fix import (
+    CodeOutsideThePatch,
+    CodeUse,
+    FileAsItRan,
+    FixOutcome,
+    ProposedFix,
+)
 from argus_core.models.flag_change import FlagChange, FlagHistory
 from argus_core.models.hypothesis import Hypothesis
 from argus_core.models.incident import Incident
@@ -234,7 +240,9 @@ __all__ = [
     "Circumstances",
     "DeploymentChanges",
     "DeploymentComparison",
+    "CodeOutsideThePatch",
     "CodeSearch",
+    "CodeUse",
     "Disproof",
     "EstablishedOnset",
     "Evidence",

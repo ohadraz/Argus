@@ -2285,6 +2285,39 @@ def test_a_file_as_it_ran_the_root_cause_names_links_to_its_row() -> None:
 
 
 @pytest.mark.component
+def test_a_use_outside_the_patch_the_root_cause_cites_links_to_its_row() -> None:
+    # "As U1 shows" leads to the line outside the patch and what it does,
+    # under a heading saying the code said it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "root_cause": "As U1 shows, the reconciliation checks the stored figure.",
+            "uses_outside_read": [CitedEvidence(
+                label="U1",
+                text="total_this_month_cents at src/io_shop/spend_reconciliation.py:109, in "
+                     "reconcile_monthly_totals: compares it with _bought_this_month(account)")]
+        }),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_links_to("#U1"),
+            the_page_says('id="U1"'),
+            the_page_says("How the code outside Code-Fix&#39;s patch uses what it changes, "
+                          "read off the code"),
+            the_page_says("compares it with _bought_this_month(account)")
+        ))
+
+
+@pytest.mark.component
 def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory() -> None:
     # The row says where the change came from, and a reader opens it there.
     some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"

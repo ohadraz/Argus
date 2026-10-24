@@ -7,6 +7,7 @@ from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AlertRuleStanding,
     ChangeEvent,
+    CodeOutsideThePatch,
     DeploymentChanges,
     MetricBucket,
     PodPlacement,
@@ -35,6 +36,7 @@ _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
 _CONTAINED: Final = TypeAdapter(bool)
+_CODE_OUTSIDE: Final = TypeAdapter(CodeOutsideThePatch)
 
 # Where the server's tools are served, under the address the endpoint names.
 # Here rather than at each call because it is the read tier's own spelling of
@@ -378,6 +380,31 @@ def search_repository_by_meaning(description: str,
         "search_repository_by_meaning",
         _PASSAGES.validate_python,
         description=description,
+        ref=ref,
+    )
+
+
+def get_code_outside_the_patch(files: dict[str, str],
+                               ref: str,
+                               *,
+                               client: McpClient) -> CodeOutsideThePatch:
+    """Reads how the Target Service's own code at `ref` uses what a patch -
+    `files`, each path's whole new content - changes, line by line with what
+    each line does, and every function and class defined outside the patch's
+    files.
+
+    For Code-Fix rather than for its model: what each line outside a patch does
+    with what the patch changes is the syntax tree's to say, so a submission
+    speaking of several of those pieces at once is put back with these rows.
+
+    Raises rather than answering that nothing uses what changed when the source
+    could not be read - the silent answer says the patch touches nothing anybody
+    reads.
+    """
+    return client.call(
+        "get_code_outside_the_patch",
+        _CODE_OUTSIDE.validate_python,
+        files=files,
         ref=ref,
     )
 

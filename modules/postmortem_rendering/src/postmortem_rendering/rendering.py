@@ -105,6 +105,7 @@ class RenderedPostmortem(BaseModel):
                           *(row.label for row in self.supporting.deployment_changes),
                           *(row.label for row in self.supporting.code_read),
                           *(row.label for row in self.supporting.as_it_ran),
+                          *(row.label for row in self.supporting.uses_outside),
                           *(lead.label for lead in self.leads),
                           *((self.detection.said.label,) if self.detection.said else ()),
                           *((self.impact.finding_label,) if self.impact.finding_label else ())})
@@ -228,7 +229,8 @@ def _the_rows(hypotheses: HypothesesSection,
                                     *line.text.runs))
              for line in timeline.rows if line.label}
     rows |= {lead.label: lead.said for lead in leads}
-    rows |= {row.label: row.said for row in (*supporting.changes, *supporting.log_messages)}
+    rows |= {row.label: row.said for row in (*supporting.changes, *supporting.log_messages,
+                                              *supporting.uses_outside)}
     rows |= {row.label: _its_first_line(row.said)
              for row in (*supporting.deployment_changes, *supporting.as_it_ran)}
     rows |= {row.label: Line(runs=(Run(text=supporting.code_read_heading),))

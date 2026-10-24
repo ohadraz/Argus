@@ -62,6 +62,7 @@ from argus_core.models import (
     ChangeEvent,
     ChangeKind,
     ChannelReading,
+    CodeUse,
     DeploymentComparison,
     DeploymentRollbackUndo,
     FailureMode,
@@ -1610,6 +1611,37 @@ def test_the_evidence_carries_the_files_as_they_ran_off_the_reading_that_stands(
 
 
 @pytest.mark.component
+def test_the_evidence_carries_the_uses_outside_the_patch_off_the_reading_that_stands(
+    a_clean_database: None
+) -> None:
+    # The uses that stand beside the reading the document shows: an earlier
+    # attempt's patch changed something else.
+    the_use = CodeUse(name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
+                      line=109, function="reconcile_monthly_totals",
+                      does="compares it with _bought_this_month(account)")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="an earlier reading",
+                    uses_outside=[the_use.model_copy(update={"line": 115})]))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_WARRANTED,
+                    detail="dont care", explanation="the reading that stands",
+                    uses_outside=[the_use])))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_the_uses_outside([the_use])
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_what_people_told_the_incident_as_it_was_weighed(
     a_clean_database: None
 ) -> None:
@@ -2300,6 +2332,18 @@ def _carries_as_they_ran(expected: list[FileAsItRan]) -> Assertion[IncidentEvide
             raise AssertionError(
                 f"Expected the files Code-Fix's reading names, as they ran, to be "
                 f"{expected}, got {evidence.files_as_they_ran}.")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_uses_outside(expected: list[CodeUse]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.uses_outside != expected:
+            raise AssertionError(
+                f"Expected how the code outside Code-Fix's patch uses what it changes "
+                f"to be {expected}, got {evidence.uses_outside}.")
 
         return True
 

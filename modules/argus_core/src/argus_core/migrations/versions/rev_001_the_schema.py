@@ -314,6 +314,7 @@ CREATE TABLE IF NOT EXISTS postmortem (
     deployment_changes_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     code_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     as_it_ran_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    uses_outside_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- What came of reading the deploys, the flags and the logs - read, only
     -- changes made since Argus first acted (the flags alone), not asked, or
     -- asked with no answer.

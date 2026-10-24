@@ -26,6 +26,7 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    CodeUse,
     FileAsItRan,
     FixOutcome,
     Hypothesis,
@@ -273,6 +274,30 @@ def test_the_attempt_keeps_the_files_code_fix_s_reading_names_as_they_ran() -> N
         ) \
         .then(
             _the_attempt_found_as_they_ran([some_file], published)
+        )
+
+
+@pytest.mark.unit
+def test_the_attempt_keeps_how_the_code_outside_the_patch_uses_what_it_changes() -> None:
+    # The write-up reads the attempt: what the code outside the patch does with
+    # what it changes is said there by the code, which a survey of readers in
+    # Code-Fix's words was not.
+    published: list[IncidentEvent] = []
+    some_use = CodeUse(name="total_this_month_cents", path="src/io_shop/spend_reconciliation.py",
+                       line=109, function="reconcile_monthly_totals",
+                       does="compares it with _bought_this_month(account)")
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_finding_the_uses([some_use])
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_found_the_uses_outside([some_use], published)
         )
 
 
@@ -798,6 +823,21 @@ def _an_agent_finding(as_it_ran: list[FileAsItRan]) -> ProposeFix:
     return propose
 
 
+def _an_agent_finding_the_uses(uses_outside: list[CodeUse]) -> ProposeFix:
+    """Code-Fix, having proposed a fix whose patch changes what the code
+    outside it uses."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                deployed: str | None = None) -> ProposedFix:
+        return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
+                           uses_outside=uses_outside)
+
+    return propose
+
+
 def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
     """Code-Fix, having written a fix it says helps nobody until code outside
     the repository changes too."""
@@ -1025,6 +1065,24 @@ def _the_attempt_found_as_they_ran(expected: list[FileAsItRan],
             raise AssertionError(
                 f"Expected the attempt to carry the files as they ran, {expected}, "
                 f"got {found}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_found_the_uses_outside(expected: list[CodeUse],
+                                        published: list[IncidentEvent]
+                                        ) -> Assertion[StateDelta]:
+    """How the code outside Code-Fix's patch uses what it changes, on the
+    attempt."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        found = [event.uses_outside for event in published if isinstance(event, FixAttempted)]
+        if found != [expected]:
+            raise AssertionError(
+                f"Expected the attempt to carry how the code outside the patch uses "
+                f"what it changes, {expected}, got {found}."
             )
 
         return True

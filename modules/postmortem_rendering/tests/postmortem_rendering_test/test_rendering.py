@@ -400,6 +400,29 @@ def test_a_cited_file_as_it_ran_is_named_by_its_path_at_the_revision() -> None:
 
 
 @pytest.mark.unit
+def test_a_cited_use_outside_the_patch_is_named_by_its_row() -> None:
+    # One line of code and what it does - short enough to say whole.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                uses_outside_read=[CitedEvidence(
+                    label="U1",
+                    text="total_this_month_cents at src/io_shop/spend_reconciliation.py:109, "
+                         "in reconcile_monthly_totals: compares it with "
+                         "_bought_this_month(account)")],
+                causal_chain=_a_step_citing("U1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("U1 total_this_month_cents at "
+                                     "src/io_shop/spend_reconciliation.py:109, in "
+                                     "reconcile_monthly_totals: compares it with "
+                                     "_bought_this_month(account)"))
+
+
+@pytest.mark.unit
 def test_what_code_fix_read_is_named_by_its_heading_when_cited() -> None:
     # The row can run to pages, which the label leads to.
     Scenario() \

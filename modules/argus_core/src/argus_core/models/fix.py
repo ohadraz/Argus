@@ -66,6 +66,37 @@ class FileAsItRan(BaseModel):
     content: str | None
 
 
+class CodeUse(BaseModel):
+    """One line outside a patch that uses something the patch changes, and what
+    the line does with it - said by the syntax tree, not by a model.
+
+    `name` is what it uses: a field the patch's changed code now writes, or a
+    function whose definition the patch changes. `function` is the function the
+    line sits in, `None` at a module's top level.
+    """
+
+    name: str
+    path: str
+    line: int
+    function: str | None
+    does: str
+
+
+class CodeOutsideThePatch(BaseModel):
+    """What the code a patch does not change does with what it changes, and
+    every name that code defines.
+
+    The facts a model gets wrong when it speaks of code it did not change - a
+    reader that checks a stored figure counted among the ones that trust it -
+    so the tree says them instead. `defined` maps each function and class
+    defined outside the patch's files to every file defining it: how a
+    sentence about code outside the patch is recognised.
+    """
+
+    uses: list[CodeUse]
+    defined: dict[str, list[str]]
+
+
 class ProposedFix(BaseModel):
     """What Code-Fix answered: the draft pull request it opened, `None` where it
     judged there was nothing in the code to change - and what it said of the
@@ -98,3 +129,6 @@ class ProposedFix(BaseModel):
     # Each file the explanation names, read again at the revision that ran -
     # empty where no revision is known or nothing was said.
     as_it_ran: list[FileAsItRan] = []
+    # How the code the patch does not touch uses what it changes, said by the
+    # syntax tree - empty where nothing does, or the source could not be read.
+    uses_outside: list[CodeUse] = []

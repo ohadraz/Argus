@@ -97,6 +97,7 @@ from agent_postmortem.sections import (
     DEPLOYMENT_CHANGES_PREFIX,
     NO_VERDICT_RECORDED,
     PRODUCTION_CHANGE_PREFIX,
+    USES_OUTSIDE_PREFIX,
     OneCause,
     a_hypothesis_of,
     causes_of,
@@ -1106,6 +1107,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     looked_into = the_deployment_changes_labelled(evidence)
     read_in_the_source = the_code_reading_labelled(evidence)
     as_it_ran = the_files_as_they_ran_labelled(evidence)
+    uses_outside = the_uses_outside_labelled(evidence)
 
     return [
         ("What Argus did, in order:", narration, None if narration else NOTHING),
@@ -1132,7 +1134,12 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                      if note) or None)]
           if read_in_the_source else []),
         *([("What ran, read at the revision running when the alert fired:", as_it_ran, None)]
-          if as_it_ran else [])
+          if as_it_ran else []),
+        *([("How the code outside Code-Fix's patch uses what it changes, read off the code "
+            "by Argus:", uses_outside,
+            f"Where [{label_of(CODE_READING_PREFIX, 1)}] says otherwise of these lines, "
+            f"they stand.")]
+          if uses_outside else [])
     ]
 
 
@@ -1244,6 +1251,23 @@ def the_files_as_they_ran_labelled(evidence: IncidentEvidence) -> list[CitedEvid
     return [CitedEvidence(label=label_of(AS_IT_RAN_PREFIX, position),
                           text=f"{ran.path} at {ran.revision[:7]}\n{ran.content}")
             for position, ran in enumerate(shown, start=1)]
+
+
+def the_uses_outside_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
+    """Each line outside Code-Fix's patch that uses what it changes, and what
+    the line does, under the label the model is shown it by - or nothing, where
+    there is none.
+
+    A write-up wrote "nothing derived the month from history" from a reading
+    that counted the one reader adding the month up to check it among the ones
+    trusting it. What each of those lines does is the code's to say. Public
+    because the document lists it under the same label the prose cites it by,
+    as it does the changes.
+    """
+    return [CitedEvidence(label=label_of(USES_OUTSIDE_PREFIX, position),
+                          text=f"{use.name} at {use.path}:{use.line}"
+                               f"{f', in {use.function}' if use.function else ''}: {use.does}")
+            for position, use in enumerate(evidence.uses_outside, start=1)]
 
 
 def the_code_reading_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:

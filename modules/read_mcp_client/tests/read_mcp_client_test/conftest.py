@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -38,9 +40,15 @@ GRAFANA_PREFIX = "/grafana"
 RULE_DEFINITION_PREFIX = f"{GRAFANA_PREFIX}{RULE_DEFINITION_PATH.removesuffix('{rule}')}"
 
 # Where the fake answers as GitHub, under a prefix for the reason Prometheus is,
-# and the part of a comparison's path that names its two commits.
+# the part of a comparison's path that names its two commits, and the part of an
+# archive's path that names the ref it was cut at.
 GITHUB_PREFIX = "/github"
 COMPARISON_MARK = "/compare/"
+ARCHIVE_MARK = "/tarball/"
+
+# The directory GitHub wraps every entry of an archive in, named for the owner,
+# the repository and the commit.
+ARCHIVE_ROOT = "owner-repo-77296ac"
 
 
 class FakeTargetServiceHandler(BaseHTTPRequestHandler):
@@ -66,6 +74,9 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     # How the second commit of each comparison stands to the first, by the
     # `base...head` the comparison names, in GitHub's own words.
     comparisons: dict[str, str] = {}
+    # What the repository holds at any ref, by path - served as GitHub serves an
+    # archive, gzipped and wrapped in a directory of its own.
+    archive: dict[str, str] = {}
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
@@ -90,6 +101,8 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
+        elif url.path.startswith(GITHUB_PREFIX) and ARCHIVE_MARK in url.path:
+            self._respond_with_bytes(self._a_tarball(self.archive), "application/x-gzip")
         elif url.path.startswith("/argocd/") and url.path.endswith("/resource-tree"):
             self._respond_with(self.tree)
         elif url.path.startswith("/argocd/"):
@@ -129,10 +142,27 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     def _the_end_of(row: dict[str, object]) -> float:
         return (parse_iso(str(row["bucket_id"])) + timedelta(minutes=1)).timestamp()
 
+    @staticmethod
+    def _a_tarball(files: dict[str, str]) -> bytes:
+        """`files` as GitHub archives a repository: gzipped, every entry under a
+        directory named for the commit."""
+        buffer = io.BytesIO()
+
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for path, text in files.items():
+                data = text.encode()
+                entry = tarfile.TarInfo(f"{ARCHIVE_ROOT}/{path}")
+                entry.size = len(data)
+                archive.addfile(entry, io.BytesIO(data))
+
+        return buffer.getvalue()
+
     def _respond_with(self, payload: object) -> None:
-        body = json.dumps(payload).encode()
+        self._respond_with_bytes(json.dumps(payload).encode(), "application/json")
+
+    def _respond_with_bytes(self, body: bytes, content_type: str) -> None:
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -145,12 +175,12 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
 def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     """Starts a fake Target Service (stdlib http.server, background thread,
     serving canned `/logs`, Prometheus's range query, Grafana's rule definitions,
-    GitHub's comparisons and `/argocd/<application>` JSON) plus a real
-    `read_mcp_server` subprocess pointed at it - proves `read_mcp_client` reaches
-    a real server without Docker or a real Target Service. Yields the handler
-    class so a test can set `.logs`, `.metrics`, `.deploys`, `.rules`,
-    `.rule_queries`, `.tree` and `.comparisons` before calling through the
-    client."""
+    GitHub's comparisons and archives and `/argocd/<application>` JSON) plus a
+    real `read_mcp_server` subprocess pointed at it - proves `read_mcp_client`
+    reaches a real server without Docker or a real Target Service. Yields the
+    handler class so a test can set `.logs`, `.metrics`, `.deploys`, `.rules`,
+    `.rule_queries`, `.tree`, `.comparisons` and `.archive` before calling
+    through the client."""
     fake_target_service = HTTPServer(
         ("127.0.0.1", FAKE_TARGET_SERVICE_PORT), FakeTargetServiceHandler
     )
@@ -195,6 +225,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
         FakeTargetServiceHandler.rule_queries = {}
         FakeTargetServiceHandler.tree = {}
         FakeTargetServiceHandler.comparisons = {}
+        FakeTargetServiceHandler.archive = {}
         del os.environ["READ_MCP_HOST"]
         del os.environ["READ_MCP_PORT"]
         get_settings.cache_clear()

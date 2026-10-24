@@ -105,6 +105,9 @@ class SupportingSection(BaseModel):
     code_read: tuple[EvidenceRow, ...] = ()
     as_it_ran_heading: str = "What ran, read at the revision running when the alert fired"
     as_it_ran: tuple[EvidenceRow, ...] = ()
+    uses_outside_heading: str = ("How the code outside Code-Fix's patch uses what it changes, "
+                                 "read off the code")
+    uses_outside: tuple[EvidenceRow, ...] = ()
     assumptions_heading: str = "Assumptions"
     assumptions: tuple[Line, ...]
     assumptions_absent: str | None
@@ -157,6 +160,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                              for cited in postmortem.code_read),
                              as_it_ran=tuple(_a_diff_row(cited, revision_addresses, shorts)
                                              for cited in postmortem.as_it_ran_read),
+                             uses_outside=_rows(postmortem.uses_outside_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
 

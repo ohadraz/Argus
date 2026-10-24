@@ -33,7 +33,7 @@ from argus_core.models.change_event import ChangeEvent
 from argus_core.models.deployment_changes import DeploymentComparison
 from argus_core.models.evidence import Evidence
 from argus_core.models.failure_mode import FailureMode
-from argus_core.models.fix import FileAsItRan, FixOutcome
+from argus_core.models.fix import CodeUse, FileAsItRan, FixOutcome
 from argus_core.models.flag_change import FlagChange
 from argus_core.models.incident_status import IncidentStatus
 from argus_core.models.meaning import Meaning
@@ -719,6 +719,10 @@ class FixAttempted(_Event):
 
     `as_it_ran` is each file the explanation names, read again at the revision
     that ran - what settles a reading made on a branch that is other text.
+
+    `uses_outside` is how the code the patch does not touch uses what it
+    changes, said by the syntax tree: what a model got wrong when it surveyed
+    those readers in its own words.
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
@@ -729,6 +733,7 @@ class FixAttempted(_Event):
     branch_read: str | None = None
     holds_what_ran: bool | None = None
     as_it_ran: list[FileAsItRan] = []
+    uses_outside: list[CodeUse] = []
 
 
 class PostmortemWritten(_Event):

@@ -55,6 +55,9 @@ THE_PLACEMENT = "get_placements"
 # is told before it reads anything.
 THE_BRANCH_CONTAINING = "branch_contains_revision"
 THE_FILE_READER = "read_repository_file"
+# How the code a patch does not change uses what it changes, which Code-Fix's
+# submission is held to before it is asked anything.
+THE_CODE_OUTSIDE_A_PATCH = "get_code_outside_the_patch"
 
 # The tools a model is offered as this tier declares them (MCP, `tools/list`),
 # each with the arguments its caller fills in itself rather than asking the
@@ -157,6 +160,19 @@ def test_every_deployment_offers_whether_the_branch_read_contains_what_ran() -> 
         )) \
         .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
         .then(_the_tools_include(THE_BRANCH_CONTAINING))
+
+
+@pytest.mark.unit
+def test_every_deployment_offers_what_the_code_outside_a_patch_does_with_it() -> None:
+    # Above the index guard for the rollout counts' reason: what the code a
+    # patch does not change does with what it changes is read off the syntax
+    # tree, not searched, and Code-Fix is held to it on every deployment.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(_the_tools_include(THE_CODE_OUTSIDE_A_PATCH))
 
 
 @pytest.mark.unit
