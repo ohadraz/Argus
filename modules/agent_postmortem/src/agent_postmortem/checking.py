@@ -77,6 +77,7 @@ from agent_postmortem.prompting import (
     STILL_AT_RISK_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
+    SYMPTOM_WORDS_AT_MOST,
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
@@ -205,6 +206,7 @@ def faults_in(answer: SubmittedPostmortem,
     return (_missing_fields(answer)
             + _how_it_served_left_unanswered(answer, given)
             + _a_symptom_of_more_than_one_sentence(answer)
+            + _a_symptom_over_its_words(answer)
             + _summary_sentences_of_more_than_one(answer)
             + _missing_checks_outside_the_factors(answer)
             + _the_trigger_said_again(answer, given)
@@ -339,6 +341,22 @@ def _a_symptom_of_more_than_one_sentence(answer: SubmittedPostmortem) -> list[st
 
     return [f"the {SYMPTOM_FIELD} [{symptom}] is more than one sentence - it is the "
             f"document's title, so say it in one, of a few words"]
+
+
+def _a_symptom_over_its_words(answer: SubmittedPostmortem) -> list[str]:
+    """The symptom, where it runs past the words the field tells the model.
+
+    Asked for a few words, a title ran to twenty, half of it how the fault was
+    found - the longest of every write-up recorded. Counted on the spaces, as a
+    reader counts words, so a hyphenated name is one.
+    """
+    symptom = answer.symptom
+    words = len(symptom.split()) if symptom is not None else 0
+    if words <= SYMPTOM_WORDS_AT_MOST:
+        return []
+
+    return [f"the {SYMPTOM_FIELD} [{symptom}] runs to {words} words: say it in "
+            f"{SYMPTOM_WORDS_AT_MOST} or fewer, as short as it can be"]
 
 
 def _summary_sentences_of_more_than_one(answer: SubmittedPostmortem) -> list[str]:

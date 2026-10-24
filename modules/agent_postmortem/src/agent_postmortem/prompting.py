@@ -123,6 +123,10 @@ CAUSE_IN_PLAIN_WORDS_FIELD: Final = "cause_in_plain_words"
 STILL_AT_RISK_FIELD: Final = "still_at_risk"
 # What a reader saw go wrong, as the document's title says it.
 SYMPTOM_FIELD: Final = "symptom"
+# The longest a title may run, in words as a reader counts them. Told to the
+# model as well as held by the check: a limit it is never shown is a turn spent
+# sending back an answer it had no way to know was too long.
+SYMPTOM_WORDS_AT_MOST: Final = 16
 ASSUMPTIONS_FIELD: Final = "assumptions"
 # What each lead changed: one entry per lead, naming it by its label.
 LEAD_EFFECTS_FIELD: Final = "lead_effects"
@@ -653,12 +657,15 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         SYMPTOM_FIELD: {
             "type": "string",
             "description": (
-                "What went wrong as somebody using the service saw it, in one "
-                "sentence of a few words with no number: 'Account pages failed'. "
-                "It is the document's title. Not the metric the alert fired on, and "
-                "not the cause - the document adds the change it began with itself. "
-                "Where nobody using the service saw anything wrong, say that and what "
-                "was seen instead, still in one sentence."
+                "What went wrong as somebody using the service saw it, as short as "
+                "it can be: it is the document's title. One sentence with no number "
+                f"in it, never over {SYMPTOM_WORDS_AT_MOST} words - the thing that "
+                "went wrong and what happened to it, with an active verb: 'Account "
+                "pages failed'. Not the metric the alert fired on, not the cause - "
+                "the document adds the change it began with itself - and not how it "
+                "was found, which the document's Detection says. Where nobody using "
+                "the service saw anything wrong, say that and what was seen instead, "
+                "in that one sentence."
             )
         },
         ASSUMPTIONS_FIELD: {
@@ -789,7 +796,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    f"is T3's: {{T3.1 - {ALERT_RAISED_FIGURE}}}, not in "
                                    "words (\"within seconds\"). Set the span beside "
                                    "what it times - the thing its later instant dates "
-                                   "- not after something else in the same sentence."
+                                   "- not after something else in the same sentence. "
+                                   "Name what Code-Fix proposed without saying what it "
+                                   "does: the action items and Code-Fix's own reading "
+                                   "say that, with its conditions."
                                )
                            },
                            # Left off so a rollback holds, automatic sync was
@@ -1200,6 +1210,10 @@ def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:
     in main does that" - said of the whole branch - over to the running code.
     Not "of the branch alone" for the rest: told that, write-ups doubted what
     the record shows of other revisions, and proposed checking it.
+
+    Said as the files it names, not ones it read: these are every file its
+    reading names, and one it saw only three search lines of was said to have
+    been read.
     """
     read = [ran for ran in evidence.files_as_they_ran if ran.as_read]
     if not read:
@@ -1210,7 +1224,7 @@ def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:
     as_it_was = "as it was" if len(read) == 1 else "as they were"
     those = "that file" if len(read) == 1 else "those files"
 
-    return (f"[{reading}] read {', '.join(ran.path for ran in read)} on {branch} "
+    return (f"[{reading}] names {', '.join(ran.path for ran in read)} on {branch} "
             f"{as_it_was} at {read[0].revision[:7]}, which ran. What [{reading}] says of "
             f"{those} holds for what ran; what it says of the rest of {branch} does not.")
 

@@ -275,13 +275,31 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     return [*(["Argus handed the incident to a person."] if evidence.escalated else []),
             *held_back,
             *([f"Argus opened a draft fix, {pull_request.name}, for a person to review and "
-               f"merge."] if pull_request is not None else []),
+               f"merge.{_what_merging_it_alone_does(evidence)}"]
+              if pull_request is not None else []),
             *(f"Argus left automatic sync of {application} off, to be turned back on "
               f"{SYNC_GOES_BACK_ON}: {UNTIL_SYNC_IS_BACK_ON}."
               for application in left_off),
             *([f"Argus recommends this and did not take it: "
                f"{inside_a_sentence(recommended).rstrip('.')}."]
               if recommended else [])]
+
+
+def _what_merging_it_alone_does(evidence: IncidentEvidence) -> str:
+    """That the draft fix changes what runs only once a deploy carries it,
+    where the branch it was written against does not contain the revision that
+    ran - or nothing, where it does or nobody established it.
+
+    Said by the document rather than asked of the model: told it in the brief,
+    write-ups said it in fifteen of fifteen and then in two of five, the rest
+    dropping it, and with it that merging alone changes nothing that runs.
+    """
+    if evidence.fix_holds_what_ran is not False or evidence.fix_branch_read is None:
+        return ""
+
+    return (f" It was written against {evidence.fix_branch_read}, which does not contain "
+            f"the revision that ran: merged, it changes what runs only once a deploy "
+            f"carries it.")
 
 
 def _ranked(rank: int) -> str:

@@ -85,6 +85,7 @@ from agent_postmortem.prompting import (
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
+    SYMPTOM_WORDS_AT_MOST,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
     WHAT_FIELD,
@@ -912,7 +913,9 @@ def test_a_file_as_it_ran_is_shown_whole_under_a_heading_saying_what_it_is() -> 
 @pytest.mark.unit
 def test_a_file_as_it_ran_that_is_what_code_fix_read_is_said_beneath_it_and_not_shown() -> None:
     # Nothing to show: what Code-Fix read is what ran, and saying so settles
-    # the reading as well as the file would.
+    # the reading as well as the file would. Said as the files it names, not
+    # ones it read: it is told every file its reading names, and one it saw
+    # only three search lines of was said to have been read.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
@@ -925,7 +928,7 @@ def test_a_file_as_it_ran_that_is_what_code_fix_read_is_said_beneath_it_and_not_
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
-            _says("[F1] read deploy/scrape.yaml on main as it was at 53f02e9, which ran. "
+            _says("[F1] names deploy/scrape.yaml on main as it was at 53f02e9, which ran. "
                   "What [F1] says of that file holds for what ran; what it says of the "
                   "rest of main does not."),
             _does_not_say("What ran, read at the revision")
@@ -3102,6 +3105,24 @@ def test_a_span_is_asked_to_be_set_beside_what_it_times() -> None:
 
 
 @pytest.mark.unit
+def test_what_went_well_names_what_code_fix_proposed_without_saying_what_it_does() -> None:
+    # Squeezed into a line about how quickly a fix was proposed, a repair
+    # script that reports by default and writes with --apply became "a
+    # report-only repair script" - in write-ups whose own action items said to
+    # run it with --apply. The items and Code-Fix's reading say what it does.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Name what Code-Fix proposed without saying what it "
+                                      "does: the action items and Code-Fix's own reading "
+                                      "say that, with its conditions.")
+        )
+
+
+@pytest.mark.unit
 def test_the_brief_says_the_document_says_how_the_service_did_where_a_log_line_reaches_in(
 ) -> None:
     # Given the bound as a figure, steps carried it and root causes and lessons
@@ -3751,6 +3772,22 @@ def test_the_symptom_is_asked_for_in_one_sentence() -> None:
         ) \
         .then(
             _the_description_mentions("one sentence")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_for_as_short_as_it_can_be_and_told_its_limit() -> None:
+    # Asked for "a few words", a title ran to twenty, half of it how the fault
+    # was found. Told the limit the check holds it to, it is never sent back
+    # for one it was not shown.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("as short as it can be",
+                                      f"never over {SYMPTOM_WORDS_AT_MOST} words",
+                                      "not how it was found")
         )
 
 

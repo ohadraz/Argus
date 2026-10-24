@@ -56,6 +56,7 @@ from agent_postmortem.prompting import (
     STILL_AT_RISK_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
+    SYMPTOM_WORDS_AT_MOST,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
@@ -1559,6 +1560,45 @@ def test_a_symptom_of_more_than_one_sentence_is_named() -> None:
                 _named(some_symptom_in_two_sentences),
                 _found(1)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_over_the_words_it_was_told_is_named() -> None:
+    # Asked for a few words, a title ran to twenty - the longest of every
+    # write-up recorded. Counted as a reader counts words, on the spaces, so
+    # a hyphenated name is one.
+    some_symptom_one_word_too_long = " ".join(["shop-totals"] * (SYMPTOM_WORDS_AT_MOST + 1))
+
+    Scenario() \
+        .given(
+            an_answer_with_a_long_symptom := _an_answer(symptom=some_symptom_one_word_too_long)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_long_symptom, given=SOME_GIVEN)
+        ) \
+        .then(
+            all_of(
+                _named(f"runs to {SYMPTOM_WORDS_AT_MOST + 1} words"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_symptom_of_the_words_it_was_told_is_not_sent_back() -> None:
+    some_symptom_at_the_limit = " ".join(["shop-totals"] * SYMPTOM_WORDS_AT_MOST)
+
+    Scenario() \
+        .given(
+            an_answer_with_a_symptom_at_the_limit := _an_answer(
+                symptom=some_symptom_at_the_limit)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_with_a_symptom_at_the_limit, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
         )
 
 

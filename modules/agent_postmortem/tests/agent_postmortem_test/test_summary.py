@@ -470,6 +470,47 @@ def test_a_draft_fix_and_a_recommended_action_are_said_as_left_to_a_person() -> 
 
 
 @pytest.mark.unit
+def test_a_draft_fix_written_against_a_branch_without_what_ran_is_said_to_need_a_deploy() -> None:
+    # Told it in the brief, write-ups said it in fifteen of fifteen and then in
+    # two of five, the rest dropping it - and with it that merging alone changes
+    # nothing that runs. Said by the document, no answer can drop it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(number=315, url="https://github.invalid/pull/315",
+                                               branch="dont-care")
+            ).model_copy(update={"fix_branch_read": "main", "fix_holds_what_ran": False})
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("Argus opened a draft fix, PR #315, for a person to review and merge. It "
+                  "was written against main, which does not contain the revision that ran: "
+                  "merged, it changes what runs only once a deploy carries it.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("holds_what_ran", [True, None], ids=["it-does", "nobody-established"])
+def test_a_draft_fix_whose_branch_is_not_known_to_lack_what_ran_needs_no_deploy_said(
+        holds_what_ran: bool | None) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                pull_request=OpenedPullRequest(number=315, url="https://github.invalid/pull/315",
+                                               branch="dont-care")
+            ).model_copy(update={"fix_branch_read": "main", "fix_holds_what_ran": holds_what_ran})
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _does_not_say("once a deploy carries it")
+        )
+
+
+@pytest.mark.unit
 def test_automatic_sync_left_off_is_said_between_the_draft_fix_and_the_recommendation() -> None:
     # It decides whether merging the draft does anything, and turning it on too
     # soon is the one move that puts the fault back - so with when, and with
