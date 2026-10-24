@@ -217,6 +217,8 @@ def _a_candidate(hypothesis: Hypothesis,
     summary = said_as_shown(said_plainly(hypothesis.summary, beside=opened), revisions)
     subject = (said_as_shown(hypothesis.subject, revisions)
                if hypothesis.subject is not None else None)
+    moved_from = said_as_shown(said_as_a_state(hypothesis.from_state), revisions)
+    moved_to = said_as_shown(said_as_a_state(hypothesis.to_state), revisions)
     evidence = [finding.model_copy(update={"text": said_as_shown(finding.text, revisions)})
                 for finding in (a_finding(cited, minutes, logged, beside=opened)
                                 for cited in hypothesis.supporting_evidence)]
@@ -227,12 +229,12 @@ def _a_candidate(hypothesis: Hypothesis,
         failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,
         subject=subject,
-        moved_from=said_as_a_state(hypothesis.from_state),
-        moved_to=said_as_a_state(hypothesis.to_state),
+        moved_from=moved_from,
+        moved_to=moved_to,
         evidence=evidence,
         tested=hypothesis.tested,
         result=hypothesis.result,
         attempts=attempts,
-        links=the_links_in([summary, subject or "", *(finding.text for finding in evidence)],
-                           revisions)
+        links=the_links_in([summary, subject or "", moved_from, moved_to,
+                            *(finding.text for finding in evidence)], revisions)
     )

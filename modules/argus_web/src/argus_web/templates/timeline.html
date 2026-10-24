@@ -72,7 +72,7 @@
                Beside the claim rather than inside it: the model's sentence is
                the model's, and the states are what the page can strike out. #}
             {% if candidate.moved_to %}
-              <span class="moved"><s>{{ candidate.moved_from }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to }}</span></span>
+              <span class="moved"><s>{{ candidate.moved_from | references([], line.links) }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to | references([], line.links) }}</span></span>
             {% endif %}
             {% if candidate.confidence %}
               <span class="confidence">confidence {{ candidate.confidence }}</span>

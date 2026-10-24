@@ -292,6 +292,37 @@ def test_a_revision_a_candidate_names_is_shown_short_in_its_claim_subject_and_fi
 
 
 @pytest.mark.unit
+def test_a_revision_a_candidate_moved_from_or_to_is_shown_short_and_leads_to_its_commit() -> None:
+    # A candidate blaming a deploy names the move as two revisions. Left whole,
+    # they read as noise beside the same candidate's subject named short, and
+    # led nowhere.
+    some_line = NarrationLine(
+        at=DONT_CARE_MOMENT, kind="hypothesis-formed", who="Investigator",
+        text="Formed one candidate",
+        candidates=[CandidateLine(hypothesis_id="dont care", rank=1, summary="dont care",
+                                  subject=None, confidence=None,
+                                  moved_from=SOME_RIVAL, moved_to=SOME_REVISION, evidence=[])])
+
+    Scenario() \
+        .given(
+            some_line
+        ) \
+        .when(
+            lambda: shown(some_line, {
+                SOME_REVISION: _shown_by(SOME_REVISION[:8]),
+                SOME_RIVAL: ShownRevision(short=SOME_RIVAL[:8],
+                                          address=_the_commit_of(SOME_RIVAL))})
+        ) \
+        .then(
+            the_answer_was(some_line.model_copy(update={
+                "candidates": [some_line.candidates[0].model_copy(update={
+                    "moved_from": SOME_RIVAL[:8],
+                    "moved_to": SOME_REVISION[:8]})],
+                "links": {SOME_REVISION[:8]: _the_commit_of(SOME_REVISION),
+                          SOME_RIVAL[:8]: _the_commit_of(SOME_RIVAL)}})))
+
+
+@pytest.mark.unit
 def test_each_revision_the_incident_read_is_said_as_short_as_names_it_alone() -> None:
     # A deploy's revision, and a rival's that starts alike for seven characters
     # and so takes eight - each opening where it was committed. A flag's name is

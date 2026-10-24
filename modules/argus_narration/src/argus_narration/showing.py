@@ -67,9 +67,9 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
     """A line of the account as a destination shows it - every part of it
     alike, since the marked word and the words either side are one sentence
     split for a destination that sets the word apart, and the candidates under
-    it with it - each revision in `revisions` said by its short form, and
-    leading where it opens. A line written outside the walk is shown as it was
-    written.
+    it with it, the move each blamed among them - each revision in `revisions`
+    said by its short form, and leading where it opens. A line written outside
+    the walk is shown as it was written.
 
     Its links are read off what the shown line names rather than off what this
     call re-said, so a line shown twice leads where it led shown once."""
@@ -86,12 +86,15 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
     candidates = [candidate.model_copy(update={
         "summary": said(candidate.summary),
         "subject": said(candidate.subject) if candidate.subject is not None else None,
+        "moved_from": said(candidate.moved_from),
+        "moved_to": said(candidate.moved_to),
         "evidence": [finding.model_copy(update={"text": said(finding.text)})
                      for finding in candidate.evidence]})
         for candidate in line.candidates]
     named = [*parts.values(),
              *(part for candidate in candidates
                for part in (candidate.summary, candidate.subject or "",
+                            candidate.moved_from, candidate.moved_to,
                             *(finding.text for finding in candidate.evidence)))]
 
     return line.model_copy(update={**parts, "candidates": candidates,

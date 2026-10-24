@@ -2519,6 +2519,49 @@ def test_a_revision_a_candidate_names_opens_its_commit_in_the_timeline_and_the_w
 
 
 @pytest.mark.component
+def test_a_revision_a_candidate_moved_from_or_to_opens_its_commit_in_the_timeline_and_the_walk(
+) -> None:
+    # Whole and leading nowhere beside the same candidate's subject named short.
+    # The timeline's candidate and the walk's row blame the move each way round,
+    # so each template is seen on its own.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_earlier_revision = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+    some_repository = "https://github.com/acme/shop"
+    linked = (f'<a href="{some_repository}/commit/{some_revision}" target="_blank" '
+              f'rel="noopener noreferrer">{some_revision[:7]}</a>')
+    linked_earlier = (f'<a href="{some_repository}/commit/{some_earlier_revision}" '
+                      f'target="_blank" rel="noopener noreferrer">{some_earlier_revision[:7]}</a>')
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
+        events.record(conn, _a_deploy_read_on(incident_id, some_earlier_revision,
+                                              some_repository))
+        events.record(conn, HypothesisFormed(
+            incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
+            failure_mode=None, confidence=None, subject=None, rank=1,
+            from_state=some_earlier_revision, to_state=some_revision))
+        hypotheses.record(conn, Hypothesis(
+            incident_id=incident_id, summary="dont care",
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.9,
+            supporting_evidence=[], subject="io-shop", rank=1,
+            from_state=some_revision, to_state=some_earlier_revision))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(f"<s>{linked_earlier}</s>"),
+            the_page_says(f"<s>{linked}</s>")
+        ))
+
+
+@pytest.mark.component
 def test_an_answer_in_markdown_is_shown_formatted_on_the_incident_page() -> None:
     # Shown as the model wrote it, `**` and all, an answer reads as markup
     # nobody rendered.

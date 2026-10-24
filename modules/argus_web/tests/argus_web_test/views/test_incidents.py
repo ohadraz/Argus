@@ -316,6 +316,37 @@ def test_a_revision_a_candidate_names_is_said_short_and_leads_to_its_commit() ->
 
 
 @pytest.mark.unit
+def test_a_revision_a_candidate_moved_from_or_to_is_said_short_and_leads_to_its_commit() -> None:
+    # As its subject is: whole and leading nowhere beside the subject named
+    # short, one candidate named one revision two ways.
+    an_incident = _an_incident()
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_earlier_revision = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+    some_commit = f"https://github.invalid/acme/shop/commit/{some_revision}"
+    some_earlier_commit = f"https://github.invalid/acme/shop/commit/{some_earlier_revision}"
+
+    Scenario() \
+        .given(
+            a_candidate_blaming_the_deploy := _a_candidate(
+                an_incident.id, subject="dont care", rank=1,
+                from_state=some_earlier_revision, to_state=some_revision)
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_blaming_the_deploy],
+            attempts=NOTHING_WAS_TRIED,
+            revisions={
+                some_revision: ShownRevision(short=some_revision[:7], address=some_commit),
+                some_earlier_revision: ShownRevision(short=some_earlier_revision[:7],
+                                                     address=some_earlier_commit)}
+        )) \
+        .then(_the_first_candidate_moved(
+            was=some_earlier_revision[:7], now=some_revision[:7],
+            links={some_earlier_revision[:7]: some_earlier_commit,
+                   some_revision[:7]: some_commit}))
+
+
+@pytest.mark.unit
 def test_an_incident_is_shown_with_the_alert_it_opened_on() -> None:
     # The row stores the alert as the JSON it was normalized into. A reader
     # gets the alert back, not the payload it was stored as.
@@ -537,6 +568,22 @@ def _the_first_candidate_says(expected: str) -> Assertion[IncidentDetail]:
 
         if said != expected:
             raise AssertionError(f"Expected the candidate to say [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_first_candidate_moved(was: str, now: str,
+                               links: dict[str, str]) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        candidate = _the_first(detail)
+        moved = (candidate.moved_from, candidate.moved_to, candidate.links)
+        expected = (was, now, links)
+
+        if moved != expected:
+            raise AssertionError(f"Expected the candidate's move and links {expected}, "
+                                 f"got {moved}.")
 
         return True
 
