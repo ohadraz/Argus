@@ -80,7 +80,10 @@ def the_hypotheses(postmortem: PostmortemDocument,
     addresses = the_revision_addresses(postmortem.changes_read)
 
     def said(summary: str) -> tuple[Run, ...]:
-        return tuple(said for linked in Run(text=said_short(summary, shorts)).with_links(addresses)
+        return tuple(said
+                     for quoted in Run(text=said_short(summary, shorts)).with_code_set_apart()
+                     for linked in ((quoted,) if quoted.role is Role.CODE
+                                    else quoted.with_links(addresses))
                      for said in _with_moments(linked, day))
 
     rows = tuple(row

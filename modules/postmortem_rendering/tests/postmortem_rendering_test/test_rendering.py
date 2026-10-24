@@ -340,6 +340,25 @@ def test_a_cited_candidate_reads_as_its_row_under_whichever_label_it_goes_by() -
 
 
 @pytest.mark.unit
+def test_a_cited_candidate_quoting_code_reads_as_its_row_without_the_backticks() -> None:
+    # A step's evidence is said as the row it cites, and the candidate's row
+    # printed its backticks there too.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                hypotheses=[HypothesisConsidered(summary="Ports are named `<protocol>`.",
+                                                 confidence=None, result="confirmed",
+                                                 label="C1")],
+                causal_chain=_a_step_citing("C1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("C1 Ports are named <protocol>. - confirmed"))
+
+
+@pytest.mark.unit
 def test_a_cited_change_log_message_lead_and_action_item_read_as_their_rows() -> None:
     Scenario() \
         .given(

@@ -14,12 +14,16 @@ import re
 from collections.abc import Collection, Iterator, Mapping
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from typing import Final
 
 from argus_core import said_as_a_time
 from argus_core.models import OpenedPullRequest
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_day_and_clock
+
+# Code quoted inline in Markdown: between single backticks, on one line.
+_A_CODE_SPAN: Final = re.compile(r"`([^`\n]+)`")
 
 
 class Role(StrEnum):
@@ -129,7 +133,30 @@ class Run(BaseModel):
         """The run cut at every label it cites, as `with_citations` cuts it,
         and the words between them at every name in `addresses`, as
         `with_links` does - "the deploy of revision 7c3ca00 (P2)" leading to
-        the row P2 names and to where the revision opens."""
+        the row P2 names and to where the revision opens.
+
+        Code it quotes is set apart first, as `with_code_set_apart` sets it:
+        quoted, a label or a name is the code's text, and neither cited nor
+        linked."""
+        return tuple(referenced
+                     for piece in self.with_code_set_apart()
+                     for referenced in ((piece,) if piece.role is Role.CODE
+                                        else piece._cited_and_linked(labels, addresses)))
+
+    def with_code_set_apart(self) -> tuple[Run, ...]:
+        """The run cut at the code it quotes between backticks, each quote code
+        with its backticks left out and the words between them playing this
+        run's part: a model writes Markdown, and a mark printed is one nobody
+        reading the page or the paper was meant to see."""
+        pieces = _A_CODE_SPAN.split(self.text)
+        # `split` puts what the group matched at every odd place.
+        return tuple(Run(text=piece, role=Role.CODE) if place % 2
+                     else self.model_copy(update={"text": piece})
+                     for place, piece in enumerate(pieces) if piece)
+
+    def _cited_and_linked(self, labels: Collection[str],
+                          addresses: Mapping[str, str]) -> tuple[Run, ...]:
+        """The run cut at every label it cites and every name it links."""
         return tuple(linked for piece in self.with_citations(labels)
                      for linked in (piece.with_links(addresses)
                                     if piece.role is not Role.CITATION else (piece,)))

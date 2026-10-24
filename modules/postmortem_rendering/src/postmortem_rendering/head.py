@@ -64,20 +64,22 @@ def a_title(postmortem: PostmortemDocument | None, alert: Alert) -> Line:
     if postmortem is None or not postmortem.symptom:
         return Line(runs=(Run(text=f"{alert.alert_name} on {alert.service}"),))
 
+    # The model's words, and Markdown like the rest of them.
+    symptom = Run(text=postmortem.symptom).with_code_set_apart()
     trigger = postmortem.trigger
     if trigger is None or trigger.suspected or not trigger.to_state:
-        return Line(runs=(Run(text=postmortem.symptom),))
+        return Line(runs=symptom)
 
     # A deployment's subject is the service and its state a revision, so it is
     # said as the service running that revision rather than as a flag's "was".
     if trigger.kind is ChangeKind.DEPLOY:
-        return Line(runs=(Run(text=postmortem.symptom),
+        return Line(runs=(*symptom,
                           Run(text=" while "),
                           Run(text=alert.service, role=Role.CODE),
                           Run(text=" ran "),
                           Run(text=as_revision(trigger.to_state), role=Role.CODE)))
 
-    return Line(runs=(Run(text=postmortem.symptom),
+    return Line(runs=(*symptom,
                       Run(text=" while "),
                       Run(text=trigger.subject, role=Role.CODE),
                       Run(text=" was "),

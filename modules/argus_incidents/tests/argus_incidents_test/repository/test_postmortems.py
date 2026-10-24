@@ -155,6 +155,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "deploys_reading": ChannelReading.READ,
         "flags_reading": ChannelReading.READ,
         "logs_reading": ChannelReading.READ,
+        "fix_branch_read": "main",
         **_every_section_of_the_template()
     })
 

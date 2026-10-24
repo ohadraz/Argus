@@ -160,9 +160,20 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                              for cited in postmortem.code_read),
                              as_it_ran=tuple(_a_diff_row(cited, revision_addresses, shorts)
                                              for cited in postmortem.as_it_ran_read),
+                             uses_outside_heading=_the_uses_outside_heading(
+                                 postmortem.fix_branch_read),
                              uses_outside=_rows(postmortem.uses_outside_read),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
+
+
+def _the_uses_outside_heading(branch: str | None) -> str:
+    """What the lines outside Code-Fix's patch are headed by: the branch they
+    were read on, where it is known - not the revision that ran, which a reader
+    takes rows for unless the heading says otherwise."""
+    read = f"read on {branch}" if branch is not None else "read off the code"
+
+    return f"How the code outside Code-Fix's patch uses what it changes, {read}"
 
 
 def _no_changes(postmortem: PostmortemDocument) -> str | None:

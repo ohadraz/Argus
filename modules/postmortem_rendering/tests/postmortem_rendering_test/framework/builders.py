@@ -99,6 +99,7 @@ class _WhatAPostmortemHolds(TypedDict, total=False):
     code_read: list[CitedEvidence]
     as_it_ran_read: list[CitedEvidence]
     uses_outside_read: list[CitedEvidence]
+    fix_branch_read: str | None
     deploys_reading: ChannelReading | None
     flags_reading: ChannelReading | None
     logs_reading: ChannelReading | None

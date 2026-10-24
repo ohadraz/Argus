@@ -281,6 +281,80 @@ def test_prose_cites_each_label_and_links_each_name_with_an_address() -> None:
 
 
 @pytest.mark.unit
+def test_code_prose_quotes_between_backticks_is_code_without_its_backticks() -> None:
+    # The write-up and the Investigator write Markdown, and a backtick printed
+    # is a mark nobody reading the page or the paper was meant to see: a root
+    # cause read "`http-metrics`".
+    Scenario() \
+        .given(
+            some_prose := Run(text="The port `http-metrics` is gone (C1).", role=Role.PROSE)
+        ) \
+        .when(
+            lambda: some_prose.with_references({"C1"}, {})
+        ) \
+        .then(
+            the_answer_was((Run(text="The port ", role=Role.PROSE),
+                            Run(text="http-metrics", role=Role.CODE),
+                            Run(text=" is gone (", role=Role.PROSE),
+                            Run(text="C1", role=Role.CITATION, address="C1"),
+                            Run(text=").", role=Role.PROSE)))
+        )
+
+
+@pytest.mark.unit
+def test_a_label_or_a_name_quoted_as_code_is_neither_cited_nor_linked() -> None:
+    # Between backticks it is the code's text, quoted as it was written.
+    commit = "https://github.com/acme/shop/commit/7c3ca00"
+
+    Scenario() \
+        .given(
+            some_prose := Run(text="It reads `C1` and `7c3ca00`.", role=Role.PROSE)
+        ) \
+        .when(
+            lambda: some_prose.with_references({"C1"}, {"7c3ca00": commit})
+        ) \
+        .then(
+            the_answer_was((Run(text="It reads ", role=Role.PROSE),
+                            Run(text="C1", role=Role.CODE),
+                            Run(text=" and ", role=Role.PROSE),
+                            Run(text="7c3ca00", role=Role.CODE),
+                            Run(text=".", role=Role.PROSE)))
+        )
+
+
+@pytest.mark.unit
+def test_code_quoted_in_a_run_is_cut_out_as_code_and_the_rest_keeps_the_runs_part() -> None:
+    # The model's words set as the record's are Markdown too - a candidate, a
+    # symptom, a lead's weighing - and their backticks were printed.
+    Scenario() \
+        .given(
+            some_words := Run(text="the `metrics` port is gone", role=Role.QUOTE)
+        ) \
+        .when(
+            lambda: some_words.with_code_set_apart()
+        ) \
+        .then(
+            the_answer_was((Run(text="the ", role=Role.QUOTE),
+                            Run(text="metrics", role=Role.CODE),
+                            Run(text=" port is gone", role=Role.QUOTE)))
+        )
+
+
+@pytest.mark.unit
+def test_a_run_quoting_no_code_comes_back_as_it_was() -> None:
+    Scenario() \
+        .given(
+            some_words := Run(text="the port is gone")
+        ) \
+        .when(
+            lambda: some_words.with_code_set_apart()
+        ) \
+        .then(
+            the_answer_was((some_words,))
+        )
+
+
+@pytest.mark.unit
 def test_a_label_with_no_row_to_cite_is_left_as_prose() -> None:
     # A postmortem with no hypotheses still has prose, and it may still name
     # C1 - a citation of it would lead nowhere.

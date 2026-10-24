@@ -73,6 +73,13 @@ class CodeUse(BaseModel):
     `name` is what it uses: a field the patch's changed code now writes, or a
     function whose definition the patch changes. `function` is the function the
     line sits in, `None` at a module's top level.
+
+    The line is read on the branch the patch is against. `revision` is the one
+    running when the alert fired that its file was compared at, `None` where
+    none is known to have run; `as_read` is whether the file there is the file
+    the branch holds, byte for byte - as `FileAsItRan.as_read` says of a file
+    Code-Fix's reading names. Only where it is does the line say anything of
+    what ran.
     """
 
     name: str
@@ -80,6 +87,8 @@ class CodeUse(BaseModel):
     line: int
     function: str | None
     does: str
+    revision: str | None = None
+    as_read: bool = False
 
 
 class CodeOutsideThePatch(BaseModel):

@@ -2783,6 +2783,40 @@ def test_the_fix_proposed_carries_what_the_code_outside_its_patch_does_with_it()
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("needs_code_outside", [False, True],
+                         ids=["opened", "needs-code-outside"])
+def test_the_uses_outside_the_patch_come_back_saying_whether_their_files_ran_as_read(
+        needs_code_outside: bool) -> None:
+    # Compared once the model has answered, as the files its reading names are,
+    # whichever way it answered: the write-up applies these lines to what ran
+    # only where their files ran as the branch holds them.
+    some_uses = [CodeUse(name="month", path="src/io_shop/spend_reconciliation.py", line=9,
+                         function="reconcile", does="compares it with bought(account)")]
+    repository = a_repository(
+        whose_code_outside_is=CodeOutsideThePatch(uses=some_uses, defined={})
+    )
+    model = a_model_that(submits_a_fix_touching(SOME_PATH),
+                         answers_it_needs_code_outside() if needs_code_outside
+                         else answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                deployed=SOME_REVISION_THAT_RAN,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_fix_carries_the_uses([some_uses[0].model_copy(
+                update={"revision": SOME_REVISION_THAT_RAN, "as_read": True})])
+        )
+
+
+@pytest.mark.unit
 def test_the_pull_request_says_what_the_code_outside_its_patch_does_with_it() -> None:
     # Published beside the explanation, as Code-Fix is told it is: whoever
     # decides whether to merge reads what the code outside the patch does from

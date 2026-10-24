@@ -1101,6 +1101,31 @@ def test_the_document_carries_how_the_code_outside_the_patch_uses_what_it_change
 
 
 @pytest.mark.unit
+def test_the_document_carries_the_branch_code_fix_read() -> None:
+    # What the code outside the patch was read on, for the page and the paper
+    # to head its rows with.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main"})
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the branch Code-Fix read",
+                       lambda document: document.fix_branch_read,
+                       "main")
+        )
+
+
+@pytest.mark.unit
 def test_the_tokens_spent_are_left_to_whoever_holds_the_replay_log() -> None:
     # The agent holds no connection, and the count is of every call the
     # incident made - this one's among them, which are not all made while it

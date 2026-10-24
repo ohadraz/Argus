@@ -81,6 +81,22 @@ def test_a_title_names_a_deployment_as_the_service_running_the_revision() -> Non
 
 
 @pytest.mark.unit
+def test_code_a_symptom_quotes_is_set_as_code_in_the_title() -> None:
+    # The symptom is the model's words, and Markdown like the rest of them.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(symptom="The `metrics` port went unscraped")
+        ) \
+        .when(
+            lambda: a_title(some_postmortem, an_alert())
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The "),
+                                      Run(text="metrics", role=Role.CODE),
+                                      Run(text=" port went unscraped")))))
+
+
+@pytest.mark.unit
 def test_a_suspected_trigger_stays_out_of_the_title() -> None:
     # The title is read by everybody who reads nothing else, and there a
     # change nothing tested would read as the change that did it.

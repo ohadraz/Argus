@@ -1020,6 +1020,85 @@ def test_the_uses_outside_the_patch_stand_where_code_fix_says_otherwise_of_them(
 
 
 @pytest.mark.unit
+def test_the_uses_outside_the_patch_are_said_to_be_read_on_the_branch_code_fix_read() -> None:
+    # They were read on main, and a write-up applied them to what ran.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "uses_outside": [CodeUse(name="total_this_month_cents",
+                                                 path="src/io_shop/spend_reconciliation.py",
+                                                 line=109, function=None, does="returns it")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("How the code outside Code-Fix's patch uses what it changes, read on main "
+                  "by Argus:")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("ran_as_read", "said"), [
+    ((True, True),
+     "src/io_shop/spend_reconciliation.py and src/io_shop/spend_summary.py are on main as "
+     "they were at 53f02e9, which ran: what these lines say of them holds for what ran."),
+    ((True, False),
+     "src/io_shop/spend_reconciliation.py is on main as it was at 53f02e9, which ran: what "
+     "these lines say of it holds for what ran; what they say of src/io_shop/spend_summary.py "
+     "does not."),
+    ((False, False),
+     "These lines were read on main, not at 53f02e9, which ran: what they say does not hold "
+     "for what ran.")
+], ids=["all-as-they-ran", "some", "none"])
+def test_what_the_uses_outside_the_patch_say_holds_for_what_ran_where_their_files_did(
+        ran_as_read: tuple[bool, bool], said: str) -> None:
+    # True of the revision that ran only where a file ran as main holds it. A
+    # write-up applied these lines to what ran, true that once because nothing
+    # else had changed. A file is named once however many of its lines are rows.
+    reconciliation, summary = "src/io_shop/spend_reconciliation.py", "src/io_shop/spend_summary.py"
+    uses = [CodeUse(name="total_this_month_cents", path=path, line=line, function=None,
+                    does="returns it", revision=SOME_DEPLOYED_REVISION, as_read=as_read)
+            for path, line, as_read in ((reconciliation, 9, ran_as_read[0]),
+                                        (reconciliation, 12, ran_as_read[0]),
+                                        (summary, 47, ran_as_read[1]))]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main", "uses_outside": uses})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says(said)
+        )
+
+
+@pytest.mark.unit
+def test_uses_outside_the_patch_compared_with_no_revision_say_nothing_of_what_ran() -> None:
+    # No revision known to have run is nothing to hold for, as with what
+    # Code-Fix read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"fix_branch_read": "main",
+                        "uses_outside": [CodeUse(name="total_this_month_cents",
+                                                 path="src/io_shop/spend_reconciliation.py",
+                                                 line=109, function=None, does="returns it")]})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _does_not_say("what these lines say"),
+            _does_not_say("These lines were read on")
+        ))
+
+
+@pytest.mark.unit
 def test_an_incident_code_fix_said_nothing_of_is_shown_no_heading_for_it() -> None:
     Scenario() \
         .given(

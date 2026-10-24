@@ -16,8 +16,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from agent_codefix.as_it_ran import the_files_as_they_ran
-from argus_core.models import FileAsItRan
+from agent_codefix.as_it_ran import the_files_as_they_ran, the_uses_as_they_ran
+from argus_core.models import CodeUse, FileAsItRan
 from argus_testkit import Scenario, the_answer_was
 
 SOME_BRANCH = "main"
@@ -28,6 +28,9 @@ SOME_CONTENT = "selector:\n  port: metrics\n"
 SOME_OTHER_CONTENT = "selector:\n  port: metrics\n  interval: 15s\n"
 
 A_READING_NAMING_IT = f"The scrape config in {SOME_PATH} selects the port by its old name."
+
+SOME_USE = CodeUse(name="month", path=SOME_PATH, line=2, function="reconcile",
+                   does="compares it with bought(account)")
 
 
 @pytest.mark.unit
@@ -184,6 +187,67 @@ def test_with_no_reading_or_no_revision_nothing_is_read(reading: str | None,
         ) \
         .then(
             the_answer_was([])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("on_the_branch", "at_the_revision", "as_read"), [
+    ({SOME_PATH: SOME_CONTENT}, {SOME_PATH: SOME_CONTENT}, True),
+    ({SOME_PATH: SOME_OTHER_CONTENT}, {SOME_PATH: SOME_CONTENT}, False),
+    ({SOME_PATH: SOME_CONTENT}, {}, False),
+    ({}, {SOME_PATH: SOME_CONTENT}, False)
+], ids=["the-same", "different", "not-read-at-the-revision", "not-read-on-the-branch"])
+def test_a_use_outside_the_patch_says_whether_its_file_ran_as_the_branch_holds_it(
+        on_the_branch: dict[str, str], at_the_revision: dict[str, str], as_read: bool) -> None:
+    # The lines outside the patch are read on the branch, and a write-up applied
+    # them to what ran - true only where their file ran as the branch holds it.
+    # A file not read on both sides is never said to have.
+    _, read_file = _a_repository(on_the_branch=on_the_branch, at_the_revision=at_the_revision)
+
+    Scenario() \
+        .when(
+            lambda: the_uses_as_they_ran([SOME_USE], branch=SOME_BRANCH,
+                                         deployed=SOME_REVISION, read_file=read_file)
+        ) \
+        .then(
+            the_answer_was([SOME_USE.model_copy(update={"revision": SOME_REVISION,
+                                                        "as_read": as_read})])
+        )
+
+
+@pytest.mark.unit
+def test_each_use_outside_the_patch_is_said_of_by_its_own_file() -> None:
+    some_other_use = CodeUse(name="month", path=SOME_OTHER_PATH, line=5, function=None,
+                             does="returns it")
+    _, read_file = _a_repository(
+        on_the_branch={SOME_PATH: SOME_CONTENT, SOME_OTHER_PATH: SOME_CONTENT},
+        at_the_revision={SOME_PATH: SOME_CONTENT, SOME_OTHER_PATH: SOME_OTHER_CONTENT})
+
+    Scenario() \
+        .when(
+            lambda: the_uses_as_they_ran([SOME_USE, some_other_use], branch=SOME_BRANCH,
+                                         deployed=SOME_REVISION, read_file=read_file)
+        ) \
+        .then(
+            the_answer_was([
+                SOME_USE.model_copy(update={"revision": SOME_REVISION, "as_read": True}),
+                some_other_use.model_copy(update={"revision": SOME_REVISION, "as_read": False})
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_uses_outside_the_patch_with_no_revision_known_to_have_run_are_compared_with_none() -> None:
+    _, read_file = _a_repository(on_the_branch={SOME_PATH: SOME_CONTENT},
+                                 at_the_revision={SOME_PATH: SOME_CONTENT})
+
+    Scenario() \
+        .when(
+            lambda: the_uses_as_they_ran([SOME_USE], branch=SOME_BRANCH, deployed=None,
+                                         read_file=read_file)
+        ) \
+        .then(
+            the_answer_was([SOME_USE])
         )
 
 

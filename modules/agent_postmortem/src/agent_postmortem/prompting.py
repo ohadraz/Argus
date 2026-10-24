@@ -1135,10 +1135,12 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
           if read_in_the_source else []),
         *([("What ran, read at the revision running when the alert fired:", as_it_ran, None)]
           if as_it_ran else []),
-        *([("How the code outside Code-Fix's patch uses what it changes, read off the code "
-            "by Argus:", uses_outside,
-            f"Where [{label_of(CODE_READING_PREFIX, 1)}] says otherwise of these lines, "
-            f"they stand.")]
+        *([(f"How the code outside Code-Fix's patch uses what it changes, "
+            f"{_where_the_uses_were_read(evidence)} by Argus:", uses_outside,
+            " ".join(note for note in (
+                f"Where [{label_of(CODE_READING_PREFIX, 1)}] says otherwise of these lines, "
+                f"they stand.",
+                _what_the_uses_say_of_what_ran(evidence)) if note))]
           if uses_outside else [])
     ]
 
@@ -1234,6 +1236,54 @@ def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:
     return (f"[{reading}] names {', '.join(ran.path for ran in read)} on {branch} "
             f"{as_it_was} at {read[0].revision[:7]}, which ran. What [{reading}] says of "
             f"{those} holds for what ran; what it says of the rest of {branch} does not.")
+
+
+def _where_the_uses_were_read(evidence: IncidentEvidence) -> str:
+    """Where the lines outside Code-Fix's patch were read: on the branch it
+    read, where that is known. Said "read off the code" otherwise, which is all
+    there is to say."""
+    if evidence.fix_branch_read is None:
+        return "read off the code"
+
+    return f"read on {evidence.fix_branch_read}"
+
+
+def _what_the_uses_say_of_what_ran(evidence: IncidentEvidence) -> str | None:
+    """Beneath the lines outside Code-Fix's patch: which of their files ran as
+    the branch holds them, and so which lines hold for what ran - or nothing,
+    where no revision is known to have run.
+
+    The lines are read on the branch, and a write-up applied them to the
+    revision that ran - true that once only because nothing else had changed.
+    Said as F1's files are: named where they hold, the rest said not to."""
+    compared = [use for use in evidence.uses_outside if use.revision is not None]
+    if not compared:
+        return None
+
+    branch = evidence.fix_branch_read or "the branch it read"
+    revision = (compared[0].revision or "")[:7]
+    holding = list(dict.fromkeys(use.path for use in compared if use.as_read))
+    not_holding = [path for path in dict.fromkeys(use.path for use in compared)
+                   if path not in holding]
+
+    if not holding:
+        return (f"These lines were read on {branch}, not at {revision}, which ran: what they "
+                f"say does not hold for what ran.")
+
+    one = len(holding) == 1
+    said = (f"{_listed(holding)} {'is' if one else 'are'} on {branch} as "
+            f"{'it was' if one else 'they were'} at {revision}, which ran: what these lines "
+            f"say of {'it' if one else 'them'} holds for what ran")
+
+    if not not_holding:
+        return f"{said}."
+
+    return f"{said}; what they say of {_listed(not_holding)} does not."
+
+
+def _listed(names: list[str]) -> str:
+    """Names as a sentence lists them."""
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def the_files_as_they_ran_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:

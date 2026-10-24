@@ -73,7 +73,7 @@ from read_mcp_client import (
 )
 from write_mcp_client import commit_to_new_branch, open_pull_request
 
-from agent_codefix.as_it_ran import the_files_as_they_ran
+from agent_codefix.as_it_ran import the_files_as_they_ran, the_uses_as_they_ran
 from agent_codefix.budget import FixSettings, a_budget_for
 from agent_codefix.grouping import the_group_outside
 from agent_codefix.opening import (
@@ -383,6 +383,10 @@ def propose_fix(hypothesis: Hypothesis | None,
                                       deployed=deployed,
                                       list_files=list_files,
                                       read_file=read_file)
+    uses_outside = the_uses_as_they_ran(uses_outside,
+                                        branch=settings.github_base_branch,
+                                        deployed=deployed,
+                                        read_file=read_file)
 
     if isinstance(submitted, AnswerToTheQuestion):
         # Written and not opened: merged alone it spares nobody. What comes

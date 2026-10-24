@@ -724,6 +724,23 @@ def test_the_uses_outside_the_patch_are_headed_as_read_off_the_code() -> None:
 
 
 @pytest.mark.unit
+def test_the_uses_outside_the_patch_are_headed_as_read_on_the_branch_code_fix_read() -> None:
+    # Read on main, not at the revision that ran - and a reader takes the rows
+    # for what ran unless the heading says otherwise.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(fix_branch_read="main")
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                some_postmortem, SOME_INCIDENT_ADDRESS).uses_outside_heading
+        ) \
+        .then(
+            the_answer_was("How the code outside Code-Fix's patch uses what it changes, "
+                           "read on main"))
+
+
+@pytest.mark.unit
 def test_each_assumption_is_a_line_of_prose() -> None:
     Scenario() \
         .given(

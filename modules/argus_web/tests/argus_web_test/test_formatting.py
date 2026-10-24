@@ -125,6 +125,22 @@ def test_what_is_between_backticks_is_code_and_nothing_else() -> None:
 
 
 @pytest.mark.unit
+def test_code_prose_quotes_between_backticks_is_set_as_code_and_escaped() -> None:
+    # The Investigator's words on the walk and the incident page come through
+    # here, and its backticks were printed: "`<protocol>[-<purpose>]`".
+    Scenario() \
+        .given(
+            some_prose := "Ports are named `<protocol>[-<purpose>]`."
+        ) \
+        .when(
+            lambda: with_references(some_prose, labels=set(), addresses={})
+        ) \
+        .then(
+            the_answer_was("Ports are named <code>&lt;protocol&gt;[-&lt;purpose&gt;]</code>.")
+        )
+
+
+@pytest.mark.unit
 def test_prose_is_escaped_so_only_the_links_are_markup() -> None:
     # The prose is the model's, and the page marks the result safe: anything
     # in it that reads as markup must arrive as text.

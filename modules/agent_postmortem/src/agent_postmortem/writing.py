@@ -214,6 +214,7 @@ def write_postmortem(evidence: IncidentEvidence,
         code_read=the_code_reading_labelled(evidence),
         as_it_ran_read=the_files_as_they_ran_labelled(evidence),
         uses_outside_read=the_uses_outside_labelled(evidence),
+        fix_branch_read=evidence.fix_branch_read,
         deploys_reading=evidence.deploys_reading,
         flags_reading=evidence.flags_reading,
         logs_reading=evidence.logs_reading

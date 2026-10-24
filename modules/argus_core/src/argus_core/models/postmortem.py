@@ -192,6 +192,9 @@ class PostmortemDocument(BaseModel):
     code_read: list[CitedEvidence] = []
     as_it_ran_read: list[CitedEvidence] = []
     uses_outside_read: list[CitedEvidence] = []
+    # The branch Code-Fix read, which the uses outside its patch were read on -
+    # not the revision that ran, as a reader takes rows for unless told.
+    fix_branch_read: str | None = None
     # What came of reading the deploys, the flags and the logs, for a list of
     # them that is empty: read and found nothing, never asked, and asked with
     # nothing back are three things to know, and an empty list is all three.

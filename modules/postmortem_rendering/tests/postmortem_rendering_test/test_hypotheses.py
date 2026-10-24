@@ -165,6 +165,26 @@ def test_a_zoned_clock_time_a_candidate_names_is_said_as_a_moment_on_the_documen
 
 
 @pytest.mark.unit
+def test_code_a_candidate_quotes_is_set_as_code_without_its_backticks() -> None:
+    # The Investigator writes Markdown: "`<protocol>[-<purpose>]`" was printed
+    # with its backticks on the page and the paper.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(summary="Ports are named `<protocol>[-<purpose>]`.",
+                                     confidence=0.8, result="confirmed", label="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Ports are named "),
+                Run(text="<protocol>[-<purpose>]", role=Role.CODE),
+                Run(text=".")))))
+
+
+@pytest.mark.unit
 def test_the_table_names_its_columns() -> None:
     Scenario() \
         .given(
