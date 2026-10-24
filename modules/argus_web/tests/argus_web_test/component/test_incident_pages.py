@@ -22,6 +22,7 @@ from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
     CandidateSelected,
     ChangesRetrieved,
+    HypothesisFormed,
     LogsRetrieved,
     MetricsRetrieved,
     QuestionAnswered,
@@ -2480,6 +2481,41 @@ def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> 
             the_page_says(f'<a href="{commit}" target="_blank" rel="noopener noreferrer">'
                           f'{some_revision[:7]}</a> made every page slow')
         )
+
+
+@pytest.mark.component
+def test_a_revision_a_candidate_names_opens_its_commit_in_the_timeline_and_the_walk() -> None:
+    # Named whole and leading nowhere in a candidate's subject and findings,
+    # beside the changes table naming it short and opening it, one page named
+    # one revision two ways.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_repository = "https://github.com/acme/shop"
+    linked = (f'<a href="{some_repository}/commit/{some_revision}" target="_blank" '
+              f'rel="noopener noreferrer">{some_revision[:7]}</a>')
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
+        events.record(conn, HypothesisFormed(
+            incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
+            failure_mode=None, confidence=None, subject=some_revision, rank=1,
+            evidence=[Evidence(claim=f"{some_revision} rewrote the totals", at=None)]))
+        _a_candidate_recorded_for(conn, incident_id, subject=some_revision, rank=1,
+                                  evidence=[f"{some_revision} rewrote the history"])
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(f"{linked} rewrote the totals"),
+            the_page_says(f"{linked} rewrote the history"),
+            the_page_says(f"<code>{linked}</code>")
+        ))
 
 
 @pytest.mark.component

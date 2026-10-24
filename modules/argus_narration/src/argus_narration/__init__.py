@@ -36,7 +36,14 @@ from argus_narration.narrating import (
     where_a_report_came_from,
 )
 from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
-from argus_narration.showing import ShownRevision, as_shown, shown, the_revisions
+from argus_narration.showing import (
+    ShownRevision,
+    as_shown,
+    said_as_shown,
+    shown,
+    the_links_in,
+    the_revisions,
+)
 
 __all__ = [
     "BucketRow",
@@ -62,10 +69,12 @@ __all__ = [
     "on_or_off",
     "pointed_at",
     "said_as_a_state",
+    "said_as_shown",
     "said_in_full",
     "said_plainly",
     "shown",
     "the_instants_in",
+    "the_links_in",
     "the_minutes_logged",
     "the_revisions",
     "what_to_do",

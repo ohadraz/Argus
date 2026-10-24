@@ -19,6 +19,7 @@ from argus_incidents.repository import (
     postmortems,
     taken_actions,
 )
+from argus_narration import ShownRevision
 from postmortem_rendering import (
     RenderedPostmortem,
     ReportedResolution,
@@ -57,7 +58,9 @@ def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:
 def read_incident(conn: psycopg.Connection,
                   incident_id: str,
                   minutes: Sequence[str] = (),
-                  logged: Sequence[str] = ()) -> IncidentDetail | None:
+                  logged: Sequence[str] = (),
+                  revisions: Mapping[str, ShownRevision] | None = None
+                  ) -> IncidentDetail | None:
     """One incident's whole walk, or `None` where there is no such incident.
 
     `None` rather than an empty detail: an id that never existed has no walk to
@@ -66,7 +69,8 @@ def read_incident(conn: psycopg.Connection,
     Four reads rather than one join, because each is a repository's own
     question and the join belongs to the view, which is where the answers are
     arranged for somebody to look at. `minutes` and `logged` are the rows the
-    page beside the walk holds, for its findings to lead to.
+    page beside the walk holds, for its findings to lead to, and `revisions`
+    the revisions it names short, for its candidates to say alike.
     """
     incident = incidents.get(conn, incident_id)
     if incident is None:
@@ -77,7 +81,8 @@ def read_incident(conn: psycopg.Connection,
         candidates=hypotheses.get_all_by_incident(conn, incident_id),
         attempts=taken_actions.get_by_incident(conn, incident_id),
         minutes=minutes,
-        logged=logged
+        logged=logged,
+        revisions=revisions or {}
     )
 
 

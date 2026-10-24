@@ -11,8 +11,10 @@ explanation?" is the question a reader has while looking at one.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
+from types import MappingProxyType
+from typing import Final
 
 from argus_core import UuidStr, to_iso
 from argus_core.models import (
@@ -24,8 +26,19 @@ from argus_core.models import (
     TakenAction,
     Verdict,
 )
-from argus_narration import Finding, a_finding, said_as_a_state, said_plainly
-from pydantic import BaseModel
+from argus_narration import (
+    Finding,
+    ShownRevision,
+    a_finding,
+    said_as_a_state,
+    said_as_shown,
+    said_plainly,
+    the_links_in,
+)
+from pydantic import BaseModel, Field
+
+# A walk shown with no revision the incident read to say short.
+_NO_REVISIONS: Final[Mapping[str, ShownRevision]] = MappingProxyType({})
 
 
 class Attempt(BaseModel):
@@ -62,6 +75,9 @@ class Candidate(BaseModel):
     tested: bool
     result: str | None
     attempts: list[Attempt]
+    # Each revision its claim, subject and findings name, by the short form
+    # they say it by, and where it opens - as a line of the timeline leads.
+    links: dict[str, str] = Field(default_factory=dict)
 
 
 class IncidentSummary(BaseModel):
@@ -110,7 +126,8 @@ def build_incident_detail(
     candidates: list[Hypothesis],
     attempts: list[TakenAction],
     minutes: Sequence[str] = (),
-    logged: Sequence[str] = ()
+    logged: Sequence[str] = (),
+    revisions: Mapping[str, ShownRevision] = _NO_REVISIONS
 ) -> IncidentDetail:
     """Arranges an incident's rows into the walk a reader follows.
 
@@ -127,7 +144,9 @@ def build_incident_detail(
     same finding does in the timeline. Empty, a finding leads nowhere.
 
     A candidate's words are said as the timeline says them, an instant in
-    them on the clock and read against the day the incident opened.
+    them on the clock and read against the day the incident opened, and each
+    of `revisions` - the ones the incident read - by its short form, leading
+    to its commit.
     """
     attached: dict[str, list[Attempt]] = {}
     unattributed: list[Attempt] = []
@@ -146,7 +165,7 @@ def build_incident_detail(
         created_at=incident.created_at,
         candidates=[
             _a_candidate(candidate, attached.get(candidate.id, []), minutes, logged,
-                         opened=to_iso(incident.created_at))
+                         opened=to_iso(incident.created_at), revisions=revisions)
             for candidate in candidates
         ],
         unattributed_attempts=unattributed
@@ -187,24 +206,33 @@ def _a_candidate(hypothesis: Hypothesis,
                  attempts: list[Attempt],
                  minutes: Sequence[str],
                  logged: Sequence[str],
-                 opened: str) -> Candidate:
+                 opened: str,
+                 revisions: Mapping[str, ShownRevision]) -> Candidate:
     """One hypothesis row, with the attempts made for it.
 
     A candidate the walk never reached comes back with no attempts and
     `tested` false, which is the difference between an investigation that ran
     out of options and one that stopped because it was right.
     """
+    summary = said_as_shown(said_plainly(hypothesis.summary, beside=opened), revisions)
+    subject = (said_as_shown(hypothesis.subject, revisions)
+               if hypothesis.subject is not None else None)
+    evidence = [finding.model_copy(update={"text": said_as_shown(finding.text, revisions)})
+                for finding in (a_finding(cited, minutes, logged)
+                                for cited in hypothesis.supporting_evidence)]
+
     return Candidate(
         rank=hypothesis.rank,
-        summary=said_plainly(hypothesis.summary, beside=opened),
+        summary=summary,
         failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,
-        subject=hypothesis.subject,
+        subject=subject,
         moved_from=said_as_a_state(hypothesis.from_state),
         moved_to=said_as_a_state(hypothesis.to_state),
-        evidence=[a_finding(cited, minutes, logged)
-                  for cited in hypothesis.supporting_evidence],
+        evidence=evidence,
         tested=hypothesis.tested,
         result=hypothesis.result,
-        attempts=attempts
+        attempts=attempts,
+        links=the_links_in([summary, subject or "", *(finding.text for finding in evidence)],
+                           revisions)
     )

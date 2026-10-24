@@ -35,7 +35,7 @@ from argus_narration import (
     the_revisions,
 )
 from postmortem_rendering import Run, a_reference, what_a_change_did
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 
@@ -80,6 +80,9 @@ class Story(BaseModel):
     # finding - it is what rules a deploy out - and a table that simply did not
     # appear would leave that finding unsaid.
     read_changes: bool
+    # Each revision the incident read and how the page says it, for what is
+    # shown beside the story - the walk's candidates - to say it alike.
+    revisions: dict[str, ShownRevision] = Field(default_factory=dict)
 
 
 class LiveIncident(BaseModel):
@@ -153,7 +156,8 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
                  for change, read_at in sorted(changed.values(),
                                                key=lambda read: read[0].occurred_at)],
         flag_changes=flag_history,
-        read_changes=any(isinstance(event, ChangesRetrieved) for event in events)
+        read_changes=any(isinstance(event, ChangesRetrieved) for event in events),
+        revisions=revisions
     )
 
 

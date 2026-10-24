@@ -66,26 +66,46 @@ def as_shown(text: str) -> str:
 def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> NarrationLine:
     """A line of the account as a destination shows it - every part of it
     alike, since the marked word and the words either side are one sentence
-    split for a destination that sets the word apart - each revision in
-    `revisions` said by its short form, and leading where it opens. A line
-    written outside the walk is shown as it was written.
+    split for a destination that sets the word apart, and the candidates under
+    it with it - each revision in `revisions` said by its short form, and
+    leading where it opens. A line written outside the walk is shown as it was
+    written.
 
     Its links are read off what the shown line names rather than off what this
     call re-said, so a line shown twice leads where it led shown once."""
     if line.outside_the_walk:
         return line
 
-    shorts = {whole: revision.short for whole, revision in revisions.items()}
-
     def said(text: str) -> str:
-        return as_shown(said_short(text, shorts))
+        return said_as_shown(text, revisions)
 
     parts = {"text": said(line.text),
              "before_emphasis": said(line.before_emphasis),
              "emphasis": said(line.emphasis),
              "after_emphasis": said(line.after_emphasis)}
+    candidates = [candidate.model_copy(update={
+        "summary": said(candidate.summary),
+        "subject": said(candidate.subject) if candidate.subject is not None else None,
+        "evidence": [finding.model_copy(update={"text": said(finding.text)})
+                     for finding in candidate.evidence]})
+        for candidate in line.candidates]
+    named = [*parts.values(),
+             *(part for candidate in candidates
+               for part in (candidate.summary, candidate.subject or "",
+                            *(finding.text for finding in candidate.evidence)))]
 
-    return line.model_copy(update={**parts, "links": _the_links_in(parts.values(), revisions)})
+    return line.model_copy(update={**parts, "candidates": candidates,
+                                   "links": the_links_in(named, revisions)})
+
+
+def said_as_shown(text: str, revisions: Mapping[str, ShownRevision]) -> str:
+    """Words of the walk as a shown line says them: each revision in
+    `revisions` by its short form, and the brackets quoting a name left off.
+
+    Public, with `the_links_in`, for what is shown off the page's own rows
+    rather than off its lines - the walk's candidates - and says them alike."""
+    return as_shown(said_short(text, {whole: revision.short
+                                      for whole, revision in revisions.items()}))
 
 
 def the_revisions(events: Sequence[IncidentEvent]) -> dict[str, ShownRevision]:
@@ -104,9 +124,12 @@ def the_revisions(events: Sequence[IncidentEvent]) -> dict[str, ShownRevision]:
             for revision, address in opened_at.items()}
 
 
-def _the_links_in(parts: Iterable[str], revisions: Mapping[str, ShownRevision]) -> dict[str, str]:
+def the_links_in(parts: Iterable[str], revisions: Mapping[str, ShownRevision]) -> dict[str, str]:
     """Each revision's short form a shown line names, matched whole, and where
     it opens.
+
+    Public because the walk's candidates are shown off the page's own rows
+    rather than off its lines, and lead where the same names do in the lines.
 
     Each short looked for by name rather than by `A_REVISION`, which will not
     take a run of hex with no letter in it for a revision - right for spotting

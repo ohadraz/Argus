@@ -28,6 +28,7 @@ from argus_core.models import (
     TakenAction,
     Verdict,
 )
+from argus_narration import ShownRevision
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.incidents import (
     Candidate,
@@ -260,6 +261,36 @@ def test_an_instant_a_candidate_names_is_said_as_the_timeline_says_it(named: str
 
 
 @pytest.mark.unit
+def test_a_revision_a_candidate_names_is_said_short_and_leads_to_its_commit() -> None:
+    # As the changes table above it names it, and the timeline beside it:
+    # named whole here, one page named one revision two ways, and only one of
+    # them opened.
+    an_incident = _an_incident()
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_commit = f"https://github.invalid/acme/shop/commit/{some_revision}"
+
+    Scenario() \
+        .given(
+            a_candidate_naming_it := _a_candidate(
+                an_incident.id, subject=some_revision, rank=1,
+                summary=f"The deploy of [{some_revision}] broke it",
+                evidence=[Evidence(claim=f"{some_revision} rewrote it", at=None)])
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_naming_it],
+            attempts=NOTHING_WAS_TRIED,
+            revisions={some_revision: ShownRevision(short=some_revision[:7],
+                                                    address=some_commit)}
+        )) \
+        .then(_the_first_candidate_names(
+            summary=f"The deploy of {some_revision[:7]} broke it",
+            subject=some_revision[:7],
+            evidence=[f"{some_revision[:7]} rewrote it"],
+            links={some_revision[:7]: some_commit}))
+
+
+@pytest.mark.unit
 def test_an_incident_is_shown_with_the_alert_it_opened_on() -> None:
     # The row stores the alert as the JSON it was normalized into. A reader
     # gets the alert back, not the payload it was stored as.
@@ -481,6 +512,23 @@ def _the_first_candidate_says(expected: str) -> Assertion[IncidentDetail]:
 
         if said != expected:
             raise AssertionError(f"Expected the candidate to say [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_first_candidate_names(summary: str, subject: str, evidence: list[str],
+                               links: dict[str, str]) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        candidate = _the_first(detail)
+        named = (candidate.summary, candidate.subject,
+                 [finding.text for finding in candidate.evidence], candidate.links)
+        expected = (summary, subject, evidence, links)
+
+        if named != expected:
+            raise AssertionError(f"Expected the candidate's claim, subject, findings and "
+                                 f"links {expected}, got {named}.")
 
         return True
 

@@ -67,7 +67,7 @@
         <ol class="candidates">
           {% for candidate in line.candidates %}
           <li data-candidate="{{ candidate.rank }}">
-            <span class="claim">{{ candidate.summary }}</span>
+            <span class="claim">{{ candidate.summary | references([], line.links) }}</span>
             {# The change it blamed, drawn the way the flag table draws one.
                Beside the claim rather than inside it: the model's sentence is
                the model's, and the states are what the page can strike out. #}
@@ -85,7 +85,7 @@
             <ul class="findings">
               {% for finding in candidate.evidence %}
               <li>
-                {{ finding.text }}
+                {{ finding.text | references([], line.links) }}
                 {% if finding.links_to_minute %}
                   <a class="jump" href="#minute-{{ finding.links_to_minute }}">the minute</a>
                 {% endif %}

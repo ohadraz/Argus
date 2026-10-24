@@ -780,12 +780,13 @@ def _an_incident_or_404(conn: psycopg.Connection,
     empty, and rendering one for it invents a record.
 
     `beside` is the story shown on the same page, whose minutes and log lines
-    the walk's findings lead to.
+    the walk's findings lead to, and whose revisions its candidates say alike.
     """
     held = the_rows_held(beside.metrics, beside.logs, beside.flag_changes) if beside else None
     incident = reads.read_incident(conn, incident_id,
                                    minutes=held.minutes if held else (),
-                                   logged=held.logged if held else ())
+                                   logged=held.logged if held else (),
+                                   revisions=beside.revisions if beside else None)
     if incident is None:
         raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
 

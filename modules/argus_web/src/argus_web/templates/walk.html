@@ -54,8 +54,8 @@
 
       <p class="claim">
         <span class="rank">#{{ candidate.rank }}</span>
-        {{ candidate.summary }}
-        {% if candidate.subject %}<code>{{ candidate.subject }}</code>{% endif %}
+        {{ candidate.summary | references([], candidate.links) }}
+        {% if candidate.subject %}<code>{{ candidate.subject | references([], candidate.links) }}</code>{% endif %}
         {# The move it blamed, struck through and picked out - the same shape
            the flag table and the story use for a change. #}
         {% if candidate.moved_to %}
@@ -80,7 +80,7 @@
       <ul class="evidence">
         {% for finding in candidate.evidence %}
         <li class="evidence-line">
-          {{ finding.text }}
+          {{ finding.text | references([], candidate.links) }}
           {% if finding.links_to_minute %}
             <a class="jump" href="#minute-{{ finding.links_to_minute }}">the minute</a>
           {% endif %}

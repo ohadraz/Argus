@@ -24,7 +24,7 @@ import pytest
 from argus_core import new_id
 from argus_core.events import ChangesRetrieved
 from argus_core.models import ChangeEvent, ChangeKind, RevisionSource
-from argus_narration import NarrationLine
+from argus_narration import CandidateLine, Finding, NarrationLine
 from argus_narration.showing import ShownRevision, as_shown, shown, the_revisions
 from argus_testkit import Scenario, the_answer_was
 
@@ -260,6 +260,35 @@ def test_a_line_a_person_wrote_is_shown_as_they_wrote_it() -> None:
         ) \
         .then(
             the_answer_was(some_line))
+
+@pytest.mark.unit
+def test_a_revision_a_candidate_names_is_shown_short_in_its_claim_subject_and_findings() -> None:
+    # The candidates under a line are shown with it. Left whole there, a
+    # revision read as noise beside the changes table naming it short, and led
+    # nowhere.
+    some_line = NarrationLine(
+        at=DONT_CARE_MOMENT, kind="hypothesis-formed", who="Investigator",
+        text="Formed one candidate",
+        candidates=[CandidateLine(hypothesis_id="dont care", rank=1,
+                                  summary=f"The deploy of [{SOME_REVISION}] broke it",
+                                  subject=SOME_REVISION, confidence=None,
+                                  evidence=[Finding(text=f"{SOME_REVISION} rewrote it")])])
+
+    Scenario() \
+        .given(
+            some_line
+        ) \
+        .when(
+            lambda: shown(some_line, {SOME_REVISION: _shown_by(SOME_REVISION[:7])})
+        ) \
+        .then(
+            the_answer_was(some_line.model_copy(update={
+                "candidates": [some_line.candidates[0].model_copy(update={
+                    "summary": f"The deploy of {SOME_REVISION[:7]} broke it",
+                    "subject": SOME_REVISION[:7],
+                    "evidence": [Finding(text=f"{SOME_REVISION[:7]} rewrote it")]})],
+                "links": {SOME_REVISION[:7]: _the_commit_of(SOME_REVISION)}})))
+
 
 
 @pytest.mark.unit
