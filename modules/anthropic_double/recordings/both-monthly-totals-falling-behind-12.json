@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSygUKEAgTGAI4AUIIdGhpbmtpbmcSDN6ZXVfMkrLX2rNvfBoMbJlQXxUed4gV+kp8IjAYwPtC2AHuZ6YMDiLKj1JeTe7P79TblZCOhMlulFqipqO/kj568PP5XQTVVgXtSPIq5wTjYzmsF6Rqo9XOm3TzMlaIafuuSQ+JUyuGTr5hccsQodPdQVYgXgPqZ1VXkrzruRHsNF0F2RkrWx0wsaUKJ03rAaWhIbc5RfXA7Hxkk4PBv1Hixdiry8JBwxwamDUwjHVhVlgVjpjtBVvO6P+7UfpUSaYMTuOi8uq9ehRKOxolahxT8gonIfhgBD/ZX8PKFcK/LvbZdt+jdZoTcGFztqAh5nWA+u2RRQ7wR1xYmLr1eqUzu1BUvYAoGRR+h5a1hKFDfmjgCiANegcddQB9u9vIthDfA1toLaZoG5uqGJEaWNREDmaWtP6GiPbyt1giM7mgcv4nijcoiTsA4BSl9I+mIMM231Y6SrcnPs/oVpH55CUWwhZgxpayaO9WBp9IKT/LlqEo1q/0tdoGfG+BFy6iNNNx68N6SS6rgoArXKfRqvjlUTBayUWvTk59bKlWuuBMEwOKE5ovfOTlW197pkbhb5rPCPsuumfnJ4tHqGjIB7EJu3WbxDmnTCYyVuxgK150VjnFTQHtfAMDUSe1HeiDMTSDM1CekGVZwCinN44PwqeSXQRL5R9WHHGx7kX4nOmII3RoaOqH2Pm1FZWAk0ePvt1kJCNDGmAq34I25sKkHkOeiNyfjMDFqzc9XMdjLMfWHEvHhBp/fv8etQw3MH+54rYaUdu4zXIk6Fn+xomdJfrX+BEr7DMyeCpeOWzt1kd8pyuVLpsFLVoWh6QFdNfpPpNifdbb9Hi1GJThU8o07t5s2H+ZbfSdxU2m9OypGHFHY6kjH3kQNJ314FORDiOcYGpfIeFqGlSfKX4G/ha8XkDtVM9o/WwYAQ==",
+      "thinking": "I'm sequencing the explanation: start with the symptom, then the field left behind, then the deploy that removed the update, and finally the underlying mechanism tying it together\u2014keeping that causal chain order of 1, 2, 3, 4.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_0122DSAZHpomsnBT9nv3JSg8",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgMujpTB4jbCEZmGAKfvN",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1500
+    },
+    "cache_creation_input_tokens": 1500,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 139,
+    "output_tokens_details": {
+      "thinking_tokens": 81
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

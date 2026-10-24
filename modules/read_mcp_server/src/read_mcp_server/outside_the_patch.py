@@ -22,6 +22,7 @@ wrong about, so it is passed over rather than guessed at.
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Iterator, Mapping
 from typing import Final, NamedTuple
 
@@ -215,7 +216,7 @@ def _uses_in(path: str,
                         for child in ast.iter_child_nodes(node)}
     lines = text.splitlines()
     modules = _modules_imported_by(tree)
-    returns = _what_each_one_line_function_returns(tree)
+    returns = _what_each_one_line_function_returns(tree, text)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in changes.fields:
@@ -279,14 +280,26 @@ def _called(call: ast.Call) -> str | None:
     return None
 
 
-def _what_each_one_line_function_returns(tree: ast.Module) -> dict[str, str]:
+def _what_each_one_line_function_returns(tree: ast.Module, text: str) -> dict[str, str]:
     """Each function a module defines at its top level whose whole body is one
-    `return`, by name, with the expression it returns."""
-    return {name: ast.unparse(body[0].value)
+    `return`, by name, with the expression it returns as the source spells it,
+    on one line.
+
+    The source's text rather than the tree's rendering of it: the tree puts a
+    lone generator argument in a second pair of brackets the source never had."""
+    return {name: _on_one_line(ast.get_source_segment(text, body[0].value) or "")
             for name, function in _module_functions(tree).items()
             if isinstance(function, _A_FUNCTION)
             and len(body := function.body) == 1
             and isinstance(body[0], ast.Return) and body[0].value is not None}
+
+
+def _on_one_line(source: str) -> str:
+    """Source text with each run of whitespace one space, and none just inside
+    a bracket."""
+    spaced = " ".join(source.split())
+
+    return re.sub(r"\s+([)\]}])", r"\1", re.sub(r"([(\[{])\s+", r"\1", spaced))
 
 
 def _what_it_does(node: ast.Attribute,

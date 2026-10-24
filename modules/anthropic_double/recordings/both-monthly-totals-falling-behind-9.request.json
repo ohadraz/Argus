@@ -2,136 +2,28 @@
   "cache_control": {
     "type": "ephemeral"
   },
-  "max_tokens": 16000,
+  "max_tokens": 128000,
   "messages": [
     {
-      "content": "Write the postmortem for the incident below.\n\nAlert: SpendTotalsDoNotReconcile on io-shop\nWhat the alert said [AL1]: 240 {A1} of 240 {A2} shopper totals do not reconcile with the purchases behind them. The widest is short by 1,297.31 {A3}, and the oldest affected purchase was recorded at 2026-10-17T13:42:00Z {A4}. Found by the spend-integrity check, which runs every 7 {A5} days, so the fault is up to that old.\nAlert raised: 2026-10-24T13:40:59Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged.\nThe alert rule fires as soon as its condition holds. The alert came 6 days 23 hours 58 minutes 59 seconds {alerted_after_the_onset} after the onset.\nBroken from 2026-10-17T13:42:00Z {began} (the onset). The service was not back to normal by 2026-10-24T13:41:26Z {argus_stopped}, when Argus stopped working on the incident, so it was broken for at least 6 days 23 hours 59 minutes 26 seconds {duration} - a lower bound, not a measurement, and every impact figure below is bounded the same way.\nArgus held the incident for 26 seconds {held}, until 2026-10-24T13:41:26Z {argus_stopped}. That is how long the response took, not how long the fault lasted - leave it out of your answer.\nError rate: not measured by the metrics - metrics were read, but none from the hour before the onset, so there is no calm level to measure a rise against.\nCustomer loss: none so far - the shop's takings over the incident fell short of the same hours whole weeks earlier by no more than those hours vary on their own, if at all; a lower bound, counted with the service not seen back to normal.\n\nWhat Argus did, in order:\n  - [T1] 2026-10-24T13:40:59Z {T1.1} Argus: Received SpendTotalsDoNotReconcile on io-shop\n  - [T2] 2026-10-24T13:41:01Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-10-24T13:41:01Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-10-24T13:41:02Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 13:40:59 {T4.2}\n  - [T5] 2026-10-24T13:41:04Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-10-24T13:41:05Z {T6.1} Investigator Agent: Placed the start of the incident at Oct 17 13:42 {T6.2}\n  - [T7] 2026-10-24T13:41:05Z {T7.1} Investigator Agent: Recorded where the service's replicas run - started after the onset: io-shop-7d9c4f8b6-x2k9p on Tesla-V100-SXM2-16GB at Oct 24 01:40:59 {T7.2}, io-shop-7d9c4f8b6-m4q7r on Tesla-V100-SXM2-16GB at Oct 24 01:40:59 {T7.3}, io-shop-7d9c4f8b6-c8v2n on Tesla-V100-SXM2-16GB at Oct 24 01:40:59 {T7.4}\n  - [T8] 2026-10-24T13:41:13Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 14 {T8.2} days 13 {T8.3} hours 41 {T8.4} minutes before Oct 24 13:41 {T8.5}\n  - [T9] 2026-10-24T13:41:13Z {T9.1} Investigator Agent: Read back 2 {T9.2} production changes\n  - [T10] 2026-10-24T13:41:16Z {T10.1} Investigator Agent: Read what the deployment of 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 changed\n  - [T11] 2026-10-24T13:41:16Z {T11.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T11.2} replicas run revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, deployed at Oct 17 13:40 {T11.3}\n  - [T12] 2026-10-24T13:41:25Z {T12.1} Investigator Agent: Formed 2 {T12.2} candidate causes, best first: C1, C2\n  - [T13] 2026-10-24T13:41:25Z {T13.1} Investigator Agent: Did not read logs\n  - [T14] 2026-10-24T13:41:25Z {T14.1} Argus: Read the flag provider's history - 0 {T14.2} flag changes by anyone but Argus, the 1 {T14.3} hour before Oct 17 13:42 {T14.4}\n  - [T15] 2026-10-24T13:41:26Z {T15.1} Argus: Moved the incident to MITIGATING to act on the leading candidate\n  - [T16] 2026-10-24T13:41:26Z {T16.1} Argus: Refused to act - nothing would say whether the action that would test the candidate worked inside the time Argus waits, so it is recommended rather than taken\n  - [T17] 2026-10-24T13:41:26Z {T17.1} Argus: Left for a person to do - rolling io-shop back\n  - [T18] 2026-10-24T13:41:26Z {T18.1} Argus: Moved the incident to RECOMMENDED - action recommended\n  - [T19] 2026-10-24T13:42:58Z {T19.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/334\n\nChanges to production it read:\n  - [P1] 2026-10-17T09:40:00Z {P1.1} deploy 4c810f22894e612ced87f5ee3f3062dfeb785050 by kuki: deployed revision 4c810f22894e612ced87f5ee3f3062dfeb785050 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - [P2] 2026-10-17T13:40:00Z {P2.1} deploy 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 by kuki: deployed revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - Flags read, none came back.\n\nLog lines it read, one per message:\n  - Not read.\n\nCandidates it considered, in the Investigator's words - cite them; what they claim is not what happened unless a row of the record shows it:\n  - [C1] Revision 26f1d7e deployed at 13:40 {C1.1} on 10-17 {C1.2} changed record_purchase in purchase_ledger.py so it no longer maintains total_this_month_cents. Shopper totals written since then disagree with the purchases they come from. Every request still succeeds and no series moves, and the oldest wrong record is 13:42 {C1.3}, two minutes after the deploy. [silent-data-corruption, confidence 0.6 {C1.4}, never tried: nothing would say whether the action that would test the candidate worked inside the time Argus waits, so it is recommended rather than taken]\n  - [C2] The code released in 26f1d7e changed ledger recording and left stored account totals inconsistent with the purchases. The fault is in the released source. [bad-deployment, confidence 0.3 {C2.1}, never tried]\n\nActions it took:\n  - none\n\nWhat each deployment it looked into changed:\n  - [D1] Deployment of revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 to io-shop, compared against 4c810f22894e612ced87f5ee3f3062dfeb785050 - the revision deployed before it.\n      modified src/io_shop/purchase_ledger.py\n        @@ -28,26 +28,23 @@\n         \n         \n         def record_purchase(account: Account, purchase: Purchase) -> Account:\n        -    \"\"\"The account with this purchase written into it, and both totals moved.\n        +    \"\"\"The account with this purchase written into it, and its total moved.\n         \n        -    How a purchase has always been recorded. Each total is added to rather than\n        -    worked out again: the account already carries what has been spent, and a sale\n        -    changes it by exactly the price of the thing sold.\n        +    How a purchase is recorded. The lifetime total is added to rather than worked\n        +    out again: the account already carries what has been spent, and a sale changes\n        +    it by exactly the price of the thing sold.\n         \n        -    The month is the part worth reading twice. A purchase counts towards the\n        -    month's total only if it falls in the month being counted, so that addition is\n        -    conditional where the lifetime one is not - and a shopper backfilling an older\n        -    order leaves this month's figure exactly where it was.\n        +    The month is no longer carried. Every purchase says whether it falls in the\n        +    current month, so what a shopper has spent this month adds up from the history\n        +    whenever anybody wants it - exactly as the lifetime average is derived from the\n        +    purchases rather than read off the account. A second copy of a figure the\n        +    purchases already hold is a copy that has to be kept in step, and the cheapest\n        +    way to keep it in step is not to keep it.\n             \"\"\"\n             return replace(\n                 account,\n                 purchases=(*account.purchases, purchase),\n        -        total_cents=account.total_cents + purchase.price_cents,\n        -        total_this_month_cents=(\n        -            account.total_this_month_cents + purchase.price_cents\n        -            if purchase.in_current_month\n        -            else account.total_this_month_cents\n        -        )\n        +        total_cents=account.total_cents + purchase.price_cents\n             )\n         \n         \n  - A file [D1] does not list is as it was at the revision [D1] compares against.\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] **Which code I'm describing.** The revision that ran, 26f1d7e, isn't in main, so I haven't read it. What I say about it comes only from the investigation: it removed the `total_this_month_cents` update from `record_purchase`. Everything else below is about main.\n      \n      **The fault, in main.** In `src/io_shop/purchase_ledger.py`, `record_purchase` still moves both totals. But main already has a second write path, `record_purchase_deriving_the_month`, chosen by `record_a_purchase(..., derive_the_month=True)`. It writes the purchase and moves `total_cents`, but leaves `total_this_month_cents` where it was. Its docstring says the month 'adds up from the history whenever anybody wants it', and the code doesn't bear that out:\n      - `src/io_shop/spend_summary.py` `average_spend_per_item_this_month` divides the stored `account.total_this_month_cents`.\n      - `src/io_shop/spend_reconciliation.py` compares the stored figure against the purchases.\n      \n      So every sale this path writes leaves the account holding two different answers for the month. The page shows a wrong number and nothing fails, which matches the incident: every request succeeded and the metrics were flat. The deploy turned this on for all writes by changing `record_purchase` itself; in main the same fault is waiting behind the `derive_the_month` flag.\n      \n      **The fix.** `record_purchase_deriving_the_month` now sets `total_this_month_cents` to the sum of the account's current-month purchases, including the new one, instead of leaving it alone. It still doesn't add to the old figure, which is what that path was meant to do, but the stored copy now always matches the purchases. Readers get the right figure with the flag on or off, and an account that had already drifted is corrected the next time it's written. The cost is that this path sums one month's purchases on each write, not on each page view. `record_purchase` and `record_a_purchase` are unchanged. I found no other callers of either function.\n      \n      **Tests** (`tests/io_shop/test_purchase_ledger.py`). The new cases record purchases through `record_a_purchase` with the flag both on and off, and assert that `reconcile_monthly_totals` finds no disagreement and that the monthly total equals the sum of current-month purchases. They also check that an earlier month's purchase doesn't move the month total, and that a drifted account comes out matching. On main's current code, the flag-on cases should fail because the monthly total stays at its old value. No tests have been run.\n      \n      **Repair script** (`scripts/repair_monthly_totals.py`). This script has not been run; a person has to run it.\n      - It uses `reconcile_monthly_totals` to find accounts whose stored monthly total disagrees with their purchases, and sets `total_this_month_cents` to the sum of their current-month purchases.\n      - It only touches accounts whose total is low (positive gap), which is this fault. Accounts whose total is too high are reported and left alone, because that's a different fault.\n      - The repo has no storage layer, so the script reads accounts as JSON lines and writes corrected accounts as JSON lines. It defaults to a dry run that only reports; `--apply` prints the corrected records. Whoever runs it has to export the accounts and write the output back.\n      - It uses each purchase's current `in_current_month`. If the month has turned since 10-17 {F1.1}, the result is the right total for the current month, not a rebuilt October figure.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'. [F1] was written against main, which does not contain the revision running when the alert fired: merged, its fix changes what runs only once a deploy carries it. [F1] names src/io_shop/spend_summary.py, src/io_shop/spend_reconciliation.py, tests/io_shop/test_purchase_ledger.py, src/io_shop/accounts.py on main as they were at 26f1d7e, which ran. What [F1] says of those files holds for what ran; what it says of the rest of main does not. [F1] names revision 26f1d7e and [D1] is that revision's own diff - say what it shows rather than ask for it to be checked.\n\nWhat ran, read at the revision running when the alert fired:\n  - [S1] src/io_shop/purchase_ledger.py at 26f1d7e\n      \"\"\"Writing a purchase down - the other side of what the account page reads.\n      \n      An account carries two running totals beside its purchases: what the shopper has\n      spent altogether, and what they have spent this month. Recording a sale means\n      writing the purchase and moving both of them, and this is where that happens.\n      \n      Running totals rather than figures derived on demand, because that is what they\n      are for. The account page is the most-visited page the shop has and a history is\n      long; a total that was summed on every render would make every page pay for the\n      whole of a shopper's past. What that buys costs something in return, and the cost\n      is the only thing worth knowing about this module: a total is a second copy of\n      what the purchases already say, so a write that moves one and not the other leaves\n      the shop holding two answers to the same question. Nothing here notices if that\n      happens - see `io_shop.spend_reconciliation`, which is the shop's own check on\n      exactly this.\n      \n      Which path a purchase is recorded through arrives here already decided, exactly\n      as the choice of figure does on the read side - see `io_shop.spend_summary`.\n      Nothing in this module reads a flag, and nothing in it knows a rollout is\n      happening.\n      \"\"\"\n      \n      from __future__ import annotations\n      \n      from dataclasses import replace\n      \n      from io_shop.accounts import Account, Purchase\n      \n      \n      def record_purchase(account: Account, purchase: Purchase) -> Account:\n          \"\"\"The account with this purchase written into it, and its total moved.\n      \n          How a purchase is recorded. The lifetime total is added to rather than worked\n          out again: the account already carries what has been spent, and a sale changes\n          it by exactly the price of the thing sold.\n      \n          The month is no longer carried. Every purchase says whether it falls in the\n          current month, so what a shopper has spent this month adds up from the history\n          whenever anybody wants it - exactly as the lifetime average is derived from the\n          purchases rather than read off the account. A second copy of a figure the\n          purchases already hold is a copy that has to be kept in step, and the cheapest\n          way to keep it in step is not to keep it.\n          \"\"\"\n          return replace(\n              account,\n              purchases=(*account.purchases, purchase),\n              total_cents=account.total_cents + purchase.price_cents\n          )\n      \n      \n      def record_purchase_deriving_the_month(account: Account,\n                                             purchase: Purchase) -> Account:\n          \"\"\"The same account, without the month's total being moved.\n      \n          One total to carry instead of two, which is the saving: a month is not\n          something the shop has to keep a figure for. Every purchase says which month\n          it falls in, so what a shopper has spent this month adds up from the history\n          whenever anybody wants it - exactly as the lifetime average is derived from the\n          purchases rather than read off the account (see\n          `io_shop.spend_summary.average_spend_per_item`). Keeping a second copy of a\n          figure the purchases already hold is the work this path exists to drop.\n          \"\"\"\n          return replace(\n              account,\n              purchases=(*account.purchases, purchase),\n              total_cents=account.total_cents + purchase.price_cents\n          )\n      \n      \n      def record_a_purchase(account: Account,\n                            purchase: Purchase,\n                            derive_the_month: bool) -> Account:\n          \"\"\"The account this purchase leaves behind, written through whichever path\n          the rollout selects.\n      \n          The decision arrives made, like every other rollout decision in this shop:\n          whoever handled the sale was told by the flag SDK which cohort this shopper\n          is in, and hands the answer down. A write path that evaluated a flag for\n          itself would be a second place the rollout is decided, and the two would\n          eventually disagree about which shoppers are in it.\n          \"\"\"\n          if derive_the_month:\n              return record_purchase_deriving_the_month(account, purchase)\n      \n          return record_purchase(account, purchase)\n      \n\nAction items the record already holds:\n  - AI-1 (mitigate, open): Review and merge the proposed fix\n  - AI-2 (mitigate, open): Roll io-shop back\nPR #334 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P2] - suspected, not confirmed.\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: Revision 26f1d7e deployed at 2026-10-17T23:08Z changed record_purchase so it no longer maintains the per-shopper month total. Totals written from then on disagree with the purchases behind them. The service keeps serving normally, so no request-level metric moved. The oldest affected purchase is at 23:10Z, two minutes after the deploy.\n\nWhat that rests on:\n  - Deploy 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2 modified src/io_shop/purchase_ledger.py: removed the total_this_month_cents update from record_purchase ('The month is no longer carried')\n  - Alert: 240 of 240 shopper totals do not reconcile; oldest affected purchase recorded at 2026-10-17T23:10:00Z. Error rate, latency and volume are flat across the window.\n  - Rollout converged: all 3 replicas run 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, so this is not a version split.\n\nFiles named in the evidence:\n  src/io_shop/purchase_ledger.py\nThese are what the evidence names, which is not always where the fault lives.\n\nThis fault wrote wrong values before anybody noticed, and they are still wrong: the patch stops the next one and repairs none of the ones already written. So submit a second file beside the fix - a one-off script that reads the records the fault got wrong and puts them right - and say in your explanation that it has not been run and that a person has to run it.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nYou are reading main. The revision that was running when the alert fired, 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, is not in main's history - it was deployed from another branch - so what main holds may differ from what ran. Say which of the two each claim about the code is about.\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
       "role": "user"
     },
     {
       "content": [
         {
-          "id": "toolu_01DJd83Wa3XmdwU4yu9saNB9",
+          "id": "toolu_01BfHfbxbsqZf9ZvTAyMzfYP",
           "input": {
-            "action_items": [
-              {
-                "answers": [],
-                "item": "After rolling back or deploying the fix, run scripts/repair_monthly_totals.py from draft pull request #334: export the accounts, run a dry run first, then apply and write the corrected totals back. A rollback alone keeps adding to totals that are already short.",
-                "type": "mitigate"
-              },
-              {
-                "answers": [
-                  "CF-2"
-                ],
-                "item": "Run the spend-integrity reconciliation much more often than its current schedule, so totals that drift from their purchases are flagged soon after a deploy.",
-                "type": "detect"
-              },
-              {
-                "answers": [
-                  "CF-3"
-                ],
-                "item": "Link the SpendTotalsDoNotReconcile alert to on-call paging so a person is paged when it fires.",
-                "type": "detect"
-              },
-              {
-                "answers": [
-                  "CF-1"
-                ],
-                "item": "Add a review rule: a change that stops writing a stored field must first move every reader of that field off it, and the reviewer checks this against the code that reads it.",
-                "type": "process"
-              }
-            ],
-            "causal_chain": [
-              {
-                "cites": [
-                  "AL1"
-                ],
-                "ruled_out": [],
-                "step": "Shoppers' stored spend-this-month totals fell short of their recorded purchases: {A1} of {A2} shopper totals did not reconcile, the widest was short by {A3}, and the oldest affected purchase was recorded at {A4}."
-              },
-              {
-                "cites": [
-                  "S1",
-                  "D1"
-                ],
-                "ruled_out": [],
-                "step": "Purchases recorded since then were written without moving the stored monthly total. At the running revision, record_purchase appends the purchase and adds to total_cents only, and leaves total_this_month_cents where it was."
-              },
-              {
-                "cites": [
-                  "P2",
-                  "D1",
-                  "T11"
-                ],
-                "ruled_out": [
-                  {
-                    "cites": [
-                      "AL1",
-                      "P1",
-                      "P2"
-                    ],
-                    "what": "The earlier deploy of revision 4c810f2 at {P1.1}: the alert dates the oldest affected purchase at {A4}, after the later deploy of 26f1d7e at {P2.1}."
-                  },
-                  {
-                    "cites": [
-                      "T14"
-                    ],
-                    "what": "A flag change, for example switching on the derive_the_month write path: the flag provider showed {T14.2} flag changes by anyone but Argus in the {T14.3} hour before {T14.4}."
-                  }
-                ],
-                "step": "The change behind this is the deploy of revision 26f1d7e at {P2.1}. Its diff removes the conditional addition to total_this_month_cents from record_purchase, on the premise that the month's figure adds up from the purchase history whenever it is needed. As of {T11.1}, all {T11.2} replicas were running that revision."
-              },
-              {
-                "cites": [
-                  "S1",
-                  "F1",
-                  "AL1"
-                ],
-                "ruled_out": [],
-                "step": "The change's premise did not hold, because the shop still keeps and uses the stored figure instead of working the month out from the purchases. The module that ran describes the account as carrying two running totals, kept on purpose instead of figures derived on demand, and says nothing in it notices when one copy moves without the other. According to Code-Fix's reading of the files that ran, spend_summary's average_spend_per_item_this_month divides the stored total_this_month_cents, and spend_reconciliation compares the stored figure against the purchases. That comparison is the check that fired."
-              }
-            ],
-            "cause_in_plain_words": "A software change stopped the shop updating each shopper's saved \"spent this month\" figure when they bought something, but the shop still kept that figure, so it fell further behind their real purchases with every sale.",
-            "cause_rests_on_an_unrun_reading": false,
-            "contributing_factors": [
-              {
-                "addressed_by": [
-                  "AI-1"
-                ],
-                "factor": "No test or review check was seen that would confirm recording a purchase leaves the stored monthly total in line with the purchases. The change removed the code that kept the total up to date while the stored figure was still kept and compared.",
-                "had_it_been_otherwise": "A test asserting that reconciliation finds no disagreement after a purchase is recorded would have failed on revision 26f1d7e before it was deployed.",
-                "label": "CF-1"
-              },
-              {
-                "addressed_by": [],
-                "factor": "The only thing seen to find this fault is the spend-integrity check, which runs every {A5} days. Requests kept succeeding and no metric moved, so nothing else caught the wrong totals.",
-                "had_it_been_otherwise": "A reconciliation that ran more often would have flagged the short totals soon after the deploy, before a week of purchases had been written short.",
-                "label": "CF-2"
-              },
-              {
-                "addressed_by": [],
-                "factor": "SpendTotalsDoNotReconcile was not linked to on-call paging, so no person was paged when it fired, even though the rollback is left for a person to do.",
-                "had_it_been_otherwise": "A paged on-call engineer could have acted on the recommended rollback as soon as the alert fired, which would have stopped more totals being written short.",
-                "label": "CF-3"
-              }
-            ],
-            "lessons": {
-              "got_lucky": [
-                "The month had not turned between the onset and the alert. The proposed repair script rebuilds totals from each purchase's current in-month marker, so it can still rebuild this month's correct figure; after the month turned it could not rebuild the affected month's totals."
-              ],
-              "went_well": [
-                "Argus formed candidate causes naming the deploy of revision 26f1d7e within {T12.1 - alert_raised} of the alert, with the onset placed at the first affected purchase.",
-                "Argus did not roll back itself, because nothing would show whether the rollback worked within the time it waits; it recommended the rollback for a person instead.",
-                "Code-Fix opened draft pull request #334, with a fix, tests and a repair script, within {T19.1 - alert_raised} of the alert."
-              ],
-              "went_wrong": []
-            },
-            "reaches_a_cause": true,
-            "root_cause": "Revision 26f1d7e changed record_purchase so that it appends the purchase and adds to total_cents, but no longer adds the price to total_this_month_cents. The account still stores total_this_month_cents as its own copy of the month's spending, and nothing on this write path brings it back in line with the purchases, so every current-month sale recorded since then left that stored total short by the price of the sale.",
-            "still_at_risk": "While revision 26f1d7e runs, every current-month purchase keeps leaving shoppers' saved monthly totals short, and totals that are already short stay wrong until they are repaired; the write path behind the derive_the_month choice in the code that ran also leaves the month total unchanged in the same way.",
-            "symptom": "Shoppers' stored spend-this-month totals fell short of the purchases recorded against them"
+            "path": "src/io_shop/purchase_ledger.py"
           },
-          "name": "submit_postmortem",
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01JN25o9vLcuBPCyp42MvXhD",
+          "input": {
+            "path": "tests/io_shop/test_purchase_ledger.py"
+          },
+          "name": "read_repository_file",
           "type": "tool_use"
         }
       ],
@@ -140,9 +32,159 @@
     {
       "content": [
         {
-          "content": "Your postmortem was not accepted:\n  - the root_cause names [26f1d7e] by its revision - the document states which change set it off; say why that change broke the service\n  - your answer says [a week] in words - write a figure the incident gave as the name shown after it, braces and all, or a working of two such names ({a - b}, {a / b}), and say any other size with no number in it (\"most requests\", \"several minutes\")\n\nCall submit_postmortem again with the whole answer, corrected.",
-          "is_error": true,
-          "tool_use_id": "toolu_01DJd83Wa3XmdwU4yu9saNB9",
+          "content": "\"\"\"Writing a purchase down - the other side of what the account page reads.\n\nAn account carries two running totals beside its purchases: what the shopper has\nspent altogether, and what they have spent this month. Recording a sale means\nwriting the purchase and moving both of them, and this is where that happens.\n\nRunning totals rather than figures derived on demand, because that is what they\nare for. The account page is the most-visited page the shop has and a history is\nlong; a total that was summed on every render would make every page pay for the\nwhole of a shopper's past. What that buys costs something in return, and the cost\nis the only thing worth knowing about this module: a total is a second copy of\nwhat the purchases already say, so a write that moves one and not the other leaves\nthe shop holding two answers to the same question. Nothing here notices if that\nhappens - see `io_shop.spend_reconciliation`, which is the shop's own check on\nexactly this.\n\nWhich path a purchase is recorded through arrives here already decided, exactly\nas the choice of figure does on the read side - see `io_shop.spend_summary`.\nNothing in this module reads a flag, and nothing in it knows a rollout is\nhappening.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import replace\n\nfrom io_shop.accounts import Account, Purchase\n\n\ndef record_purchase(account: Account, purchase: Purchase) -> Account:\n    \"\"\"The account with this purchase written into it, and both totals moved.\n\n    How a purchase has always been recorded. Each total is added to rather than\n    worked out again: the account already carries what has been spent, and a sale\n    changes it by exactly the price of the thing sold.\n\n    The month is the part worth reading twice. A purchase counts towards the\n    month's total only if it falls in the month being counted, so that addition is\n    conditional where the lifetime one is not - and a shopper backfilling an older\n    order leaves this month's figure exactly where it was.\n    \"\"\"\n    return replace(\n        account,\n        purchases=(*account.purchases, purchase),\n        total_cents=account.total_cents + purchase.price_cents,\n        total_this_month_cents=(\n            account.total_this_month_cents + purchase.price_cents\n            if purchase.in_current_month\n            else account.total_this_month_cents\n        )\n    )\n\n\ndef record_purchase_deriving_the_month(account: Account,\n                                       purchase: Purchase) -> Account:\n    \"\"\"The same account, without the month's total being moved.\n\n    One total to carry instead of two, which is the saving: a month is not\n    something the shop has to keep a figure for. Every purchase says which month\n    it falls in, so what a shopper has spent this month adds up from the history\n    whenever anybody wants it - exactly as the lifetime average is derived from the\n    purchases rather than read off the account (see\n    `io_shop.spend_summary.average_spend_per_item`). Keeping a second copy of a\n    figure the purchases already hold is the work this path exists to drop.\n    \"\"\"\n    return replace(\n        account,\n        purchases=(*account.purchases, purchase),\n        total_cents=account.total_cents + purchase.price_cents\n    )\n\n\ndef record_a_purchase(account: Account,\n                      purchase: Purchase,\n                      derive_the_month: bool) -> Account:\n    \"\"\"The account this purchase leaves behind, written through whichever path\n    the rollout selects.\n\n    The decision arrives made, like every other rollout decision in this shop:\n    whoever handled the sale was told by the flag SDK which cohort this shopper\n    is in, and hands the answer down. A write path that evaluated a flag for\n    itself would be a second place the rollout is decided, and the two would\n    eventually disagree about which shoppers are in it.\n    \"\"\"\n    if derive_the_month:\n        return record_purchase_deriving_the_month(account, purchase)\n\n    return record_purchase(account, purchase)\n",
+          "tool_use_id": "toolu_01BfHfbxbsqZf9ZvTAyMzfYP",
+          "type": "tool_result"
+        },
+        {
+          "content": "from __future__ import annotations\n\nfrom datetime import UTC, datetime\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.purchase_ledger import record_purchase\n\n\"\"\"Writing a purchase down, and moving the totals that describe it.\n\nBoth totals are added to rather than re-derived, which is what makes them worth\ncarrying and is also the whole of what can go wrong with them: a total is a\nsecond copy of what the purchases already say. The cases below pin what each\naddition depends on - the lifetime figure on nothing but the price, the month's on\nwhether the purchase falls in the month being counted.\n\nWhat a purchase costs to record is not asserted anywhere. Two additions and a\ntuple, and a test timing them would measure the machine it ran on.\n\"\"\"\n\nSOME_INSTANT = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)\n\n\ndef an_account_with(*prices: int, spent_this_month: int = 0) -> Account:\n    \"\"\"A shopper with a history, and whatever they have spent this month.\"\"\"\n    return Account(\n        shopper_id=\"shopper-with-a-history\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=spent_this_month,\n    )\n\n\ndef a_purchase_of(price_cents: int, *, this_month: bool = True) -> Purchase:\n    return Purchase(\n        price_cents=price_cents,\n        in_current_month=this_month,\n        recorded_at=SOME_INSTANT,\n    )\n\n\ndef test_recording_a_purchase_keeps_it_in_the_history() -> None:\n    account = an_account_with(1000, 2000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert [purchase.price_cents for purchase in recorded.purchases] == [1000, 2000, 500]\n\n\ndef test_recording_a_purchase_moves_both_totals() -> None:\n    account = an_account_with(1000, 2000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert (recorded.total_cents, recorded.total_this_month_cents) == (3500, 500)\n\n\ndef test_the_month_is_added_to_what_was_already_spent_in_it() -> None:\n    # Added to, never worked out again: the figure the account arrived carrying\n    # is what the sale moves.\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert recorded.total_this_month_cents == 4500\n\n\ndef test_an_earlier_months_purchase_leaves_this_months_figure_alone() -> None:\n    # A purchase counts towards a month only if it falls in it, so a shopper\n    # backfilling last month's order does not move what they have spent now.\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_purchase(account, a_purchase_of(500, this_month=False))\n\n    assert recorded.total_this_month_cents == 4000\n\n\ndef test_an_earlier_months_purchase_still_moves_the_lifetime_total() -> None:\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_purchase(account, a_purchase_of(500, this_month=False))\n\n    assert recorded.total_cents == 1500\n\n\ndef test_the_instant_a_purchase_was_recorded_at_is_kept() -> None:\n    # No page reads it. The shop's own integrity check does, and it is the only\n    # thing in a purchase that could ever date a fault in what was written.\n    account = an_account_with(1000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert recorded.purchases[-1].recorded_at == SOME_INSTANT\n\n\ndef test_a_shopper_with_no_history_can_be_written_to() -> None:\n    a_new_shopper = Account(\n        shopper_id=\"shopper-who-just-registered\",\n        purchases=(),\n        total_cents=0,\n        total_this_month_cents=0,\n    )\n\n    recorded = record_purchase(a_new_shopper, a_purchase_of(500))\n\n    assert (recorded.total_cents, recorded.total_this_month_cents) == (500, 500)\n",
+          "tool_use_id": "toolu_01JN25o9vLcuBPCyp42MvXhD",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01SSQNtZagjyk9T3qY226nWF",
+          "input": {
+            "path": "src/io_shop/spend_summary.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01Luw4SPcgGHJbdmQYsnBSEo",
+          "input": {
+            "path": "src/io_shop/accounts.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01VsxcEGg8Dt8z4PYb2RLDr9",
+          "input": {
+            "path": "src/io_shop/spend_reconciliation.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01HsEQ5fB5P72Ez4pGwGjfu3",
+          "input": {
+            "query": "record_a_purchase"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"What a shopper has spent, and what that averages to.\n\nThree figures about one history. The lifetime average has been on the account\npage for years; the monthly one narrows it to the current month; the typical\npurchase abandons the average altogether for the middle of the history. The\nlast two are the ones still behind a rollout, and which of them a request gets\nis decided before it reaches here.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\ndef average_spend_per_item(account: Account) -> int:\n    \"\"\"Average spend per item across everything this account has ever bought.\n\n    Live for years. Its divisor is empty only for an account that has never\n    bought anything at all, which no real shopper is.\n\n    Derives the total from the purchases rather than reading the one the account\n    carries, taking each purchase in and recomputing what has been spent by\n    then, so that the figure agrees with the list the shopper is looking at even\n    where the totals the query returned have drifted from it.\n    \"\"\"\n    spent_by_then = 0\n\n    for index, _ in enumerate(account.purchases):\n        spent_by_then = sum(\n            earlier.price_cents for earlier in account.purchases[:index + 1]\n        )\n\n    return spent_by_then // len(account.purchases)\n\n\ndef average_spend_per_item_this_month(account: Account) -> int:\n    \"\"\"Average spend per item this month.\n\n    Narrows the lifetime figure to the current month, so the account page can\n    show what a shopper is spending now rather than what they averaged over\n    three years.\n    \"\"\"\n    bought_this_month = [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n    return account.total_this_month_cents // len(bought_this_month)\n\n\ndef render_spend_summary(account: Account,\n                         use_monthly_summary: bool,\n                         use_typical_spend: bool = False) -> int:\n    \"\"\"The figure Io's account page shows, through whichever version the rollout\n    selects.\n\n    Raises whatever the selected version raises. Catching belongs at the request\n    boundary - see `io_shop.account_page` - where there is a response to turn a\n    failure into and a log to record it in. A page that swallowed its own errors\n    would render a wrong number instead of an error, which is a worse incident\n    than the one it hid.\n\n    Two rollouts, so two flags to be told about, and the newer one wins where a\n    request is inside both. That is the ordinary arrangement: each is a slice of\n    traffic, the slices overlap, and the page has to render one figure.\n    \"\"\"\n    if use_typical_spend:\n        return typical_spend_per_item(account)\n\n    if use_monthly_summary:\n        return average_spend_per_item_this_month(account)\n\n    return average_spend_per_item(account)\n",
+          "tool_use_id": "toolu_01SSQNtZagjyk9T3qY226nWF",
+          "type": "tool_result"
+        },
+        {
+          "content": "\"\"\"One shopper's purchase history, as the account page needs it.\n\nThe totals are carried alongside the purchases rather than summed from them,\nbecause that is how a page like this is really assembled: the totals come back\nfrom a query the shop has already run, and the list is what it renders.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom datetime import datetime\n\n\n@dataclass(frozen=True)\nclass Purchase:\n    \"\"\"One thing a shopper bought.\n\n    The two fields without defaults are the two every page has always needed:\n    what it cost, and whether it falls in the month being looked at. The rest\n    arrived with the monthly statement, which is the first thing on the account\n    page that describes a purchase rather than counting it - see\n    `io_shop.monthly_statement`.\n\n    They carry defaults because the pages that came first do not know about\n    them and should not have to: a figure that averages prices is not made\n    wrong by a purchase whose category nobody filled in. A default here is\n    therefore the honest reading of a sparse record rather than a convenience -\n    `\"General\"` is where a shop's own catalogue puts anything it has not\n    classified, and nothing refunded is the ordinary state of a purchase.\n\n    `recorded_at` is when the shop wrote this purchase down, and it is the one\n    field here no page reads. Every figure on the account page is scoped by the\n    month flag above, which is all a page needs; an instant is what something\n    asking *when* a record went wrong needs, and nothing asked that until the\n    monthly totals stopped keeping up with the purchases behind them - see\n    `io_shop.spend_reconciliation`. `None` for a purchase from a record that\n    kept no time, which is every purchase the pages were written against.\n    \"\"\"\n\n    price_cents: int\n    in_current_month: bool\n    category: str = \"General\"\n    refunded_cents: int = 0\n    delivery_cents: int = 0\n    discount_cents: int = 0\n    instalments_remaining: int = 0\n    recorded_at: datetime | None = None\n\n\n@dataclass(frozen=True)\nclass Account:\n    \"\"\"One shopper, and what they have bought.\n\n    `shopper_id` is who the history belongs to. It is on the account rather\n    than passed beside it because everything the page does with an account it\n    does for a shopper - rendering the figure, and remembering that they were\n    here.\n    \"\"\"\n\n    shopper_id: str\n    purchases: tuple[Purchase, ...]\n    total_cents: int\n    total_this_month_cents: int\n",
+          "tool_use_id": "toolu_01Luw4SPcgGHJbdmQYsnBSEo",
+          "type": "tool_result"
+        },
+        {
+          "content": "\"\"\"Asking the purchases whether the totals kept up with them.\n\nA running total is a second copy of something the purchases already say. Copies\ndrift, and this is the shop's check on the one copy it keeps: re-add what a\nshopper bought this month and set it against the figure stored beside their\nhistory.\n\nNothing here reads a flag, fixes anything or writes anything back. It answers one\nquestion about a set of accounts, and the answer is a value - which is what lets\nthe same arithmetic be run by the shop's own scheduled job, by a console showing\nwhat it found, and by a test that hands it two accounts.\n\nRepairing what it finds is deliberately not here. A total that has fallen behind\nis corrected by rewriting stored data, which is irreversible and is nobody's to\ndo without being asked; this says how far behind and since when, and stops.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom collections.abc import Iterable\nfrom dataclasses import dataclass\nfrom datetime import datetime\n\nfrom io_shop.accounts import Account, Purchase\n\n\n@dataclass(frozen=True)\nclass DisagreeingAccount:\n    \"\"\"One account whose stored monthly total is not what its purchases come to.\n\n    `gap_cents` is the purchases minus the total, so a positive figure is a total\n    that has fallen behind. Signed rather than absolute, because the two\n    directions are different faults: a total that is low has missed writes, and a\n    total that is high has counted something twice.\n\n    `oldest_affected_purchase_at` is the earliest purchase this account's gap can\n    be accounted for by - see `_the_oldest_purchase_behind`. `None` where the\n    purchases carry no times to reason from, which is an account whose gap can be\n    measured and not dated.\n    \"\"\"\n\n    shopper_id: str\n    gap_cents: int\n    oldest_affected_purchase_at: datetime | None\n\n\n@dataclass(frozen=True)\nclass Reconciliation:\n    \"\"\"What one run of the check found.\n\n    `accounts_checked` is carried beside the disagreements because a count of\n    disagreements means nothing without it: forty accounts out of forty thousand\n    and forty out of forty are the same number and opposite incidents.\n\n    The three figures below are derived rather than stored, so a reader cannot be\n    handed a largest gap that belongs to no account in the list.\n    \"\"\"\n\n    accounts_checked: int\n    accounts_that_disagree: tuple[DisagreeingAccount, ...]\n\n    @property\n    def anything_disagrees(self) -> bool:\n        return bool(self.accounts_that_disagree)\n\n    @property\n    def largest_gap_cents(self) -> int:\n        \"\"\"The widest gap found, or nothing where nothing disagrees.\"\"\"\n        return max(\n            (account.gap_cents for account in self.accounts_that_disagree), default=0\n        )\n\n    @property\n    def oldest_affected_purchase_at(self) -> datetime | None:\n        \"\"\"The earliest purchase any of these gaps can be accounted for by.\n\n        The closest thing the check has to a date for the fault, and the only\n        thing in the whole finding that has one: a check that runs weekly says\n        nothing about when the writing went wrong by the fact of having run.\n\n        `None` where no disagreeing account carried a time, which leaves a\n        finding that can be reported and not dated.\n        \"\"\"\n        dated = [\n            account.oldest_affected_purchase_at\n            for account in self.accounts_that_disagree\n            if account.oldest_affected_purchase_at is not None\n        ]\n\n        return min(dated) if dated else None\n\n\ndef reconcile_monthly_totals(accounts: Iterable[Account]) -> Reconciliation:\n    \"\"\"Every account whose stored monthly total disagrees with its purchases.\n\n    Takes the accounts rather than fetching them, for the reason every other\n    module in this shop is handed what it works on: whoever is running the check\n    decides which accounts it covers - all of them on the shop's own schedule,\n    two of them in a test - and a function that went looking would be one that\n    could only ever be run one way.\n    \"\"\"\n    checked = list(accounts)\n\n    return Reconciliation(\n        accounts_checked=len(checked),\n        accounts_that_disagree=tuple(\n            _the_disagreement_in(account)\n            for account in checked\n            if _bought_this_month(account) != account.total_this_month_cents\n        )\n    )\n\n\ndef _the_disagreement_in(account: Account) -> DisagreeingAccount:\n    gap = _bought_this_month(account) - account.total_this_month_cents\n\n    return DisagreeingAccount(\n        shopper_id=account.shopper_id,\n        gap_cents=gap,\n        oldest_affected_purchase_at=_the_oldest_purchase_behind(gap, account)\n    )\n\n\ndef _bought_this_month(account: Account) -> int:\n    return sum(\n        purchase.price_cents\n        for purchase in account.purchases\n        if purchase.in_current_month\n    )\n\n\ndef _the_oldest_purchase_behind(gap_cents: int, account: Account) -> datetime | None:\n    \"\"\"The earliest purchase this gap can be accounted for by.\n\n    Attributed rather than looked up, because nothing in a purchase records\n    whether it reached the total. What is known is how far behind the total is,\n    and that a total only ever falls further behind - so the purchases the gap is\n    made of are the most recent ones, and the oldest of them is where it began.\n\n    Taken newest-first until the prices come to the gap. The last one taken is\n    the answer: every purchase older than it is accounted for by the total, and\n    every purchase from it onwards is not.\n\n    A gap that is not a sum of purchases at all - one wider than the month, or a\n    total that is somehow too high - dates nothing, and says so. Guessing at a\n    purchase there would put a date on the alert that the data does not support,\n    which is worse than an alert with no date in it.\n    \"\"\"\n    if gap_cents <= 0:\n        return None\n\n    unaccounted = 0\n\n    for purchase in reversed(_this_months_purchases_in(account)):\n        unaccounted += purchase.price_cents\n\n        if unaccounted >= gap_cents:\n            return purchase.recorded_at\n\n    return None\n\n\ndef _this_months_purchases_in(account: Account) -> list[Purchase]:\n    \"\"\"This month's purchases, in the order the shop wrote them down.\n\n    The stored order rather than a sort by time, because that is the order the\n    total was added up in and the order a gap accumulated in - and because a\n    purchase whose time was never recorded still has a place in the history,\n    where it has nothing to be sorted by.\n    \"\"\"\n    return [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n",
+          "tool_use_id": "toolu_01VsxcEGg8Dt8z4PYb2RLDr9",
+          "type": "tool_result"
+        },
+        {
+          "content": "src/io_shop/purchase_ledger.py:73: def record_a_purchase(account: Account,",
+          "tool_use_id": "toolu_01HsEQ5fB5P72Ez4pGwGjfu3",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01DrCuvBLwF33SrRjeXL4Eu2",
+          "input": {
+            "query": "total_this_month_cents"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "src/io_shop/accounts.py:63: total_this_month_cents: int\nsrc/io_shop/monthly_statement.py:650: return account.total_this_month_cents // len(bought)\nsrc/io_shop/monthly_statement.py:882: this_month_cents = account.total_this_month_cents\nsrc/io_shop/monthly_statement.py:918: month_total_cents = account.total_this_month_cents\nsrc/io_shop/purchase_ledger.py:46: total_this_month_cents=(\nsrc/io_shop/purchase_ledger.py:47: account.total_this_month_cents + purchase.price_cents\nsrc/io_shop/purchase_ledger.py:49: else account.total_this_month_cents\nsrc/io_shop/spend_reconciliation.py:109: if _bought_this_month(account) != account.total_this_month_cents\nsrc/io_shop/spend_reconciliation.py:115: gap = _bought_this_month(account) - account.total_this_month_cents\nsrc/io_shop/spend_summary.py:47: return account.total_this_month_cents // len(bought_this_month)\ntests/io_shop/test_account_page.py:63: total_this_month_cents=0,\ntests/io_shop/test_account_page.py:73: total_this_month_cents=0\ntests/io_shop/test_cache_reconciliation.py:37: total_this_month_cents=sum(prices)\ntests/io_shop/test_monthly_statement.py:44: total_this_month_cents=10900,\ntests/io_shop/test_monthly_statement.py:53: total_this_month_cents=0,\ntests/io_shop/test_monthly_statement.py:149: total_this_month_cents=500,\ntests/io_shop/test_purchase_ledger.py:31: total_this_month_cents=spent_this_month,\ntests/io_shop/test_purchase_ledger.py:56: assert (recorded.total_cents, recorded.total_this_month_cents) == (3500, 500)\ntests/io_shop/test_purchase_ledger.py:66: assert recorded.total_this_month_cents == 4500\ntests/io_shop/test_purchase_ledger.py:76: assert recorded.total_this_month_cents == 4000\ntests/io_shop/test_purchase_ledger.py:102: total_this_month_cents=0,\ntests/io_shop/test_purchase_ledger.py:107: assert (recorded.total_cents, recorded.total_this_month_cents) == (500, 500)\ntests/io_shop/test_spend_reconciliation.py:40: total_this_month_cents=stored_monthly_total,\ntests/io_shop/test_spend_reconciliation.py:177: total_this_month_cents=0,\ntests/io_shop/test_spend_summary.py:27: total_this_month_cents=0,\ntests/io_shop/test_spend_summary.py:47: total_this_month_cents=0,\ntests/io_shop/test_spend_summary.py:64: total_this_month_cents=6000,\ntests/io_shop/test_spend_summary.py:81: total_this_month_cents=0\ntests/io_shop/test_typical_spend.py:22: total_this_month_cents=0,\ntests/io_shop/test_visits.py:58: total_this_month_cents=0,",
+          "tool_use_id": "toolu_01DrCuvBLwF33SrRjeXL4Eu2",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_012iPyXXNaYFsWe2JfhJf1po",
+          "input": {
+            "description": "load accounts from storage and save an account back to the store"
+          },
+          "name": "search_repository_by_meaning",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "src/io_shop/purchase_ledger.py:30-51\ndef record_purchase(account: Account, purchase: Purchase) -> Account:\n    \"\"\"The account with this purchase written into it, and both totals moved.\n\n    How a purchase has always been recorded. Each total is added to rather than\n    worked out again: the account already carries what has been spent, and a sale\n    changes it by exactly the price of the thing sold.\n\n    The month is the part worth reading twice. A purchase counts towards the\n    month's total only if it falls in the month being counted, so that addition is\n    conditional where the lifetime one is not - and a shopper backfilling an older\n    order leaves this month's figure exactly where it was.\n    \"\"\"\n    return replace(\n        account,\n        purchases=(*account.purchases, purchase),\n        total_cents=account.total_cents + purchase.price_cents,\n        total_this_month_cents=(\n            account.total_this_month_cents + purchase.price_cents\n            if purchase.in_current_month\n            else account.total_this_month_cents\n        )\n    )\n\ntests/io_shop/test_spend_reconciliation.py:32-41\ndef an_account_of(shopper_id: str,\n                  *purchases: Purchase,\n                  stored_monthly_total: int) -> Account:\n    \"\"\"One shopper, with a stored monthly total that may or may not be right.\"\"\"\n    return Account(\n        shopper_id=shopper_id,\n        purchases=purchases,\n        total_cents=sum(purchase.price_cents for purchase in purchases),\n        total_this_month_cents=stored_monthly_total,\n    )\n\ntests/io_shop/test_purchase_ledger.py:23-32\ndef an_account_with(*prices: int, spent_this_month: int = 0) -> Account:\n    \"\"\"A shopper with a history, and whatever they have spent this month.\"\"\"\n    return Account(\n        shopper_id=\"shopper-with-a-history\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=spent_this_month,\n    )\n\ntests/io_shop/test_cache_reconciliation.py:20-38\ndef an_account_that_bought(*prices: int,\n                           shopper_id: str = \"shopper-1\",\n                           first_at: datetime = SOME_MOMENT) -> Account:\n    \"\"\"A shopper whose purchases are an hour apart, oldest first.\"\"\"\n    purchases = tuple(\n        Purchase(\n            price_cents=price,\n            in_current_month=True,\n            recorded_at=first_at + timedelta(hours=index)\n        )\n        for index, price in enumerate(prices)\n    )\n\n    return Account(\n        shopper_id=shopper_id,\n        purchases=purchases,\n        total_cents=sum(prices),\n        total_this_month_cents=sum(prices)\n    )\n\ntests/io_shop/test_typical_spend.py:15-23\ndef an_account_of(*prices: int) -> Account:\n    return Account(\n        shopper_id=\"shopper-with-a-history\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\nsrc/io_shop/purchase_ledger.py:54-70\ndef record_purchase_deriving_the_month(account: Account,\n                                       purchase: Purchase) -> Account:\n    \"\"\"The same account, without the month's total being moved.\n\n    One total to carry instead of two, which is the saving: a month is not\n    something the shop has to keep a figure for. Every purchase says which month\n    it falls in, so what a shopper has spent this month adds up from the history\n    whenever anybody wants it - exactly as the lifetime average is derived from the\n    purchases rather than read off the account (see\n    `io_shop.spend_summary.average_spend_per_item`). Keeping a second copy of a\n    figure the purchases already hold is the work this path exists to drop.\n    \"\"\"\n    return replace(\n        account,\n        purchases=(*account.purchases, purchase),\n        total_cents=account.total_cents + purchase.price_cents\n    )\n\ntests/io_shop/test_visits.py:51-59\ndef an_account(shopper_id: str, *prices: int) -> Account:\n    return Account(\n        shopper_id=shopper_id,\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\nsrc/io_shop/accounts.py:1-13\n\"\"\"One shopper's purchase history, as the account page needs it.\n\nThe totals are carried alongside the purchases rather than summed from them,\nbecause that is how a page like this is really assembled: the totals come back\nfrom a query the shop has already run, and the list is what it renders.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom datetime import datetime\n\n",
+          "tool_use_id": "toolu_012iPyXXNaYFsWe2JfhJf1po",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01FFf7vJGqhoVY2GpcU9dpGn",
+          "input": {
+            "explanation": "What ran vs what main holds. The investigation says revision 26f1d7e, which is deployed from another branch and is not in main's history, changed `record_purchase` so it no longer updates `total_this_month_cents`. I have not read that revision. Everything below is about main.\n\nThe fault on main, in src/io_shop/purchase_ledger.py: `record_purchase` there still moves both totals. But the same file also has `record_purchase_deriving_the_month`, which `record_a_purchase` picks when `derive_the_month` is true. That function adds the purchase and moves `total_cents`, and it leaves `total_this_month_cents` where it was. Its docstring says the month figure \"adds up from the history whenever anybody wants it\". The readers I checked don't do that. In src/io_shop/spend_summary.py, `average_spend_per_item_this_month` divides the stored `account.total_this_month_cents`. src/io_shop/monthly_statement.py reads the same field at lines 650, 882 and 918 (going by a search; I didn't read that file). src/io_shop/spend_reconciliation.py compares the field against the sum of this month's purchases. So with that flag on, main has the same problem the incident describes: each current-month purchase pushes the stored month total further below the purchases behind it, and the service carries on serving the wrong figures without error.\n\nThe fix: `record_purchase_deriving_the_month` now returns `record_purchase(account, purchase)`, so both paths update both totals in the same way. That makes the `derive_the_month` flag safe in either state. `record_a_purchase` keeps its signature, so callers don't change. A repo search for `record_a_purchase` found only its definition. I changed the docstring to say why the stored figure still has to be kept. Dropping the stored month total for good would mean first changing every reader of it, which is a bigger change than this one.\n\nThe test, in tests/io_shop/test_purchase_ledger.py, adds cases for `record_a_purchase` with `derive_the_month=True`:\n- the month total moves for a current-month purchase;\n- it stays put for an earlier month's purchase;\n- `reconcile_monthly_totals` finds no disagreement after several writes through that path.\n\nAgainst main as it stands, the first and third cases should fail, because that path leaves the month total unchanged.\n\nRepair: scripts/repair_monthly_totals.py is a one-off script. **It has not been run, and a person has to run it.** It reads accounts as JSON and uses `reconcile_monthly_totals` to find the ones whose stored month total disagrees with their purchases. It sets `total_this_month_cents` back to the sum of the current-month purchases only where the gap is positive, meaning the total fell behind, which is the kind of fault this was. A total that is too high is a different fault, so the script reports those and leaves them alone. By default it only reports what it would change; it writes output only when `--apply` is given. There is no storage layer in this repository, so the JSON layout (the `Account`/`Purchase` fields from src/io_shop/accounts.py) is my assumption. Whoever runs it needs to export accounts in that shape and load the result back. They should also run it within the same month: `in_current_month` is a property of the month the data describes, and once the month rolls over the recomputed figure would be wrong.",
+            "files": [
+              {
+                "content": "\"\"\"Writing a purchase down - the other side of what the account page reads.\n\nAn account carries two running totals beside its purchases: what the shopper has\nspent altogether, and what they have spent this month. Recording a sale means\nwriting the purchase and moving both of them, and this is where that happens.\n\nRunning totals rather than figures derived on demand, because that is what they\nare for. The account page is the most-visited page the shop has and a history is\nlong; a total that was summed on every render would make every page pay for the\nwhole of a shopper's past. What that buys costs something in return, and the cost\nis the only thing worth knowing about this module: a total is a second copy of\nwhat the purchases already say, so a write that moves one and not the other leaves\nthe shop holding two answers to the same question. Nothing here notices if that\nhappens - see `io_shop.spend_reconciliation`, which is the shop's own check on\nexactly this.\n\nWhich path a purchase is recorded through arrives here already decided, exactly\nas the choice of figure does on the read side - see `io_shop.spend_summary`.\nNothing in this module reads a flag, and nothing in it knows a rollout is\nhappening.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom dataclasses import replace\n\nfrom io_shop.accounts import Account, Purchase\n\n\ndef record_purchase(account: Account, purchase: Purchase) -> Account:\n    \"\"\"The account with this purchase written into it, and both totals moved.\n\n    How a purchase has always been recorded. Each total is added to rather than\n    worked out again: the account already carries what has been spent, and a sale\n    changes it by exactly the price of the thing sold.\n\n    The month is the part worth reading twice. A purchase counts towards the\n    month's total only if it falls in the month being counted, so that addition is\n    conditional where the lifetime one is not - and a shopper backfilling an older\n    order leaves this month's figure exactly where it was.\n    \"\"\"\n    return replace(\n        account,\n        purchases=(*account.purchases, purchase),\n        total_cents=account.total_cents + purchase.price_cents,\n        total_this_month_cents=(\n            account.total_this_month_cents + purchase.price_cents\n            if purchase.in_current_month\n            else account.total_this_month_cents\n        )\n    )\n\n\ndef record_purchase_deriving_the_month(account: Account,\n                                       purchase: Purchase) -> Account:\n    \"\"\"The account with this purchase written into it, and both totals moved.\n\n    This path was meant to stop carrying the month's total and derive it from the\n    history instead. Nothing that reads the month derives it: the account page's\n    monthly average, the monthly statement and the shop's own reconciliation all\n    read `total_this_month_cents` off the account. A write that left it behind\n    would therefore leave every one of them holding a figure that disagrees with\n    the purchases, silently and for good. Until every reader derives the month for\n    itself, the stored figure has to be kept, so this path moves it exactly as\n    `record_purchase` does.\n    \"\"\"\n    return record_purchase(account, purchase)\n\n\ndef record_a_purchase(account: Account,\n                      purchase: Purchase,\n                      derive_the_month: bool) -> Account:\n    \"\"\"The account this purchase leaves behind, written through whichever path\n    the rollout selects.\n\n    The decision arrives made, like every other rollout decision in this shop:\n    whoever handled the sale was told by the flag SDK which cohort this shopper\n    is in, and hands the answer down. A write path that evaluated a flag for\n    itself would be a second place the rollout is decided, and the two would\n    eventually disagree about which shoppers are in it.\n    \"\"\"\n    if derive_the_month:\n        return record_purchase_deriving_the_month(account, purchase)\n\n    return record_purchase(account, purchase)\n",
+                "path": "src/io_shop/purchase_ledger.py"
+              },
+              {
+                "content": "from __future__ import annotations\n\nfrom datetime import UTC, datetime\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.purchase_ledger import record_a_purchase, record_purchase\nfrom io_shop.spend_reconciliation import reconcile_monthly_totals\n\n\"\"\"Writing a purchase down, and moving the totals that describe it.\n\nBoth totals are added to rather than re-derived, which is what makes them worth\ncarrying and is also the whole of what can go wrong with them: a total is a\nsecond copy of what the purchases already say. The cases below pin what each\naddition depends on - the lifetime figure on nothing but the price, the month's on\nwhether the purchase falls in the month being counted.\n\nWhat a purchase costs to record is not asserted anywhere. Two additions and a\ntuple, and a test timing them would measure the machine it ran on.\n\"\"\"\n\nSOME_INSTANT = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)\n\n\ndef an_account_with(*prices: int, spent_this_month: int = 0) -> Account:\n    \"\"\"A shopper with a history, and whatever they have spent this month.\"\"\"\n    return Account(\n        shopper_id=\"shopper-with-a-history\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=spent_this_month,\n    )\n\n\ndef a_purchase_of(price_cents: int, *, this_month: bool = True) -> Purchase:\n    return Purchase(\n        price_cents=price_cents,\n        in_current_month=this_month,\n        recorded_at=SOME_INSTANT,\n    )\n\n\ndef test_recording_a_purchase_keeps_it_in_the_history() -> None:\n    account = an_account_with(1000, 2000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert [purchase.price_cents for purchase in recorded.purchases] == [1000, 2000, 500]\n\n\ndef test_recording_a_purchase_moves_both_totals() -> None:\n    account = an_account_with(1000, 2000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert (recorded.total_cents, recorded.total_this_month_cents) == (3500, 500)\n\n\ndef test_the_month_is_added_to_what_was_already_spent_in_it() -> None:\n    # Added to, never worked out again: the figure the account arrived carrying\n    # is what the sale moves.\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert recorded.total_this_month_cents == 4500\n\n\ndef test_an_earlier_months_purchase_leaves_this_months_figure_alone() -> None:\n    # A purchase counts towards a month only if it falls in it, so a shopper\n    # backfilling last month's order does not move what they have spent now.\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_purchase(account, a_purchase_of(500, this_month=False))\n\n    assert recorded.total_this_month_cents == 4000\n\n\ndef test_an_earlier_months_purchase_still_moves_the_lifetime_total() -> None:\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_purchase(account, a_purchase_of(500, this_month=False))\n\n    assert recorded.total_cents == 1500\n\n\ndef test_the_instant_a_purchase_was_recorded_at_is_kept() -> None:\n    # No page reads it. The shop's own integrity check does, and it is the only\n    # thing in a purchase that could ever date a fault in what was written.\n    account = an_account_with(1000)\n\n    recorded = record_purchase(account, a_purchase_of(500))\n\n    assert recorded.purchases[-1].recorded_at == SOME_INSTANT\n\n\ndef test_a_shopper_with_no_history_can_be_written_to() -> None:\n    a_new_shopper = Account(\n        shopper_id=\"shopper-who-just-registered\",\n        purchases=(),\n        total_cents=0,\n        total_this_month_cents=0,\n    )\n\n    recorded = record_purchase(a_new_shopper, a_purchase_of(500))\n\n    assert (recorded.total_cents, recorded.total_this_month_cents) == (500, 500)\n\n\ndef test_the_deriving_path_still_moves_the_months_total() -> None:\n    # Every reader of the month reads the stored figure, so a write path that\n    # stopped moving it would leave them all disagreeing with the purchases.\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_a_purchase(account, a_purchase_of(500), derive_the_month=True)\n\n    assert (recorded.total_cents, recorded.total_this_month_cents) == (1500, 4500)\n\n\ndef test_the_deriving_path_leaves_the_month_alone_for_an_earlier_months_purchase() -> None:\n    account = an_account_with(1000, spent_this_month=4000)\n\n    recorded = record_a_purchase(\n        account, a_purchase_of(500, this_month=False), derive_the_month=True\n    )\n\n    assert (recorded.total_cents, recorded.total_this_month_cents) == (1500, 4000)\n\n\ndef test_both_paths_leave_totals_that_reconcile_with_the_purchases() -> None:\n    for derive_the_month in (False, True):\n        account = an_account_with(1000)\n\n        for price, this_month in ((500, True), (700, False), (300, True)):\n            account = record_a_purchase(\n                account,\n                a_purchase_of(price, this_month=this_month),\n                derive_the_month=derive_the_month,\n            )\n\n        assert not reconcile_monthly_totals([account]).anything_disagrees\n        assert account.total_this_month_cents == 800\n",
+                "path": "tests/io_shop/test_purchase_ledger.py"
+              },
+              {
+                "content": "\"\"\"One-off repair: put back the monthly totals that fell behind their purchases.\n\nNOT YET RUN. A person has to run this, deliberately, against an export of the\naccounts. It rewrites stored data, which `io_shop.spend_reconciliation` refuses to\ndo on purpose; this script is the explicit, asked-for exception.\n\nWhat it fixes: accounts whose `total_this_month_cents` is LOWER than the sum of\ntheir current-month purchases - the signature of writes that added a purchase\nand did not move the month's total. Those totals are set to the sum of the\ncurrent-month purchases. Accounts whose total is HIGHER than their purchases are\na different fault (something counted twice); they are reported and left alone.\n\nRun it inside the month the data describes: `in_current_month` is relative to\nthat month, and a recomputation after the month has turned would be wrong.\n\nInput format (an assumption - this repository holds no storage layer): a JSON\narray of accounts, each with `shopper_id`, `total_cents`,\n`total_this_month_cents` and `purchases`, each purchase carrying the fields of\n`io_shop.accounts.Purchase` (`recorded_at` as ISO-8601 or null).\n\nUsage:\n    python scripts/repair_monthly_totals.py accounts.json            # report only\n    python scripts/repair_monthly_totals.py accounts.json --apply -o repaired.json\n\"\"\"\n\nfrom __future__ import annotations\n\nimport argparse\nimport json\nimport sys\nfrom dataclasses import asdict, replace\nfrom datetime import datetime\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.spend_reconciliation import reconcile_monthly_totals\n\n\ndef _purchase_from(raw: dict) -> Purchase:\n    fields = dict(raw)\n    recorded_at = fields.get(\"recorded_at\")\n    fields[\"recorded_at\"] = (\n        datetime.fromisoformat(recorded_at) if recorded_at else None\n    )\n    return Purchase(**fields)\n\n\ndef _account_from(raw: dict) -> Account:\n    return Account(\n        shopper_id=raw[\"shopper_id\"],\n        purchases=tuple(_purchase_from(p) for p in raw[\"purchases\"]),\n        total_cents=raw[\"total_cents\"],\n        total_this_month_cents=raw[\"total_this_month_cents\"],\n    )\n\n\ndef _account_to(account: Account) -> dict:\n    raw = asdict(account)\n    raw[\"purchases\"] = [\n        {**p, \"recorded_at\": p[\"recorded_at\"].isoformat() if p[\"recorded_at\"] else None}\n        for p in raw[\"purchases\"]\n    ]\n    return raw\n\n\ndef _bought_this_month(account: Account) -> int:\n    return sum(p.price_cents for p in account.purchases if p.in_current_month)\n\n\ndef repair(accounts: list[Account]) -> tuple[list[Account], list[str], list[str]]:\n    \"\"\"The accounts with fallen-behind month totals corrected, plus which\n    shoppers were repaired and which were left alone for a human to look at.\"\"\"\n    finding = reconcile_monthly_totals(accounts)\n    behind = {d.shopper_id for d in finding.accounts_that_disagree if d.gap_cents > 0}\n    ahead = [d.shopper_id for d in finding.accounts_that_disagree if d.gap_cents < 0]\n\n    repaired = [\n        replace(account, total_this_month_cents=_bought_this_month(account))\n        if account.shopper_id in behind\n        else account\n        for account in accounts\n    ]\n    return repaired, sorted(behind), ahead\n\n\ndef main(argv: list[str] | None = None) -> int:\n    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])\n    parser.add_argument(\"accounts_json\")\n    parser.add_argument(\"--apply\", action=\"store_true\",\n                        help=\"write the repaired accounts (default: report only)\")\n    parser.add_argument(\"-o\", \"--output\", help=\"where to write repaired accounts\")\n    args = parser.parse_args(argv)\n\n    with open(args.accounts_json) as handle:\n        accounts = [_account_from(raw) for raw in json.load(handle)]\n\n    finding = reconcile_monthly_totals(accounts)\n    repaired, fixed, left_alone = repair(accounts)\n\n    print(f\"checked {finding.accounts_checked} accounts; \"\n          f\"{len(fixed)} month totals behind their purchases; \"\n          f\"{len(left_alone)} ahead of them (not touched)\")\n    print(f\"oldest affected purchase: {finding.oldest_affected_purchase_at}\")\n    for before, after in zip(accounts, repaired):\n        if before.shopper_id in fixed:\n            print(f\"  {before.shopper_id}: {before.total_this_month_cents} -> \"\n                  f\"{after.total_this_month_cents}\")\n    for shopper_id in left_alone:\n        print(f\"  {shopper_id}: total exceeds purchases - needs a human\", file=sys.stderr)\n\n    if not args.apply:\n        print(\"report only; re-run with --apply -o FILE to write the repair\")\n        return 0\n\n    if not args.output:\n        parser.error(\"--apply needs -o/--output\")\n\n    with open(args.output, \"w\") as handle:\n        json.dump([_account_to(a) for a in repaired], handle, indent=2)\n    print(f\"wrote {len(repaired)} accounts to {args.output}\")\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+                "path": "scripts/repair_monthly_totals.py"
+              }
+            ],
+            "summary": "Keep the stored month total moving on every purchase write path, plus a one-off repair script for totals that fell behind"
+          },
+          "name": "submit_fix",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your patch has arrived. One question before it is opened: does this change help this incident's users only once code outside this repository changes as well? If yes, it is not opened - say in the explanation what would have to change there. Answer with answer_question.",
+          "tool_use_id": "toolu_01FFf7vJGqhoVY2GpcU9dpGn",
           "type": "tool_result"
         }
       ],
@@ -153,12 +195,13 @@
   "output_config": {
     "effort": "high"
   },
+  "stream": true,
   "system": [
     {
       "cache_control": {
         "type": "ephemeral"
       },
-      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
       "type": "text"
     }
   ],
@@ -166,213 +209,158 @@
     "display": "summarized",
     "type": "adaptive"
   },
-  "tool_choice": {
-    "disable_parallel_tool_use": true,
-    "type": "auto"
-  },
   "tools": [
     {
-      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label you cite (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
       "input_schema": {
         "additionalProperties": false,
         "properties": {
-          "action_items": {
-            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "answers": {
-                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "item": {
-                  "type": "string"
-                },
-                "type": {
-                  "enum": [
-                    "mitigate",
-                    "prevent",
-                    "detect",
-                    "process"
-                  ],
-                  "type": "string"
-                }
-              },
-              "required": [
-                "item",
-                "type",
-                "answers"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "assumptions": {
-            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "causal_chain": {
-            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "cites": {
-                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "ruled_out": {
-                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "cites": {
-                        "description": "The labels of what ruled it out.",
-                        "items": {
-                          "type": "string"
-                        },
-                        "type": "array"
-                      },
-                      "what": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "what",
-                      "cites"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
-                },
-                "step": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "step",
-                "cites",
-                "ruled_out"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "cause_in_plain_words": {
-            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
-            "type": "string"
-          },
-          "cause_rests_on_an_unrun_reading": {
-            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
-            "type": "boolean"
-          },
-          "contributing_factors": {
-            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "addressed_by": {
-                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "factor": {
-                  "type": "string"
-                },
-                "had_it_been_otherwise": {
-                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
-                  "type": "string"
-                },
-                "label": {
-                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "label",
-                "factor",
-                "had_it_been_otherwise",
-                "addressed_by"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "lessons": {
-            "additionalProperties": false,
-            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
-            "properties": {
-              "got_lucky": {
-                "description": "Something the record shows went the fortunate way by chance, and would have made it worse had it not. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "went_well": {
-                "description": "Where one says how quickly Argus did something, write the span as a working of two instants - a T or P row's instant is its first figure, as T3.1 is T3's: {T3.1 - alert_raised}, not in words (\"within seconds\"). Set the span beside what it times - the thing its later instant dates - not after something else in the same sentence. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "went_wrong": {
-                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "went_well",
-              "went_wrong",
-              "got_lucky"
-            ],
-            "type": "object"
-          },
-          "reaches_a_cause": {
-            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
-            "type": "boolean"
-          },
-          "root_cause": {
-            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
-            "type": "string"
-          },
-          "still_at_risk": {
-            "description": "What was still at risk when Argus stopped working on the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say only what the record says: nothing after Argus stopped was read.",
-            "type": "string"
-          },
-          "symptom": {
-            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
             "type": "string"
           }
         },
         "required": [
-          "root_cause",
-          "cause_in_plain_words",
-          "still_at_risk",
-          "symptom",
-          "causal_chain",
-          "contributing_factors",
-          "action_items",
-          "lessons",
-          "reaches_a_cause",
-          "cause_rests_on_an_unrun_reading"
+          "query"
         ],
         "type": "object"
       },
-      "name": "submit_postmortem",
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
       "strict": true
     }
   ]

@@ -1,0 +1,56 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shoppers' stored this-month spend totals fell short of the purchases behind them. The spend-integrity check found 240 of 240 shopper totals not reconciling, the widest short by 1,297.31, with the oldest affected purchase recorded at 23:10 UTC. The monthly statement and the spend summary read that stored figure, so they show the short total.\n2. Each current-month purchase recorded from the onset on was added to the account's purchases and to the lifetime total, but the stored total_this_month_cents was left where it was. The reconciliation compares that field with the sum of the current-month purchases, so the gap grew with every purchase.\n3. Deploy P2 at 23:08 UTC put revision 26f1d7e into production, 2 minutes before the oldest affected purchase. As of Oct 24, 23:08:41 UTC, all 3 replicas ran it. That revision took the month-total update out of record_purchase. At the same revision, record_purchase_deriving_the_month, which record_a_purchase uses when derive_the_month is true, also leaves the month total unchanged. So neither write path moved it.\n4. The change rested on the idea that a shopper's month spend would be added up from the purchase history whenever it was needed, as its docstring says. But the code that uses the figure was not changed: the monthly statement divides and reads the stored total_this_month_cents, the spend summary divides it, and the reconciliation compares it. With nothing writing it any more, the stored copy went stale and every reader served or checked the stale figure.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "name": "order_chain",
+      "strict": true
+    }
+  ]
+}
