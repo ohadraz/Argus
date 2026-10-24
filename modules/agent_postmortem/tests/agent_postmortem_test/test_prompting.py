@@ -2585,7 +2585,9 @@ def test_the_error_rate_line_names_the_log_rows_whose_figures_reach_into_the_str
     # a write-up still said no error rate existed for it - beside a row whose
     # figures inside the stretch were the shop's own logged rate. Named, and
     # not called a rate: code knows which rows carry figures there, not what
-    # those figures measure.
+    # those figures measure. And what they show is left to the field that
+    # says it: told here to say it, beside a gap paragraph telling it to say
+    # it nowhere else, the brief asked both ways.
     some_lines_inside = [
         f"{to_iso(ONSET + timedelta(minutes=minute))} WARN io-shop: account page error rate "
         f"{rate}"
@@ -2602,7 +2604,8 @@ def test_the_error_rate_line_names_the_log_rows_whose_figures_reach_into_the_str
         ) \
         .then(
             _says_on_one_line("Error rate: not measured by the metrics", "[G",
-                              "say what they show, not that nothing was measured")
+                              "do not say nothing was measured",
+                              LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
         )
 
 

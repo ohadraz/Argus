@@ -1775,7 +1775,9 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     told only that they were the service's own account, a write-up still said
     no error rate existed for the stretch, beside a row whose figures there
     were the shop's logged rate. Not called a rate, since what a line's figures
-    measure is the line's to say.
+    measure is the line's to say. And what they show is left to the field that
+    says it: told here to say it, beside a gap paragraph telling it to say it
+    nowhere else, the brief asked both ways.
     """
     if rates is None:
         reason = (
@@ -1787,8 +1789,9 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
         why = f" - {reason}" if reason is not None else ""
         labels = ", ".join(f"[{label}]" for label in logs_reaching_in)
         logged = (f"; the log lines that reach into that stretch, {labels}, are the "
-                  f"service's own account of it - say what they show, not that nothing was "
-                  f"measured" if logs_reaching_in else "")
+                  f"service's own account of it, so do not say nothing was measured; what "
+                  f"they show is said by the document itself, from your answer to "
+                  f"{LOGS_SHOW_SERVING_AS_BEFORE_FIELD}" if logs_reaching_in else "")
 
         return [f"Error rate: not measured by the metrics{why}{logged}."]
 
