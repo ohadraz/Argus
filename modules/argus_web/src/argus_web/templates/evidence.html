@@ -104,7 +104,7 @@
        to its commit - so the page and the document name it one way. #}
     {% for row in story.changes %}
       <tr data-change="{{ row.change.reference }}">
-        <td class="when">{{ row.change.occurred_at }}</td>
+        <td class="when">{{ row.when }}</td>
         <td>{{ row.change.kind }}</td>
         <td>{{ [row.reference] | marked_up }}</td>
         <td>{{ row.summary | marked_up }}</td>

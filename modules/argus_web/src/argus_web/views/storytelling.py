@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
 
-from argus_core import UuidStr, utc_now
+from argus_core import UuidStr, to_iso, utc_now
 from argus_core.events import ChangesRetrieved, IncidentEvent, StatusChanged
 from argus_core.models import Alert, ChangeEvent, FlagChange, Incident, IncidentStatus
 from argus_narration import (
@@ -27,6 +27,7 @@ from argus_narration import (
     NarrationLine,
     ShownRevision,
     a_flag_history,
+    a_moment,
     build_narration,
     pointed_at,
     shown,
@@ -45,11 +46,15 @@ class ChangeRow(BaseModel):
     its commit - and what it did, in the postmortem's own words.
 
     The words come from the postmortem's renderer rather than from a second
-    wording here, so the page and the document name one revision one way."""
+    wording here, so the page and the document name one revision one way.
+
+    `when` is the moment it was made, said as the timeline says one - against
+    the line that read it, so a change made on another day keeps its date."""
 
     change: ChangeEvent
     reference: Run
     summary: tuple[Run, ...]
+    when: str
 
 
 class Story(BaseModel):
@@ -122,13 +127,14 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
 
     minutes: dict[str, BucketRow] = {}
     lines: dict[str, LogLine] = {}
-    changed: dict[str, ChangeEvent] = {}
+    # Each change with the moment of the line that read it.
+    changed: dict[str, tuple[ChangeEvent, datetime]] = {}
     toggled: dict[tuple[str, str], FlagChange] = {}
 
     for line in narration:
         minutes.update({bucket.bucket_id: bucket for bucket in line.buckets})
         lines.update({log.text: log for log in line.log_lines})
-        changed.update({change.reference: change for change in line.changes})
+        changed.update({change.reference: (change, line.at) for change in line.changes})
         # Keyed by flag and moment together: one flag moving twice is two
         # changes, and it is exactly the flag that moved twice - tried, then
         # put back - whose second move a reader must not lose.
@@ -143,8 +149,9 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
                    for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
         logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
-        changes=[_a_row(change, revisions)
-                 for change in sorted(changed.values(), key=lambda change: change.occurred_at)],
+        changes=[_a_row(change, revisions, read_at)
+                 for change, read_at in sorted(changed.values(),
+                                               key=lambda read: read[0].occurred_at)],
         flag_changes=flag_history,
         read_changes=any(isinstance(event, ChangesRetrieved) for event in events)
     )
@@ -174,15 +181,18 @@ def build_live_incident(incident: Incident,
     )
 
 
-def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision]) -> ChangeRow:
+def _a_row(change: ChangeEvent, revisions: Mapping[str, ShownRevision],
+           read_at: datetime) -> ChangeRow:
     """A change read, named by the short form a line says its revision by -
-    and, where it is no revision the incident can open, as it was read."""
+    and, where it is no revision the incident can open, as it was read - and
+    when it was made, against `read_at`, the moment of the line that read it."""
     shown_as = revisions.get(change.reference)
     short = shown_as.short if shown_as is not None else change.reference
 
     return ChangeRow(change=change,
                      reference=a_reference(change, short),
-                     summary=what_a_change_did(change, short))
+                     summary=what_a_change_did(change, short),
+                     when=a_moment(change.occurred_at, beside=to_iso(read_at)))
 
 
 def the_rows_held(metrics: Iterable[BucketRow],

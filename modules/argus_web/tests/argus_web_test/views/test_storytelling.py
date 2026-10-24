@@ -305,6 +305,25 @@ def test_a_change_with_nowhere_to_open_is_named_as_a_name() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("read_at", "said"), [
+    (datetime(2026, 8, 30, 10, 15, tzinfo=UTC), "10:13"),
+    (datetime(2026, 8, 31, 9, 0, tzinfo=UTC), "Aug 30 10:13")
+], ids=["on-the-day-it-was-read", "a-day-before-it-was-read"])
+def test_when_a_change_was_made_is_said_as_the_timeline_says_it(read_at: datetime,
+                                                                 said: str) -> None:
+    # Beside the metrics' minutes and the timeline's clock, a wire-format
+    # instant reads as another kind of fact. Read against the line that read
+    # it, so a change made on another day keeps its date.
+    Scenario() \
+        .given(
+            a_deploy_read := [_changes_showing_a_deploy_of(SOME_REVISION).model_copy(
+                update={"at": read_at})]
+        ) \
+        .when(lambda: build_story(a_deploy_read)) \
+        .then(_the_changes_were_made([said]))
+
+
+@pytest.mark.unit
 def test_what_a_deploy_did_says_where_it_came_from_and_opens_it() -> None:
     # In the words the postmortem's row says it in: where it was synced from,
     # the repository opening where it is. Not its revision again - the row's
@@ -499,6 +518,18 @@ def _the_changes_are_named(expected: list[Run]) -> Assertion[Story]:
 
         if named != expected:
             raise AssertionError(f"Expected the changes named {expected}, got {named}.")
+
+        return True
+
+    return assertion
+
+
+def _the_changes_were_made(expected: list[str]) -> Assertion[Story]:
+    def assertion(story: Story) -> bool:
+        made = [change.when for change in story.changes]
+
+        if made != expected:
+            raise AssertionError(f"Expected the changes said made at {expected}, got {made}.")
 
         return True
 
