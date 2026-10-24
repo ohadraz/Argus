@@ -39,7 +39,10 @@ def the_files_as_they_ran(reading: str | None,
     whether that is the file `branch` holds.
 
     Named against the listing at the revision, as the opening's names are
-    against the branch's: a name that revision has no file for is not one.
+    against the branch's: a name that revision has no file for is not one. And
+    only a file the reading writes as one, never a bare word that is a file's
+    stem: each file here is said to be one the reading names, and "endpoints",
+    of a ServiceMonitor's, was said to name a file the reading never mentioned.
 
     A file whose read at the revision fails is left out - never guessed: a file
     nobody read as it ran is not shown as one. A read on the branch that fails
@@ -58,7 +61,7 @@ def the_files_as_they_ran(reading: str | None,
 
         return []
 
-    return [ran for path in files_named_in([reading], listing).held
+    return [ran for path in files_named_in([reading], listing, by_stem=False).held
             if (ran := _as_it_ran(path, branch, deployed, read_file)) is not None]
 
 

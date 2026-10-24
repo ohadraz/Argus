@@ -146,6 +146,28 @@ def test_a_file_the_revision_does_not_hold_is_not_read() -> None:
 
 
 @pytest.mark.unit
+def test_a_file_the_reading_calls_only_by_a_word_is_not_read_as_it_ran() -> None:
+    # Each file read as it ran is said to be one the reading names. The word
+    # "endpoints" - of a ServiceMonitor's, in a sentence about deploy/scrape.yaml -
+    # was taken for src/io_shop/endpoints.py, a file the reading never mentioned.
+    some_code = "src/io_shop/endpoints.py"
+    list_files, read_file = _a_repository(
+        on_the_branch={SOME_PATH: SOME_CONTENT, some_code: "dont care"},
+        at_the_revision={SOME_PATH: SOME_CONTENT, some_code: "dont care"})
+
+    Scenario() \
+        .when(
+            lambda: the_files_as_they_ran(f"Every port under the endpoints in {SOME_PATH}.",
+                                          branch=SOME_BRANCH, deployed=SOME_REVISION,
+                                          list_files=list_files, read_file=read_file)
+        ) \
+        .then(
+            the_answer_was([FileAsItRan(path=SOME_PATH, revision=SOME_REVISION,
+                                        as_read=True, content=None)])
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("reading", "deployed"), [
     (None, SOME_REVISION),
     (A_READING_NAMING_IT, None)

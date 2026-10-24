@@ -132,6 +132,37 @@ def test_a_stem_several_files_share_lists_every_one() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("claim", [
+    f"division by zero at {SOME_PATH}:47",
+    "modified spend_summary.py: the guard was removed",
+    "io_shop.spend_summary.average_spend_per_item_this_month divides by the month"
+], ids=["path-and-line", "bare-filename", "dotted-module"])
+def test_a_file_written_as_one_is_listed_where_a_stem_alone_is_not_asked_for(claim: str) -> None:
+    Scenario() \
+        .when(
+            lambda: files_named_in([claim], SOME_LISTING, by_stem=False)
+        ) \
+        .then(
+            the_answer_was(FilesNamed(held=[SOME_PATH], absent=[]))
+        )
+
+
+@pytest.mark.unit
+def test_a_stem_alone_names_no_file_where_it_is_not_asked_for() -> None:
+    # Said of Code-Fix's reading, "names" was true only of the files it wrote as
+    # files: the word "accounts" was said to name src/io_shop/accounts.py, and
+    # "endpoints" a file the reading never mentioned.
+    Scenario() \
+        .when(
+            lambda: files_named_in(["spend_summary divides by an empty month"], SOME_LISTING,
+                                   by_stem=False)
+        ) \
+        .then(
+            the_answer_was(NOTHING_NAMED)
+        )
+
+
+@pytest.mark.unit
 def test_files_are_listed_once_each_in_the_order_the_evidence_first_names_them() -> None:
     Scenario() \
         .when(

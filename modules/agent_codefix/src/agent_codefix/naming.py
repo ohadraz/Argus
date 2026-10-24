@@ -60,9 +60,17 @@ class FilesNamed(BaseModel):
     absent: list[str]
 
 
-def files_named_in(claims: Sequence[str], listing: Sequence[str]) -> FilesNamed:
+def files_named_in(claims: Sequence[str],
+                   listing: Sequence[str],
+                   *,
+                   by_stem: bool = True) -> FilesNamed:
     """Every file in `listing` that `claims` name, and every name shaped like a
-    file that no file in it answers to."""
+    file that no file in it answers to.
+
+    `by_stem` false asks only for files written as files - a path, a filename,
+    a dotted module - and not a bare word that happens to be a file's stem:
+    what is said to have been named, rather than looked for, is narrower than
+    what is worth reading."""
     extensions = frozenset(filter(None, (_extension_of(path) for path in listing)))
     held: dict[str, None] = {}
     absent: dict[str, None] = {}
@@ -74,7 +82,7 @@ def files_named_in(claims: Sequence[str], listing: Sequence[str]) -> FilesNamed:
 
             name = _A_PLACE_IN_IT.sub("", found.group(0).rstrip(_AFTER_A_NAME))
             name = name.lstrip(_BEFORE_A_NAME).rstrip(_AFTER_A_NAME)
-            files = _the_files_named(name, listing, extensions) if name else []
+            files = _the_files_named(name, listing, extensions, by_stem) if name else []
 
             if files:
                 held.update(dict.fromkeys(files))
@@ -86,7 +94,8 @@ def files_named_in(claims: Sequence[str], listing: Sequence[str]) -> FilesNamed:
 
 def _the_files_named(name: str,
                      listing: Sequence[str],
-                     extensions: frozenset[str]) -> list[str]:
+                     extensions: frozenset[str],
+                     by_stem: bool) -> list[str]:
     """The files in `listing` that one name answers to, by the kind of name it
     is.
 
@@ -106,7 +115,7 @@ def _the_files_named(name: str,
     if "." in name:
         return _by_its_longest_resolving_prefix(name.split("."), listing)
 
-    return [path for path in listing if _stem_of(path) == name]
+    return [path for path in listing if _stem_of(path) == name] if by_stem else []
 
 
 def _by_its_longest_resolving_prefix(parts: list[str], listing: Sequence[str]) -> list[str]:
