@@ -210,6 +210,36 @@ def test_a_finding_on_another_day_than_the_moment_it_is_read_beside_is_dated() -
         .then(_it_reads("The deploy at Aug 23 10:14 broke it."))
 
 
+@pytest.mark.unit
+def test_a_finding_says_the_minute_it_rests_on_with_its_day() -> None:
+    # What its links are named by. Named "the minute", a link after a claim
+    # naming another moment read as that one: an alert whose oldest purchase
+    # was Oct 17 20:36 led to Oct 24 20:35, the minute it fired.
+    some_moment_partway_through_a_minute = "2026-08-30T10:14:42Z"
+    dont_care_claim = "The oldest affected purchase was recorded 2026-08-23T10:15:00Z."
+
+    Scenario() \
+        .given(
+            cited := Evidence(claim=dont_care_claim,
+                              at=parse_iso(some_moment_partway_through_a_minute))
+        ) \
+        .when(lambda: a_finding(cited)) \
+        .then(_it_names_its_minute("Aug 30 10:14"))
+
+
+def _it_names_its_minute(expected: str) -> Assertion[Finding]:
+    def assertion(finding: Finding) -> bool:
+        if finding.minute_said != expected:
+            raise AssertionError(
+                f"Expected the finding to say its minute as [{expected}], "
+                f"got [{finding.minute_said}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _it_links_to_the_minute(expected: str) -> Assertion[Finding]:
     def assertion(finding: Finding) -> bool:
         if finding.links_to_minute != expected:

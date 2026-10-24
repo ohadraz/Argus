@@ -154,7 +154,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                                   else _no_log_messages(postmortem.logs_reading)),
                              deployment_changes=deployment_changes,
                              code_read=tuple(EvidenceRow(label=cited.label,
-                                                         said=_with_code_set_apart(
+                                                         said=_as_its_markdown_sets_it(
                                                              cited.text, shorts,
                                                              revision_addresses))
                                              for cited in postmortem.code_read),
@@ -347,27 +347,60 @@ def the_revision_addresses(changes: list[CitedChange]) -> dict[str, str]:
             for reference in (cited.short_reference, cited.change.reference)}
 
 
-def _with_code_set_apart(text: str, shorts: dict[str, str],
-                         addresses: dict[str, str]) -> Line:
-    """What Code-Fix read, the code it quotes between backticks set apart as
-    code and the backticks left out: it writes Markdown, and a mark printed is
-    one nobody reading the page or the paper was meant to see. Only at display -
-    the model is briefed in its words as written.
+def _as_its_markdown_sets_it(text: str, shorts: dict[str, str],
+                             addresses: dict[str, str]) -> Line:
+    """What Code-Fix read, set as its Markdown says and with the marks left
+    out: the code it quotes between backticks set apart as code, what it wrote
+    between double asterisks strong, and an item of a list after a bullet in
+    place of its dash. A mark printed is one nobody reading the page or the
+    paper was meant to see. Only at display - the model is briefed in its words
+    as written.
 
     Its own words name a revision as the rest of the document does - short,
     and leading to its commit - for one revision said two ways reads as two.
-    Code it quotes is quoted as it is."""
-    pieces = _A_CODE_SPAN.split(text)
-    # `split` puts what the group matched at every odd place.
-    return Line(runs=tuple(run
-                           for place, piece in enumerate(pieces) if piece
-                           for run in ((Run(text=piece, role=Role.CODE),) if place % 2
-                                       else Run(text=said_short(piece, shorts))
-                                       .with_links(addresses))))
+    Code it quotes is quoted as it is, inside strong words as anywhere.
+
+    Asterisks are strong in pairs. One left over has nothing to close it, and
+    stays in the words as it came."""
+    said = _A_LIST_ITEM.sub(_A_BULLET, text)
+    marks = list(_A_MARK.finditer(said))
+    strong_marks = [mark for mark in marks if mark.group(1) is None]
+    left_over = strong_marks[-1] if len(strong_marks) % 2 else None
+
+    runs: list[Run] = []
+    strong, written = False, 0
+    for mark in marks:
+        if mark is left_over:
+            continue
+
+        runs += _words(said[written:mark.start()], strong, shorts, addresses)
+        if mark.group(1) is not None:
+            runs.append(Run(text=mark.group(1), role=Role.CODE))
+        else:
+            strong = not strong
+        written = mark.end()
+
+    return Line(runs=(*runs, *_words(said[written:], strong, shorts, addresses)))
 
 
-# Code quoted inline in Markdown: between single backticks, on one line.
-_A_CODE_SPAN: Final = re.compile(r"`([^`\n]+)`")
+def _words(said: str, strong: bool, shorts: dict[str, str],
+           addresses: dict[str, str]) -> tuple[Run, ...]:
+    """Code-Fix's words between two marks, strong or not, each revision in them
+    said short and leading to its commit."""
+    if not said:
+        return ()
+
+    return Run(text=said_short(said, shorts),
+               role=Role.STRONG if strong else Role.PLAIN).with_links(addresses)
+
+
+# What Code-Fix's Markdown is set by: code quoted inline, between single
+# backticks on one line, and the double asterisk either side of strong words.
+_A_MARK: Final = re.compile(r"`([^`\n]+)`|\*\*")
+
+# An item of a list in Markdown, and what the paper sets one after instead.
+_A_LIST_ITEM: Final = re.compile(r"^- ", re.MULTILINE)
+_A_BULLET: Final = "• "
 
 
 def _rows(evidence: list[CitedEvidence]) -> tuple[EvidenceRow, ...]:

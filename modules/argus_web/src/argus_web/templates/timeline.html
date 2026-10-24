@@ -87,10 +87,10 @@
               <li>
                 {{ finding.text | references([], line.links) }}
                 {% if finding.links_to_minute %}
-                  <a class="jump" href="#minute-{{ finding.links_to_minute }}">the minute</a>
+                  <a class="jump" href="#minute-{{ finding.links_to_minute }}">{{ finding.minute_said }}</a>
                 {% endif %}
                 {% if finding.links_to_lines %}
-                  <a class="jump" href="#log-at-{{ finding.links_to_lines }}">its log lines</a>
+                  <a class="jump" href="#log-at-{{ finding.links_to_lines }}">log lines at {{ finding.minute_said }}</a>
                 {% endif %}
               </li>
               {% endfor %}

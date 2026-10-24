@@ -549,6 +549,8 @@
   table.evidence-read td.label, table.timeline td.label, table.resolution-steps td.label,
   .lead-label { font-family: ui-monospace, monospace; font-size: .85em; color: var(--eye);
                 white-space: nowrap; }
+  /* Words written in paragraphs and lists keep their lines. */
+  td.keeps-lines { white-space: pre-line; }
   /* A diff keeps its lines and the spaces that set them in. */
   table.diffs-read td.diff { font-family: ui-monospace, monospace; font-size: .85em;
                              white-space: pre-wrap; }

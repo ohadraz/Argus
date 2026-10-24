@@ -411,7 +411,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <table class="evidence-read">
   <tbody>
   {% for row in supporting.code_read %}
-    <tr id="{{ row.label }}"><td class="label">{{ row.label }}</td><td>{{ said(row.said) }}</td></tr>
+    <tr id="{{ row.label }}"><td class="label">{{ row.label }}</td><td class="keeps-lines">{{ said(row.said) }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

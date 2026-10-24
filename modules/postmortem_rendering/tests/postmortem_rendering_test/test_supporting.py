@@ -506,6 +506,84 @@ def test_what_code_fix_read_sets_the_code_it_quotes_apart_without_its_backticks(
 
 
 @pytest.mark.unit
+def test_what_code_fix_read_sets_what_it_wrote_in_bold_as_strong_without_its_marks() -> None:
+    # As with its backticks: asterisks printed are marks nobody reading the
+    # page or the paper was meant to see.
+    some_reading = CitedEvidence(label="F1", text="**The fix.** It hands off to `record`.")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The fix.", role=Role.STRONG),
+                                      Run(text=" It hands off to "),
+                                      Run(text="record", role=Role.CODE),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_code_code_fix_quotes_inside_its_bold_is_set_as_code_and_the_rest_strong() -> None:
+    some_reading = CitedEvidence(label="F1", text="**The script: `repair.py`. Not run.**")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The script: ", role=Role.STRONG),
+                                      Run(text="repair.py", role=Role.CODE),
+                                      Run(text=". Not run.", role=Role.STRONG)))))
+
+
+@pytest.mark.unit
+def test_an_item_of_a_list_code_fix_wrote_is_set_after_a_bullet_in_place_of_its_dash() -> None:
+    # The dash is the list's Markdown, as the asterisks are bold's. The bullet
+    # is what the rest of the paper sets a list with.
+    some_reading = CitedEvidence(label="F1", text="It reads:\n- **Input:** an export;\n- gaps")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="It reads:\n• "),
+                                      Run(text="Input:", role=Role.STRONG),
+                                      Run(text=" an export;\n• gaps")))))
+
+
+@pytest.mark.unit
+def test_a_double_asterisk_nothing_closes_stays_in_what_code_fix_read_as_written() -> None:
+    # Strong in pairs: one left over opens nothing, and set strong it would
+    # make the rest of the reading strong.
+    some_reading = CitedEvidence(label="F1", text="**The fix.** It costs 2 ** 3")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(code_read=[some_reading])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).code_read[0].said
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The fix.", role=Role.STRONG),
+                                      Run(text=" It costs 2 ** 3")))))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("named", [SOME_DEPLOYED_REVISION, SOME_DEPLOYED_REVISION[:7]],
                          ids=["whole", "short"])
 def test_a_revision_what_code_fix_read_names_is_said_short_and_leads_where_it_opens(

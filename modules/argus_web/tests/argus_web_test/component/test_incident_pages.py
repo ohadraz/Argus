@@ -343,6 +343,80 @@ def test_a_candidates_finding_naming_a_minute_the_page_holds_links_to_it() -> No
 
 
 @pytest.mark.component
+def test_a_findings_links_are_named_for_the_minute_they_open() -> None:
+    # Named "the minute" and "its log lines", a link after a claim naming
+    # another moment read as that one: an alert whose oldest purchase was
+    # Oct 17 20:36 led to Oct 24 20:35, the minute it fired.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_minute = "2026-08-30T10:14:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _metrics_showing(incident_id, the_minute))
+        events.record(conn, LogsRetrieved(incident_id=incident_id,
+                                          window_start="2026-08-30T10:00:00Z",
+                                          window_end="2026-08-30T10:20:00Z",
+                                          lines=["2026-08-30T10:14:12Z ERROR checkout failed"]))
+        hypotheses.record(conn, Hypothesis(
+            incident_id=incident_id,
+            summary="dont care",
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+            confidence=0.9,
+            supporting_evidence=[Evidence(claim="error rate rose",
+                                          at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))],
+            subject="a-flag",
+            rank=1
+        ))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(">Aug 30 10:14</a>"),
+            the_page_says(">log lines at Aug 30 10:14</a>"),
+            _the_page_does_not_say(">the minute</a>"),
+            _the_page_does_not_say(">its log lines</a>")
+        ))
+
+
+@pytest.mark.component
+def test_a_finding_in_the_timeline_names_its_links_for_the_minute_they_open() -> None:
+    # As under Candidates. The timeline says a candidate's findings from the
+    # event the Investigator formed it in, by a template of its own.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_minute = "2026-08-30T10:14:00Z"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _metrics_showing(incident_id, the_minute))
+        events.record(conn, LogsRetrieved(incident_id=incident_id,
+                                          window_start="2026-08-30T10:00:00Z",
+                                          window_end="2026-08-30T10:20:00Z",
+                                          lines=["2026-08-30T10:14:12Z ERROR checkout failed"]))
+        events.record(conn, HypothesisFormed(
+            incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
+            failure_mode=None, confidence=None, subject="a-flag", rank=1,
+            evidence=[Evidence(claim="error rate rose",
+                               at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))]))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            _the_timeline_says(">Aug 30 10:14</a>"),
+            _the_timeline_says(">log lines at Aug 30 10:14</a>")
+        ))
+
+
+@pytest.mark.component
 def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
     # A reversible action that did not help is undone before its verdict is
     # returned. A page showing the attempt without that would leave a reader
@@ -2318,6 +2392,34 @@ def test_a_use_outside_the_patch_the_root_cause_cites_links_to_its_row() -> None
 
 
 @pytest.mark.component
+def test_what_code_fix_read_is_shown_in_bold_and_on_its_lines_without_its_marks() -> None:
+    # Code-Fix writes in Markdown, in paragraphs and lists. Its asterisks were
+    # printed, and its lines run together into one block.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "code_read": [CitedEvidence(
+                label="F1", text="**The fix.** It hands off.\n- **Input:** an export")]
+        }),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says("<strong>The fix.</strong> It hands off.\n• <strong>Input:</strong>"),
+            the_page_says('<td class="keeps-lines">'),
+            _the_page_does_not_say("**")
+        ))
+
+
+@pytest.mark.component
 def test_a_change_read_links_out_to_its_commit_its_repository_and_its_directory() -> None:
     # The row says where the change came from, and a reader opens it there.
     some_revision = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
@@ -3048,6 +3150,18 @@ def _the_candidates_link_to(*addresses: str) -> Assertion[list[str]]:
         if missing:
             raise AssertionError(f"Expected every page to link to {list(addresses)} under "
                                  f"Candidates, and (page, link) {missing} did not.")
+
+        return True
+
+    return assertion
+
+
+def _the_timeline_says(text: str) -> Assertion[str]:
+    """Above Candidates, where the timeline is: the candidates below it say
+    their findings too, and a line there says nothing about these."""
+    def assertion(page: str) -> bool:
+        if text not in page.partition("<h2>Candidates</h2>")[0]:
+            raise AssertionError(f"Expected the timeline to say [{text}], and it did not.")
 
         return True
 
