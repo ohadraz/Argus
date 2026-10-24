@@ -154,6 +154,7 @@ _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 _WORDS_THAT_OPEN_A_RANGE: Final = frozenset({"between", "from"})
 _WORDS_THAT_PLACE_A_MOMENT: Final = frozenset({"at", "by", "since", "until", "before",
                                                "after"})
+_WORDS_A_RANGE_MAY_NOT_FOLLOW: Final = _WORDS_THAT_OPEN_A_RANGE | _WORDS_THAT_PLACE_A_MOMENT
 _A_RANGE_DASH: Final = re.compile(r"[–—]")
 
 # Where one sentence ends and another begins: a stop with words after it. A
@@ -224,7 +225,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _figures_spelled_out(answer)
             + _figures_said_in_a_word(answer)
             + _figures_nobody_gave(answer, given)
-            + _ranges_opened_twice(answer, given)
+            + _ranges_after_an_opening_or_a_moment(answer, given)
             + _workings_that_make_no_sense(answer, given)
             + _revisions_nobody_read(answer, given))
 
@@ -589,7 +590,7 @@ def _numbers_in_digits(answer: SubmittedPostmortem, given: Given) -> list[str]:
     ]
 
 
-def _ranges_opened_twice(answer: SubmittedPostmortem, given: Given) -> list[str]:
+def _ranges_after_an_opening_or_a_moment(answer: SubmittedPostmortem, given: Given) -> list[str]:
     """Each figure written in as a range that the prose opens a range, or
     places a moment, before.
 
@@ -604,8 +605,7 @@ def _ranges_opened_twice(answer: SubmittedPostmortem, given: Given) -> list[str]
         f"its own: write it alone, or say over or during"
         for prose in answer.sentences()
         for before, word in pairwise(["", *prose.split()])
-        if before.strip(AROUND_A_WORD).lower() in _WORDS_THAT_OPEN_A_RANGE
-        | _WORDS_THAT_PLACE_A_MOMENT
+        if before.strip(AROUND_A_WORD).lower() in _WORDS_A_RANGE_MAY_NOT_FOLLOW
         and (named := A_FIGURE_NAME.fullmatch(word.strip(AROUND_A_WORD))) is not None
         and (name := named.group(1)) in given.figures
         and _A_RANGE_DASH.search(given.figures[name].written) is not None
