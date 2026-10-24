@@ -363,6 +363,24 @@ def test_the_explanation_says_what_a_file_says_only_of_that_file() -> None:
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("asked", [
+    "Say what each piece of code does only as its own lines do it, with the conditions they "
+    "do it under - no wider than the code you read, and nothing of code you did not read.",
+    "Say of several pieces at once only what each one's own lines do."
+], ids=["each-piece", "several-at-once"])
+def test_the_explanation_says_what_code_does_no_wider_than_its_lines(asked: str) -> None:
+    # Refuting a docstring, an explanation said "nothing in main does that" of
+    # files it had not read, and listed the check comparing a stored total with
+    # the purchases among the readers that "read the stored figure as if it were
+    # true" - having read that comparison in full.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            _the_description_of(EXPLANATION_FIELD, mentions=asked)
+        )
+
+
 def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         said = offered["input_schema"]["properties"][field]["description"]

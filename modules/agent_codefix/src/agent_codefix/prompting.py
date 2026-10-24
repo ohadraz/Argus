@@ -508,7 +508,11 @@ SUBMIT_FIX = ToolDefinition(
                 "fix when this is read: say what the test is written to show and "
                 "what the change should do, never that the test fails or that the "
                 "fix works. Say what a file says only of the file that says it, "
-                "naming it by its path."
+                "naming it by its path. Say what each piece of code does only as "
+                "its own lines do it, with the conditions they do it under - no "
+                "wider than the code you read, and nothing of code you did not "
+                "read. Say of several pieces at once only what each one's own "
+                "lines do."
             )
         },
         FILES_FIELD: {
