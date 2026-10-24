@@ -261,6 +261,31 @@ def test_an_instant_a_candidate_names_is_said_as_the_timeline_says_it(named: str
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("named", "said"), [("2026-08-30T10:13Z", "10:13"),
+                                             ("2026-08-29T10:13Z", "Aug 29 10:13")],
+                         ids=["the-day-it-opened", "another-day"])
+def test_an_instant_a_finding_names_is_said_as_its_candidate_says_one(named: str,
+                                                                    said: str) -> None:
+    # Read beside the day the incident opened, as the candidate's summary is.
+    # Said beside nothing, a deploy a week before it read as one that morning,
+    # under a summary that dated the same deploy.
+    an_incident = _an_incident()
+
+    Scenario() \
+        .given(
+            a_candidate_citing_an_instant := _a_candidate(
+                an_incident.id, subject="a-flag", rank=1,
+                evidence=[Evidence(claim=f"the deploy at {named} broke it", at=None)])
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_citing_an_instant],
+            attempts=NOTHING_WAS_TRIED
+        )) \
+        .then(_the_first_candidate_cites([f"the deploy at {said} broke it"]))
+
+
+@pytest.mark.unit
 def test_a_revision_a_candidate_names_is_said_short_and_leads_to_its_commit() -> None:
     # As the changes table above it names it, and the timeline beside it:
     # named whole here, one page named one revision two ways, and only one of

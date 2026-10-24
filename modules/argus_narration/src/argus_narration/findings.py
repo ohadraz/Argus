@@ -44,16 +44,22 @@ class Finding(BaseModel):
 
 def a_finding(cited: Evidence,
               minutes: Sequence[str] = (),
-              logged: Sequence[str] = ()) -> Finding:
+              logged: Sequence[str] = (),
+              beside: str | None = None) -> Finding:
     """One cited fact, pointed at the minute it names where it names one.
 
     Pointed at rows that exist and nothing else: the minute has to be one the
     metrics window covers, and the lines have to be lines the page holds. A
     finding whose moment nobody retrieved gets no link rather than a link into
     an empty table.
+
+    `beside` is the moment its candidate's summary is said beside, and an
+    instant in the claim on another day comes back dated. Said beside nothing,
+    a finding's times were never dated, and one a week before the incident
+    read as the day it opened.
     """
     return Finding(
-        text=said_plainly(cited.claim),
+        text=said_plainly(cited.claim, beside=beside),
         at=cited.at,
         links_to_minute=_the_minute_of(cited.at, minutes),
         links_to_lines=_the_minute_of(cited.at, logged)

@@ -218,7 +218,7 @@ def _a_candidate(hypothesis: Hypothesis,
     subject = (said_as_shown(hypothesis.subject, revisions)
                if hypothesis.subject is not None else None)
     evidence = [finding.model_copy(update={"text": said_as_shown(finding.text, revisions)})
-                for finding in (a_finding(cited, minutes, logged)
+                for finding in (a_finding(cited, minutes, logged, beside=opened)
                                 for cited in hypothesis.supporting_evidence)]
 
     return Candidate(

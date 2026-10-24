@@ -794,16 +794,19 @@ def _what_a_deployment_read_found(event: DeploymentChangesRead) -> str:
 
 
 def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
-    """One explanation the investigation formed, with what it cited for it."""
+    """One explanation the investigation formed, with what it cited for it -
+    the findings said beside the line's moment, as the summary is."""
+    formed_at = to_iso(event.at)
+
     return CandidateLine(
         hypothesis_id=event.hypothesis_id,
         rank=event.rank,
-        summary=said_plainly(event.summary, beside=to_iso(event.at)),
+        summary=said_plainly(event.summary, beside=formed_at),
         subject=event.subject,
         confidence=_a_percentage(event.confidence) if event.confidence else None,
         moved_from=said_as_a_state(event.from_state),
         moved_to=said_as_a_state(event.to_state),
-        evidence=[a_finding(cited) for cited in event.evidence]
+        evidence=[a_finding(cited, beside=formed_at) for cited in event.evidence]
     )
 
 

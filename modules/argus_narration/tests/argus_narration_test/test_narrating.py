@@ -648,6 +648,21 @@ def test_a_candidate_shows_what_it_was_formed_from() -> None:
 
 
 @pytest.mark.unit
+def test_a_finding_quoting_an_instant_on_another_day_keeps_its_date() -> None:
+    # Said beside the line its candidate was formed on, as the candidate's own
+    # summary is: a deploy a week before that line, written as a clock time
+    # alone, reads as one this morning.
+    some_finding = _a_hypothesis(
+        summary="dont care", rank=1, evidence=["The deploy at 2026-08-23T10:14:00Z broke it"]
+    ).model_copy(update={"at": _OPENED_AT})
+
+    Scenario() \
+        .given(some_finding) \
+        .when(lambda: build_narration([some_finding])) \
+        .then(_the_only_line_cites(["The deploy at Aug 23 10:14 broke it"]))
+
+
+@pytest.mark.unit
 def test_identical_looks_at_a_service_that_has_not_recovered_are_counted() -> None:
     # The wait re-reads every few seconds and, until the moment it recovers,
     # has the same thing to say each time. A dozen identical rows push
