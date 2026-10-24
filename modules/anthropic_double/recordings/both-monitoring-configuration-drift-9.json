@@ -2,38 +2,46 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSywQKEAgTGAI4AUIIdGhpbmtpbmcSDOwgtrlt8wpqqZkGwhoMaeIq9kM3x/A8vJWTIjCsWkEifMaHs4qcBk8UVeawhzDllkT3IArme+w8yjiZrbWfY4MVuxaeFXdrL9muWD0q6AOEcOj6yZtkPHOz19TLJYjzS7ZD80C7PPkypdiZzTa/G5c9OdGillYWu3voPRU841sP+1qHUOhred/Awpiw/xt8QdDZTDQvJwpKJmFOG1kRYhxDyeQI3ARvIayOryJ2VQJ1JrVe7gUfkiVY99v7tjdMOCBVM7l/N8UOpasDIv6yMkwAg8pVK8OvIBbRiqRkvczdfhR1a3ruN4gKPKY3d9vBGB4UqpvB6P6ifVFdjlytoo9hGEuYkhElCG4P82NEITK80wVMZDxWriBtuypa2D3Xrx0id1jCnZsz5I7n9CEPdkXIcZgUWUULWQnCUzBPsO72tsf5/ISW7Hb0Dk5ubOxF1YlGiKlAOmThHgHKMwACDR3IvxJhHSu6wvMlDBOfGO/rLsuSTZXfglN3IgVA39K50w1Or9cJpCFQP4t+mhlB9xnPw6+3xnbK9h/pvFTS1DYTcUb6QIT/TwAY9eIv2/OsXFoP0DZPy49gfIJbzUK8/K7SrtHwyUMNVXjPEs4awpONfBmX22Pq1cXHl/Wi8q5J8tB9XTGPptkINjQzj8Jd6F6bklyEXXSj2JAwb4h35UL+a3rxgdRglDpo6n8/Fo+cFvDA75h5thsxWJ/qrDxvu9LfJNF78Tg9e53YSinskocCG5XQ+MjcORgB",
-      "thinking": "I should strip the revision name out of the root_cause field.\n\n",
+      "signature": "CAQS3AQKEAgTGAI4AUIIdGhpbmtpbmcSDN3vh2zJxwm5xw11nxoMBKet9BA85svT3rzrIjCxgRXzkuGBSGSvN9+twso6+g1S3xVvm4YUF3krtbceuvA30MtRbBZjZfI8ADCJPqIq+QMjNXmci1O3jKOqwggQLU6xvcNv5C6p2VBi06JoCCEqlzM2ZOSXKJr2vLpL11PGZa/l6gHiuLVDs2C5N1zyuq4b3BCsDD4acVoUOGquWjR5X5LotbCdElhSBSrOcvc9iDfFg73cbIOIivlCIoOGDLE8+RA7fZ2uX9tAi+J74xpCSWySWbK6VcOuuZeXOgTvBfYRkicaR1pxbm52xtLAA34rLkjUJx5wjDrdiM8eTFKXrXGPkreapkU2zuDB22UoaeXbe4uyPQS7c/XPwVaGZw7CIBwjlrmEPO95z1KrmL9OCMGWwYoeicXqpKP3qTLSaNo3rJqd8bSHr+xeYjE+h0L5c41hRrAx94SlxjyvqyB+AGcpEv9E9yhkIBlcdq4izTdzz6KgAu7oanjcZLy0kzlvxqPwcRbkR+aOlDrjt1lh84OZc3Me3ss/bNhV16rvQq0N6MQqSH9lgKVxeTrDrut/2vMuoUrYBUhMEcQYrXSECWmaiYjWGe4h+tyniF2KrNgEmLaJ2FkDvdIrhiKYt/f+I5FbVvM0ta/zl3HE33ZInuBpCAiqitnWjMFcX1AE4TrN11b4OpxJ41c2+tOM94CfZinOzXm0L+pnGzZLrpvej0jA9a3qL/+a0so1YSF4R8mNLGQekVSaA0NUVH+2a9gQ+zk5a2nfrAhMGAE=",
+      "thinking": "I should strip the revision name out of the root_cause field so it doesn't leak implementation details.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01BZGGmMvstB1dzy8axFzhmV",
+      "id": "toolu_01QRBTEfTEPJLzDygVjJ5S9k",
       "input": {
         "action_items": [
           {
-            "item": "Once PR #319 is merged, deploy a revision carrying its scrape.yaml change to io-shop and confirm that samples arrive again.",
-            "type": "mitigate"
-          },
-          {
-            "item": "Check the other services that took the estate-wide `<protocol>[-<purpose>]` port rename for scrape configurations that still ask for a port by its old name.",
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Make the port-name agreement test from PR #339 a required check on every change to the deploy/ directory, so a change cannot merge while the scraped port name and `metrics.portName` disagree.",
             "type": "prevent"
           },
           {
-            "item": "Route MetricsAbsent on io-shop to on-call so that it pages a person.",
-            "type": "detect"
+            "answers": [],
+            "item": "Once the scrape.yaml change is merged, deploy it to production and confirm that io-shop samples arrive again.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [],
+            "item": "Find anything else that selects io-shop's web or admin ports by their old names (`web`, `admin`), which the deploy renamed to `http` and `http-admin`, and update it.",
+            "type": "prevent"
           }
         ],
         "causal_chain": [
           {
             "cites": [
               "AL1",
-              "T5"
+              "T5",
+              "G46bc",
+              "Gbac1",
+              "Gad41"
             ],
             "ruled_out": [],
-            "step": "Nobody using the shop was seen to notice anything wrong. What was seen instead: io-shop's metrics stopped arriving after the minute at {T5.2}, and MetricsAbsent fired at {alert_raised}."
+            "step": "Nobody using the shop was seen to have a problem. What was seen instead was the shop's metrics stopping after the minute at {T5.2}, with no sample since, which raised MetricsAbsent."
           },
           {
             "cites": [
@@ -41,7 +49,7 @@
               "S2"
             ],
             "ruled_out": [],
-            "step": "No samples were collected because the ServiceMonitor that ran at c3c36da picks the endpoint to scrape by the port name `metrics` (S1). At that same revision, the metrics port is named `http-metrics` (S2). No port matched the name the scrape asked for. S1's own comment says the operator does not treat that as an error: it just leaves an empty target list."
+            "step": "Prometheus had no target to collect from. At the running revision, the ServiceMonitor picks the endpoint by the port name `metrics` [S1], but the shop's metrics port is named `http-metrics` [S2]. The selector matches no port, and scrape.yaml's own comment says a name that matches no port is not an error to the operator: it is a target list with nothing in it."
           },
           {
             "cites": [
@@ -52,60 +60,56 @@
             "ruled_out": [
               {
                 "cites": [
-                  "T5",
                   "P1",
-                  "D1"
+                  "T5"
                 ],
-                "what": "The earlier deploy of revision 2c8f731 (P1): samples kept arriving with it in place until the minute at {T5.2}, and D1 shows the port rename came in c3c36da, not in the revision P1 deployed."
+                "what": "The earlier deploy of revision 2c8f731 at {P1.1}: metrics kept arriving with it in place, up to the minute at {T5.2}."
               },
               {
                 "cites": [
                   "T16"
                 ],
-                "what": "A feature-flag change: the flag provider showed {T16.2} flag changes by anyone but Argus in the {T16.3} hour before {T16.4}."
+                "what": "A feature flag change: the flag provider showed {T16.2} flag changes by anyone but Argus in the hour Argus checked."
               }
             ],
-            "step": "The port had a new name because revision c3c36da, deployed at {P2.1}, renamed every port to the estate-wide `<protocol>[-<purpose>]` convention, including metrics -> http-metrics. It changed only deploy/values-production.yaml and did not touch deploy/scrape.yaml (D1). All {T13.2} replicas were running that revision as of {T13.1}."
+            "step": "The port had been renamed by the deploy of revision c3c36da at {P2.1}. That deploy renamed every port to the estate-wide `<protocol>[-<purpose>]` convention, including metrics -> http-metrics, and changed only deploy/values-production.yaml, leaving deploy/scrape.yaml as it was [D1]. As of {T13.1}, all {T13.2} replicas ran that revision."
           }
         ],
-        "cause_in_plain_words": "A configuration change renamed the connection that the monitoring system collects the shop's measurements from, but the monitoring setup still looked for the old name, so it found nothing to collect.",
+        "cause_in_plain_words": "A configuration change renamed the connection point where the shop publishes its measurements, but the monitoring setting that finds that point by its name was not updated, so monitoring found nothing to collect.",
+        "cause_rests_on_an_unrun_reading": false,
         "contributing_factors": [
           {
             "addressed_by": [
-              "AI-1",
-              "AI-3"
+              "AI-1"
             ],
-            "factor": "No check was seen that the port name the scrape asks for matches `metrics.portName`. S1's comment says nothing checks that the two agree, and that a name matching no port is not an error.",
-            "had_it_been_otherwise": "Renaming the metrics port without updating scrape.yaml would have failed before deploy, and the metrics would never have stopped."
-          },
-          {
-            "addressed_by": [
-              "AI-4"
-            ],
-            "factor": "MetricsAbsent on io-shop paged nobody: no on-call incident was linked to the alert.",
-            "had_it_been_otherwise": "A person would have been engaged when the alert fired, ready to take up the draft fix and restore metric collection sooner."
+            "factor": "No check was seen that the port name the ServiceMonitor scrapes matches `metrics.portName` in values-production.yaml. scrape.yaml's own comment says nothing checks that the two agree, so renaming one side alone went out without failing anything.",
+            "had_it_been_otherwise": "The rename would have failed before it was deployed, and the metrics would never have stopped.",
+            "label": "CF-1"
           }
         ],
         "lessons": {
           "got_lucky": [],
           "went_well": [
-            "Argus refused to roll back c3c36da, because the only action that would test the leading candidate would undo a rename made on purpose (T18). It moved to a forward fix instead.",
-            "The Code-Fix Agent opened draft PR #319 {T20.1 - alert_raised} after the alert. The PR proposes pointing the scrape at `http-metrics` and adding a test that keeps the two names in step."
+            "Argus tied the gap to the deploy, reading at {T13.1} that every replica ran revision c3c36da, {T13.1 - alert_raised} after the alert.",
+            "Argus declined to undo the deliberate estate-wide port rename just to test the candidate, at {T18.1}, {T18.1 - alert_raised} after the alert.",
+            "Code-Fix proposed a fix as draft PR #339, which changes the scraped port name in deploy/scrape.yaml and adds a test, at {T20.1}, {T20.1 - alert_raised} after the alert."
           ],
-          "went_wrong": []
+          "went_wrong": [
+            "The MetricsAbsent alert paged nobody, so no person was engaged until Argus escalated."
+          ]
         },
         "logs_show_serving_as_before": true,
         "reaches_a_cause": true,
-        "root_cause": "The platform's Prometheus ServiceMonitor (deploy/scrape.yaml) picks the shop's metrics endpoint by port name and still asks for `metrics`. The change renamed that port to `http-metrics` in deploy/values-production.yaml and left scrape.yaml as it was. The selector then matched no port, and by the file's own comment the operator treats a name that matches no port as an empty target list, not an error, so no samples were collected.",
-        "still_at_risk": "The scrape still asks for a port name that no port has, so any real trouble in the shop would go unseen by metric-based alerts, and because nothing checks that the two names agree, a later rename on either side could cut off the metrics again.",
-        "symptom": "Nobody using the shop was seen to notice anything wrong; instead, the shop's metrics stopped arriving."
+        "root_cause": "The platform's Prometheus ServiceMonitor (deploy/scrape.yaml) picks the shop's endpoint to scrape by port name and still asks for `metrics`. The deployed configuration now names the metrics port `http-metrics` in deploy/values-production.yaml. The name in the selector matches no port, and the operator does not treat that as an error: it leaves a target list with nothing in it, so no samples were collected.",
+        "still_at_risk": "As long as the scrape asks for a port name that no longer exists, no metrics are collected from the shop, so a real failure there would not be caught by any alert that reads them.",
+        "symptom": "Nobody using the shop saw anything wrong; the shop's metrics stopped arriving instead."
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgGPRCMVtGQ8JYHEBGNAj",
+  "id": "msg_011CgMKu5pviWxGYYa4EuMwn",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -115,13 +119,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1839
+      "ephemeral_5m_input_tokens": 1895
     },
-    "cache_creation_input_tokens": 1839,
-    "cache_read_input_tokens": 10342,
+    "cache_creation_input_tokens": 1895,
+    "cache_read_input_tokens": 11070,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 1761,
+    "output_tokens": 1805,
     "output_tokens_details": {
       "thinking_tokens": 14
     },
