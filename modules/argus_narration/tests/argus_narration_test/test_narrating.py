@@ -525,11 +525,11 @@ def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
     # Not restated and not re-derived: the narration and the walk have to be
     # the same hypothesis seen twice, rather than two accounts to reconcile.
     some_cause = "legacy-checkout-fallback was enabled"
-    some_finding = _a_hypothesis(summary=some_cause, rank=1)
+    some_candidate = _a_hypothesis(summary=some_cause, rank=1)
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
+        .given(some_candidate) \
+        .when(lambda: build_narration([some_candidate])) \
         .then(_the_only_line_offers_the_causes([some_cause]))
 
 
@@ -537,25 +537,25 @@ def test_a_candidate_is_the_hypothesis_that_was_recorded() -> None:
 def test_a_candidate_carries_the_hypothesis_it_was_recorded_as() -> None:
     # So whatever lays the candidates out somewhere else - the write-up, under
     # labels of its own - can tell which line formed which.
-    some_finding = _a_hypothesis(summary="dont care", rank=1)
+    some_candidate = _a_hypothesis(summary="dont care", rank=1)
 
     Scenario() \
-        .given(some_finding) \
+        .given(some_candidate) \
         .when(lambda: [candidate.hypothesis_id
-                       for candidate in build_narration([some_finding])[0].candidates]) \
-        .then(the_answer_was([some_finding.hypothesis_id]))
+                       for candidate in build_narration([some_candidate])[0].candidates]) \
+        .then(the_answer_was([some_candidate.hypothesis_id]))
 
 
 @pytest.mark.unit
 def test_a_candidate_quoting_an_instant_on_another_day_keeps_its_date() -> None:
     # Said beside the line it was formed on: a deploy a week before that line,
     # written as a clock time alone, reads as one this morning.
-    some_finding = _a_hypothesis(summary="The deploy at 2026-08-23T10:14:00Z broke it",
+    some_candidate = _a_hypothesis(summary="The deploy at 2026-08-23T10:14:00Z broke it",
                                  rank=1).model_copy(update={"at": _OPENED_AT})
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
+        .given(some_candidate) \
+        .when(lambda: build_narration([some_candidate])) \
         .then(_the_only_line_offers_the_causes(["The deploy at Aug 23 10:14 broke it"]))
 
 
@@ -637,13 +637,13 @@ def test_a_candidate_shows_what_it_was_formed_from() -> None:
     # The findings are what make a claim checkable. Without them the page asks
     # an audience to take Argus's word for the whole investigation.
     what_it_rests_on = "monthly-spend-feature began evaluating ON at 10:05"
-    some_finding = _a_hypothesis(
+    some_candidate = _a_hypothesis(
         summary="dont care", rank=1, evidence=[what_it_rests_on]
     )
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
+        .given(some_candidate) \
+        .when(lambda: build_narration([some_candidate])) \
         .then(_the_only_line_cites([what_it_rests_on]))
 
 
@@ -652,13 +652,13 @@ def test_a_finding_quoting_an_instant_on_another_day_keeps_its_date() -> None:
     # Said beside the line its candidate was formed on, as the candidate's own
     # summary is: a deploy a week before that line, written as a clock time
     # alone, reads as one this morning.
-    some_finding = _a_hypothesis(
+    a_candidate_citing_an_instant = _a_hypothesis(
         summary="dont care", rank=1, evidence=["The deploy at 2026-08-23T10:14:00Z broke it"]
     ).model_copy(update={"at": _OPENED_AT})
 
     Scenario() \
-        .given(some_finding) \
-        .when(lambda: build_narration([some_finding])) \
+        .given(a_candidate_citing_an_instant) \
+        .when(lambda: build_narration([a_candidate_citing_an_instant])) \
         .then(_the_only_line_cites(["The deploy at Aug 23 10:14 broke it"]))
 
 
@@ -843,11 +843,11 @@ def test_the_candidates_said_in_full_are_named_after_the_count() -> None:
     # "best first:" introduces the list a page lays out beneath the line. Said
     # alone, the colon has to be followed by what it promised.
     some_cause = "legacy-checkout-fallback was enabled"
-    some_finding = _a_hypothesis(summary=some_cause, rank=1)
+    some_candidate = _a_hypothesis(summary=some_cause, rank=1)
 
     Scenario() \
         .given(
-            some_line := _the_only(build_narration([some_finding]))
+            some_line := _the_only(build_narration([some_candidate]))
         ) \
         .when(
             lambda: said_in_full(some_line)
