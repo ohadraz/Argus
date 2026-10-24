@@ -215,12 +215,13 @@ def _uses_in(path: str,
                         for child in ast.iter_child_nodes(node)}
     lines = text.splitlines()
     modules = _modules_imported_by(tree)
+    returns = _what_each_one_line_function_returns(tree)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in changes.fields:
             yield CodeUse(name=node.attr, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
-                          does=_what_it_does(node, parents, text, lines))
+                          does=_what_it_does(node, parents, text, lines, returns))
         elif isinstance(node, ast.Call) and (called := _a_changed_call(node, changes, modules)):
             yield CodeUse(name=called, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
@@ -278,12 +279,29 @@ def _called(call: ast.Call) -> str | None:
     return None
 
 
-def _what_it_does(node: ast.Attribute, parents: Parents, text: str, lines: list[str]) -> str:
+def _what_each_one_line_function_returns(tree: ast.Module) -> dict[str, str]:
+    """Each function a module defines at its top level whose whole body is one
+    `return`, by name, with the expression it returns."""
+    return {name: ast.unparse(body[0].value)
+            for name, function in _module_functions(tree).items()
+            if isinstance(function, _A_FUNCTION)
+            and len(body := function.body) == 1
+            and isinstance(body[0], ast.Return) and body[0].value is not None}
+
+
+def _what_it_does(node: ast.Attribute,
+                  parents: Parents,
+                  text: str,
+                  lines: list[str],
+                  returns: Mapping[str, str]) -> str:
     """What the expression a field sits in does with it.
 
     A comparison is said as one, whichever side the field is on: a line that
     reads a figure to check it is the line a model counted among the ones that
-    trust it."""
+    trust it. And where what the field is set against is a call of a function
+    of its own file that only returns, what that returns is said too: a row
+    saying only that the reconciliation compares the figure with a call was
+    still counted among the readers that take it as the month's."""
     parent = parents.get(node)
     line = lines[node.lineno - 1].strip()
 
@@ -293,10 +311,14 @@ def _what_it_does(node: ast.Attribute, parents: Parents, text: str, lines: list[
     if isinstance(parent, ast.Compare):
         other = parent.comparators[0] if parent.left is node else parent.left
 
-        return f"compares it with {ast.get_source_segment(text, other)}"
+        return (f"compares it with {ast.get_source_segment(text, other)}"
+                f"{_what_it_returns(other, text, returns)}")
 
     if isinstance(parent, ast.BinOp) and type(parent.op) in _VERBS:
-        return f"{_VERBS[type(parent.op)]} with it: {ast.get_source_segment(text, parent)}"
+        other = parent.right if parent.left is node else parent.left
+
+        return (f"{_VERBS[type(parent.op)]} with it: {ast.get_source_segment(text, parent)}"
+                f"{_what_it_returns(other, text, returns)}")
 
     if isinstance(parent, ast.Return):
         return "returns it"
@@ -308,6 +330,16 @@ def _what_it_does(node: ast.Attribute, parents: Parents, text: str, lines: list[
         return f"passes it to {ast.get_source_segment(text, parent.func)}"
 
     return f"reads it: {line}"
+
+
+def _what_it_returns(operand: ast.expr, text: str, returns: Mapping[str, str]) -> str:
+    """", where <the call> returns <what it returns>" for a call of a function
+    of the file that only returns - nothing for any other operand."""
+    if (isinstance(operand, ast.Call) and isinstance(operand.func, ast.Name)
+            and operand.func.id in returns):
+        return f", where {ast.get_source_segment(text, operand)} returns {returns[operand.func.id]}"
+
+    return ""
 
 
 def _the_function_around(node: ast.AST, parents: Parents) -> str | None:

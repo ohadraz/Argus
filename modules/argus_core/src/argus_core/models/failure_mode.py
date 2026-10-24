@@ -113,9 +113,10 @@ class FailureMode(StrEnum):
     # order of operations: a version that could read both shapes had to ship
     # before one that wrote only the new shape.
     IN_FLIGHT_COMPATIBILITY_BREAK = "in-flight-compatibility-break"
-    # What the service has already written is wrong, while the service itself is
-    # available, fast, and reporting nothing. The first mode in this set that no
-    # series carries: nothing fails, nothing slows, nothing accumulates, and the
+    # What the service has already written is wrong, while the service itself
+    # serves as it did before. The first mode in this set that no series
+    # carries: its error rate and every quantile hold their baseline, nothing
+    # accumulates, and the
     # whole of the symptom is a value that disagrees with the values it was
     # derived from. So it is found by a reconciliation somebody runs rather than
     # by a rule watching a graph, and dated by the oldest record it finds wrong
@@ -254,8 +255,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "written behind it. The two arrive identically, as one flag moved at "
         "the onset, and the flag history cannot separate them. Choose it over "
         "monitoring-blind-spot when what got worse is the service rather than "
-        "the reporting of it: there the shop serves every request correctly and "
-        "the minutes a monitor would read are the thing that is wrong, so a "
+        "the reporting of it: there the shop serves as it did before and the "
+        "minutes a monitor would read are the thing that is wrong, so a "
         "window with rows in it that step is this mode and a window whose rows "
         "stop is that one"
     ),
@@ -367,8 +368,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     ),
     FailureMode.SILENT_DATA_CORRUPTION: (
         "what the service has already written is wrong, while the service "
-        "itself is available, fast and reporting nothing - no request fails, no "
-        "quantile moves, nothing accumulates, and the only evidence is a value "
+        "itself serves as it did before - its error rate and every quantile hold "
+        "their baseline, nothing accumulates, and the only evidence is a value "
         "that disagrees with the values it was derived from. Expect the metrics "
         "to be flat across the whole window: that is the mode rather than a "
         "sign there is nothing to find, and the alert's own reconciliation "
@@ -389,9 +390,9 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "there the record is right and only a derived copy is stale"
     ),
     FailureMode.MONITORING_BLIND_SPOT: (
-        "the service is well and nothing can see that it is - every request is "
-        "served correctly, at the speed it always was, and what stopped is the "
-        "reporting. So the window's rows run up to a minute and then stop, and "
+        "the service is well and nothing can see that it is - it serves as it "
+        "did before, failing and slowing no more than it did, and what stopped "
+        "is the reporting. So the window's rows run up to a minute and then stop, and "
         "the minutes after it are missing rather than flat or zeroed. Read rows "
         "that stop as the shape of the fault rather than as a window that is "
         "merely short: the alert says a series that was reporting has stopped, "
@@ -403,7 +404,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "because of the change, so the change is necessarily later than the last "
         "one written, and a candidate is not too late to be the cause here. "
         "Expect the service to be untouched around it too - a revision or a flag "
-        "that landed while every request went on being served correctly is not "
+        "that landed while the service went on serving as it did before is not "
         "evidence against it, because a shop that is well across the change is "
         "exactly what this mode is. Choose this over feature-flag-toggle and "
         "bad-deployment even where a flag moved or a revision landed there: they "
@@ -421,9 +422,10 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "two stores that hold the same thing disagree about it, and the one that "
         "is wrong is a copy rather than the store of record - a cache, a "
         "replica, a projection, serving what was true when it last kept up. The "
-        "service is available and fast, every request succeeds, and the values "
-        "it serves from the copy are out of date: expect the metrics to be flat "
-        "across the whole window, because nothing fails and nothing waits. The "
+        "service serves as it did before - its error rate and every quantile "
+        "hold their baseline - and the values it serves from the copy are out "
+        "of date: expect the metrics to be flat across the whole window, "
+        "because serving a stale value adds no failure and no wait. The "
         "evidence is a reconciliation the service runs on itself, comparing the "
         "copy against what it was derived from, and nothing else carries it. "
         "Two times come with that finding and they are not the same: date the "
@@ -462,8 +464,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
     FailureMode.OUTPUT_QUALITY_DEGRADATION: (
         "a model the service runs is answering worse - filing, ranking or "
         "generating with less confidence or less sense than before - while "
-        "every request succeeds as quickly as it always did. Expect the error "
-        "rate and every latency and resource series to be flat: the departure "
+        "its requests fail and slow no more than they did before. Expect the "
+        "error rate and every latency and resource series to be flat: the departure "
         "is in rule_reading, the series the alert rule watches, which is a "
         "quality measure rather than a request-level one. Choose this over "
         "bad-deployment when a revision landed at the onset and only "
@@ -488,7 +490,7 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "onset: a revision there is that mode, and a replica moved to another "
         "card with nothing deployed is this one. Choose it over bad-deployment "
         "too, though a pod was replaced at the onset: there requests fail or "
-        "slow, and here every request succeeds as fast as it did. It is "
+        "slow, and here they fail and slow no more than they did. It is "
         "answered by holding the "
         "deployment to the card the earlier replicas ran on; what is left to fix "
         "is the model's tolerance of the card, or where the deployment may land, "

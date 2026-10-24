@@ -486,6 +486,69 @@ def test_what_a_line_does_with_a_field_is_said_by_the_kind_of_expression_it_sits
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("statement", "does"), [
+    ("if bought(account) != account.month: pass",
+     "compares it with bought(account), where bought(account) returns sum(account.purchases)"),
+    ("return bought(account) - account.month",
+     "subtracts with it: bought(account) - account.month, where bought(account) returns "
+     "sum(account.purchases)")
+], ids=["compares", "subtracts"])
+def test_a_field_set_against_a_one_line_function_of_its_file_says_what_that_returns(
+        statement: str, does: str) -> None:
+    # The write-up counted the reconciliation among the readers that take the
+    # stored figure as the month's, from a row that said only that it compares
+    # the figure with a call. What the call returns is the purchases added up
+    # again, and a function that is one return says that in the tree.
+    some_reader = "src/shop/reader.py"
+
+    Scenario() \
+        .when(
+            lambda: code_outside_the_patch(
+                {LEDGER: LEDGER_WRITING_THE_TOTAL,
+                 some_reader: "def bought(account):\n"
+                              "    return sum(account.purchases)\n"
+                              "\n\n"
+                              f"def reader(account):\n    {statement}\n"},
+                {LEDGER: LEDGER_WRITING_THE_MONTH_TOO}
+            )
+        ) \
+        .then(
+            the_answer_was(CodeOutsideThePatch(
+                uses=[CodeUse(name="month", path=some_reader, line=6, function="reader",
+                              does=does)],
+                defined={"bought": [some_reader], "reader": [some_reader]}
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_a_field_set_against_a_function_of_more_than_a_return_says_only_the_call() -> None:
+    # A body of several statements is no one expression the row could quote.
+    some_reader = "src/shop/reader.py"
+
+    Scenario() \
+        .when(
+            lambda: code_outside_the_patch(
+                {LEDGER: LEDGER_WRITING_THE_TOTAL,
+                 some_reader: "def bought(account):\n"
+                              "    log(account)\n"
+                              "    return sum(account.purchases)\n"
+                              "\n\n"
+                              "def reader(account):\n"
+                              "    if bought(account) != account.month: pass\n"},
+                {LEDGER: LEDGER_WRITING_THE_MONTH_TOO}
+            )
+        ) \
+        .then(
+            the_answer_was(CodeOutsideThePatch(
+                uses=[CodeUse(name="month", path=some_reader, line=7, function="reader",
+                              does="compares it with bought(account)")],
+                defined={"bought": [some_reader], "reader": [some_reader]}
+            ))
+        )
+
+
+@pytest.mark.unit
 def test_a_read_outside_any_function_has_no_function_to_name() -> None:
     some_module = "src/shop/constants.py"
 

@@ -371,7 +371,8 @@ left half-done.
 
 The system SHALL admit `silent-data-corruption` as a failure mode the
 Investigator can name: what a service has already written is wrong, while the
-service itself is available, fast and reporting nothing.
+service itself serves as it did before, its error rate and every quantile
+holding their baseline.
 
 It is separated from every other mode by what carries the evidence rather than by
 what the evidence shows. No series departs, no log line reports a failure, and no
