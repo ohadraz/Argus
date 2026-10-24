@@ -1288,6 +1288,31 @@ def test_a_name_too_wide_for_its_column_breaks_only_after_an_underscore() -> Non
 
 
 @pytest.mark.unit
+def test_a_name_too_wide_for_its_cell_breaks_only_after_an_underscore() -> None:
+    # As one in running text does. A table's cell cut a name wherever its line
+    # ran out: "tests/io_shop/test_spend_summ" / "ary.py against the merged fix".
+    # Words of every length before it put the name at every place along a line.
+    some_name = "tests/io_shop/test_" + "_".join(["spend_summary"] * 9) + ".py"
+    some_lengths = range(1, 12)
+    some_items = [ActionItem(number=f"AI-{length}",
+                             text=" ".join(["word"] * length) + f" {some_name} now",
+                             type=ActionItemType.PREVENT, owner=None, tracking=None,
+                             status=ActionItemStatus.OPEN)
+                  for length in some_lengths]
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(action_items=some_items), an_alert(), [],
+                                    SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after_an_underscore(some_name, times=len(some_lengths)))
+
+
+@pytest.mark.unit
 def test_each_item_a_step_rests_on_is_set_on_a_line_of_its_own() -> None:
     # As the page sets them. Run together after semicolons, where one item
     # ends and the next begins is the reader's to find.

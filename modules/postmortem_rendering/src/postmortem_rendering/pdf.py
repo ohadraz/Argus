@@ -933,7 +933,9 @@ def _the_most_that_fits(text: str, begins: int, ends_by: int,
     """Where the longest piece of `text` from `begins`, and ending by
     `ends_by`, that is `fitting` ends: before the last space or line break
     that leaves it fitting, or - where a word alone is wider than the cell -
-    wherever the measure says.
+    just after the last underscore that does, as inline text cuts one: a name
+    in code, whose parts each still read as words. Only a part still wider
+    than the cell is cut wherever the measure says.
 
     The longest is found by doubling a reach until it no longer fits and then
     halving between the two, so a cell many pages long is measured in pieces
@@ -954,7 +956,11 @@ def _the_most_that_fits(text: str, begins: int, ends_by: int,
         return shortest
 
     space = max(text.rfind(each, begins, shortest) for each in _BREAKS)
-    return space if space > begins else shortest
+    if space > begins:
+        return space
+
+    underscore = text.rfind("_", begins, shortest)
+    return underscore + 1 if underscore >= begins else shortest
 
 
 # How far a piece is first reached for, in characters, before the reach doubles.
