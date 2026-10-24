@@ -262,10 +262,8 @@ def _and_the_files_it_names(hypothesis: Hypothesis | None,
 
     The evidence carries the file and the line inside a sentence the model has
     to parse; this says them where they cannot be missed. Called what they
-    are - named in the evidence - rather than the files to fix: the list is
-    every file the evidence's words name, down to a word that happens to be a
-    file's stem, and a list that reads as authoritative is one a model stops
-    looking past.
+    are - named in the evidence - rather than the files to fix: a list that
+    reads as authoritative is one a model stops looking past.
 
     A name the repository does not hold is said rather than dropped. Dropped, a
     stale path is invisible, and the model spends turns finding out what this
