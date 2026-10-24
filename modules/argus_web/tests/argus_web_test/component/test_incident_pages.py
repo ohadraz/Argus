@@ -2621,6 +2621,29 @@ def test_a_change_read_is_named_on_the_incident_page_as_its_postmortem_row_names
 
 
 @pytest.mark.component
+def test_the_changes_read_say_their_times_are_utc_as_every_other_time_column_does() -> None:
+    # Its times said as a clock says them, "15:39", under a heading of "when",
+    # it was the one time column on the page that named no zone.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _a_deploy_read_on(incident_id, "dont-care-revision",
+                                              "https://github.com/acme/shop"))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            the_page_says("<tr><th>when (UTC)</th><th>kind</th>")
+        )
+
+
+@pytest.mark.component
 def test_a_contributing_factor_links_to_the_action_items_that_answer_it() -> None:
     # The items are named, not written out, so the name is the only way from
     # the condition to what is being done about it.
