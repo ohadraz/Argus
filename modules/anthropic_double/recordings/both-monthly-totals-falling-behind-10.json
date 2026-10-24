@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS3AcKEAgTGAI4AUIIdGhpbmtpbmcSDO/ugy/jtSPs3hJSBBoMH3cFE4WPziNWdtozIjCKMuzCM7ebsTBnjXpCLAUAy02rXRz9+fwbr+moYVKCTeNiR6qfaJ+Hc86YJa70liMq+QYxWfu2GKKoDJa0qQHsYY1191szLkdzpCK4umHVPvZJl+0yhmM/V5NZ6hbC762teOhLgGmsP99FzTYs9rd3W1IUjuhT0ulMf7Ts3zp8gI1mUvkS0ogGNdRjTs2ctSG/o2skRJNbOirywS4cteUhnO6HiXdjiEyTfqDmYj2n/XVoox7Mk/VJAaxSR8ZXwTnZywHnsg2tAIN14P49BMYFDhCil/A2C86PLHU0v5TrW60Ubr5zyHtFPlzxNKbXkDihR/KKuZ03qVpb1S89mx3iQVaBMSKN8FwJkMZQxPJvQ3RMBcCw3osXlu/auVff7TilolNCz7sgvPdlQMqGXIvEIotxP+uVNUrDKfvVkrbui6lst0oDmOl/IYFaqpbRboYwMiTCfp6V1V7/TxtF8K7L6oI5f2NhZh1DrTFKeWB5VOLihqXufmd08Npka4mGGyfa+za1WmCxaqJWYDqP2ydCzgAuOd9BjeXxgS/98hbOh1vSfSesMdc4tcZIbJQfn+GKoYC5pbfY3JVKwquELTqLDAiwnoFmQqL7a4zPXVnaOMDidnu/nxxbV26Z3QUx6IN5uZyzf7OQlrTxxLe3LZ7RIYJI/FX4Z6iBfRxnwqPTAtoTurkbFNmfzrGPnvnF522o3Mrf8I1ExozwuW+B9U4HwzIb2DP27kT8pUteQhcR+wuW6qzuCtqVZP3n7qZQreZNqZGWJvlwZvfdpnCOkWz1xsOucYQditfHaYWeBIMKtSe8hHZYckVln/8ne4pcyWciH/hs9/FhIR0kWYEsQ23IpMsundTi9khuFuZYtf24BaknkPZI1zGO/sshMLJ/fDl51nIpaUMCHrumMiJiNf0rxolC0m9zrvyxdiKKNIqQBkYuq33uAcCOZsPE9G0eOAxAbiXRMy7dga4+Js2f24WxzUgD7D6Qq4oGPf482xJoI4MN1NnnZ2kVVXfNXzQNPNkGOy1Ne94bFYz/osRmivbwt6coFc6I6XoQ2GvMbWOuLdMVEZAmta2XrthRG9u4yIK/4+tso7LklXL3fNQ8rWBeQO+HF94TRj80pFN0AbNxIVEO6uWmH3e3FaYTdZk2VQJFjfoEwCMAkfGG3RpRcgOkvVgR/V1vfGyKFnGgmSQtbfZ/YQ167gXnf/cgbuNyvRslpGoyYzpVj94xuNF9Zf805a/L6svaasuv46dYGAE=",
+      "thinking": "Checking the ordering: symptom first, then why the purchases didn't move the total, then why the change caused it, then the broken premise last. That sequence of 1,2,3,4 already holds since the first and last positions are fixed.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01Vns5JWX5LFMJexBWjU6CTA",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgMAS5n9cdhvQziJANU92",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1455
+    },
+    "cache_creation_input_tokens": 1455,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 250,
+    "output_tokens_details": {
+      "thinking_tokens": 192
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
