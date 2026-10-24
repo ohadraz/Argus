@@ -1611,10 +1611,15 @@ def _how_long_it_was_broken(measured: Measurements,
             # Where a line reaches in, the document says it from the answer named
             # here, which is asked for only then. Where none does, nothing is
             # known of it: told nothing either, a model is free to say the
-            # service kept serving, unbounded.
+            # service kept serving, unbounded. And how to cite them where the
+            # chain says nobody saw anything wrong: those lines are what shows
+            # it, so told only to say nothing of them elsewhere, a first step
+            # citing them still said what they show.
             f"How the service did over that stretch is said by the document "
             f"itself, from your answer to {LOGS_SHOW_SERVING_AS_BEFORE_FIELD}: say "
-            f"nothing of it anywhere else."
+            f"nothing of it anywhere else. Where the chain's first step says nobody "
+            f"using the service saw anything wrong, cite those log lines for it "
+            f"without saying what they show."
             if labels_reaching_into(evidence.log_lines, measured.unobserved_from) else
             "Nothing is known of how the service did over that stretch: say nothing of it."
         ]

@@ -3124,6 +3124,31 @@ def test_the_brief_says_the_document_says_how_the_service_did_where_a_log_line_r
 
 
 @pytest.mark.unit
+def test_the_brief_says_to_cite_the_log_lines_reaching_in_for_nobody_seeing_anything_wrong(
+) -> None:
+    # Told to say nothing of how the service did anywhere but the answer, a
+    # chain's first step still said what the lines show, four of five: what
+    # shows nobody using it saw anything wrong is those lines, and every step
+    # cites its evidence. Told to cite them for it without saying what they
+    # show, none did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
+                                                              unobserved_from=ONSET))
+        ) \
+        .then(
+            _says_on_one_line("say nothing of it anywhere else.",
+                              "Where the chain's first step says nobody using the service saw "
+                              "anything wrong, cite those log lines for it without saying what "
+                              "they show.")
+        )
+
+
+@pytest.mark.unit
 def test_the_brief_never_names_an_answer_an_incident_whose_logs_reach_nowhere_is_not_asked(
 ) -> None:
     Scenario() \
