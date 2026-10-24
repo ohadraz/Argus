@@ -629,6 +629,28 @@ def test_a_range_figure_after_a_word_that_opens_a_range_is_named(before: str) ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("before", ["at", "by", "since", "until", "before", "after", "At"])
+def test_a_range_figure_after_a_word_that_places_a_moment_is_named(before: str) -> None:
+    # "This error first appears at {G}" read "first appears at 14:46–14:53": a
+    # span where the sentence wanted its first minute.
+    Scenario() \
+        .given(
+            an_answer_placing_a_range := _an_answer(
+                cause_in_plain_words=f"errors held {before} {{Gbac1.1}}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_placing_a_range,
+                              given=_given_figures("Gbac1.1", figures=SOME_RANGE_FIGURES))
+        ) \
+        .then(
+            all_of(
+                _named("[{Gbac1.1}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("prose", "name"), [
     ("errors held over {Gbac1.1}", "Gbac1.1"),
     ("errors held from {began}", "began")

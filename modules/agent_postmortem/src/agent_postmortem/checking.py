@@ -148,8 +148,12 @@ _A_FIGURE_IN_A_WORD: Final = re.compile(
 _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 
 # The words a range is opened with, and the dash a range figure is written
-# with: "between {G}" where G writes in as "21:41–22:01" opens it twice.
+# with: "between {G}" where G writes in as "21:41–22:01" opens it twice. And
+# the words that place a moment, after which a range is a span where the
+# sentence wants one instant: "first appears at {G}" read "at 14:46–14:53".
 _WORDS_THAT_OPEN_A_RANGE: Final = frozenset({"between", "from"})
+_WORDS_THAT_PLACE_A_MOMENT: Final = frozenset({"at", "by", "since", "until", "before",
+                                               "after"})
 _A_RANGE_DASH: Final = re.compile(r"[–—]")
 
 # Where one sentence ends and another begins: a stop with words after it. A
@@ -586,11 +590,14 @@ def _numbers_in_digits(answer: SubmittedPostmortem, given: Given) -> list[str]:
 
 
 def _ranges_opened_twice(answer: SubmittedPostmortem, given: Given) -> list[str]:
-    """Each figure written in as a range that the prose opens a range before.
+    """Each figure written in as a range that the prose opens a range, or
+    places a moment, before.
 
     A range is written in whole, so "between {G}" reads "between 21:41–22:01" -
-    the range opened twice. A word before a figure's name, as "line" before a
-    number is: what the figure says decides, not how the sentence reads.
+    the range opened twice - and "first appears at {G}" reads "at 14:46–14:53",
+    a span where the sentence wants its first minute. A word before a figure's
+    name, as "line" before a number is: what the figure says decides, not how
+    the sentence reads.
     """
     return [
         f"your answer writes [{before} {{{name}}}] - [{{{name}}}] is a range and says "
@@ -598,6 +605,7 @@ def _ranges_opened_twice(answer: SubmittedPostmortem, given: Given) -> list[str]
         for prose in answer.sentences()
         for before, word in pairwise(["", *prose.split()])
         if before.strip(AROUND_A_WORD).lower() in _WORDS_THAT_OPEN_A_RANGE
+        | _WORDS_THAT_PLACE_A_MOMENT
         and (named := A_FIGURE_NAME.fullmatch(word.strip(AROUND_A_WORD))) is not None
         and (name := named.group(1)) in given.figures
         and _A_RANGE_DASH.search(given.figures[name].written) is not None
