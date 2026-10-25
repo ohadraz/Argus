@@ -36,17 +36,24 @@ from argus_core import parse_iso, to_iso
 from argus_narration.clock import a_moment, is_a_moment
 
 # An instant inside a sentence, in the two shapes that are not already how this
-# page says the time: a timestamp in any form ISO 8601 allows - `T` or a space
-# between date and time, a fraction of a second, `Z`, an offset or no zone at
-# all - and a clock time still carrying the wire's zone marker.
+# page says the time: a timestamp - `T` or a space between date and time, to
+# the minute or the second, a fraction after the second's point, and `Z`, an
+# offset (`+02:00` or `+0200`) or no zone at all - and a clock time still
+# carrying the wire's zone marker.
 #
 # A bare `10:14` is deliberately not among them. It is already what this
 # renders to, so matching it only to hand it back is a third pattern that can
-# be got wrong and can never be got right. Nor is a clock time's offset: with
-# no date beside it, `10:14-10:16` is a window far more often than a time at
-# minus ten hours sixteen, and nothing in the words says which.
+# be got wrong and can never be got right.
+#
+# An offset is read only after seconds, where RFC 3339 always puts one, and
+# never where more of a clock follows it: `10:14-10:16` is a window far more
+# often than a time at minus ten hours sixteen, and a date in front of it does
+# not say which. Two forms stay unreadable from the words alone and are read
+# the other way: a window with seconds at only one end (`10:14:00-10:16`, an
+# offset) and an offset after a minute (`T10:14+02:00`, left in the sentence).
 _A_TIME_IN_PROSE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)"
+    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}"
+    r"(?:Z|:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}(?!:?\d))?)?)"
     r"|(?<!\d)(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z)"
 )
 

@@ -80,16 +80,19 @@ def test_a_zoned_clock_time_is_said_to_the_second_only_where_it_has_one(zoned: s
 @pytest.mark.unit
 @pytest.mark.parametrize(("written", "said"), [
     ("2026-08-30T12:14:00+02:00", "10:14"),
+    ("2026-08-30T12:14:00+0200", "10:14"),
     ("2026-08-30 10:14:00Z", "10:14"),
     ("2026-08-30T10:14:37.250Z", "10:14:37"),
     ("10:14:37.250Z", "10:14:37")
-], ids=["with-an-offset", "with-a-space", "with-a-fraction", "a-clock-time-with-a-fraction"])
-def test_an_instant_in_any_iso_form_is_said_as_a_clock_says_it(written: str, said: str) -> None:
+], ids=["with-an-offset", "with-a-basic-offset", "with-a-space", "with-a-fraction",
+        "a-clock-time-with-a-fraction"])
+def test_an_instant_with_an_offset_a_space_or_a_fraction_is_said_as_a_clock_says_it(
+        written: str, said: str) -> None:
     # The model is shown every instant ending in `Z`, and asked to write them
     # so - but what it writes is its own, and each of these is the same moment
-    # in a form ISO 8601 allows. Missed, one is left in the sentence as the
-    # wire wrote it; read only up to its offset, `+02:00` stays behind it and
-    # the time before it is read as UTC, two hours from the moment it names.
+    # written another way. Missed, one is left in the sentence as the wire wrote
+    # it; read only up to its offset, `+02:00` stays behind it and the time
+    # before it is read as UTC, two hours from the moment it names.
     some_claim_naming_an_instant = f"The alert fired at {written}."
 
     Scenario() \
@@ -99,17 +102,28 @@ def test_an_instant_in_any_iso_form_is_said_as_a_clock_says_it(written: str, sai
 
 
 @pytest.mark.unit
-def test_a_range_of_clock_times_is_not_read_as_a_time_with_an_offset() -> None:
+@pytest.mark.parametrize(("written", "said"), [
+    ("10:14-10:16", "10:14-10:16"),
+    ("2026-08-30T10:14-10:16", "10:14-10:16"),
+    ("2026-08-30 10:14-10:16", "10:14-10:16"),
+    ("2026-08-30T10:14-10:16Z", "10:14-10:16"),
+    ("2026-08-30T10:14:37-10:16:37", "10:14:37-10:16:37"),
+    ("2026-08-30T10:14:37Z-10:16:37Z", "10:14:37-10:16:37")
+], ids=["clock-times", "dated", "dated-with-a-space", "dated-and-zoned", "dated-to-the-second",
+        "zoned-at-both-ends"])
+def test_a_window_is_not_read_as_a_time_with_an_offset(written: str, said: str) -> None:
     # `10:14-10:16` is how a person writes a window, and read as ISO it is a
-    # time at an offset of minus ten hours sixteen. A clock time has no date to
-    # say which reading it is, so only a full timestamp's offset is read as one,
-    # and the window stays as it was written.
-    some_claim_naming_a_window = "The error rate held between 10:14-10:16."
+    # time at an offset of minus ten hours sixteen - said `20:30`, a moment
+    # nobody named. A date in front of it does not settle which reading it is,
+    # and asked for every moment in full, a window's two ends are what the
+    # model now writes. So an offset is read only after seconds, where RFC 3339
+    # always puts one, and never where more of a clock follows it.
+    some_claim_naming_a_window = f"Failing {written}, then not."
 
     Scenario() \
         .given(some_claim_naming_a_window) \
         .when(lambda: said_plainly(some_claim_naming_a_window)) \
-        .then(the_answer_was(some_claim_naming_a_window))
+        .then(the_answer_was(f"Failing {said}, then not."))
 
 
 @pytest.mark.unit
