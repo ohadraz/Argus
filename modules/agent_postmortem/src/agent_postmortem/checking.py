@@ -190,6 +190,15 @@ _AN_AS_OF_NO_ROLE: Final = re.compile(
     r"|\bas (?:(?!\bas\b)[^,.;])*?\b(?:says|said|shows)\b",
     re.IGNORECASE)
 
+# What a line is said to do in place of reading the stored figure - work it
+# out for itself - and what may stand between a list of lines and that: list
+# words, and at most three words more.
+_A_DERIVATION: Final = re.compile(
+    r"\bderiv\w*|\bwork\w*(?:\s+\w+){0,3}\s+out\b|\badd\w*(?:\s+\w+){0,3}\s+up\b(?!\s+to\b)",
+    re.IGNORECASE)
+_A_LIST_GAP: Final = re.compile(r"(?:\s|,|\band\b|\bor\b|\bthe\b)*", re.IGNORECASE)
+_CLOSE_AFTER: Final = re.compile(r"\s*(?:\w+\s+){0,3}")
+
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
     "write a figure the incident gave as the name shown after it, braces and all, "
@@ -545,7 +554,47 @@ def _says_one_role_of_both_kinds(sentence: str,
             for stem in {_the_stem_of(uses[label].does) for label in checking}):
         return False
 
-    return bool(_A_ROLE.search(_AN_AS_OF_NO_ROLE.sub(" ", sentence)))
+    return bool(_A_ROLE.search(_AN_AS_OF_NO_ROLE.sub(" ", sentence))
+                or _a_list_of_both_kinds_said_to_derive(sentence, uses))
+
+
+def _a_list_of_both_kinds_said_to_derive(sentence: str, uses: dict[str, CodeUse]) -> bool:
+    """Whether a sentence names rows of both kinds in one list - names joined
+    by list words alone - and says, straight after it, that they work the
+    figure out: "until the statement, the summary and the reconciliation
+    derived it themselves". After the list only, and close to it: "the sum the
+    reconciliation adds up" said beside a reader is the checking line's own
+    act, and "the month would be derived" before the names is what the change
+    meant."""
+    for end, rows in _the_lists_in(sentence, uses):
+        derivation = _A_DERIVATION.search(sentence, end)
+        if (len({uses[label].set_against_a_call for label in rows}) == 2
+                and derivation is not None
+                and _CLOSE_AFTER.fullmatch(sentence[end:derivation.start()])):
+            return True
+
+    return False
+
+
+def _the_lists_in(sentence: str, uses: dict[str, CodeUse]) -> list[tuple[int, set[str]]]:
+    """Each run of names joined by list words alone, as where it ends and the
+    rows it names - the longest name kept where two overlap."""
+    named = sorted(((match.start(), match.end(), label)
+                    for label, use in uses.items()
+                    for name in _names_of(label, use)
+                    for match in re.finditer(
+                        rf"(?<![\w/.]){_in_either_number(name)}(?![\w/])", sentence,
+                        re.IGNORECASE)),
+                   key=lambda span: (span[0], span[0] - span[1]))
+    lists: list[tuple[int, set[str]]] = []
+
+    for start, stop, label in named:
+        if lists and (start < lists[-1][0] or _A_LIST_GAP.fullmatch(sentence[lists[-1][0]:start])):
+            lists[-1] = (max(lists[-1][0], stop), lists[-1][1] | {label})
+        else:
+            lists.append((stop, {label}))
+
+    return lists
 
 
 def _the_stem_of(does: str) -> str:
@@ -570,8 +619,8 @@ def _names_of(label: str, use: CodeUse) -> set[str]:
     """Every name a sentence may call a line by."""
     stem = use.path.rsplit("/", 1)[-1].removesuffix(".py")
 
-    return {label, use.path, stem, stem.replace("_", " "), stem.rsplit("_", 1)[-1],
-            *([use.function] if use.function else [])}
+    return {label, use.path, stem, stem.replace("_", " "), stem.replace("_", "-"),
+            stem.rsplit("_", 1)[-1], *([use.function] if use.function else [])}
 
 
 def _in_either_number(name: str) -> str:

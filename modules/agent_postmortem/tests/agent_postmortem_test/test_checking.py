@@ -2028,6 +2028,61 @@ def test_a_derivation_said_before_the_lines_are_named_is_accepted() -> None:
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("lumped", [
+    "Until the statement, the summary and the reconciliation derive the month themselves, the "
+    "field must stay.",
+    "The change would have been held until the statement, spend-summary and reconciliation "
+    "code derived the month total themselves.",
+    "The reconciliation and the statement both add the purchases up."
+], ids=["derive", "derived-with-a-hyphened-stem", "add-up"])
+def test_a_list_of_both_kinds_said_to_work_the_figure_out_is_named(lumped: str) -> None:
+    # The reconciliation adds the purchases up already: that a list holding it
+    # should derive the month says of it what its row does not.
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named("[U3]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Each purchase raised the sum the reconciliation adds up while the stored total the "
+    "monthly statement shows stayed where it was.",
+    "The monthly statement and the spend summary should derive the month themselves, while "
+    "the reconciliation already does.",
+    "The statement reads it and the reconciliation adds the purchases up.",
+    "The reconciliation, unlike the statement and the summary, adds the purchases up.",
+    "The premise was that the month would be derived from purchase history, but the stored "
+    "field is still read by the monthly statement, spend summary and reconciliation code.",
+    "The monthly statement, the spend summary and the reconciliation still read the stored "
+    "field, and the totals no longer add up to the purchases.",
+    "The reconciliation adds the purchases up again and compares the sum with the stored "
+    "field, which the statement and the summary read."
+], ids=["adds-up-beside-a-reader", "a-list-of-readers", "each-its-own-verb", "unlike",
+        "derived-before-the-list", "add-up-to", "its-own-verb-too"])
+def test_a_derivation_said_of_no_list_of_both_kinds_is_accepted(sentence: str) -> None:
+    Scenario() \
+        .given(
+            an_answer := _an_answer(root_cause=sentence)
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
 def _given_lines_of_two_kinds() -> Given:
     """`SOME_GIVEN`, with lines outside Code-Fix's patch of both kinds: two
     taking the stored figure's value, and one setting it against what a
