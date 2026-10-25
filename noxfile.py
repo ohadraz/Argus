@@ -2022,11 +2022,15 @@ def _run_against_the_stack(
         # exits, the case's tables are already empty. In its place pytest is
         # given `-s`, because the holder's banner saying how to let the stack go
         # is otherwise captured until the case ends, which is after it is let go.
-        if _HOLD in session.posargs:
+        # A command of its own - the recording script - is no suite: it takes
+        # `--hold` itself, and given `-s` in its place it refused to start.
+        holds_the_suite = command is None and _HOLD in session.posargs
+        if holds_the_suite:
             os.environ[_THE_HOLD_VARIABLE] = "1"
         session.run(
             *(command or ["uv", "run", "python", "-m", "pytest", *test_paths, "-v"]),
-            *("-s" if given == _HOLD else given for given in session.posargs), external=True
+            *("-s" if holds_the_suite and given == _HOLD else given for given in session.posargs),
+            external=True
         )
     except Exception:
         # What the containers said, and only when something went wrong. The

@@ -129,6 +129,9 @@ class _State:
         # A hold asked for and not yet caught, and a call caught and waiting.
         self.holding: bool = False
         self.held: bool = False
+        # The tools the call held was offered, so whoever holds it can tell
+        # which call it is - a walk at its ending can still be in Code-Fix.
+        self.held_tools: list[str] = []
         # A hold for the first call the queue cannot answer, asked for and not
         # yet caught.
         self.holding_when_dry: bool = False
@@ -142,6 +145,7 @@ class _State:
         self.recorded = 0
         self.holding = False
         self.held = False
+        self.held_tools = []
         self.holding_when_dry = False
         self.diverged.clear()
 
@@ -284,6 +288,7 @@ def release() -> dict[str, bool]:
     _state.holding = False
     _state.holding_when_dry = False
     _state.held = False
+    _state.held_tools = []
     return {"released": released}
 
 
@@ -319,6 +324,7 @@ def state() -> dict[str, Any]:
         "holding": _state.holding,
         "holding_when_dry": _state.holding_when_dry,
         "held": _state.held,
+        "held_tools": _state.held_tools,
         "diverged": _state.diverged,
         "available_recordings": recordings.available(),
     }
@@ -546,6 +552,7 @@ async def messages(request: Request) -> Response:
     # answer is chosen only after, so a seed queued while waiting is the one
     # this call takes.
     if _state.catches() or _state.catches_when_dry():
+        _state.held_tools = [tool["name"] for tool in asked.get("tools", [])]
         while _state.held:
             await asyncio.sleep(_A_HELD_CALL_LOOKS_EVERY)
 

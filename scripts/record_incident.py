@@ -1730,18 +1730,28 @@ def _the_held_call_is_the_write_up(incident_id: str, ends_as: IncidentStatus) ->
     into Code-Fix - had Code-Fix's first call held, released and paid for as
     though it were the write-up. The write-up is asked for only once the walk
     has ended, so an incident not yet at its ending is holding some other call.
+
+    Its status alone does not tell: a walk that recommends or mitigates is at
+    its ending before Code-Fix runs, so a Code-Fix call held after it passed
+    as the write-up. So the held call is also the one offered the write-up's
+    tool, which the double reports of the call it holds.
     """
     status = _the_status_of(incident_id)
 
-    if status == ends_as:
-        return
-
     with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL, timeout=10.0) as control:
+        state = control.get("/double-control/state")
+        state.raise_for_status()
+        offered = state.json()["held_tools"]
+
+        if status == ends_as and SUBMIT_TOOL_NAME in offered:
+            return
+
         control.post("/double-control/reset").raise_for_status()
 
     raise RuntimeError(
-        f"incident [{incident_id}] held a call while [{status}], not [{ends_as}] - "
-        f"so not its write-up; refused before it reached the real model"
+        f"incident [{incident_id}] held a call offered {offered} while [{status}], "
+        f"not one offered [{SUBMIT_TOOL_NAME}] at [{ends_as}] - so not its write-up; "
+        f"refused before it reached the real model"
     )
 
 
