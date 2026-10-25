@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core import to_iso
+from argus_core import said_as_a_day, to_iso
 from argus_narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window, is_a_moment
 from argus_testkit import Assertion, Scenario, the_answer_was
 
@@ -208,7 +208,7 @@ def test_a_window_s_span_is_said_as_every_other_span_is(span: timedelta, said: s
     Scenario() \
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end))) \
-        .then(the_answer_was(f"the {said} before {some_end:%b %d %H:%M}"))
+        .then(the_answer_was(f"the {said} before {said_as_a_day(some_end)} {some_end:%H:%M}"))
 
 
 @pytest.mark.unit
@@ -238,7 +238,7 @@ def test_a_window_on_another_day_from_its_line_carries_its_date() -> None:
         .given(some_start) \
         .when(lambda: a_window(to_iso(some_start), to_iso(some_end),
                                beside=to_iso(the_line_s_moment))) \
-        .then(the_answer_was(f"the 1 hour before {some_end:%b %d %H:%M}"))
+        .then(the_answer_was(f"the 1 hour before {said_as_a_day(some_end)} {some_end:%H:%M}"))
 
 
 @pytest.mark.unit
@@ -302,7 +302,7 @@ def test_a_window_anchored_on_another_day_from_its_line_carries_its_date() -> No
     Scenario() \
         .given(some_anchor) \
         .when(lambda: a_window(to_iso(some_anchor), None, beside=to_iso(the_line_s_moment))) \
-        .then(the_answer_was(f"anchored on {some_anchor:%b %d %H:%M}"))
+        .then(the_answer_was(f"anchored on {said_as_a_day(some_anchor)} {some_anchor:%H:%M}"))
 
 
 @pytest.mark.unit
@@ -313,7 +313,7 @@ def test_a_window_reaching_up_to_another_day_from_its_line_carries_its_date() ->
     Scenario() \
         .given(some_end) \
         .when(lambda: a_window(None, to_iso(some_end), beside=to_iso(the_line_s_moment))) \
-        .then(the_answer_was(f"up to {some_end:%b %d %H:%M}"))
+        .then(the_answer_was(f"up to {said_as_a_day(some_end)} {some_end:%H:%M}"))
 
 
 @pytest.mark.unit

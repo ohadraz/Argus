@@ -17,6 +17,7 @@ from importlib.resources import files
 from typing import Any, NamedTuple
 
 import pytest
+from argus_core import said_as_a_day, said_as_a_time
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -211,7 +212,7 @@ def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
             lambda: as_pdf(some_rendered)
         ) \
         .then(all_of(
-            _a_cell_reads(f"{widest_step.at:%b %d %H:%M:%S}"),
+            _a_cell_reads(f"{said_as_a_day(widest_step.at)} {said_as_a_time(widest_step.at)}"),
             _a_cell_reads(widest_step.by),
             _a_cell_reads("nothing to put back"),
             _a_cell_reads(widest_step.outcome)))
