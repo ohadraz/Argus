@@ -38,6 +38,7 @@ from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.detection_lesson import the_detection_lesson
 from agent_postmortem.evidence import IncidentEvidence
+from agent_postmortem.figures import the_day_it_began
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
@@ -123,7 +124,7 @@ def write_postmortem(evidence: IncidentEvidence,
     """
     measured = measure(evidence, sources)
     answer, faults = ask(llm, evidence, measured)
-    shown = the_evidence_labelled(evidence, measured.unobserved_from)
+    shown = the_evidence_labelled(evidence, measured)
 
     if faults:
         logger.warning("postmortem written incomplete", extra={"faults": faults})
@@ -209,7 +210,8 @@ def write_postmortem(evidence: IncidentEvidence,
         # Under the labels the model was shown them by, so the prose that cites
         # one has a row to lead to.
         changes_read=the_changes_labelled(evidence),
-        log_messages_read=grouped(evidence.log_lines, measured.unobserved_from),
+        log_messages_read=grouped(evidence.log_lines, measured.unobserved_from,
+                                  the_day_it_began(evidence, measured)),
         deployment_changes_read=the_deployment_changes_labelled(evidence),
         code_read=the_code_reading_labelled(evidence),
         as_it_ran_read=the_files_as_they_ran_labelled(evidence),

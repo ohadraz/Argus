@@ -88,7 +88,7 @@ from argus_core.models import (
 )
 from pydantic import BaseModel, Field
 
-from argus_narration.clock import a_minute, a_moment, a_window
+from argus_narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window
 from argus_narration.findings import Finding, a_finding
 from argus_narration.flags import on_or_off, said_as_a_state
 from argus_narration.logs import LogLine, a_log_line
@@ -1361,26 +1361,35 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
 
     Several pods all on one card, every one serving long before the onset, are
     said as how many and which card: listed pod by pod the line is a paragraph
-    telling nothing apart, and every destination carries it.
+    telling nothing apart, and every destination carries it. So are several on
+    one card all started together well after the onset, with when: the same
+    card and the same moment said once for each was the same paragraph.
     """
     if not placement.pods:
         return "", "Recorded where the service's replicas run - the platform reported no pods"
 
     cards = {pod.accelerator for pod in placement.pods}
     card = next(iter(cards))
-    if (len(placement.pods) > 1 and len(cards) == 1 and card is not None
-            and not placement.started_at_the_onset()):
+    on_one_card = len(placement.pods) > 1 and len(cards) == 1 and card is not None
+    if on_one_card and not placement.started_at_the_onset():
         return "", f"Recorded where the {len(placement.pods)} replicas run - all on {card}"
 
     after = placement.started_after_the_onset()
+    if (on_one_card and len(after) == len(placement.pods)
+            and len({pod.started_at for pod in placement.pods}) == 1):
+        return "", (f"Recorded where the {len(placement.pods)} replicas run - all on {card}, "
+                    f"started after the onset at "
+                    f"{a_moment_with_its_day(to_iso(placement.pods[0].started_at))}")
+
     before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())
     at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset()
                              if pod not in after)
     # Each with when it came up, because "after the onset" alone reads as any
     # time after it - a pod placed a week later was taken for the rollout
-    # that began the incident.
-    onset = to_iso(placement.onset)
-    since = ", ".join(f"{_a_pod_said(pod)} at {a_moment(to_iso(pod.started_at), beside=onset)}"
+    # that began the incident. With its day whichever day that is: the line
+    # is dated by when it was recorded, and a time alone in it reads as that
+    # day's.
+    since = ", ".join(f"{_a_pod_said(pod)} at {a_moment_with_its_day(to_iso(pod.started_at))}"
                       for pod in after)
 
     clauses = (before,

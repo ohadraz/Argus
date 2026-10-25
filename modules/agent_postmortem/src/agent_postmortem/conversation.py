@@ -21,7 +21,7 @@ from argus_core.models import ChangeKind, CitedChange, ThreadMessage, Transcript
 
 from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
-from agent_postmortem.figures import Figure, with_figures_written
+from agent_postmortem.figures import Figure, as_said_off_the_page, with_figures_written
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.ordering import ORDER_TOOL_NAME, put_in_order
 from agent_postmortem.prompting import (
@@ -76,11 +76,14 @@ def answer_worth_writing(llm: LLMClient,
     submit = submit_postmortem_for(evidence.leads, logs_in_the_gap_of(evidence, measured))
     # Every figure the answer may name, each written in as this run measured it.
     figures = figures_shown(evidence, measured)
+    # And as the summary's paragraph says them, which the two sentences it
+    # carries are written with.
+    off_the_page = as_said_off_the_page(figures, evidence, measured)
     given = _what_was_given(evidence, measured, figures).model_copy(update={
         "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required})
     submitted = llm.converse(asked, [submit])
 
-    first, told = _reading_of(submitted, evidence.leads, given, figures)
+    first, told = _reading_of(submitted, evidence.leads, given, figures, off_the_page)
     if not told:
         return _with_its_chain_in_order(llm, (first, []))
 
@@ -89,7 +92,7 @@ def answer_worth_writing(llm: LLMClient,
 
     asked_again = _asking_again(asked, submitted, faults)
     resubmitted = llm.converse(asked_again, [submit])
-    second, found = _reading_of(resubmitted, evidence.leads, given, figures)
+    second, found = _reading_of(resubmitted, evidence.leads, given, figures, off_the_page)
     # Untold is what a check found that found nothing in the first answer: a
     # fault quotes the answer, so one it was told of in other words is new
     # text and the same fault.
@@ -105,7 +108,8 @@ def answer_worth_writing(llm: LLMClient,
     # refusal's faults again, or it can write them again and have them kept.
     asked_last = (rejecting(asked_again, resubmitted, untold) if resubmitted.tool_calls
                   else opening_ask_again(asked, faults + untold))
-    third, still = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures)
+    third, still = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures,
+                               off_the_page)
 
     return _with_its_chain_in_order(llm, (third, _every_one_of(still)))
 
@@ -133,8 +137,7 @@ def _what_was_given(evidence: IncidentEvidence,
     name, each file shown as it ran - named by its first line, its path at
     its revision - and each line outside Code-Fix's patch, under its label."""
     return Given(
-        labels=frozenset(label for cited in the_evidence_labelled(evidence,
-                                                                  measured.unobserved_from)
+        labels=frozenset(label for cited in the_evidence_labelled(evidence, measured)
                          for label in (cited.label, *cited.also)),
         hypotheses=frozenset(label for cited in the_candidates_labelled(evidence)
                              for label in (cited.label, *cited.also)),
@@ -177,7 +180,8 @@ def _asking_again(asked: Transcript, submitted: Turn, faults: list[str]) -> Tran
 def _reading_of(turn: Turn,
                 leads: Sequence[ThreadMessage],
                 given: Given,
-                figures: dict[str, Figure]
+                figures: dict[str, Figure],
+                off_the_page: dict[str, Figure]
                 ) -> tuple[SubmittedPostmortem, dict[str, list[str]]]:
     """What one turn amounts to: its answer and whatever is wrong with it, by
     the check that found it (`faults_by_check`).
@@ -190,11 +194,17 @@ def _reading_of(turn: Turn,
 
     The figures are written in last, after the check: it reads the names, and
     a figure written in before it would read as one the model wrote in digits.
+    The two sentences the summary carries are written as it says its own
+    (`off_the_page`): written in with the page's figures, a time in one was
+    bare in a paragraph posted where no head dates the incident.
     """
     answer = with_revisions_corrected(_answer_from(turn), given.revisions)
     of_the_turn = faults_in_the_turn(turn)
+    in_the_summary = with_figures_written(answer, off_the_page)
 
-    return (with_figures_written(answer, figures),
+    return (with_figures_written(answer, figures).model_copy(update={
+                "cause_in_plain_words": in_the_summary.cause_in_plain_words,
+                "still_at_risk": in_the_summary.still_at_risk}),
             {**({faults_in_the_turn.__name__: of_the_turn} if of_the_turn else {}),
              **faults_by_check(answer, leads, given=given)})
 

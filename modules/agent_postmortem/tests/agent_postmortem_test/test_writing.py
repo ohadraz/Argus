@@ -741,7 +741,7 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
     # The label means nothing outside the prompt it was given in, and the
     # stored document is read without one.
     the_log_line = "ZeroDivisionError in monthly_average"
-    its_label = grouped([the_log_line])[0].label
+    its_label = grouped([the_log_line], None, ONSET.date())[0].label
 
     Scenario() \
         .given(
@@ -773,7 +773,7 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
 def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> None:
     # As the step does: the label means nothing in the stored document.
     the_log_line = "ZeroDivisionError in monthly_average"
-    its_label = grouped([the_log_line])[0].label
+    its_label = grouped([the_log_line], None, ONSET.date())[0].label
 
     Scenario() \
         .given(
@@ -813,7 +813,7 @@ def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_t
     # cites, and the row on the page beside it is split - so the step is too.
     some_lines = [f"{to_iso(ONSET - timedelta(minutes=5))} WARN io-shop: some warning",
                   f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
-    its_label = grouped(some_lines)[0].label
+    its_label = grouped(some_lines, None, ONSET.date())[0].label
 
     Scenario() \
         .given(
@@ -837,8 +837,9 @@ def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_t
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
                 ChainStep(text="dont care what the step says",
-                          cites=[CitedEvidence(label=its_label,
-                                               text=grouped(some_lines, ONSET)[0].text)])
+                          cites=[CitedEvidence(
+                              label=its_label,
+                              text=grouped(some_lines, ONSET, ONSET.date())[0].text)])
             ])
         )
 
@@ -848,7 +849,7 @@ def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
     # The check has named it already, and the review holds it against the
     # analysis. Kept, it would be a citation a reader can follow nowhere.
     the_log_line = "ZeroDivisionError in monthly_average"
-    its_label = grouped([the_log_line])[0].label
+    its_label = grouped([the_log_line], None, ONSET.date())[0].label
 
     Scenario() \
         .given(
@@ -946,7 +947,7 @@ def test_the_changes_and_log_messages_shown_are_published_under_their_labels() -
                            ["P1", "P2"]),
                 _publishes("the log messages read",
                            lambda document: document.log_messages_read,
-                           grouped(evidence.log_lines)),
+                           grouped(evidence.log_lines, None, ONSET.date())),
                 _publishes("the log messages' count",
                            lambda document: len(document.log_messages_read),
                            2)
@@ -978,7 +979,7 @@ def test_the_log_messages_published_are_split_where_the_metrics_stopped_as_shown
         .then(
             _publishes("the log messages read",
                        lambda document: document.log_messages_read,
-                       grouped(some_lines, ONSET))
+                       grouped(some_lines, ONSET, ONSET.date()))
         )
 
 

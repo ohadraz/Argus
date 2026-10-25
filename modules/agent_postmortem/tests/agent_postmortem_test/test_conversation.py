@@ -38,6 +38,7 @@ from agent_postmortem.prompting import (
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
+    STILL_AT_RISK_FIELD,
     SubmittedPostmortem,
 )
 from argus_core import to_iso
@@ -72,6 +73,7 @@ from agent_postmortem_test.framework.builders import (
     a_model_answering_in_turn,
     a_model_calling,
     a_model_submitting_two_answers_at_once,
+    a_timeline_entry,
     an_answer,
     an_answer_without,
     an_evidence_bundle,
@@ -364,6 +366,59 @@ def test_a_figure_the_evidence_states_is_written_in_as_the_evidence_gave_it() ->
                                "The deploy landed at 11:59 UTC."),
                 _found_no_fault()
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("ended", "written"), [
+    (timedelta(minutes=30), "The deploy landed at 11:59 UTC."),
+    (timedelta(days=1), "The deploy landed at Sep 02, 11:59 UTC.")
+], ids=["on-the-day-it-began", "on-another-day"])
+def test_a_figure_in_the_cause_is_written_as_the_summary_says_its_own(ended: timedelta,
+                                                                     written: str) -> None:
+    # The summary carries the cause, and is posted where no head dates the
+    # incident: in one Argus stopped on another day, a time in it written as
+    # the page writes it read as a time of the day it was read.
+    Scenario() \
+        .given(
+            a_model_quoting_the_evidence := a_model_answering_in_turn(
+                an_answer(cause_in_plain_words="The deploy landed at {P1.1}."))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_quoting_the_evidence,
+                an_evidence_bundle(ended_at=ONSET + ended,
+                                   changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
+                                                        occurred_at="2026-09-02T11:59:00Z",
+                                                        reference="dont-care",
+                                                        summary="dont care")]),
+                a_measured_incident())
+        ) \
+        .then(
+            _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, written)
+        )
+
+
+@pytest.mark.unit
+def test_a_time_the_narration_said_in_what_is_still_at_risk_is_dated_off_the_page() -> None:
+    # Not only a wire instant: a time a line of the narration said is on its
+    # line's day, and the summary carrying this sentence says that day.
+    Scenario() \
+        .given(
+            a_model_quoting_the_narration := a_model_answering_in_turn(
+                an_answer(still_at_risk="The fault anchored at {T1.2} is still in place."))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_quoting_the_narration,
+                an_evidence_bundle(ended_at=ONSET + timedelta(days=1),
+                                   timeline=[a_timeline_entry("anchored on 07:44:29",
+                                                              at=ONSET)]),
+                a_measured_incident())
+        ) \
+        .then(
+            _answered_with(STILL_AT_RISK_FIELD,
+                           "The fault anchored at Sep 02, 07:44:29 UTC is still in place.")
         )
 
 

@@ -59,6 +59,21 @@ def a_moment(value: str, beside: str | None = None) -> str:
     return f"{said_as_a_day(at)} {said_as_a_time(at)}" if dated else said_as_a_time(at)
 
 
+def a_moment_with_its_day(value: str) -> str:
+    """A wire-format instant said as `a_moment` says one, always with its day.
+
+    For a moment read against nothing it shares a day with: a line is dated by
+    when it was recorded, and a time alone in it reads as that day's - a pod
+    started on the onset's day, said bare in a line of the day after, was.
+    """
+    try:
+        at = parse_iso(value).astimezone(UTC)
+    except ValueError:
+        return value
+
+    return f"{said_as_a_day(at)} {said_as_a_time(at)}"
+
+
 def is_a_moment(value: str) -> bool:
     """Whether a token is a timestamp rather than the start of the message."""
     try:

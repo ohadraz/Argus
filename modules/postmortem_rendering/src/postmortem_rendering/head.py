@@ -31,6 +31,10 @@ from postmortem_rendering.resolution import Escalation, ReportedResolution
 from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
 
 _THE_AUTHOR: Final = "Argus Postmortem agent"
+# A postmortem is a snapshot: each part holds as of the end of the work it
+# reports, which the timeline dates - except who ended it, read afresh.
+_AS_OF: Final = ("Each part is as of when the work it reports ended, which the timeline "
+                 "dates; who ended the incident is as of now.")
 
 
 class Head(BaseModel):
@@ -192,10 +196,18 @@ def _how_finished(postmortem: Postmortem) -> Line:
 
 
 def _who_wrote_it(postmortem: Postmortem) -> Line:
-    """The agent that wrote it, when, and whether a person has reviewed it."""
+    """The agent that wrote it, when, whether a person has reviewed it, and as
+    of when what it says holds.
+
+    Each part is as of the end of the work it reports, not of the writing: a
+    person can resolve the incident after Argus's last move, and read as of
+    the writing, what Argus held it until reads as false. Who ended it is the
+    one part read off the record each time it is shown.
+    """
     return Line(runs=(Run(text=f"{_THE_AUTHOR}, "),
                       Run.a_moment(postmortem.created_at),
-                      Run(text=". Reviewed." if _reviewed(postmortem) else ". Not reviewed yet.")))
+                      Run(text=". Reviewed." if _reviewed(postmortem) else ". Not reviewed yet."),
+                      Run(text=f" {_AS_OF}")))
 
 
 def _who_ended_it(postmortem: Postmortem,

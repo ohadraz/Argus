@@ -226,6 +226,18 @@ _AN_INSTANT: Final = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
 # A time of day as the kernel says one, to the minute or to the second.
 _A_TIME_OF_DAY: Final = re.compile(r"(\d{2}):(\d{2})(?::(\d{2}))?")
 
+# What joins the two ends of a span on one day, as a log group says one.
+_THE_DASH: Final = "–"
+
+# An instant or a span of them as the page writes one on the day the incident
+# began: in UTC, and without the day, which the page's head says once.
+_A_TIME_WITHOUT_ITS_DAY: Final = re.compile(
+    rf"\d{{2}}:\d{{2}}(?::\d{{2}})?(?:{_THE_DASH}\d{{2}}:\d{{2}}(?::\d{{2}})?)? UTC")
+
+# A span between two times of one day, `21:35–21:39`.
+_A_SPAN_OF_THE_CLOCK: Final = re.compile(
+    rf"(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?{_THE_DASH}(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?")
+
 
 def is_a_figure(word: str) -> bool:
     """Whether a word is a figure written in digits - or a range or interval of
@@ -351,14 +363,34 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     return figures
 
 
-def with_every_day_said(figures: Mapping[str, Figure]) -> dict[str, Figure]:
+def with_every_day_said(figures: Mapping[str, Figure], day: date) -> dict[str, Figure]:
     """The figures with every instant written with its day - for a paragraph
     said where no head dates the incident, about an incident that ran across
     days: there an instant on the day it began, said as a bare time, reads as
-    the day the paragraph is read."""
-    return {name: Figure(given=figure.given, written=_with_its_day(parse_iso(figure.given)))
-            if _AN_INSTANT.fullmatch(figure.given) else figure
+    the day the paragraph is read.
+
+    By what is written rather than what was given: an instant written in UTC
+    without its day is one on the `day` the incident began, whichever form it
+    was given in - a wire instant, a time a line of the narration said, a
+    group of log lines' minutes. One written as given carries no zone, and its
+    day is nobody's to say."""
+    on = datetime.combine(day, datetime.min.time(), UTC)
+
+    return {name: Figure(given=figure.given, written=f"{said_as_a_day(on)}, {figure.written}")
+            if _A_TIME_WITHOUT_ITS_DAY.fullmatch(figure.written) else figure
             for name, figure in figures.items()}
+
+
+def as_said_off_the_page(figures: Mapping[str, Figure], evidence: IncidentEvidence,
+                         measured: Measurements) -> dict[str, Figure]:
+    """The figures as a paragraph said off the page writes them: with every
+    day said where Argus stopped on another day than the one the incident
+    began, and as the page writes them otherwise."""
+    day = the_day_it_began(evidence, measured)
+    if evidence.ended_at.astimezone(UTC).date() != day:
+        return with_every_day_said(figures, day)
+
+    return dict(figures)
 
 
 def the_day_it_began(evidence: IncidentEvidence, measured: Measurements) -> date:
@@ -447,6 +479,38 @@ def the_evidence_named(cited: CitedEvidence) -> str:
     """A piece of evidence with each figure's name after it, as the model reads
     it."""
     return _said_with_names(cited.text, f"{cited.label}.")
+
+
+def the_log_group_figures(groups: Sequence[tuple[CitedEvidence, tuple[int, int]]],
+                          day: date) -> dict[str, Figure]:
+    """The figures each group of log lines states, named as the evidence's are.
+
+    Each group is handed with where in its text the message it quotes sits.
+    That message is in its writer's words, and written in as given, as every
+    quoted figure is. The rest of the row - how often, over which minutes, how
+    far each number ranged - is Argus's, said from the lines' stamps in UTC:
+    there a time of day, or a span of them, said beside a day is on that day.
+    """
+    return {name: figure
+            for cited, quoted in groups
+            for name, figure in _the_grouped_figures_in(cited.text, f"{cited.label}.", quoted,
+                                                        day).items()}
+
+
+def _the_grouped_figures_in(text: str, prefix: str, quoted: tuple[int, int],
+                            day: date) -> dict[str, Figure]:
+    figures: dict[str, Figure] = {}
+    at = 0
+
+    for part, figure, beside in _the_words_and_days_of(text):
+        if figure is not None:
+            name = f"{prefix}{len(figures) + 1}"
+            figures[name] = (_as_the_alert_gave_it(figure, day) if quoted[0] <= at < quoted[1]
+                             else _on_its_day(figure, the_day_said(beside, day)
+                                              if beside is not None else None, day))
+        at += len(part)
+
+    return figures
 
 
 def _the_figures_in(text: str, prefix: str, day: date) -> dict[str, Figure]:
@@ -714,7 +778,7 @@ def _the_words_and_days_of(text: str) -> Iterator[tuple[str, str | None, str | N
                 word = part.strip(AROUND_A_WORD)
                 figure = word if word and is_a_figure(word) else None
                 yield (part, figure,
-                       said if figure is not None and _A_TIME_OF_DAY.fullmatch(figure) else None)
+                       said if figure is not None and _is_on_a_clock(figure) else None)
                 said = None if part.strip() else said
 
 
@@ -737,19 +801,36 @@ def _as_the_alert_gave_it(figure: str, day: date) -> Figure:
     return Figure(given=figure, written=figure)
 
 
+def _is_on_a_clock(figure: str) -> bool:
+    """Whether a figure is a time of day, or a span between two."""
+    return bool(_A_TIME_OF_DAY.fullmatch(figure) or _A_SPAN_OF_THE_CLOCK.fullmatch(figure))
+
+
 def _on_its_day(figure: str, on: date | None, day: date) -> Figure:
     """A time of day written as the instant it is on `on` - with its day where
-    that is not the `day` the incident began, as every instant is - and as it
-    was given where it is no time of day or `on` is not known. Shown to the
-    model as it was given either way."""
-    clock = _A_TIME_OF_DAY.fullmatch(figure)
-    if clock is None or on is None:
+    that is not the `day` the incident began, as every instant is - and a span
+    between two times of that day the same way, its day said once; as it was
+    given where it is neither or `on` is not known. Shown to the model as it
+    was given either way."""
+    if on is None:
         return _as_the_alert_gave_it(figure, day)
 
-    at = datetime(on.year, on.month, on.day, int(clock[1]), int(clock[2]), int(clock[3] or 0),
-                  tzinfo=UTC)
+    if clock := _A_TIME_OF_DAY.fullmatch(figure):
+        return Figure(given=figure, written=_as_a_reader_says(_at(on, clock, 1), day))
 
-    return Figure(given=figure, written=_as_a_reader_says(at, day))
+    if span := _A_SPAN_OF_THE_CLOCK.fullmatch(figure):
+        first = _as_a_reader_says(_at(on, span, 1), day).removesuffix(" UTC")
+        return Figure(given=figure,
+                      written=f"{first}{_THE_DASH}{said_as_a_time(_at(on, span, 4))} UTC")
+
+    return _as_the_alert_gave_it(figure, day)
+
+
+def _at(on: date, clock: re.Match[str], hours: int) -> datetime:
+    """The instant on `on` of the time of day whose hours, minutes and maybe
+    seconds are `clock`'s groups from `hours` on."""
+    return datetime(on.year, on.month, on.day, int(clock[hours]), int(clock[hours + 1]),
+                    int(clock[hours + 2] or 0), tzinfo=UTC)
 
 
 def _an_instant(at: datetime, day: date) -> Figure:

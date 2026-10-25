@@ -401,7 +401,12 @@ def test_a_document_with_nothing_left_for_a_person_is_final() -> None:
 
 
 @pytest.mark.unit
-def test_the_head_says_who_wrote_the_document_when_and_whether_anybody_reviewed_it() -> None:
+def test_the_head_says_who_wrote_the_document_when_whether_anybody_reviewed_it_and_as_of_when(
+) -> None:
+    # A postmortem is a snapshot: each part holds as of the end of the work it
+    # reports, which the timeline dates, and read as of the writing, a part a
+    # person's later resolution overtook read as false. Who ended it is the
+    # one part read afresh each time it is shown.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -412,7 +417,9 @@ def test_the_head_says_who_wrote_the_document_when_and_whether_anybody_reviewed_
             lambda: a_head(some_postmortem, an_alert(), resolution=None).written_by
         ) \
         .then(
-            _it_reads("Argus Postmortem agent, Oct 11, 2026, 14:30 UTC. Not reviewed yet."))
+            _it_reads("Argus Postmortem agent, Oct 11, 2026, 14:30 UTC. Not reviewed yet. Each "
+                      "part is as of when the work it reports ended, which the timeline dates; "
+                      "who ended the incident is as of now."))
 
 
 @pytest.mark.unit

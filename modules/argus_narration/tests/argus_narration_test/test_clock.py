@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core import to_iso
-from argus_narration.clock import a_minute, a_moment, a_window, is_a_moment
+from argus_narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window, is_a_moment
 from argus_testkit import Assertion, Scenario, the_answer_was
 
 
@@ -130,6 +130,28 @@ def test_a_moment_beside_one_on_another_day_carries_its_date() -> None:
         .given(some_instant) \
         .when(lambda: a_moment(some_instant, beside=an_instant_days_before)) \
         .then(the_answer_was(f"{the_date_it_falls_on} {the_second_it_reads_as}"))
+
+
+@pytest.mark.unit
+def test_a_moment_said_with_its_day_carries_its_date_whatever_day_it_is() -> None:
+    # A pod started on the onset's day, said bare in a line recorded the day
+    # after, read as a time of the line's day.
+    some_instant = "2026-08-30T19:16:07Z"
+
+    Scenario() \
+        .given(some_instant) \
+        .when(lambda: a_moment_with_its_day(some_instant)) \
+        .then(the_answer_was("Aug 30 19:16:07"))
+
+
+@pytest.mark.unit
+def test_a_moment_said_with_its_day_that_is_no_time_is_shown_exactly_as_it_arrived() -> None:
+    some_value = "not a time"
+
+    Scenario() \
+        .given(some_value) \
+        .when(lambda: a_moment_with_its_day(some_value)) \
+        .then(the_answer_was(some_value))
 
 
 @pytest.mark.unit

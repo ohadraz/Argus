@@ -190,6 +190,34 @@ def test_every_marker_is_printed_on_one_line(marker: TimelineMarker) -> None:
 
 
 @pytest.mark.unit
+def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
+    # The columns share the page's width, so widening one narrows another,
+    # and a value broken over two lines was found only by reading a PDF by
+    # hand. Each value here is the widest its column holds on one line: a time
+    # off the head's day, the fix row's author, the kind with no way back, and
+    # the longest outcome that fits.
+    some_step = ResolutionStep(at=SOME_ONSET + timedelta(days=7, minutes=42, seconds=44),
+                               action="dont care", by="Code-Fix Agent", has_a_way_back=False,
+                               outcome="withdrawn, still in place", label="M1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(resolution=[some_step],
+                             timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(all_of(
+            _a_cell_reads("Oct 18 14:45:44"),
+            _a_cell_reads("Code-Fix Agent"),
+            _a_cell_reads("nothing to put back"),
+            _a_cell_reads("withdrawn, still in place")))
+
+
+@pytest.mark.unit
 def test_the_proposed_fix_and_the_incident_are_written_with_their_full_addresses() -> None:
     # Written out, for a reader of paper; and links, for a reader of the file.
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
@@ -1107,18 +1135,18 @@ def test_a_review_row_at_the_foot_of_a_page_is_set_whole_on_one_page(
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("root_cause_words", "item_words", "subheading"), [
-    pytest.param(468, 80, "Causal chain", id="causal-chain"),
-    pytest.param(288, 80, "Contributing factors", id="contributing-factors"),
+    pytest.param(428, 80, "Causal chain", id="causal-chain"),
+    pytest.param(248, 80, "Contributing factors", id="contributing-factors"),
     pytest.param(600, 80, "What the alert said", id="what-the-alert-said"),
-    pytest.param(906, 80, "Changes to production read", id="changes-read"),
-    pytest.param(858, 80, "Log messages read (UTC)", id="log-messages-read"),
-    pytest.param(396, 40, "What each deployment looked into changed", id="deployments"),
+    pytest.param(866, 80, "Changes to production read", id="changes-read"),
+    pytest.param(818, 80, "Log messages read (UTC)", id="log-messages-read"),
+    pytest.param(376, 40, "What each deployment looked into changed", id="deployments"),
     pytest.param(492, 80, "What Code-Fix read in the source and proposed - "
                           "nothing ran its test or its fix",
                  id="code-fix-read"),
-    pytest.param(336, 80, "What went wrong", id="what-went-wrong"),
-    pytest.param(318, 80, "Where it got lucky", id="where-it-got-lucky"),
-    pytest.param(384, 80, "Lessons learned", id="lessons-set-one-under-another")
+    pytest.param(316, 80, "What went wrong", id="what-went-wrong"),
+    pytest.param(278, 80, "Where it got lucky", id="where-it-got-lucky"),
+    pytest.param(364, 80, "Lessons learned", id="lessons-set-one-under-another")
 ])
 def test_a_subheading_is_set_on_the_page_what_it_heads_begins_on(
         root_cause_words: int, item_words: int, subheading: str) -> None:
@@ -1918,6 +1946,28 @@ def _set_on_one_line(expected: str) -> Assertion[bytes]:
         if not any(expected in piece for piece in pieces):
             raise AssertionError(f"Expected [{expected}] set on one line, and no piece of "
                                  f"the PDF's text holds it whole: {pieces}.")
+
+        return True
+
+    return assertion
+
+
+def _a_cell_reads(expected: str) -> Assertion[bytes]:
+    """Some piece of the PDF's text is `expected` and nothing else - a cell
+    that wraps it writes each of its lines apart, and a sentence quoting it
+    holds more."""
+    def assertion(pdf: bytes) -> bool:
+        pieces: list[str] = []
+        for page in PdfReader(io.BytesIO(pdf)).pages:
+
+            def visit(text: str, *_: object) -> None:
+                pieces.append(text)
+
+            page.extract_text(visitor_text=visit)
+
+        if not any(piece.strip() == expected for piece in pieces):
+            raise AssertionError(f"Expected a cell reading [{expected}] on one line, and no "
+                                 f"piece of the PDF's text is it alone: {pieces}.")
 
         return True
 

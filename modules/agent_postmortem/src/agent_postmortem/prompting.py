@@ -86,10 +86,11 @@ from agent_postmortem.figures import (
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    the_log_group_figures,
     the_narration_figures,
     what_came_after_the_wait,
 )
-from agent_postmortem.log_groups import grouped, labels_reaching_into
+from agent_postmortem.log_groups import grouped, labels_reaching_into, the_groups_of
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.revisions import revisions_of
 from agent_postmortem.sections import (
@@ -647,14 +648,14 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         STILL_AT_RISK_FIELD: {
             "type": "string",
             "description": (
-                "What was still at risk when Argus stopped working on the incident, "
+                "What was still at risk at the end of the time Argus held the incident, "
                 "in one sentence for the same reader - what the fault still in place "
                 "then could yet do, or the same thing able to happen again. Empty where "
                 "nothing was. Not whether the service or its metrics were back, nor "
                 "why - the summary says both. Not what Argus left to a person - a "
                 "draft fix, automatic sync left off, a recommended action - which the "
                 "document says itself. Say only what the record says: "
-                "nothing after Argus stopped was read."
+                "nothing of the service after that was read."
             )
         },
         SYMPTOM_FIELD: {
@@ -992,9 +993,13 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         _whether_anybody_was_paged(measured.engaged),
         *_how_long_the_rule_waits(evidence, measured, figures),
         *_how_long_it_was_broken(measured, evidence, figures),
+        # Said as nothing but how long it was held: not the end of the response,
+        # since a walk that recommends or mitigates goes on to Code-Fix after
+        # it; not an ending, since an escalated incident has not ended; and not
+        # the last change of status, since a person can resolve it after.
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
-        f"until {_shown(ARGUS_STOPPED_FIGURE, figures)}. That is how long the response took, "
-        f"not how long the fault lasted - leave it out of your answer.",
+        f"until {_shown(ARGUS_STOPPED_FIGURE, figures)}. That is not how long the fault "
+        f"lasted, nor how long Argus went on working - leave it out of your answer.",
         *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                   measured.unobserved_from is not None,
                                   _the_logs_reaching_in(evidence, measured), figures),
@@ -1004,8 +1009,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
                                     is_the_error_rate=measured.rule_series_is_the_error_rate),
         _what_customers_lost(measured, figures),
         *(line
-          for heading, cited, beneath in _the_evidence_by_kind(evidence,
-                                                               measured.unobserved_from)
+          for heading, cited, beneath in _the_evidence_by_kind(evidence, measured)
           for line in ["", heading,
                        *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
                          for each in cited),
@@ -1048,13 +1052,17 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     The walk's own lines apart from the rest: a time of day in one is Argus's,
     on a day it said, and in anything else is in its writer's words.
     """
-    listed = _the_evidence_listed(evidence, measured.unobserved_from)
+    listed = _the_evidence_listed(evidence, measured)
     walked = _the_walk_s_labels(evidence)
     day = the_day_it_began(evidence, measured)
+    groups = the_groups_of(evidence.log_lines, measured.unobserved_from, day)
+    in_a_group = {group.cited.label for group in groups}
 
     return (figures_of(evidence, measured)
-            | the_evidence_figures([cited for cited in listed if cited.label not in walked], day)
-            | the_narration_figures([cited for cited in listed if cited.label in walked], day))
+            | the_evidence_figures([cited for cited in listed
+                                    if cited.label not in walked | in_a_group], day)
+            | the_narration_figures([cited for cited in listed if cited.label in walked], day)
+            | the_log_group_figures(groups, day))
 
 
 def _the_walk_s_labels(evidence: IncidentEvidence) -> set[str]:
@@ -1066,7 +1074,7 @@ def _the_walk_s_labels(evidence: IncidentEvidence) -> set[str]:
 
 
 def the_evidence_labelled(evidence: IncidentEvidence,
-                          metrics_stopped_at: datetime | None = None) -> list[CitedEvidence]:
+                          measured: Measurements) -> list[CitedEvidence]:
     """Every piece of evidence the model is shown, each under its own label:
     what the alert said, then the evidence listed beneath its headings.
 
@@ -1077,23 +1085,23 @@ def the_evidence_labelled(evidence: IncidentEvidence,
     across the kinds would then name a different line in every kind after the
     logs.
 
-    `metrics_stopped_at` is where the logs are split (`grouped`), and every
-    reader of what the model was shown passes it, so the text a step cites is
-    the text it was shown.
+    `measured` says where the logs are split and the day their minutes are
+    said against (`grouped`), and every reader of what the model was shown
+    passes it, so the text a step cites is the text it was shown.
     """
-    return [*the_alert_labelled(evidence), *_the_evidence_listed(evidence, metrics_stopped_at)]
+    return [*the_alert_labelled(evidence), *_the_evidence_listed(evidence, measured)]
 
 
 def _the_evidence_listed(evidence: IncidentEvidence,
-                         metrics_stopped_at: datetime | None) -> list[CitedEvidence]:
+                         measured: Measurements) -> list[CitedEvidence]:
     """The evidence listed beneath its headings, in the order it is shown."""
     return [cited
-            for _, cited_of_a_kind, _ in _the_evidence_by_kind(evidence, metrics_stopped_at)
+            for _, cited_of_a_kind, _ in _the_evidence_by_kind(evidence, measured)
             for cited in cited_of_a_kind]
 
 
 def _the_evidence_by_kind(evidence: IncidentEvidence,
-                          metrics_stopped_at: datetime | None
+                          measured: Measurements
                           ) -> list[tuple[str, list[CitedEvidence], str | None]]:
     """The evidence under the heading the model reads it beneath, in the order
     it is shown, with what is said beneath its rows - `None` where nothing is.
@@ -1118,7 +1126,8 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                                          labels_of_the_narration(evidence.timeline),
                                          strict=True)]
     changes = the_changes_labelled(evidence)
-    log_lines = grouped(evidence.log_lines, metrics_stopped_at)
+    log_lines = grouped(evidence.log_lines, measured.unobserved_from,
+                        the_day_it_began(evidence, measured))
     candidates = the_candidates_labelled(evidence)
     actions = _numbered(ACTION_PREFIX,
                         [_an_action_as_a_line(action) for action in evidence.actions])
@@ -1712,10 +1721,12 @@ def _how_long_it_was_broken(measured: Measurements,
     running out are different facts, and printed alike the second reads as the
     first.
 
-    A floor ends where Argus stopped working on the incident, and is said as
-    that rather than as the incident closing: an escalated incident has not
-    closed, and a model told it had wrote that it had - over a blind stretch
-    that was still running.
+    A floor ends at the end of the time Argus held the incident, said as the
+    instant it was still not back by - not as when Argus stopped working on
+    it, since a walk ending in a recommendation or a mitigation goes on to
+    Code-Fix after it, and not as the incident closing or ending: an
+    escalated incident has not closed, and a model told it had wrote that it
+    had - over a blind stretch that was still running.
     """
     dated_from = (
         "the onset" if measured.onset_at is not None
@@ -1732,10 +1743,9 @@ def _how_long_it_was_broken(measured: Measurements,
         return [
             f"No metrics were collected from "
             f"{_shown(UNOBSERVED_FROM_FIGURE, figures)} ({dated_from}) onwards: the "
-            f"metrics had still not resumed when Argus stopped working on the "
-            f"incident. That is {_shown(DURATION_FIGURE, figures)} the metrics did "
-            f"not cover, not a stretch the service is known to have spent in "
-            f"trouble.",
+            f"metrics had still not resumed by {_shown(ARGUS_STOPPED_FIGURE, figures)}. That "
+            f"is {_shown(DURATION_FIGURE, figures)} the metrics did not cover, not a "
+            f"stretch the service is known to have spent in trouble.",
             _the_logs_reaching_into(evidence, measured.unobserved_from, figures),
             # Where a line reaches in, the document says it from the answer named
             # here, which is asked for only then. Where none does, nothing is
@@ -1756,8 +1766,8 @@ def _how_long_it_was_broken(measured: Measurements,
     if measured.back_to_normal_at is None:
         return [
             f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}). The service "
-            f"was not back to normal by {_shown(ARGUS_STOPPED_FIGURE, figures)}, when Argus "
-            f"stopped working on the incident, so it was broken for at least "
+            f"was not back to normal by {_shown(ARGUS_STOPPED_FIGURE, figures)}, so it was "
+            f"broken for at least "
             f"{_shown(DURATION_FIGURE, figures)} - a lower bound, not a measurement, "
             f"and every impact figure below is bounded the same way."
         ]

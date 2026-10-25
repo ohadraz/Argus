@@ -12,13 +12,20 @@ another.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
-from agent_postmortem.log_groups import LOG_GROUP_PREFIX, grouped, labels_reaching_into
+from agent_postmortem.log_groups import (
+    LOG_GROUP_PREFIX,
+    grouped,
+    labels_reaching_into,
+    the_groups_of,
+)
 from argus_core.models import CitedEvidence
 from argus_testkit import Assertion, Scenario, the_answer_was
 
+# The day this file's lines are logged on, which is the day its incident began.
+ONSET_DAY = date(2026, 10, 11)
 SOME_ERROR = "ERROR io-shop: account page request failed - ZeroDivisionError at spend_summary.py:47"
 SOME_RATE = "WARN io-shop: account page error rate at {}% over the last minute"
 SOME_SLOW_CALL = ("WARN io-shop: slow upstream call - io-pricing:8080 took {}ms for "
@@ -36,7 +43,7 @@ def test_a_message_logged_again_is_said_once_with_how_often_and_over_how_long() 
                            f"2026-10-11T23:41:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_ERROR} - 2 occurrences in 4 minutes, 23:38–23:41"])
@@ -54,7 +61,7 @@ def test_two_replicas_logging_in_one_minute_are_two_occurrences() -> None:
                            f"2026-10-11T23:41:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_ERROR} - 3 occurrences in 4 minutes, 23:38–23:41"])
@@ -70,7 +77,7 @@ def test_occurrences_all_in_one_minute_name_that_minute_once() -> None:
                            f"2026-10-11T23:38:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_ERROR} - 2 occurrences in 1 minute, 23:38"])
@@ -87,10 +94,10 @@ def test_a_span_across_midnight_is_counted_across_it() -> None:
                            f"2026-10-12T00:01:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
-            the_answer_was([f"{SOME_ERROR} - 2 occurrences in 3 minutes, 23:59–00:01"])
+            the_answer_was([f"{SOME_ERROR} - 2 occurrences in 3 minutes, 23:59 – Oct 12 00:01"])
         )
 
 
@@ -103,7 +110,7 @@ def test_lines_with_no_minute_are_counted_and_given_no_span() -> None:
             some_lines := [SOME_ERROR, SOME_ERROR]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_ERROR} - 2 occurrences"])
@@ -123,7 +130,7 @@ def test_what_varied_is_said_as_its_range_its_typical_value_and_its_worst_minute
                            f"2026-10-11T23:39:00Z {SOME_RATE.format('3.00')}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - 3 occurrences in 3 minutes, "
@@ -139,7 +146,7 @@ def test_a_message_logged_once_is_shown_as_it_was_logged() -> None:
             some_lines := [f"2026-10-11T23:36:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"23:36 {SOME_ERROR}"])
@@ -155,7 +162,7 @@ def test_messages_are_listed_in_the_order_they_were_first_logged() -> None:
                            f"2026-10-11T23:39:00Z {SOME_RATE.format('24.00')}"]
         ) \
         .when(
-            lambda: grouped(some_lines)
+            lambda: grouped(some_lines, None, ONSET_DAY)
         ) \
         .then(
             _groups_say_in_order(SOME_RATE.format("#"), SOME_ERROR)
@@ -176,8 +183,8 @@ def test_a_group_is_labelled_by_its_message_whatever_else_was_read() -> None:
             the_error_alone
         ) \
         .when(
-            lambda: (_label_of(SOME_ERROR, grouped(the_error_alone)),
-                     _label_of(SOME_ERROR, grouped(with_another_message_first)))
+            lambda: (_label_of(SOME_ERROR, grouped(the_error_alone, None, ONSET_DAY)),
+                     _label_of(SOME_ERROR, grouped(with_another_message_first, None, ONSET_DAY)))
         ) \
         .then(
             _the_same_label_twice()
@@ -194,7 +201,7 @@ def test_two_messages_are_labelled_apart() -> None:
                            f"2026-10-11T23:38:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.label for group in grouped(some_lines)]
+            lambda: [group.label for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             _labels_differ()
@@ -209,7 +216,7 @@ def test_a_group_label_is_its_prefix_and_a_short_digest() -> None:
             some_lines := [f"2026-10-11T23:38:00Z {SOME_ERROR}"]
         ) \
         .when(
-            lambda: [group.label for group in grouped(some_lines)]
+            lambda: [group.label for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             _labels_are_shaped(rf"{LOG_GROUP_PREFIX}[0-9a-f]{{4}}")
@@ -229,7 +236,7 @@ def test_a_number_inside_a_name_that_varied_is_said_by_how_many_names_there_were
                            f"2026-10-11T23:39:00Z {SOME_SLOW_CALL.format('1200', '1-2-3', '6')}"]
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines)]
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_SLOW_CALL.format('#', '#-#-#', '#')} - 3 occurrences in "
@@ -257,7 +264,7 @@ def test_only_a_message_logged_in_or_after_a_stretch_s_first_minute_reaches_into
             lambda: labels_reaching_into(some_lines, the_stretch_began)
         ) \
         .then(
-            the_answer_was([_label_of(SOME_RATE.format("#"), grouped(some_lines))])
+            the_answer_was([_label_of(SOME_RATE.format("#"), grouped(some_lines, None, ONSET_DAY))])
         )
 
 
@@ -295,7 +302,7 @@ def test_a_message_logged_on_both_sides_of_where_the_metrics_stopped_is_said_in_
             the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
@@ -318,7 +325,7 @@ def test_a_part_that_read_one_value_is_said_as_that_value() -> None:
             the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
@@ -341,7 +348,7 @@ def test_a_part_whose_lines_all_read_one_value_is_said_as_that_value() -> None:
             the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
@@ -364,7 +371,7 @@ def test_a_name_that_held_within_a_part_is_said_as_that_name() -> None:
             the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
         ) \
         .when(
-            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped)]
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped, ONSET_DAY)]
         ) \
         .then(
             the_answer_was([f"{SOME_SLOW_CALL.format('#', '#-#-#', '#')} - before the metrics "
@@ -390,10 +397,58 @@ def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: l
             the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
         ) \
         .when(
-            lambda: grouped(some_lines, the_metrics_stopped)
+            lambda: grouped(some_lines, the_metrics_stopped, ONSET_DAY)
         ) \
         .then(
-            the_answer_was(grouped(some_lines))
+            the_answer_was(grouped(some_lines, None, ONSET_DAY))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("lines", "said"), [
+    ([f"2026-10-12T00:05:00Z {SOME_ERROR}"], f"Oct 12 00:05 {SOME_ERROR}"),
+    ([f"2026-10-12T00:05:00Z {SOME_ERROR}", f"2026-10-12T00:07:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 2 occurrences in 3 minutes, Oct 12 00:05–00:07"),
+    ([f"2026-10-11T23:58:00Z {SOME_ERROR}", f"2026-10-12T00:04:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04"),
+    ([f"2026-10-11T23:58:00Z {SOME_RATE.format('2.5')}",
+      f"2026-10-12T00:04:00Z {SOME_RATE.format('7.5')}"],
+     f"{SOME_RATE.format('#')} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04; "
+     f"# was 2.5 to 7.5, typically 2.5, highest at Oct 12 00:04")
+], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "its-highest-minute"])
+def test_a_minute_off_the_day_the_incident_began_is_said_with_its_day(lines: list[str],
+                                                                      said: str) -> None:
+    # Said bare in an incident whose logs ran on another day, the model and
+    # the reader both took it for a minute of the onset's day. A span on one
+    # day says it once; one into the next spaces its dash, so each end is a
+    # figure of its own and the second is read on its day.
+    Scenario() \
+        .given(lines) \
+        .when(
+            lambda: [group.text for group in grouped(lines, None, ONSET_DAY)]
+        ) \
+        .then(
+            the_answer_was([said])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lines", [
+    [f"2026-10-12T00:05:00Z {SOME_ERROR}"],
+    [f"2026-10-11T23:41:00Z {SOME_ERROR}", f"2026-10-11T23:43:00Z {SOME_ERROR}"],
+    [SOME_ERROR]
+], ids=["one-line-stamped", "several-lines", "one-line-undated"])
+def test_a_group_says_where_in_its_row_the_message_it_quotes_sits(lines: list[str]) -> None:
+    # The message is the one part of the row in its writer's words, so its
+    # figures are read as given; everything around it is Argus's.
+    Scenario() \
+        .given(lines) \
+        .when(
+            lambda: [group.cited.text[slice(*group.quoted)]
+                     for group in the_groups_of(lines, None, ONSET_DAY)]
+        ) \
+        .then(
+            the_answer_was([SOME_ERROR])
         )
 
 

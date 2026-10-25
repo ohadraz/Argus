@@ -37,6 +37,7 @@ from agent_postmortem.figures import (
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
     ALERTED_AFTER_THE_ONSET_FIGURE,
+    ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
@@ -292,7 +293,7 @@ def test_what_the_alert_said_is_evidence_under_a_label_of_its_own() -> None:
                 update={"alert_finding": SOME_FINDING})
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("AL1", SOME_FINDING), ("T1", "a line of the narration")])
@@ -345,12 +346,13 @@ def test_each_kind_of_evidence_is_labelled_on_its_own_in_the_order_it_is_shown()
                                            actions=[an_action("an action")])
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("T1", "a line of the narration"),
                                 ("P1", "a change"),
-                                (grouped(["a log line"])[0].label, "a log line"),
+                                (grouped(["a log line"], None, ONSET.date())[0].label,
+                                 "a log line"),
                                 ("C1", "a candidate"),
                                 ("M1", "an action")])
         )
@@ -424,7 +426,7 @@ def test_a_line_outside_the_walk_is_shown_under_a_label_of_its_own() -> None:
                 actions=[])
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("T1", "a line of the walk"),
@@ -459,6 +461,25 @@ def test_a_time_alone_is_read_on_its_line_s_day_only_in_a_line_the_walk_said() -
 
 
 @pytest.mark.unit
+def test_a_log_group_s_minute_off_the_day_it_began_is_written_in_with_its_day() -> None:
+    # The minute is Argus's, read off the line's stamp in UTC: written in bare,
+    # a minute of the next day read as one of the onset's.
+    some_line = f"{to_iso(ONSET + timedelta(days=1))} ERROR checkout failed"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line])
+        ) \
+        .when(
+            lambda: figures_shown(evidence, a_measured_incident())[
+                f"{grouped([some_line], None, ONSET.date())[0].label}.1"]
+        ) \
+        .then(
+            the_answer_was(Figure(given="12:00", written="Sep 03, 12:00 UTC"))
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_shown_each_piece_of_evidence_under_its_label() -> None:
     some_log_line = "ERROR checkout"
 
@@ -470,7 +491,7 @@ def test_the_model_is_shown_each_piece_of_evidence_under_its_label() -> None:
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(
-            _says(f"[{grouped([some_log_line])[0].label}] {some_log_line}")
+            _says(f"[{grouped([some_log_line], None, ONSET.date())[0].label}] {some_log_line}")
         )
 
 
@@ -689,7 +710,7 @@ def test_what_each_deployment_changed_is_evidence_a_step_of_the_cause_may_cite()
                                             said=["a third line"])])
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("D1", "another line"), ("D2", "a third line")])
@@ -909,7 +930,7 @@ def test_a_file_as_it_ran_is_evidence_listed_directly_beneath_what_code_fix_read
                     as_read=False, content="selector:\n  port: metrics\n")]})
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("F1", "some account of the code"),
@@ -935,7 +956,7 @@ def test_the_files_as_they_ran_are_labelled_in_the_order_of_their_paths() -> Non
                                 as_read=False, content="selector:\n  port: metrics\n")]})
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("F1", "some account of the code"),
@@ -1035,7 +1056,7 @@ def test_the_uses_outside_the_patch_are_evidence_listed_beneath_what_code_fix_re
                             does="compares it with _bought_this_month(account)")]})
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([
@@ -1225,7 +1246,7 @@ def test_what_code_fix_read_in_the_source_is_evidence_a_step_of_the_cause_may_ci
                                            fix_explanation="some account of the code")
         ) \
         .when(
-            lambda: the_evidence_labelled(evidence)
+            lambda: the_evidence_labelled(evidence, a_measured_incident())
         ) \
         .then(
             _labelled_in_order([("F1", "some account of the code")])
@@ -1612,6 +1633,24 @@ def test_a_span_is_told_in_days_hours_and_minutes(span: timedelta, in_words: str
         .then(
             _says(f"held the incident for {in_words} {{{HELD_FIGURE}}},")
         )
+
+
+@pytest.mark.unit
+def test_how_long_argus_held_the_incident_is_said_as_nothing_but_that() -> None:
+    # Not as the end of the response - a walk that recommends or mitigates
+    # goes on to Code-Fix after it - nor as an ending, since an escalated
+    # incident has not ended, nor as its last change of status, since a person
+    # can resolve it after.
+    Scenario() \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"{{{ARGUS_STOPPED_FIGURE}}}. That is not how long the fault lasted"),
+            _does_not_say("how long the response took"),
+            _does_not_say("the incident's ending"),
+            _does_not_say("status last changed")
+        ))
 
 
 @pytest.mark.unit
@@ -2506,7 +2545,8 @@ def test_an_incident_never_back_to_normal_is_given_as_a_lower_bound_to_its_close
             lambda: opening_ask(an_evidence_bundle(), an_incident_still_broken)
         ) \
         .then(all_of(
-            _says("not back to normal by", "when Argus stopped working on the incident"),
+            _says("not back to normal by",
+                  f"{{{ARGUS_STOPPED_FIGURE}}}, so it was broken for at least"),
             _says("at least"),
             _does_not_say("when the incident was closed")
         ))
@@ -2527,8 +2567,7 @@ def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
         ) \
         .then(all_of(
-            _says("the metrics had still not resumed when Argus stopped working on the "
-                  "incident"),
+            _says("the metrics had still not resumed by", f"{{{ARGUS_STOPPED_FIGURE}}}. That is"),
             _does_not_say("when the incident closed")
         ))
 
@@ -2679,7 +2718,7 @@ def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> 
         ) \
         .then(all_of(
             _says_on_one_line("reach into it until", f"{{{LOGS_REACH_UNTIL_FIGURE}}}",
-                              f"[{grouped([some_line_inside])[0].label}]"),
+                              f"[{grouped([some_line_inside], None, ONSET.date())[0].label}]"),
             _does_not_say("nobody could see"),
             _does_not_say("unobserved")))
 
@@ -2701,8 +2740,8 @@ def test_a_message_logged_both_sides_of_where_the_metrics_stopped_is_shown_in_tw
             lambda: opening_ask(evidence, measured)
         ) \
         .then(
-            _says_on_one_line(f"[{grouped(some_lines)[0].label}]", "before the metrics stopped",
-                              "After they stopped")
+            _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
+                              "before the metrics stopped", "After they stopped")
         )
 
 
@@ -3972,8 +4011,8 @@ def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
     # fix, automatic sync left off, a recommended action - the summary says
     # itself, and said here as well it is said twice. So is whether the
     # service or its metrics were back, and why: asked for "the fault still in
-    # place", a write-up said again what the summary had just said. As of when Argus
-    # stopped, not now: nobody read the service again, and a fault "still in
+    # place", a write-up said again what the summary had just said. As of the
+    # end of the time Argus held it, not now: nobody read the service again, and a fault "still in
     # place now" says the draft that would remove it was not merged.
     Scenario() \
         .when(
@@ -3983,7 +4022,7 @@ def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
             _the_description_mentions("one sentence", "Empty where", "left to a person",
                                       "automatic sync left off", "could yet do",
                                       "Not whether the service or its metrics were back",
-                                      "when Argus stopped working on the incident",
+                                      "at the end of the time Argus held the incident",
                                       "only what the record says"),
             _the_description_avoids(" now")
         ))

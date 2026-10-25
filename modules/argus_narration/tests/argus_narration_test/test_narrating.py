@@ -2690,6 +2690,54 @@ def test_a_placement_on_one_card_since_long_before_the_onset_is_said_in_a_line()
 
 
 @pytest.mark.unit
+def test_a_placement_on_one_card_all_started_together_after_the_onset_is_said_in_a_line() -> None:
+    # Restarted together well after the onset, every pod was said with the
+    # same card and the same moment - three times over, in the timeline, the
+    # evidence and the brief, telling nothing apart. How many, the card and
+    # when, once.
+    the_card = "Tesla-V100-SXM2-16GB"
+    the_pods = ("io-shop-a", "io-shop-b", "io-shop-c")
+    some_time_days_after_the_onset = datetime(2026, 9, 5, 10, 13, 7, tzinfo=UTC)
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=tuple(_a_pod(pod, the_card, some_time_days_after_the_onset)
+                       for pod in the_pods)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says(f"{len(the_pods)} replicas run - all on {the_card}, started "
+                                f"after the onset at Sep 05 10:13:07"),
+            _the_only_line_does_not_say(*the_pods)
+        ))
+
+
+@pytest.mark.unit
+def test_pods_on_one_card_started_apart_after_the_onset_are_each_said_with_when() -> None:
+    # Started apart, each moment is something the line tells, and folded into
+    # one the others would be lost.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", datetime(2026, 9, 5, 10, 13, 7, tzinfo=UTC)),
+                  _a_pod("io-shop-b", "Tesla-T4", datetime(2026, 9, 5, 10, 14, 2, tzinfo=UTC)))
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at Sep 05 10:13:07",
+                                  "io-shop-b on Tesla-T4 at Sep 05 10:14:02"))
+
+
+@pytest.mark.unit
 def test_a_placement_whose_every_pod_started_at_the_onset_marks_them_all() -> None:
     # Nothing served before the incident, so there is nothing to list ahead of
     # the mark - and every pod there is still has to be the marked part.
@@ -2747,6 +2795,25 @@ def test_a_pod_placed_after_the_onset_is_said_with_when_it_started() -> None:
         .given(some_placement) \
         .when(lambda: build_narration([some_placement])) \
         .then(_the_only_line_says("io-shop-a on Tesla-T4 at Sep 05 10:13:07"))
+
+
+@pytest.mark.unit
+def test_a_pod_placed_after_the_onset_on_the_onset_s_day_is_said_with_its_day() -> None:
+    # Hours after the onset, in a line recorded the day after: said against
+    # the onset, its time came out bare, and read as a time of the line's day.
+    some_time_hours_after_the_onset = datetime(2026, 8, 30, 19, 16, 7, tzinfo=UTC)
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(_a_pod("io-shop-a", "Tesla-T4", some_time_hours_after_the_onset),)
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(_the_only_line_says("io-shop-a on Tesla-T4 at Aug 30 19:16:07"))
 
 
 @pytest.mark.unit

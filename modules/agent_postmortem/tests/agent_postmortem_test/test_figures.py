@@ -53,7 +53,9 @@ from agent_postmortem.figures import (
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    the_log_group_figures,
     the_narration_figures,
+    with_every_day_said,
     with_figures_written,
 )
 from agent_postmortem.prompting import (
@@ -614,6 +616,62 @@ def test_a_time_beside_a_day_in_the_alert_is_written_as_its_sender_gave_it() -> 
         ) \
         .then(
             the_answer_was({"A1": Figure(given="07:44:29", written="07:44:29")})
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("text", "quoted", "name", "written"), [
+    ("Oct 12 00:05 ERROR retry scheduled for Oct 12 06:00", (13, 51), "G1.1",
+     "Oct 12, 00:05 UTC"),
+    ("Oct 12 00:05 ERROR retry scheduled for Oct 12 06:00", (13, 51), "G1.2", "06:00"),
+    ("ERROR checkout - 2 occurrences in 3 minutes, Oct 12 00:05–00:07", (0, 14), "G1.3",
+     "Oct 12, 00:05–00:07 UTC"),
+    ("ERROR checkout - 2 occurrences in 3 minutes, 23:41–23:43", (0, 14), "G1.3", "23:41–23:43")
+], ids=["argus-s-minute", "a-minute-the-message-says", "argus-s-span",
+        "a-span-on-the-day-it-began"])
+def test_a_log_group_s_own_minutes_are_read_on_their_day_and_its_message_as_given(
+        text: str, quoted: tuple[int, int], name: str, written: str) -> None:
+    # The minutes are Argus's, said from the lines' stamps in UTC; the message
+    # is its writer's, whose day and zone Argus does not know. Written as a
+    # bare time, a minute of the next day read as one of the onset's.
+    Scenario() \
+        .given(
+            some_group := CitedEvidence(label="G1", text=text)
+        ) \
+        .when(
+            lambda: the_log_group_figures([(some_group, quoted)], date(2026, 10, 11))[name]
+        ) \
+        .then(
+            _written_in_as(written)
+        )
+
+
+@pytest.mark.unit
+def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> None:
+    # Off the page no head dates the incident. Only a wire instant was dated,
+    # so a time a line of the narration or a group of log lines gave stayed
+    # bare; one written as given carries no zone, and stays as it is.
+    Scenario() \
+        .given(
+            some_figures := {
+                "T1.2": Figure(given="07:44:29", written="07:44:29 UTC"),
+                "G1.3": Figure(given="21:35–21:39", written="21:35–21:39 UTC"),
+                "A1": Figure(given="2026-10-11T16:10:00Z", written="16:10 UTC"),
+                "G2.1": Figure(given="06:00", written="06:00"),
+                "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")
+            }
+        ) \
+        .when(
+            lambda: with_every_day_said(some_figures, date(2026, 10, 11))
+        ) \
+        .then(
+            the_answer_was({
+                "T1.2": Figure(given="07:44:29", written="Oct 11, 07:44:29 UTC"),
+                "G1.3": Figure(given="21:35–21:39", written="Oct 11, 21:35–21:39 UTC"),
+                "A1": Figure(given="2026-10-11T16:10:00Z", written="Oct 11, 16:10 UTC"),
+                "G2.1": Figure(given="06:00", written="06:00"),
+                "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")
+            })
         )
 
 
@@ -1483,3 +1541,14 @@ def _an_answer_saying_everywhere(said: str) -> SubmittedPostmortem:
         action_items=[SubmittedItem(item=said, type=ActionItemType.PREVENT)],
         lessons=Lessons(went_well=[said], went_wrong=[said], got_lucky=[said])
     )
+
+
+def _written_in_as(expected: str) -> Assertion[Figure]:
+    def assertion(figure: Figure) -> bool:
+        if figure.written != expected:
+            raise AssertionError(f"Expected the figure written in as [{expected}], and it was "
+                                 f"[{figure.written}].")
+
+        return True
+
+    return assertion
