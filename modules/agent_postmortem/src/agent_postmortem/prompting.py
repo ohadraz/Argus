@@ -1314,8 +1314,14 @@ def the_files_as_they_ran_labelled(evidence: IncidentEvidence) -> list[CitedEvid
     reading, nothing ran": right about where the text came from, since nothing
     in the record held the file as it ran. Public because the document lists
     it under the same label the prose cites it by, as it does the changes.
+
+    Numbered in the order of their paths, not the order the reading names
+    them: a reworded reading swapped two files' labels under a write-up
+    recorded against the old ones, citing each for the other's claim.
     """
-    shown = [ran for ran in evidence.files_as_they_ran if not ran.as_read and ran.content]
+    shown = sorted((ran for ran in evidence.files_as_they_ran
+                    if not ran.as_read and ran.content),
+                   key=lambda ran: ran.path)
 
     return [CitedEvidence(label=label_of(AS_IT_RAN_PREFIX, position),
                           text=f"{ran.path} at {ran.revision[:7]}\n{ran.content}")

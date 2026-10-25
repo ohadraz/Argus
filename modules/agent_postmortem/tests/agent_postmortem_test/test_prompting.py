@@ -893,6 +893,33 @@ def test_a_file_as_it_ran_is_evidence_listed_directly_beneath_what_code_fix_read
 
 
 @pytest.mark.unit
+def test_the_files_as_they_ran_are_labelled_in_the_order_of_their_paths() -> None:
+    # Labelled in the order Code-Fix's reading named them, a reworded reading
+    # swapped S1 and S2 under a write-up citing each for the other's claim. A
+    # file's path holds whatever the reading says.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], candidates=[], actions=[],
+                fix_explanation="some account of the code").model_copy(
+                update={"files_as_they_ran": [
+                    FileAsItRan(path="deploy/values-production.yaml",
+                                revision=SOME_DEPLOYED_REVISION, as_read=False,
+                                content="portName: http-metrics\n"),
+                    FileAsItRan(path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                                as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence)
+        ) \
+        .then(
+            _labelled_in_order([("F1", "some account of the code"),
+                                ("S1", "deploy/scrape.yaml at 53f02e9"),
+                                ("S2", "deploy/values-production.yaml at 53f02e9")])
+        )
+
+
+@pytest.mark.unit
 def test_a_file_as_it_ran_is_shown_whole_under_a_heading_saying_what_it_is() -> None:
     Scenario() \
         .given(
