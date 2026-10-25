@@ -101,9 +101,10 @@ def answer_worth_writing(llm: LLMClient,
 
     # From the opening where the rewrite made no call: there is nothing in its
     # turn to refuse, and following the first refusal would ask about an answer
-    # the model can no longer see.
+    # the model can no longer see. Starting over, it is told the first
+    # refusal's faults again, or it can write them again and have them kept.
     asked_last = (rejecting(asked_again, resubmitted, untold) if resubmitted.tool_calls
-                  else opening_ask_again(asked, untold))
+                  else opening_ask_again(asked, faults + untold))
     third, still = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures)
 
     return _with_its_chain_in_order(llm, (third, _every_one_of(still)))

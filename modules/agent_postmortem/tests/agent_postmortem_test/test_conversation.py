@@ -257,6 +257,7 @@ def test_a_rewrite_that_made_no_call_is_asked_once_more_from_the_beginning() -> 
             all_of(
                 _was_asked(asks, times=3),
                 _the_last_ask_was_a_fresh_one(asks),
+                _the_last_correction_named(asks, SOME_INVENTED_FIGURE),
                 _found_no_fault()
             )
         )
@@ -773,6 +774,45 @@ def test_a_root_cause_naming_the_deploy_that_carried_it_is_asked_for_again() -> 
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, the_trigger[:7]),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_fault_it_was_told_of_in_one_place_made_in_another_is_asked_for_once_more() -> None:
+    # Told of it in a step of the chain, a rewrite said it in the root cause,
+    # which the first answer had right: the same check, somewhere it was never
+    # told of.
+    asks: Kept[Transcript] = Kept()
+    lumped = "The statement and the reconciliation read it as the month's figure."
+    some_uses = [
+        CodeUse(name="month", path="src/shop/monthly_statement.py", line=12,
+                function="render_statement", does="reads it: total = account.month"),
+        CodeUse(name="month", path="src/shop/spend_reconciliation.py", line=20,
+                function="reconcile",
+                does="compares it with bought(account), where bought(account) returns "
+                     "sum(account.purchases)", set_against_a_call=True)
+    ]
+
+    Scenario() \
+        .given(
+            a_model_moving_its_mistake := a_model_answering_in_turn(
+                an_answer(causal_chain=[{STEP_FIELD: lumped, CITES_FIELD: ["T1"]}]),
+                an_answer(root_cause=lumped),
+                an_answer(root_cause="The statement still shows the stored figure."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_moving_its_mistake,
+                an_evidence_bundle(fix_explanation="dont care").model_copy(
+                    update={"uses_outside": some_uses}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=3),
                 _found_no_fault()
             )
         )

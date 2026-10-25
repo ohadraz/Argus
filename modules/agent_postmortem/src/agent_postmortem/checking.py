@@ -234,35 +234,60 @@ def faults_by_check(answer: SubmittedPostmortem,
                     leads: Sequence[ThreadMessage] = (),
                     *,
                     given: Given) -> dict[str, list[str]]:
-    """What `faults_in` finds, under the name of the check that found it -
-    only the checks that found something.
+    """What `faults_in` finds, under the check that found it and the place it
+    is in - only those that found something.
 
-    By the check rather than by its words: a fault quotes the answer, so one
-    the model was told of and wrote again in other words is a new string and
-    the same fault."""
-    checks = [partial(_missing_fields, answer),
-              partial(_how_it_served_left_unanswered, answer, given),
-              partial(_a_symptom_of_more_than_one_sentence, answer),
-              partial(_a_symptom_over_its_words, answer),
-              partial(_summary_sentences_of_more_than_one, answer),
-              partial(_missing_checks_outside_the_factors, answer),
-              partial(_the_trigger_said_again, answer, given),
-              partial(_one_role_said_of_lines_whose_rows_differ, answer, given),
-              partial(_leads_left_unanswered, answer, leads),
-              partial(_steps_resting_on_nothing, answer, given),
-              partial(_readings_beside_no_file_as_it_ran, answer, given),
-              partial(_a_reading_the_answer_says_otherwise_of, answer),
-              partial(_factors_nothing_answers, answer, given),
-              partial(_factor_labels_in_the_prose, answer),
-              partial(_numbers_in_digits, answer, given),
-              partial(_figures_spelled_out, answer),
-              partial(_figures_said_in_a_word, answer),
-              partial(_figures_nobody_gave, answer, given),
-              partial(_ranges_after_an_opening_or_a_moment, answer, given),
-              partial(_workings_that_make_no_sense, answer, given),
-              partial(_revisions_nobody_read, answer, given)]
+    By the check and its place rather than by its words: a fault quotes the
+    answer, so one the model was told of and wrote again in other words is a
+    new string and the same fault, and one the same check finds somewhere new
+    is a fault it was never told of. The place is the check's to say - the
+    field, the lead, the step, the factor - and a figure's rule is one rule
+    wherever the figure sits, so those are by the check alone."""
+    checks: list[partial[_Placed] | partial[list[str]]] = [
+        partial(_missing_fields, answer),
+        partial(_how_it_served_left_unanswered, answer, given),
+        partial(_a_symptom_of_more_than_one_sentence, answer),
+        partial(_a_symptom_over_its_words, answer),
+        partial(_summary_sentences_of_more_than_one, answer),
+        partial(_missing_checks_outside_the_factors, answer),
+        partial(_the_trigger_said_again, answer, given),
+        partial(_one_role_said_of_lines_whose_rows_differ, answer, given),
+        partial(_leads_left_unanswered, answer, leads),
+        partial(_steps_resting_on_nothing, answer, given),
+        partial(_readings_beside_no_file_as_it_ran, answer, given),
+        partial(_a_reading_the_answer_says_otherwise_of, answer),
+        partial(_factors_nothing_answers, answer, given),
+        partial(_factor_labels_in_the_prose, answer),
+        partial(_numbers_in_digits, answer, given),
+        partial(_figures_spelled_out, answer),
+        partial(_figures_said_in_a_word, answer),
+        partial(_figures_nobody_gave, answer, given),
+        partial(_ranges_after_an_opening_or_a_moment, answer, given),
+        partial(_workings_that_make_no_sense, answer, given),
+        partial(_revisions_nobody_read, answer, given)]
 
-    return {check.func.__name__: found for check in checks if (found := check())}
+    found: dict[str, list[str]] = {}
+    for check in checks:
+        for fault in check():
+            place, said = fault if isinstance(fault, tuple) else (None, fault)
+            key = check.func.__name__ if place is None else f"{check.func.__name__} at {place}"
+            found.setdefault(key, []).append(said)
+
+    return found
+
+
+# A fault with the place it is in, as the check that found it names the place.
+type _Placed = list[tuple[str, str]]
+
+
+def _a_step_s_place(position: int) -> str:
+    """Where a step of the chain is, for a fault found in it."""
+    return f"{CAUSAL_CHAIN_FIELD} {position}"
+
+
+def _a_factor_s_place(position: int) -> str:
+    """Where a contributing factor is, for a fault found in it."""
+    return f"{CONTRIBUTING_FACTORS_FIELD} {position}"
 
 
 def faults_in_the_turn(turn: Turn) -> list[str]:
@@ -285,27 +310,27 @@ def faults_in_the_turn(turn: Turn) -> list[str]:
 
 
 def _leads_left_unanswered(answer: SubmittedPostmortem,
-                           leads: Sequence[ThreadMessage]) -> list[str]:
+                           leads: Sequence[ThreadMessage]) -> _Placed:
     """Which leads the answer said nothing about, by the label it knows them by.
 
     A required field whose names only the incident knows, and refused as one:
     the person who wrote a lead is owed the line, and a model told which lead it
     skipped has one thing to put right.
     """
-    return [f"the lead [{label}] was not answered - say in {LEAD_EFFECTS_FIELD} "
-            f"whether it changed what was done"
+    return [(label, f"the lead [{label}] was not answered - say in {LEAD_EFFECTS_FIELD} "
+                    f"whether it changed what was done")
             for label, _lead in labelled(leads)
             if label not in answer.lead_effects]
 
 
-def _missing_fields(answer: SubmittedPostmortem) -> list[str]:
+def _missing_fields(answer: SubmittedPostmortem) -> _Placed:
     """Which of the fields the tool declared required went unanswered.
 
     Read off the same list the tool declares, by name, rather than field by
     field: a field the model is told it must send and this does not check for
     is the pair going out of step in the direction nothing would notice.
     """
-    return [f"the field [{field}] was missing from your answer"
+    return [(field, f"the field [{field}] was missing from your answer")
             for field in REQUIRED_FIELDS
             if getattr(answer, field) is None and field not in _UNANSWERED_BEFORE_IT_WAS_ASKED]
 
@@ -399,7 +424,7 @@ def _a_symptom_over_its_words(answer: SubmittedPostmortem) -> list[str]:
             f"{SYMPTOM_WORDS_AT_MOST} or fewer, as short as it can be"]
 
 
-def _summary_sentences_of_more_than_one(answer: SubmittedPostmortem) -> list[str]:
+def _summary_sentences_of_more_than_one(answer: SubmittedPostmortem) -> _Placed:
     """The cause in plain words and what is still at risk, each where it runs
     past one sentence.
 
@@ -407,14 +432,14 @@ def _summary_sentences_of_more_than_one(answer: SubmittedPostmortem) -> list[str
     model is writing the summary again beside the record's own account of
     when, how bad and what was done.
     """
-    return [f"the {field} [{said}] is more than one sentence - it is one sentence of the "
-            f"executive summary, which says the rest itself, so say it in one"
+    return [(field, f"the {field} [{said}] is more than one sentence - it is one sentence of "
+                    f"the executive summary, which says the rest itself, so say it in one")
             for field, said in ((CAUSE_IN_PLAIN_WORDS_FIELD, answer.cause_in_plain_words),
                                 (STILL_AT_RISK_FIELD, answer.still_at_risk))
             if said is not None and _A_SENTENCE_END.search(said.strip())]
 
 
-def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str]:
+def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> _Placed:
     """The root cause and each step of the cause, where it says a check is
     missing.
 
@@ -431,17 +456,21 @@ def _missing_checks_outside_the_factors(answer: SubmittedPostmortem) -> list[str
     cause entire, a model moved the check out by deleting its sentence, and
     the mechanism the rest of that sentence said went with it.
     """
-    said = [prose for prose in [answer.root_cause,
-                                *(step.step for step in answer.causal_chain or [])]
+    said = [(place, prose)
+            for place, prose in [(ROOT_CAUSE_FIELD, answer.root_cause),
+                                 *((_a_step_s_place(position), step.step)
+                                   for position, step in enumerate(answer.causal_chain or [],
+                                                                   start=1))]
             if prose is not None]
 
-    return [f"[{sentence}] says a check is missing - a missing check or safeguard is one "
-            f"of the {CONTRIBUTING_FACTORS_FIELD}: say it there, not in the "
-            f"{ROOT_CAUSE_FIELD} or the {CAUSAL_CHAIN_FIELD}. Move only the words saying "
-            f"no check was seen, and keep the rest of the sentence - what the code does - "
-            f"where it is; where the missing check is itself the mechanism, say what the "
-            f"code does rather than what it lacks"
-            for prose in said
+    return [(place,
+             f"[{sentence}] says a check is missing - a missing check or safeguard is one "
+             f"of the {CONTRIBUTING_FACTORS_FIELD}: say it there, not in the "
+             f"{ROOT_CAUSE_FIELD} or the {CAUSAL_CHAIN_FIELD}. Move only the words saying "
+             f"no check was seen, and keep the rest of the sentence - what the code does - "
+             f"where it is; where the missing check is itself the mechanism, say what the "
+             f"code does rather than what it lacks")
+            for place, prose in said
             for sentence in _A_SENTENCE_END.split(prose.strip())
             if _A_MISSING_CHECK.search(sentence)]
 
@@ -464,7 +493,7 @@ def _the_trigger_said_again(answer: SubmittedPostmortem, given: Given) -> list[s
 
 
 def _one_role_said_of_lines_whose_rows_differ(answer: SubmittedPostmortem,
-                                               given: Given) -> list[str]:
+                                               given: Given) -> _Placed:
     """Each sentence of the prose that names lines outside Code-Fix's patch of
     both kinds - one taking the field's value, one setting it against what a
     function of its own file returns - and says one role of them all.
@@ -480,20 +509,22 @@ def _one_role_said_of_lines_whose_rows_differ(answer: SubmittedPostmortem,
     if not given.uses:
         return []
 
-    said = [(ROOT_CAUSE_FIELD, answer.root_cause),
-            (CAUSE_IN_PLAIN_WORDS_FIELD, answer.cause_in_plain_words),
-            (STILL_AT_RISK_FIELD, answer.still_at_risk),
-            *((CAUSAL_CHAIN_FIELD, step.step) for step in answer.causal_chain or []),
-            *((field, prose)
-              for factor in answer.contributing_factors or []
+    said = [(ROOT_CAUSE_FIELD, ROOT_CAUSE_FIELD, answer.root_cause),
+            (CAUSE_IN_PLAIN_WORDS_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, answer.cause_in_plain_words),
+            (STILL_AT_RISK_FIELD, STILL_AT_RISK_FIELD, answer.still_at_risk),
+            *((_a_step_s_place(position), CAUSAL_CHAIN_FIELD, step.step)
+              for position, step in enumerate(answer.causal_chain or [], start=1)),
+            *((f"{_a_factor_s_place(position)} {field}", field, prose)
+              for position, factor in enumerate(answer.contributing_factors or [], start=1)
               for field, prose in ((CONTRIBUTING_FACTORS_FIELD, factor.factor),
                                    (HAD_IT_BEEN_OTHERWISE_FIELD,
                                     factor.had_it_been_otherwise)))]
 
-    return [f"the {field} [{sentence}] says one thing of code whose rows differ - "
-            f"{'; '.join(f'[{label}] {given.uses[label].does}' for label in named)} - say of "
-            f"each only what its own row says"
-            for field, prose in said
+    return [(place,
+             f"the {field} [{sentence}] says one thing of code whose rows differ - "
+             f"{'; '.join(f'[{label}] {given.uses[label].does}' for label in named)} - say of "
+             f"each only what its own row says")
+            for place, field, prose in said
             if prose is not None
             for sentence in _A_SENTENCE_END.split(prose.strip())
             for named in [_the_rows_named_in(sentence, given.uses)]
@@ -551,7 +582,7 @@ def _in_either_number(name: str) -> str:
     return rf"{re.escape(name)}(?:e?s)?"
 
 
-def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:
+def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> _Placed:
     """Each step citing no evidence, each label cited that was never given, and
     each hypothesis cited as though it were evidence.
 
@@ -559,15 +590,17 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
     tried. The chain says what happened, so a step rests on what was observed;
     a guess cited there reads as a fact, even beside evidence that is real.
     """
-    faults: list[str] = []
+    faults: _Placed = []
 
-    for step in answer.causal_chain or []:
+    for position, step in enumerate(answer.causal_chain or [], start=1):
+        place = _a_step_s_place(position)
+
         if not step.cites:
-            faults.append(f"the step [{step.step}] in {CAUSAL_CHAIN_FIELD} cites no "
-                          f"evidence - cite the labels it rests on")
+            faults.append((place, f"the step [{step.step}] in {CAUSAL_CHAIN_FIELD} cites no "
+                                  f"evidence - cite the labels it rests on"))
 
-        faults.extend(_what_is_wrong_with_citing(f"the step [{step.step}]", "step", label,
-                                                 given)
+        faults.extend((place, _what_is_wrong_with_citing(f"the step [{step.step}]", "step",
+                                                         label, given))
                       for label in step.cites
                       if label in given.hypotheses or label not in given.labels)
 
@@ -578,9 +611,9 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
             entry = f"what was ruled out, [{ruled.what}],"
 
             if not ruled.cites:
-                faults.append(f"{entry} cites no evidence - cite what ruled it out")
+                faults.append((place, f"{entry} cites no evidence - cite what ruled it out"))
 
-            faults.extend(_what_is_wrong_with_citing(entry, "entry", label, given)
+            faults.extend((place, _what_is_wrong_with_citing(entry, "entry", label, given))
                           for label in ruled.cites
                           if label in given.hypotheses or label not in given.labels)
 
@@ -588,7 +621,7 @@ def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list
 
 
 def _readings_beside_no_file_as_it_ran(answer: SubmittedPostmortem,
-                                       given: Given) -> list[str]:
+                                       given: Given) -> _Placed:
     """Each step citing Code-Fix's reading and none of the files shown as it
     ran, where any was shown.
 
@@ -603,10 +636,11 @@ def _readings_beside_no_file_as_it_ran(answer: SubmittedPostmortem,
     reading = label_of(CODE_READING_PREFIX, 1)
     shown = "; ".join(f"[{label}] {what}" for label, what in given.as_it_ran.items())
 
-    return [f"the {CAUSAL_CHAIN_FIELD} step [{step.step}] cites [{reading}], Code-Fix's "
-            f"reading, and none of the files as they ran - {shown}: cite the one it rests "
-            f"on for what the file says"
-            for step in answer.causal_chain or []
+    return [(_a_step_s_place(position),
+             f"the {CAUSAL_CHAIN_FIELD} step [{step.step}] cites [{reading}], Code-Fix's "
+             f"reading, and none of the files as they ran - {shown}: cite the one it rests "
+             f"on for what the file says")
+            for position, step in enumerate(answer.causal_chain or [], start=1)
             if reading in step.cites and not set(step.cites) & set(given.as_it_ran)]
 
 
@@ -622,7 +656,7 @@ def _what_is_wrong_with_citing(said: str, kind: str, label: str, given: Given) -
     return f"{said} cites [{label}], which is not a label you were given"
 
 
-def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[str]:
+def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> _Placed:
     """Each factor not under its place's label, naming an item that is not the
     record's, or answered by nothing - and each proposal answering a label no
     factor has.
@@ -639,38 +673,42 @@ def _factors_nothing_answers(answer: SubmittedPostmortem, given: Given) -> list[
     labels = {contributing_factor_label(position) for position in range(1, len(factors) + 1)}
     proposals = answer.action_items or []
     answered = {label for item in proposals for label in item.answers}
-    faults: list[str] = []
+    faults: _Placed = []
 
     for position, factor in enumerate(factors, start=1):
         placed = contributing_factor_label(position)
+        place = _a_factor_s_place(position)
         if factor.label != placed:
-            faults.append(f"the contributing factor [{factor.factor}] is labelled "
-                          f"[{factor.label or 'nothing'}] where its place makes it "
-                          f"[{placed}] - label the factors CF-1, CF-2 and so on, in the "
-                          f"order you give them")
+            faults.append((place, f"the contributing factor [{factor.factor}] is labelled "
+                                  f"[{factor.label or 'nothing'}] where its place makes it "
+                                  f"[{placed}] - label the factors CF-1, CF-2 and so on, in "
+                                  f"the order you give them"))
 
         # Blank as well as absent: a strict tool guarantees a string arrives,
         # not that it says anything.
         if not (factor.had_it_been_otherwise or "").strip():
-            faults.append(f"the contributing factor [{factor.factor}] does not say what would "
-                          f"have gone differently had it been otherwise - say it in "
-                          f"{HAD_IT_BEEN_OTHERWISE_FIELD}, with what {ROOT_CAUSE_FIELD} says "
-                          f"still true")
+            faults.append((place, f"the contributing factor [{factor.factor}] does not say "
+                                  f"what would have gone differently had it been otherwise - "
+                                  f"say it in {HAD_IT_BEEN_OTHERWISE_FIELD}, with what "
+                                  f"{ROOT_CAUSE_FIELD} says still true"))
 
         if not factor.addressed_by and factor.label not in answered:
-            faults.append(f"nothing answers the contributing factor [{factor.factor}] - name "
-                          f"one of the record's action items in its {ADDRESSED_BY_FIELD}, or "
-                          f"propose one in {ACTION_ITEMS_FIELD} whose {ANSWERS_FIELD} name it")
+            faults.append((place, f"nothing answers the contributing factor [{factor.factor}] "
+                                  f"- name one of the record's action items in its "
+                                  f"{ADDRESSED_BY_FIELD}, or propose one in {ACTION_ITEMS_FIELD} "
+                                  f"whose {ANSWERS_FIELD} name it"))
 
-        faults.extend(f"the contributing factor [{factor.factor}] names [{number}] in its "
-                      f"{ADDRESSED_BY_FIELD}, which is not one of the record's action items - "
-                      f"an item you propose names the factors it answers, in its "
-                      f"{ANSWERS_FIELD}"
+        faults.extend((place, f"the contributing factor [{factor.factor}] names [{number}] in "
+                              f"its {ADDRESSED_BY_FIELD}, which is not one of the record's "
+                              f"action items - an item you propose names the factors it "
+                              f"answers, in its {ANSWERS_FIELD}")
                       for number in factor.addressed_by if number not in on_record)
 
-    faults.extend(f"the action item [{item.item}] answers [{label}], which is not the label "
-                  f"of one of your contributing factors"
-                  for item in proposals for label in item.answers if label not in labels)
+    faults.extend((f"{ACTION_ITEMS_FIELD} {position}",
+                   f"the action item [{item.item}] answers [{label}], which is not the label "
+                   f"of one of your contributing factors")
+                  for position, item in enumerate(proposals, start=1)
+                  for label in item.answers if label not in labels)
 
     return faults
 
