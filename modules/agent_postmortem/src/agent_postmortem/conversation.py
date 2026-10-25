@@ -57,11 +57,14 @@ def answer_worth_writing(llm: LLMClient,
                          ) -> tuple[SubmittedPostmortem, list[str]]:
     """The model's answer, and whatever is still wrong with it.
 
-    Two attempts at most (spec §7.6). The second is worth making because the
+    Two attempts, and a third only for what the second got wrong that the
+    first was never told of (spec §7.6). The second is worth making because the
     faults are nameable - a missing field, a figure Argus never computed - and
-    a model told which is a model that can fix it. A third would not be: an
-    answer wrong twice in ways it was told about is not one attempt away from
-    right, and the incident is over either way.
+    a model told which is a model that can fix it. A rewrite told to fix one
+    thing got another wrong that its first answer had right, and was kept with
+    it: it was never told. Each fault is sent back once, so a third answer is
+    kept whatever it holds - an answer wrong twice in ways it was told about is
+    not one attempt away from right, and the incident is over either way.
 
     Returns the faults rather than acting on them, because the caller is the
     one writing the document that has to admit to them.
@@ -84,9 +87,18 @@ def answer_worth_writing(llm: LLMClient,
 
     logger.warning("postmortem answer rejected", extra={"faults": faults})
 
+    asked_again = _asking_again(asked, submitted, faults)
+    resubmitted = llm.converse(asked_again, [submit])
+    second = _reading_of(resubmitted, evidence.leads, given, figures)
+    untold = [fault for fault in second[1] if fault not in faults]
+    if not untold:
+        return _with_its_chain_in_order(llm, second)
+
+    logger.warning("postmortem answer rejected", extra={"faults": untold})
+
     return _with_its_chain_in_order(
         llm,
-        _reading_of(llm.converse(_asking_again(asked, submitted, faults), [submit]),
+        _reading_of(llm.converse(_asking_again(asked_again, resubmitted, untold), [submit]),
                     evidence.leads,
                     given,
                     figures))

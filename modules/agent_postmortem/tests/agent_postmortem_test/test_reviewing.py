@@ -341,6 +341,28 @@ def test_an_analysis_whose_leader_s_test_is_recommended_names_the_item_it_is_don
 
 
 @pytest.mark.unit
+def test_an_analysis_with_faults_beside_a_held_test_says_both() -> None:
+    # A fault kept in the answer cost the review the reason the leader's test
+    # was held back, and the item its next step is done under.
+    Scenario() \
+        .given(
+            a_document_refused_its_test := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(Refusal.NOTHING_COULD_CONFIRM_IT)])
+        ) \
+        .when(
+            lambda: review_of(a_document_refused_its_test, faults=["dont care"],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because=f"the answer still had faults the checks found; "
+                                  f"{why_it_was_refused(Refusal.NOTHING_COULD_CONFIRM_IT)}")
+        )
+
+
+@pytest.mark.unit
 def test_an_analysis_whose_leader_was_short_of_evidence_is_not_complete_whatever_came_after(
 ) -> None:
     # The walk tests the leading candidate first. With no mitigation proposed

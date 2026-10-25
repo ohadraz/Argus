@@ -153,6 +153,60 @@ def test_a_second_answer_that_is_still_missing_a_field_is_handed_back_anyway() -
 
 
 @pytest.mark.unit
+def test_a_second_answer_wrong_in_a_way_it_was_not_told_of_is_asked_for_once_more() -> None:
+    # The first answer was refused for one thing and its rewrite got another
+    # wrong. Told nothing of the second, the model never had an attempt at it.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_wrong_anew_in_its_rewrite := a_model_answering_in_turn(
+                an_answer_without(ROOT_CAUSE_FIELD),
+                an_answer(cause_in_plain_words=f"the outage cost {SOME_INVENTED_FIGURE}"),
+                an_answer(cause_in_plain_words=SOME_CAUSE_WITHOUT_A_FIGURE),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_wrong_anew_in_its_rewrite,
+                                         an_evidence_bundle(),
+                                         a_measured_incident(loss=SOME_COMPUTED_LOSS))
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=3),
+                _the_last_correction_named(asks, SOME_INVENTED_FIGURE),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, SOME_CAUSE_WITHOUT_A_FIGURE),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_third_answer_is_handed_back_whatever_is_wrong_with_it() -> None:
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_wrong_three_times := a_model_answering_in_turn(
+                an_answer_without(ROOT_CAUSE_FIELD),
+                an_answer(cause_in_plain_words=f"the outage cost {SOME_INVENTED_FIGURE}"),
+                an_answer_without(ROOT_CAUSE_FIELD),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_wrong_three_times,
+                                         an_evidence_bundle(),
+                                         a_measured_incident(loss=SOME_COMPUTED_LOSS))
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=3),
+                _found_a_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_cause_naming_a_figure_argus_never_computed_is_asked_for_again() -> None:
     # The whole reason this check exists. Nothing downstream can tell that
     # "$1.2M" was invented: it is a fluent sentence in a document whose every
@@ -953,6 +1007,19 @@ def _found_a_fault() -> Assertion[Reading]:
             raise AssertionError(
                 "Expected the faults to come back with the answer, so the caller "
                 "can mark the document partial, and none did.")
+
+        return True
+
+    return assertion
+
+
+def _the_last_correction_named(asks: Kept[Transcript], expected: str) -> Assertion[Reading]:
+    def assertion(dont_care_reading: Reading) -> bool:
+        said = _what_was_said_to_the_model(asks.taken[-1])
+
+        if expected not in said:
+            raise AssertionError(
+                f"Expected the last correction to name [{expected}], and it did not: {said}.")
 
         return True
 

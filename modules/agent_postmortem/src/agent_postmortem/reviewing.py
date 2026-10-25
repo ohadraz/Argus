@@ -72,9 +72,13 @@ def review_of(document: PostmortemDocument,
     if unrun:
         analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
                                    because=_what_would_confirm(document, unrun))
-    elif short == [NONE_TRIED] and (held := _the_leader_s_refusal(document)) is not None:
-        analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
-                                   because=_what_would_confirm_a_held_test(document, held))
+    elif NONE_TRIED in short and (held := _the_leader_s_refusal(document)) is not None:
+        because = _what_would_confirm_a_held_test(document, held)
+        analysis = (ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None, because=because)
+                    if short == [NONE_TRIED]
+                    else _a_criterion(ANALYSIS_COMPLETE,
+                                      [because if lack == NONE_TRIED else lack
+                                       for lack in short]))
     else:
         analysis = _a_criterion(ANALYSIS_COMPLETE, short)
 
