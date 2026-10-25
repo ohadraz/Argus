@@ -857,11 +857,12 @@ def a_model_answering(root_cause: str = "dont care",
         an_answer(root_cause, cause_in_plain_words, assumptions))
 
 
-def a_model_answering_in_turn(*answers: dict[str, Any],
+def a_model_answering_in_turn(*answers: dict[str, Any] | None,
                               recording_into: Kept[Transcript] | None = None,
                               offered_tools: Kept[list[ToolDefinition]] | None = None
                               ) -> LLMClient:
-    """Answers each call from the list in turn, keeping what it was asked.
+    """Answers each call from the list in turn, keeping what it was asked -
+    `None` being a turn that wrote a paragraph instead of calling the tool.
 
     A model that ran out of answers has been called more times than the test
     allows for, which is itself a failure - so it says so rather than repeating
@@ -886,7 +887,11 @@ def a_model_answering_in_turn(*answers: dict[str, Any],
                 raise AssertionError(
                     "The model was called more times than the test expected.")
 
-            return a_submission_of(self._remaining.pop(0), tools[0].name)
+            answer = self._remaining.pop(0)
+            if answer is None:
+                return _prose("The incident was caused by a feature flag.")
+
+            return a_submission_of(answer, tools[0].name)
 
     return InTurn()
 

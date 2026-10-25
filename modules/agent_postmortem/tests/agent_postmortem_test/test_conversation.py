@@ -207,6 +207,62 @@ def test_a_third_answer_is_handed_back_whatever_is_wrong_with_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_fault_it_was_told_of_said_again_in_other_words_is_not_asked_for_again() -> None:
+    # Told its still_at_risk ran to two sentences, a rewrite still running to
+    # two, reworded, was told already: its fault quotes the new words, but the
+    # check that found it is the same one.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_repeating_itself := a_model_answering_in_turn(
+                an_answer(still_at_risk="The totals stay short. Nobody has repaired them."),
+                an_answer(still_at_risk="The totals are still short. Nothing repaired them."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_repeating_itself,
+                                         an_evidence_bundle(),
+                                         a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _found_a_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_rewrite_that_made_no_call_is_asked_once_more_from_the_beginning() -> None:
+    # Nothing in the second turn to attach a refusal to, so the third ask goes
+    # from the opening: one following the first refusal would ask about an
+    # answer the model can no longer see.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_that_wrote_prose_second := a_model_answering_in_turn(
+                an_answer(cause_in_plain_words=f"the outage cost {SOME_INVENTED_FIGURE}"),
+                None,
+                an_answer(cause_in_plain_words=SOME_CAUSE_WITHOUT_A_FIGURE),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_that_wrote_prose_second,
+                                         an_evidence_bundle(),
+                                         a_measured_incident(loss=SOME_COMPUTED_LOSS))
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=3),
+                _the_last_ask_was_a_fresh_one(asks),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_cause_naming_a_figure_argus_never_computed_is_asked_for_again() -> None:
     # The whole reason this check exists. Nothing downstream can tell that
     # "$1.2M" was invented: it is a fluent sentence in a document whose every
@@ -1070,6 +1126,21 @@ def _the_correction_answered_the_call_it_rejected(
             raise AssertionError(
                 "Expected the rejected submission to be marked failed, so the model "
                 "reads it as something to fix rather than as evidence.")
+
+        return True
+
+    return assertion
+
+
+def _the_last_ask_was_a_fresh_one(asks: Kept[Transcript]) -> Assertion[Reading]:
+    """The last ask put from the start, carrying no turn and no tool result."""
+    def assertion(dont_care_reading: Reading) -> bool:
+        carried = [entry for entry in asks.taken[-1]
+                   if isinstance(entry, Turn | ToolResults)]
+
+        if carried:
+            raise AssertionError(
+                f"Expected the last ask to be a fresh one, and it carried {carried}.")
 
         return True
 

@@ -19,7 +19,7 @@ from argus_core import A_REVISION
 from argus_core.llm import LLMClient
 from argus_core.models import ChangeKind, CitedChange, ThreadMessage, Transcript, Turn
 
-from agent_postmortem.checking import Given, faults_in, faults_in_the_turn
+from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import Figure, with_figures_written
 from agent_postmortem.measuring import Measurements
@@ -80,28 +80,33 @@ def answer_worth_writing(llm: LLMClient,
         "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required})
     submitted = llm.converse(asked, [submit])
 
-    first = _reading_of(submitted, evidence.leads, given, figures)
-    _, faults = first
-    if not faults:
-        return _with_its_chain_in_order(llm, first)
+    first, told = _reading_of(submitted, evidence.leads, given, figures)
+    if not told:
+        return _with_its_chain_in_order(llm, (first, []))
 
+    faults = _every_one_of(told)
     logger.warning("postmortem answer rejected", extra={"faults": faults})
 
     asked_again = _asking_again(asked, submitted, faults)
     resubmitted = llm.converse(asked_again, [submit])
-    second = _reading_of(resubmitted, evidence.leads, given, figures)
-    untold = [fault for fault in second[1] if fault not in faults]
+    second, found = _reading_of(resubmitted, evidence.leads, given, figures)
+    # Untold is what a check found that found nothing in the first answer: a
+    # fault quotes the answer, so one it was told of in other words is new
+    # text and the same fault.
+    untold = _every_one_of({check: said for check, said in found.items() if check not in told})
     if not untold:
-        return _with_its_chain_in_order(llm, second)
+        return _with_its_chain_in_order(llm, (second, _every_one_of(found)))
 
     logger.warning("postmortem answer rejected", extra={"faults": untold})
 
-    return _with_its_chain_in_order(
-        llm,
-        _reading_of(llm.converse(_asking_again(asked_again, resubmitted, untold), [submit]),
-                    evidence.leads,
-                    given,
-                    figures))
+    # From the opening where the rewrite made no call: there is nothing in its
+    # turn to refuse, and following the first refusal would ask about an answer
+    # the model can no longer see.
+    asked_last = (rejecting(asked_again, resubmitted, untold) if resubmitted.tool_calls
+                  else opening_ask_again(asked, untold))
+    third, still = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures)
+
+    return _with_its_chain_in_order(llm, (third, _every_one_of(still)))
 
 
 def _with_its_chain_in_order(llm: LLMClient,
@@ -172,8 +177,9 @@ def _reading_of(turn: Turn,
                 leads: Sequence[ThreadMessage],
                 given: Given,
                 figures: dict[str, Figure]
-                ) -> tuple[SubmittedPostmortem, list[str]]:
-    """What one turn amounts to: its answer and whatever is wrong with it.
+                ) -> tuple[SubmittedPostmortem, dict[str, list[str]]]:
+    """What one turn amounts to: its answer and whatever is wrong with it, by
+    the check that found it (`faults_by_check`).
 
     The leads go with it, because whether every one was answered is a fault of
     the turn too, and what was given, because a citation is checked against it.
@@ -185,9 +191,16 @@ def _reading_of(turn: Turn,
     a figure written in before it would read as one the model wrote in digits.
     """
     answer = with_revisions_corrected(_answer_from(turn), given.revisions)
+    of_the_turn = faults_in_the_turn(turn)
 
     return (with_figures_written(answer, figures),
-            faults_in_the_turn(turn) + faults_in(answer, leads, given=given))
+            {**({faults_in_the_turn.__name__: of_the_turn} if of_the_turn else {}),
+             **faults_by_check(answer, leads, given=given)})
+
+
+def _every_one_of(faults: dict[str, list[str]]) -> list[str]:
+    """Every fault, whichever check found it, in the order they were found."""
+    return [fault for found in faults.values() for fault in found]
 
 
 def _answer_from(turn: Turn) -> SubmittedPostmortem:

@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from functools import partial
 from itertools import pairwise
 from typing import Final
 
@@ -225,27 +226,43 @@ def faults_in(answer: SubmittedPostmortem,
               *,
               given: Given) -> list[str]:
     """Everything about this answer that has to be put right, or nothing."""
-    return (_missing_fields(answer)
-            + _how_it_served_left_unanswered(answer, given)
-            + _a_symptom_of_more_than_one_sentence(answer)
-            + _a_symptom_over_its_words(answer)
-            + _summary_sentences_of_more_than_one(answer)
-            + _missing_checks_outside_the_factors(answer)
-            + _the_trigger_said_again(answer, given)
-            + _one_role_said_of_lines_whose_rows_differ(answer, given)
-            + _leads_left_unanswered(answer, leads)
-            + _steps_resting_on_nothing(answer, given)
-            + _readings_beside_no_file_as_it_ran(answer, given)
-            + _a_reading_the_answer_says_otherwise_of(answer)
-            + _factors_nothing_answers(answer, given)
-            + _factor_labels_in_the_prose(answer)
-            + _numbers_in_digits(answer, given)
-            + _figures_spelled_out(answer)
-            + _figures_said_in_a_word(answer)
-            + _figures_nobody_gave(answer, given)
-            + _ranges_after_an_opening_or_a_moment(answer, given)
-            + _workings_that_make_no_sense(answer, given)
-            + _revisions_nobody_read(answer, given))
+    return [fault for found in faults_by_check(answer, leads, given=given).values()
+            for fault in found]
+
+
+def faults_by_check(answer: SubmittedPostmortem,
+                    leads: Sequence[ThreadMessage] = (),
+                    *,
+                    given: Given) -> dict[str, list[str]]:
+    """What `faults_in` finds, under the name of the check that found it -
+    only the checks that found something.
+
+    By the check rather than by its words: a fault quotes the answer, so one
+    the model was told of and wrote again in other words is a new string and
+    the same fault."""
+    checks = [partial(_missing_fields, answer),
+              partial(_how_it_served_left_unanswered, answer, given),
+              partial(_a_symptom_of_more_than_one_sentence, answer),
+              partial(_a_symptom_over_its_words, answer),
+              partial(_summary_sentences_of_more_than_one, answer),
+              partial(_missing_checks_outside_the_factors, answer),
+              partial(_the_trigger_said_again, answer, given),
+              partial(_one_role_said_of_lines_whose_rows_differ, answer, given),
+              partial(_leads_left_unanswered, answer, leads),
+              partial(_steps_resting_on_nothing, answer, given),
+              partial(_readings_beside_no_file_as_it_ran, answer, given),
+              partial(_a_reading_the_answer_says_otherwise_of, answer),
+              partial(_factors_nothing_answers, answer, given),
+              partial(_factor_labels_in_the_prose, answer),
+              partial(_numbers_in_digits, answer, given),
+              partial(_figures_spelled_out, answer),
+              partial(_figures_said_in_a_word, answer),
+              partial(_figures_nobody_gave, answer, given),
+              partial(_ranges_after_an_opening_or_a_moment, answer, given),
+              partial(_workings_that_make_no_sense, answer, given),
+              partial(_revisions_nobody_read, answer, given)]
+
+    return {check.func.__name__: found for check in checks if (found := check())}
 
 
 def faults_in_the_turn(turn: Turn) -> list[str]:
