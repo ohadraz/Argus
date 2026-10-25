@@ -1560,17 +1560,19 @@ def _a_cause_as_a_line(cause: OneCause) -> str:
     verdict as reached by each. So each says what became of it as the page's
     row does (`result_of`): two spellings of one fact read as two facts.
 
-    Where they read the move as different kinds of failure, the heading says
-    so, and that they are not one cause counted twice. Told only that they
+    Where every one reads the move as a different kind of failure, the heading
+    says so, and that they are not one cause counted twice. Told only that they
     blamed the same move, a write-up faulted the Investigator for giving one
     change as two candidates - of two readings it rested on telling apart.
+    Where only some differ, it is said of none: of the ones alike, it is false.
     """
     if not cause.also:
         lead = cause.lead
         return _in_its_own_words(lead.summary, lead.failure_mode, lead.confidence, cause.became)
 
     considered = a_hypothesis_of(cause)
-    read_apart = len({member.failure_mode for member in considered.members}) > 1
+    read_apart = (len({member.failure_mode for member in considered.members})
+                  == len(considered.members))
     how = (" each reading it as a different kind of failure - different accounts of what it "
            "did, not one cause counted twice -" if read_apart else "")
 

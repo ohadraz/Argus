@@ -1354,6 +1354,34 @@ def test_candidates_reading_the_same_move_alike_are_still_each_shown() -> None:
 
 
 @pytest.mark.unit
+def test_candidates_some_reading_one_move_alike_are_not_said_to_all_differ() -> None:
+    # Three on one move, two of them alike: "each reading it as a different
+    # kind of failure" is false of the two, and "not one cause counted twice"
+    # of them is what the heading would be denying for no reason. So the
+    # heading says they differ only where every one does.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("the model was upgraded", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.6,
+                            failure_mode="output-quality-degradation"),
+                a_candidate("an alternative reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.3,
+                            failure_mode="config-induced-failure"),
+                a_candidate("a third reading", subject="categoriser.model",
+                            from_state="v1", to_state="v2", confidence=0.1,
+                            failure_mode="output-quality-degradation")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("Candidates blaming the same move of categoriser.model, "
+                              "each in its own words:")
+        )
+
+
+@pytest.mark.unit
 def test_candidates_of_one_cause_none_tested_are_each_said_never_tried() -> None:
     # No test, so no test to credit: each line says what its row says.
     Scenario() \
