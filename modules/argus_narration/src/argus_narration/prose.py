@@ -36,19 +36,22 @@ from argus_core import parse_iso, to_iso
 from argus_narration.clock import a_moment, is_a_moment
 
 # An instant inside a sentence, in the two shapes that are not already how this
-# page says the time: the wire format the tools speak to each other, and a
-# clock time still carrying the wire's zone marker.
+# page says the time: a timestamp in any form ISO 8601 allows - `T` or a space
+# between date and time, a fraction of a second, `Z`, an offset or no zone at
+# all - and a clock time still carrying the wire's zone marker.
 #
 # A bare `10:14` is deliberately not among them. It is already what this
 # renders to, so matching it only to hand it back is a third pattern that can
-# be got wrong and can never be got right.
+# be got wrong and can never be got right. Nor is a clock time's offset: with
+# no date beside it, `10:14-10:16` is a window far more often than a time at
+# minus ten hours sixteen, and nothing in the words says which.
 _A_TIME_IN_PROSE = re.compile(
-    r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?Z?)"
-    r"|(?<!\d)(\d{2}:\d{2}(?::\d{2})?Z)"
+    r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)"
+    r"|(?<!\d)(\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z)"
 )
 
 # A clock time on its own, with or without the wire format's seconds and zone.
-_A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2})?Z?")
+_A_BARE_CLOCK = re.compile(r"\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z?")
 
 # The day a clock time is put on where no line says which: any will do, since
 # a time said beside nothing is said without one.

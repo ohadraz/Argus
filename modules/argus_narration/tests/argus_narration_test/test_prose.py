@@ -78,6 +78,41 @@ def test_a_zoned_clock_time_is_said_to_the_second_only_where_it_has_one(zoned: s
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("written", "said"), [
+    ("2026-08-30T12:14:00+02:00", "10:14"),
+    ("2026-08-30 10:14:00Z", "10:14"),
+    ("2026-08-30T10:14:37.250Z", "10:14:37"),
+    ("10:14:37.250Z", "10:14:37")
+], ids=["with-an-offset", "with-a-space", "with-a-fraction", "a-clock-time-with-a-fraction"])
+def test_an_instant_in_any_iso_form_is_said_as_a_clock_says_it(written: str, said: str) -> None:
+    # The model is shown every instant ending in `Z`, and asked to write them
+    # so - but what it writes is its own, and each of these is the same moment
+    # in a form ISO 8601 allows. Missed, one is left in the sentence as the
+    # wire wrote it; read only up to its offset, `+02:00` stays behind it and
+    # the time before it is read as UTC, two hours from the moment it names.
+    some_claim_naming_an_instant = f"The alert fired at {written}."
+
+    Scenario() \
+        .given(some_claim_naming_an_instant) \
+        .when(lambda: said_plainly(some_claim_naming_an_instant)) \
+        .then(the_answer_was(f"The alert fired at {said}."))
+
+
+@pytest.mark.unit
+def test_a_range_of_clock_times_is_not_read_as_a_time_with_an_offset() -> None:
+    # `10:14-10:16` is how a person writes a window, and read as ISO it is a
+    # time at an offset of minus ten hours sixteen. A clock time has no date to
+    # say which reading it is, so only a full timestamp's offset is read as one,
+    # and the window stays as it was written.
+    some_claim_naming_a_window = "The error rate held between 10:14-10:16."
+
+    Scenario() \
+        .given(some_claim_naming_a_window) \
+        .when(lambda: said_plainly(some_claim_naming_a_window)) \
+        .then(the_answer_was(some_claim_naming_a_window))
+
+
+@pytest.mark.unit
 def test_a_clock_time_carrying_a_zone_loses_only_the_zone() -> None:
     # A bare `10:14Z` is a wire-format time with its date left off, which
     # nothing can parse into an instant - so it is trimmed rather than parsed.

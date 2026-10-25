@@ -134,6 +134,23 @@ def test_the_summary_says_what_happened_and_leaves_what_to_do_to_others() -> Non
 
 
 @pytest.mark.unit
+def test_the_summary_names_a_moment_with_its_date_and_never_a_time_of_day_alone() -> None:
+    # "The flag was switched on at 07:44" was said of a moment a week before the
+    # alert, and read beneath it - on the page and in its Slack thread - as the
+    # alert's own minute. The model had the date in front of it, in the
+    # evidence's `at`, and wrote the time of day alone. Written in full, how much
+    # of it to say is the page's to decide: the time alone on its own day, the
+    # date as well on any other.
+    Scenario() \
+        .when(
+            lambda: answer_tool()
+        ) \
+        .then(
+            _the_field("summary").says("never a time of day alone")
+        )
+
+
+@pytest.mark.unit
 def test_an_alternative_reading_of_a_change_still_names_the_change() -> None:
     # The second of two readings of one deploy came back with no subject: read
     # another way, the change seemed to name nothing specific. So nothing could

@@ -143,7 +143,9 @@ def _one_explanation() -> dict[str, Any]:
                     "what to do about it - no fix, revert, rollback or next step - "
                     "and not as the way an alternative differs: tell an alternative "
                     "apart by what happened. The action is chosen from the failure "
-                    "mode, and the fix by an agent that reads the code."
+                    "mode, and the fix by an agent that reads the code. A moment it "
+                    "names is written in full, date and time, as the evidence's `at` "
+                    "gives it - 2026-08-30T12:30:00Z - never a time of day alone."
                 )
             },
             "failure_mode": {
