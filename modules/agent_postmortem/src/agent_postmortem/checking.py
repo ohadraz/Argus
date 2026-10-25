@@ -50,7 +50,7 @@ from itertools import pairwise
 from typing import Final
 
 from argus_core import A_REVISION, the_revision_named
-from argus_core.models import ThreadMessage, Turn, labelled
+from argus_core.models import CodeUse, ThreadMessage, Turn, labelled
 from pydantic import BaseModel
 
 from agent_postmortem.figures import (
@@ -174,6 +174,18 @@ _A_MISSING_CHECK: Final = re.compile(
 # A factor's label written as a word of the prose.
 _A_FACTOR_S_LABEL: Final = re.compile(rf"\b{re.escape(CONTRIBUTING_FACTOR_PREFIX)}\d+\b")
 
+# What a sentence says a line does with a stored figure beyond reading it: what
+# the line takes it as, what it does in place of something else, whether it
+# trusts or relies on it, how it treats it.
+_A_ROLE: Final = re.compile(
+    r"\bas (?:the|a|an|its|their|if|true|current)\b|\brather than\b|\binstead of\b"
+    r"|\btrust|\brel(?:y|ies|ied|ying) on\b|\btreat",
+    re.IGNORECASE)
+
+# A line outside the patch that sets the field against what a function of its
+# own file returns, as the read server says it (`outside_the_patch`).
+_SET_AGAINST_A_CALL: Final = re.compile(r", where .+ returns ")
+
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
     "write a figure the incident gave as the name shown after it, braces and all, "
@@ -201,6 +213,8 @@ class Given(BaseModel):
     # Whether it was asked if the logs show the service serving as before -
     # which it is wherever a line reaches into a stretch the metrics missed.
     serving_as_before_asked: bool = False
+    # Each line outside Code-Fix's patch that uses what it changes, by label.
+    uses: dict[str, CodeUse] = {}
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -215,6 +229,7 @@ def faults_in(answer: SubmittedPostmortem,
             + _summary_sentences_of_more_than_one(answer)
             + _missing_checks_outside_the_factors(answer)
             + _the_trigger_said_again(answer, given)
+            + _one_role_said_of_lines_whose_rows_differ(answer, given)
             + _leads_left_unanswered(answer, leads)
             + _steps_resting_on_nothing(answer, given)
             + _readings_beside_no_file_as_it_ran(answer, given)
@@ -426,6 +441,60 @@ def _the_trigger_said_again(answer: SubmittedPostmortem, given: Given) -> list[s
             f"which change set it off; say why that change broke the service"
             for named in A_REVISION.findall(answer.root_cause)
             if the_revision_named(named, frozenset({revision})) == revision]
+
+
+def _one_role_said_of_lines_whose_rows_differ(answer: SubmittedPostmortem,
+                                               given: Given) -> list[str]:
+    """Each sentence of the prose that names lines outside Code-Fix's patch of
+    both kinds - one taking the field's value, one setting it against what a
+    function of its own file returns - and says one role of them all.
+
+    Told what each line does, row by row, write-ups still said the statement,
+    the summary and the reconciliation all read the stored month "as the
+    month's figure": the reconciliation's own row sets it against the
+    purchases added up again. That they all read it is true, and passes; a
+    role said of them together is said of one row wrongly. Only a sentence
+    naming both kinds can, and only lines shown in rows can be held to it."""
+    if not given.uses:
+        return []
+
+    said = [(ROOT_CAUSE_FIELD, answer.root_cause),
+            (CAUSE_IN_PLAIN_WORDS_FIELD, answer.cause_in_plain_words),
+            (STILL_AT_RISK_FIELD, answer.still_at_risk),
+            *((CAUSAL_CHAIN_FIELD, step.step) for step in answer.causal_chain or []),
+            *((field, prose)
+              for factor in answer.contributing_factors or []
+              for field, prose in ((CONTRIBUTING_FACTORS_FIELD, factor.factor),
+                                   (HAD_IT_BEEN_OTHERWISE_FIELD,
+                                    factor.had_it_been_otherwise)))]
+
+    return [f"the {field} [{sentence}] says one thing of code whose rows differ - "
+            f"{'; '.join(f'[{label}] {given.uses[label].does}' for label in named)} - say of "
+            f"each only what its own row says"
+            for field, prose in said
+            if prose is not None
+            for sentence in _A_SENTENCE_END.split(prose.strip())
+            if _A_ROLE.search(sentence)
+            for named in [_the_rows_named_in(sentence, given.uses)]
+            if len({bool(_SET_AGAINST_A_CALL.search(given.uses[label].does))
+                    for label in named}) == 2]
+
+
+def _the_rows_named_in(sentence: str, uses: dict[str, CodeUse]) -> list[str]:
+    """The label of each row whose file or function a sentence names: the file
+    by its path, its stem, the stem with spaces for underscores, or the stem's
+    last word - whole words, whatever their case."""
+    return [label for label, use in uses.items()
+            if any(re.search(rf"(?<![\w/.]){re.escape(name)}(?![\w/])", sentence, re.IGNORECASE)
+                   for name in _names_of(use))]
+
+
+def _names_of(use: CodeUse) -> set[str]:
+    """Every name a sentence may call a line's file or function by."""
+    stem = use.path.rsplit("/", 1)[-1].removesuffix(".py")
+
+    return {use.path, stem, stem.replace("_", " "), stem.rsplit("_", 1)[-1],
+            *([use.function] if use.function else [])}
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:

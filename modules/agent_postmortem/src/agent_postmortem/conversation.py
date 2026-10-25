@@ -39,7 +39,12 @@ from agent_postmortem.prompting import (
     the_files_as_they_ran_labelled,
 )
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
-from agent_postmortem.sections import logs_in_the_gap_of, record_action_items_of
+from agent_postmortem.sections import (
+    USES_OUTSIDE_PREFIX,
+    label_of,
+    logs_in_the_gap_of,
+    record_action_items_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +116,8 @@ def _what_was_given(evidence: IncidentEvidence,
     """What the answer is held to: the labels it could cite and which of them
     are hypotheses, the items already on the record, the revisions the incident
     read and the one the deploy that set it off went to, the figures it may
-    name, and each file shown as it ran - named by its first line, its path at
-    its revision."""
+    name, each file shown as it ran - named by its first line, its path at
+    its revision - and each line outside Code-Fix's patch, under its label."""
     return Given(
         labels=frozenset(label for cited in the_evidence_labelled(evidence,
                                                                   measured.unobserved_from)
@@ -124,7 +129,9 @@ def _what_was_given(evidence: IncidentEvidence,
         trigger_revision=_the_deploy_s_revision(the_change_that_set_it_off(evidence)),
         figures=figures,
         as_it_ran={cited.label: cited.text.split("\n", 1)[0]
-                   for cited in the_files_as_they_ran_labelled(evidence)}
+                   for cited in the_files_as_they_ran_labelled(evidence)},
+        uses={label_of(USES_OUTSIDE_PREFIX, position): use
+              for position, use in enumerate(evidence.uses_outside, start=1)}
     )
 
 

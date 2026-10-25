@@ -46,6 +46,7 @@ from argus_core.models import (
     Ask,
     ChangeEvent,
     ChangeKind,
+    CodeUse,
     FileAsItRan,
     ToolDefinition,
     ToolResults,
@@ -662,6 +663,44 @@ def test_a_root_cause_naming_the_deploy_that_carried_it_is_asked_for_again() -> 
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, the_trigger[:7]),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_root_cause_saying_one_role_of_lines_whose_rows_differ_is_asked_for_again() -> None:
+    # What the answer is held to includes the lines outside Code-Fix's patch,
+    # each under the label the model was shown it by.
+    asks: Kept[Transcript] = Kept()
+    some_uses = [
+        CodeUse(name="month", path="src/shop/monthly_statement.py", line=12,
+                function="render_statement", does="reads it: total = account.month"),
+        CodeUse(name="month", path="src/shop/spend_reconciliation.py", line=20,
+                function="reconcile",
+                does="compares it with bought(account), where bought(account) returns "
+                     "sum(account.purchases)")
+    ]
+
+    Scenario() \
+        .given(
+            a_model_lumping_them := a_model_answering_in_turn(
+                an_answer(root_cause="The statement and the reconciliation read it as the "
+                                     "month's figure."),
+                an_answer(root_cause="The statement still shows the stored figure."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_lumping_them,
+                an_evidence_bundle(fix_explanation="dont care").model_copy(
+                    update={"uses_outside": some_uses}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "[U2]"),
                 _found_no_fault()
             )
         )

@@ -34,6 +34,7 @@ from argus_core.models import (
     CitedChange,
     CitedEvidence,
     DeploymentComparison,
+    FailureMode,
     Lessons,
     LogsInTheGap,
     OpenedPullRequest,
@@ -1011,6 +1012,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         "",
         "Action items the record already holds:",
         *(_the_record_items(evidence, measured) or [f"  - {NOTHING}"]),
+        *([note] if (note := _rewriting_is_left_to_a_person(evidence)) else []),
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
         *_what_set_it_off(evidence),
         "",
@@ -1207,6 +1209,23 @@ def _the_diffs_of_what_it_names(evidence: IncidentEvidence,
             if the_revision_named(short, frozenset({record.revision})) == record.revision]
 
     return " ".join(dict.fromkeys(tied)) or None
+
+
+def _rewriting_is_left_to_a_person(evidence: IncidentEvidence) -> str | None:
+    """Beneath the record's action items: that rewriting what the incident
+    wrote wrong is a person's to do - or nothing, where the leading candidate is
+    not that what was written is wrong. Said whether or not Code-Fix read
+    anything: an incident with no reading can list the same thing.
+
+    A write-up listed under what went wrong that only Code-Fix's repair script,
+    which nothing had run, mends the totals already written short: a person
+    running it is the design, and what is left short is still at risk."""
+    leading = evidence.candidates[0] if evidence.candidates else None
+    if leading is None or leading.failure_mode != FailureMode.SILENT_DATA_CORRUPTION:
+        return None
+
+    return (f"Rewriting what the incident wrote wrong is left to a person by design: say it "
+            f"in {STILL_AT_RISK_FIELD} and the action items, never under {WENT_WRONG_FIELD}.")
 
 
 def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:

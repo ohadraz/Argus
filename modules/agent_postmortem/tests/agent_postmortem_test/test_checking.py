@@ -63,7 +63,7 @@ from agent_postmortem.prompting import (
     SubmittedRuledOut,
     SubmittedStep,
 )
-from argus_core.models import ActionItemType, Lessons, ToolCall, Turn
+from argus_core.models import ActionItemType, CodeUse, Lessons, ToolCall, Turn
 from argus_testkit import Assertion, Scenario, all_of
 
 from agent_postmortem_test.framework.builders import (
@@ -1783,6 +1783,160 @@ def test_a_root_cause_naming_another_revision_is_accepted() -> None:
         .then(
             _found_nothing_wrong()
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("role", [
+    "as the month's figure",
+    "rather than adding the purchases up",
+    "instead of adding the purchases up",
+    "and trust it",
+    "and rely on it",
+    "and treat it as the month's"
+], ids=["as-the", "rather-than", "instead-of", "trust", "rely-on", "treat"])
+def test_a_sentence_saying_one_role_of_lines_whose_rows_differ_is_named(role: str) -> None:
+    # Write-ups said the statement, the summary and the reconciliation all read
+    # the stored month "as the month's figure", though the reconciliation's own
+    # row sets it against the purchases added up again.
+    lumped = f"The monthly statement, the spend summary and the reconciliation read it {role}."
+
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named(ROOT_CAUSE_FIELD),
+                _named(f"[{lumped}]"),
+                _named("[U3]"),
+                _named("say of each only what its own row says"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("field", [CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
+                                   CAUSAL_CHAIN_FIELD, CONTRIBUTING_FACTORS_FIELD,
+                                   HAD_IT_BEEN_OTHERWISE_FIELD])
+def test_a_role_said_of_lines_whose_rows_differ_is_named_in_every_field_of_prose(
+        field: str) -> None:
+    lumped = "The statement, the summary and the reconciliation read it as the month's figure."
+    answers = {
+        CAUSE_IN_PLAIN_WORDS_FIELD: _an_answer(cause_in_plain_words=lumped),
+        STILL_AT_RISK_FIELD: _an_answer(still_at_risk=lumped),
+        CAUSAL_CHAIN_FIELD: _an_answer(causal_chain=[SubmittedStep(step=lumped, cites=["E1"])]),
+        CONTRIBUTING_FACTORS_FIELD: _an_answer(contributing_factors=[
+            SubmittedFactor(label="CF-1", factor=lumped, had_it_been_otherwise=DONT_CARE_PROSE,
+                            addressed_by=["AI-1"])]),
+        HAD_IT_BEEN_OTHERWISE_FIELD: _an_answer(contributing_factors=[
+            SubmittedFactor(label="CF-1", factor=DONT_CARE_PROSE, had_it_been_otherwise=lumped,
+                            addressed_by=["AI-1"])])
+    }
+
+    Scenario() \
+        .when(
+            lambda: faults_in(answers[field], given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named(field),
+                _named(f"[{lumped}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lumped", [
+    "src/shop/monthly_statement.py and src/shop/spend_reconciliation.py read it as the month's.",
+    "Spend_summary and spend_reconciliation read it as the month's.",
+    "render_statement and reconcile read it as the month's."
+], ids=["by-path", "by-stem", "by-function"])
+def test_a_line_is_named_by_its_file_or_the_function_it_sits_in(lumped: str) -> None:
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named("[U3]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_sentence_naming_lines_whose_rows_differ_without_saying_a_role_is_accepted() -> None:
+    # "Still read" is true of every one of them: the reconciliation reads the
+    # stored figure too, to set it against the purchases.
+    Scenario() \
+        .given(
+            an_answer_naming_them := _an_answer(
+                root_cause="The monthly statement, the spend summary and the reconciliation "
+                           "all still read the stored field.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_role_said_of_lines_whose_rows_agree_is_accepted() -> None:
+    # The statement and the summary do both take the stored figure's value.
+    Scenario() \
+        .given(
+            an_answer_naming_two_readers := _an_answer(
+                root_cause="The monthly statement and the spend summary read it as the "
+                           "month's figure.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_two_readers, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_role_said_where_no_lines_outside_the_patch_were_shown_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(
+                root_cause="The monthly statement, the spend summary and the reconciliation "
+                           "read it as the month's figure.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+def _given_lines_of_two_kinds() -> Given:
+    """`SOME_GIVEN`, with lines outside Code-Fix's patch of both kinds: two
+    taking the stored figure's value, and one setting it against what a
+    function of its own file returns."""
+    return SOME_GIVEN.model_copy(update={"uses": {
+        "U1": CodeUse(name="month", path="src/shop/monthly_statement.py", line=12,
+                      function="render_statement", does="reads it: total = account.month"),
+        "U2": CodeUse(name="month", path="src/shop/spend_summary.py", line=8,
+                      function="average", does="divides with it: account.month // count"),
+        "U3": CodeUse(name="month", path="src/shop/spend_reconciliation.py", line=20,
+                      function="reconcile",
+                      does="compares it with bought(account), where bought(account) returns "
+                           "sum(account.purchases)")
+    }})
 
 
 @pytest.mark.unit

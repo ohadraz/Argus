@@ -1020,6 +1020,59 @@ def test_the_uses_outside_the_patch_stand_where_code_fix_says_otherwise_of_them(
 
 
 @pytest.mark.unit
+def test_a_corruption_s_write_up_is_told_rewriting_what_was_written_is_left_to_a_person() -> None:
+    # A write-up listed under what went wrong that only Code-Fix's repair
+    # script, which nothing had run, mends the totals already written short. A
+    # person running it is the design, and what is left short is still at risk.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation="dont care",
+                candidates=[a_candidate("dont care", failure_mode="silent-data-corruption")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Rewriting what the incident wrote wrong is left to a person by design: say "
+                  "it in still_at_risk and the action items, never under went_wrong.")
+        )
+
+
+@pytest.mark.unit
+def test_a_write_up_led_by_another_mode_is_not_told_of_rewriting_what_was_written() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                fix_explanation="dont care",
+                candidates=[a_candidate("dont care", failure_mode="feature-flag-toggle"),
+                            a_candidate("dont care", failure_mode="silent-data-corruption")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("Rewriting what the incident wrote wrong")
+        )
+
+
+@pytest.mark.unit
+def test_a_corruption_s_write_up_is_told_of_rewriting_where_code_fix_read_nothing() -> None:
+    # An incident with no reading of the code can list the same thing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="silent-data-corruption")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Rewriting what the incident wrote wrong is left to a person by design")
+        )
+
+
+@pytest.mark.unit
 def test_the_uses_outside_the_patch_are_said_to_be_read_on_the_branch_code_fix_read() -> None:
     # They were read on main, and a write-up applied them to what ran.
     Scenario() \
