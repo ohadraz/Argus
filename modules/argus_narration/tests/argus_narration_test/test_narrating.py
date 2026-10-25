@@ -2694,7 +2694,9 @@ def test_a_placement_on_one_card_all_started_together_after_the_onset_is_said_in
     # Restarted together well after the onset, every pod was said with the
     # same card and the same moment - three times over, in the timeline, the
     # evidence and the brief, telling nothing apart. How many, the card and
-    # when, once.
+    # when, once. The moment beside "started", not beside "the onset": said
+    # "started after the onset at Sep 05 10:13:07", it reads as when the onset
+    # was.
     the_card = "Tesla-V100-SXM2-16GB"
     the_pods = ("io-shop-a", "io-shop-b", "io-shop-c")
     some_time_days_after_the_onset = datetime(2026, 9, 5, 10, 13, 7, tzinfo=UTC)
@@ -2712,7 +2714,7 @@ def test_a_placement_on_one_card_all_started_together_after_the_onset_is_said_in
         .when(lambda: build_narration([some_placement])) \
         .then(all_of(
             _the_only_line_says(f"{len(the_pods)} replicas run - all on {the_card}, started "
-                                f"after the onset at Sep 05 10:13:07"),
+                                f"at Sep 05 10:13:07, after the onset"),
             _the_only_line_does_not_say(*the_pods)
         ))
 

@@ -1291,6 +1291,12 @@ def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> 
     # each candidate in its own words, mode and confidence - the lead's alone
     # read as the row's - and the verdict said as the tested one's on the line
     # of the one that was not, as the page says it.
+    #
+    # Read as different kinds of failure, they are not one cause counted
+    # twice, and the heading says so. Told only that they blamed the same move,
+    # a write-up said the Investigator "gave the same flag change as two
+    # separate candidates", of two readings the rest of it rested on telling
+    # apart - one is why the totals already written needed repairing.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -1307,7 +1313,9 @@ def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> 
         ) \
         .then(all_of(
             _says_on_one_line("[C1, also C2] Candidates blaming the same move of "
-                              "categoriser.model, each in its own words:"),
+                              "categoriser.model, each reading it as a different kind of "
+                              "failure - different accounts of what it did, not one cause "
+                              "counted twice - each in its own words:"),
             _says_on_one_line("C1: the model was upgraded [output-quality-degradation, "
                               "confidence 0.8", ", confirmed]"),
             _says_on_one_line("C2: an alternative reading [config-induced-failure, "
@@ -1319,7 +1327,8 @@ def test_candidates_blaming_the_same_move_are_shown_once_under_both_labels() -> 
 def test_candidates_reading_the_same_move_alike_are_still_each_shown() -> None:
     # Agreeing on the failure is not saying the same thing: each is said in its
     # own words and confidence, and the lead's verdict credited to the test
-    # that reached it when that test was another's.
+    # that reached it when that test was another's. Nor are they different
+    # accounts, so the heading does not say they are.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -1335,6 +1344,8 @@ def test_candidates_reading_the_same_move_alike_are_still_each_shown() -> None:
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
+            _says_on_one_line("[C1, also C2] Candidates blaming the same move of "
+                              "categoriser.model, each in its own words:"),
             _says_on_one_line("C1: the model was upgraded [output-quality-degradation, "
                               "confidence 0.8", ", confirmed, as tested for C2]"),
             _says_on_one_line("C2: an alternative reading [output-quality-degradation, "

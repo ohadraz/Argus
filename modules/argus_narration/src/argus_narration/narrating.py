@@ -1363,7 +1363,9 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     said as how many and which card: listed pod by pod the line is a paragraph
     telling nothing apart, and every destination carries it. So are several on
     one card all started together well after the onset, with when: the same
-    card and the same moment said once for each was the same paragraph.
+    card and the same moment said once for each was the same paragraph. The
+    moment sits beside "started" and the onset after it: "started after the
+    onset at" a moment reads as when the onset was.
     """
     if not placement.pods:
         return "", "Recorded where the service's replicas run - the platform reported no pods"
@@ -1378,8 +1380,9 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     if (on_one_card and len(after) == len(placement.pods)
             and len({pod.started_at for pod in placement.pods}) == 1):
         return "", (f"Recorded where the {len(placement.pods)} replicas run - all on {card}, "
-                    f"started after the onset at "
-                    f"{a_moment_with_its_day(to_iso(placement.pods[0].started_at))}")
+                    f"started at "
+                    f"{a_moment_with_its_day(to_iso(placement.pods[0].started_at))}, "
+                    f"after the onset")
 
     before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())
     at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset()

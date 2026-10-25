@@ -1559,15 +1559,23 @@ def _a_cause_as_a_line(cause: OneCause) -> str:
     shows one candidate's words and confidence as all of theirs, and the
     verdict as reached by each. So each says what became of it as the page's
     row does (`result_of`): two spellings of one fact read as two facts.
+
+    Where they read the move as different kinds of failure, the heading says
+    so, and that they are not one cause counted twice. Told only that they
+    blamed the same move, a write-up faulted the Investigator for giving one
+    change as two candidates - of two readings it rested on telling apart.
     """
     if not cause.also:
         lead = cause.lead
         return _in_its_own_words(lead.summary, lead.failure_mode, lead.confidence, cause.became)
 
     considered = a_hypothesis_of(cause)
+    read_apart = len({member.failure_mode for member in considered.members}) > 1
+    how = (" each reading it as a different kind of failure - different accounts of what it "
+           "did, not one cause counted twice -" if read_apart else "")
 
     return "\n".join([
-        f"Candidates blaming the same move of {cause.lead.subject}, each in its own words:",
+        f"Candidates blaming the same move of {cause.lead.subject},{how} each in its own words:",
         *(f"{member.label}: " + _in_its_own_words(member.summary, member.failure_mode,
                                                   member.confidence,
                                                   considered.result_of(member))
