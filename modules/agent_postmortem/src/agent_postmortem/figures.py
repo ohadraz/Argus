@@ -227,16 +227,16 @@ _AN_INSTANT: Final = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
 _A_TIME_OF_DAY: Final = re.compile(r"(\d{2}):(\d{2})(?::(\d{2}))?")
 
 # What joins the two ends of a span on one day, as a log group says one.
-_THE_DASH: Final = "–"
+SPAN_DASH: Final = "–"
 
 # An instant or a span of them as the page writes one on the day the incident
 # began: in UTC, and without the day, which the page's head says once.
 _A_TIME_WITHOUT_ITS_DAY: Final = re.compile(
-    rf"\d{{2}}:\d{{2}}(?::\d{{2}})?(?:{_THE_DASH}\d{{2}}:\d{{2}}(?::\d{{2}})?)? UTC")
+    rf"\d{{2}}:\d{{2}}(?::\d{{2}})?(?:{SPAN_DASH}\d{{2}}:\d{{2}}(?::\d{{2}})?)? UTC")
 
 # A span between two times of one day, `21:35–21:39`.
 _A_SPAN_OF_THE_CLOCK: Final = re.compile(
-    rf"(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?{_THE_DASH}(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?")
+    rf"(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?{SPAN_DASH}(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?")
 
 
 def is_a_figure(word: str) -> bool:
@@ -374,23 +374,27 @@ def with_every_day_said(figures: Mapping[str, Figure], day: date) -> dict[str, F
     was given in - a wire instant, a time a line of the narration said, a
     group of log lines' minutes. One written as given carries no zone, and its
     day is nobody's to say."""
-    on = datetime.combine(day, datetime.min.time(), UTC)
-
-    return {name: Figure(given=figure.given, written=f"{said_as_a_day(on)}, {figure.written}")
-            if _A_TIME_WITHOUT_ITS_DAY.fullmatch(figure.written) else figure
+    return {name: Figure(given=figure.given, written=_with_the_day_said(figure.written, day))
             for name, figure in figures.items()}
 
 
-def as_said_off_the_page(figures: Mapping[str, Figure], evidence: IncidentEvidence,
-                         measured: Measurements) -> dict[str, Figure]:
-    """The figures as a paragraph said off the page writes them: with every
-    day said where Argus stopped on another day than the one the incident
-    began, and as the page writes them otherwise."""
-    day = the_day_it_began(evidence, measured)
-    if evidence.ended_at.astimezone(UTC).date() != day:
-        return with_every_day_said(figures, day)
+def _with_the_day_said(written: str, day: date) -> str:
+    """A figure as written, with `day` before it where it is an instant
+    written in UTC without its day - which is one on that day."""
+    if not _A_TIME_WITHOUT_ITS_DAY.fullmatch(written):
+        return written
 
-    return dict(figures)
+    return f"{said_as_a_day(datetime.combine(day, datetime.min.time(), UTC))}, {written}"
+
+
+def the_day_said_off_the_page(evidence: IncidentEvidence,
+                              measured: Measurements) -> date | None:
+    """The day every instant is dated against in a paragraph said off the
+    page - the day the incident began, where Argus stopped on another day -
+    or `None` where it stopped on that day, and a bare time misleads nobody."""
+    day = the_day_it_began(evidence, measured)
+
+    return day if evidence.ended_at.astimezone(UTC).date() != day else None
 
 
 def the_day_it_began(evidence: IncidentEvidence, measured: Measurements) -> date:
@@ -489,7 +493,9 @@ def the_log_group_figures(groups: Sequence[tuple[CitedEvidence, tuple[int, int]]
     That message is in its writer's words, and written in as given, as every
     quoted figure is. The rest of the row - how often, over which minutes, how
     far each number ranged - is Argus's, said from the lines' stamps in UTC:
-    there a time of day, or a span of them, said beside a day is on that day.
+    there a time of day, or a span of them, is on the day said beside it, and
+    said bare on the day the incident began, the one day the row leaves
+    unsaid.
     """
     return {name: figure
             for cited, quoted in groups
@@ -507,7 +513,7 @@ def _the_grouped_figures_in(text: str, prefix: str, quoted: tuple[int, int],
             name = f"{prefix}{len(figures) + 1}"
             figures[name] = (_as_the_alert_gave_it(figure, day) if quoted[0] <= at < quoted[1]
                              else _on_its_day(figure, the_day_said(beside, day)
-                                              if beside is not None else None, day))
+                                              if beside is not None else day, day))
         at += len(part)
 
     return figures
@@ -586,9 +592,26 @@ def with_figures_written(answer: SubmittedPostmortem,
     guess written in would be a number nobody measured. So is a working that
     cannot be worked out.
     """
+    return _with_figures_written_in(answer, figures, lambda result: result)
+
+
+def with_figures_written_with_every_day(answer: SubmittedPostmortem,
+                                        figures: dict[str, Figure],
+                                        day: date) -> SubmittedPostmortem:
+    """The answer written in as `with_figures_written` writes it, with every
+    instant it names dated against `day` (`with_every_day_said`) - a working's
+    too: worked out from the figures as the model was shown them, an instant
+    after the onset came out bare beside figures that said their day."""
+    return _with_figures_written_in(answer, with_every_day_said(figures, day),
+                                    lambda result: _with_the_day_said(result, day))
+
+
+def _with_figures_written_in(answer: SubmittedPostmortem, figures: dict[str, Figure],
+                             dated: Callable[[str], str]) -> SubmittedPostmortem:
     def written_in(prose: str) -> str:
         prose = _A_WORKING.sub(
-            lambda working: _worked_out(working, figures) or working.group(0),
+            lambda working: (dated(result) if (result := _worked_out(working, figures))
+                             else working.group(0)),
             prose
         )
 
@@ -821,7 +844,7 @@ def _on_its_day(figure: str, on: date | None, day: date) -> Figure:
     if span := _A_SPAN_OF_THE_CLOCK.fullmatch(figure):
         first = _as_a_reader_says(_at(on, span, 1), day).removesuffix(" UTC")
         return Figure(given=figure,
-                      written=f"{first}{_THE_DASH}{said_as_a_time(_at(on, span, 4))} UTC")
+                      written=f"{first}{SPAN_DASH}{said_as_a_time(_at(on, span, 4))} UTC")
 
     return _as_the_alert_gave_it(figure, day)
 

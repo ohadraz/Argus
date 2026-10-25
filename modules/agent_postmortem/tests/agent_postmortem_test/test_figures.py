@@ -57,6 +57,7 @@ from agent_postmortem.figures import (
     the_narration_figures,
     with_every_day_said,
     with_figures_written,
+    with_figures_written_with_every_day,
 )
 from agent_postmortem.prompting import (
     SubmittedFactor,
@@ -626,14 +627,17 @@ def test_a_time_beside_a_day_in_the_alert_is_written_as_its_sender_gave_it() -> 
     ("Oct 12 00:05 ERROR retry scheduled for Oct 12 06:00", (13, 51), "G1.2", "06:00"),
     ("ERROR checkout - 2 occurrences in 3 minutes, Oct 12 00:05–00:07", (0, 14), "G1.3",
      "Oct 12, 00:05–00:07 UTC"),
-    ("ERROR checkout - 2 occurrences in 3 minutes, 23:41–23:43", (0, 14), "G1.3", "23:41–23:43")
+    ("ERROR checkout - 2 occurrences in 3 minutes, 23:41–23:43", (0, 14), "G1.3",
+     "23:41–23:43 UTC"),
+    ("14:59 ERROR checkout", (6, 20), "G1.1", "14:59 UTC")
 ], ids=["argus-s-minute", "a-minute-the-message-says", "argus-s-span",
-        "a-span-on-the-day-it-began"])
+        "a-span-on-the-day-it-began", "a-minute-on-the-day-it-began"])
 def test_a_log_group_s_own_minutes_are_read_on_their_day_and_its_message_as_given(
         text: str, quoted: tuple[int, int], name: str, written: str) -> None:
     # The minutes are Argus's, said from the lines' stamps in UTC; the message
     # is its writer's, whose day and zone Argus does not know. Written as a
-    # bare time, a minute of the next day read as one of the onset's.
+    # bare time, a minute of the next day read as one of the onset's - and a
+    # minute of the onset's day, said bare on its row, is a time of that day.
     Scenario() \
         .given(
             some_group := CitedEvidence(label="G1", text=text)
@@ -672,6 +676,31 @@ def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> Non
                 "G2.1": Figure(given="06:00", written="06:00"),
                 "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")
             })
+        )
+
+
+@pytest.mark.unit
+def test_a_working_s_instant_is_dated_with_every_other_figure_off_the_page() -> None:
+    # Worked out from the figures as the model was shown them, an instant
+    # after the onset came out bare beside figures that said their day.
+    some_figures = {
+        BEGAN_FIGURE: Figure(given="2026-10-18T14:03:00Z", written="14:03 UTC"),
+        HELD_FIGURE: Figure(given="2 hours", written="2 hours")
+    }
+
+    Scenario() \
+        .given(
+            an_answer_working_an_instant := SubmittedPostmortem(
+                root_cause=f"It began at {{{BEGAN_FIGURE}}} and was held until "
+                           f"{{{BEGAN_FIGURE} + {HELD_FIGURE}}}.")
+        ) \
+        .when(
+            lambda: with_figures_written_with_every_day(an_answer_working_an_instant,
+                                                        some_figures, date(2026, 10, 18))
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(
+                root_cause="It began at Oct 18, 14:03 UTC and was held until Oct 18, 16:03 UTC."))
         )
 
 

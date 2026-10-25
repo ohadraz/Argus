@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import date
 from typing import Final
 
 from argus_core import A_REVISION
@@ -21,7 +22,12 @@ from argus_core.models import ChangeKind, CitedChange, ThreadMessage, Transcript
 
 from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
-from agent_postmortem.figures import Figure, as_said_off_the_page, with_figures_written
+from agent_postmortem.figures import (
+    Figure,
+    the_day_said_off_the_page,
+    with_figures_written,
+    with_figures_written_with_every_day,
+)
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.ordering import ORDER_TOOL_NAME, put_in_order
 from agent_postmortem.prompting import (
@@ -78,7 +84,7 @@ def answer_worth_writing(llm: LLMClient,
     figures = figures_shown(evidence, measured)
     # And as the summary's paragraph says them, which the two sentences it
     # carries are written with.
-    off_the_page = as_said_off_the_page(figures, evidence, measured)
+    off_the_page = the_day_said_off_the_page(evidence, measured)
     given = _what_was_given(evidence, measured, figures).model_copy(update={
         "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required})
     submitted = llm.converse(asked, [submit])
@@ -181,7 +187,7 @@ def _reading_of(turn: Turn,
                 leads: Sequence[ThreadMessage],
                 given: Given,
                 figures: dict[str, Figure],
-                off_the_page: dict[str, Figure]
+                off_the_page: date | None
                 ) -> tuple[SubmittedPostmortem, dict[str, list[str]]]:
     """What one turn amounts to: its answer and whatever is wrong with it, by
     the check that found it (`faults_by_check`).
@@ -195,14 +201,17 @@ def _reading_of(turn: Turn,
     The figures are written in last, after the check: it reads the names, and
     a figure written in before it would read as one the model wrote in digits.
     The two sentences the summary carries are written as it says its own
-    (`off_the_page`): written in with the page's figures, a time in one was
-    bare in a paragraph posted where no head dates the incident.
+    (`off_the_page`, the day they are dated against where they need one):
+    written in with the page's figures, a time in one was bare in a paragraph
+    posted where no head dates the incident.
     """
     answer = with_revisions_corrected(_answer_from(turn), given.revisions)
     of_the_turn = faults_in_the_turn(turn)
-    in_the_summary = with_figures_written(answer, off_the_page)
+    written = with_figures_written(answer, figures)
+    in_the_summary = (written if off_the_page is None
+                      else with_figures_written_with_every_day(answer, figures, off_the_page))
 
-    return (with_figures_written(answer, figures).model_copy(update={
+    return (written.model_copy(update={
                 "cause_in_plain_words": in_the_summary.cause_in_plain_words,
                 "still_at_risk": in_the_summary.still_at_risk}),
             {**({faults_in_the_turn.__name__: of_the_turn} if of_the_turn else {}),

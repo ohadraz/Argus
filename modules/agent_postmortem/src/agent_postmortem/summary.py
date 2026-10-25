@@ -36,8 +36,9 @@ from agent_postmortem.figures import (
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     UNOBSERVED_FROM_FIGURE,
-    as_said_off_the_page,
     figures_of,
+    the_day_said_off_the_page,
+    with_every_day_said,
 )
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sections import (
@@ -69,7 +70,9 @@ def the_executive_summary(evidence: IncidentEvidence,
     Every instant with its day where Argus stopped on another day than the one
     the incident began: the paragraph is posted where no head dates the
     incident, and there a bare time reads as the day it is read."""
-    figures = as_said_off_the_page(figures_of(evidence, measured), evidence, measured)
+    figures = figures_of(evidence, measured)
+    if (day := the_day_said_off_the_page(evidence, measured)) is not None:
+        figures = with_every_day_said(figures, day)
 
     def written(name: str) -> str:
         return figures[name].written

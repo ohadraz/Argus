@@ -30,6 +30,7 @@ from decimal import Decimal
 import pytest
 from agent_postmortem import DeploymentChangesRecord
 from agent_postmortem.conversation import answer_worth_writing
+from agent_postmortem.log_groups import grouped
 from agent_postmortem.ordering import ORDER_FIELD
 from agent_postmortem.prompting import (
     CAUSE_IN_PLAIN_WORDS_FIELD,
@@ -419,6 +420,30 @@ def test_a_time_the_narration_said_in_what_is_still_at_risk_is_dated_off_the_pag
         .then(
             _answered_with(STILL_AT_RISK_FIELD,
                            "The fault anchored at Sep 02, 07:44:29 UTC is still in place.")
+        )
+
+
+@pytest.mark.unit
+def test_a_minute_a_log_group_said_in_what_is_still_at_risk_is_dated_off_the_page() -> None:
+    # A group's minute on the onset's day is said bare on its row, and is a
+    # time of that day: off the page, in an incident Argus stopped the day
+    # after, it read as a time of the day it was read.
+    some_line = f"{to_iso(ONSET + timedelta(minutes=4))} ERROR checkout failed"
+    its_label = grouped([some_line], None, ONSET.date())[0].label
+
+    Scenario() \
+        .given(
+            a_model_quoting_the_logs := a_model_answering_in_turn(
+                an_answer(still_at_risk=f"Checkout last failed at {{{its_label}.1}}."))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_quoting_the_logs,
+                an_evidence_bundle(ended_at=ONSET + timedelta(days=1), log_lines=[some_line]),
+                a_measured_incident())
+        ) \
+        .then(
+            _answered_with(STILL_AT_RISK_FIELD, "Checkout last failed at Sep 02, 12:04 UTC.")
         )
 
 

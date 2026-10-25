@@ -414,14 +414,18 @@ def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: l
     ([f"2026-10-11T23:58:00Z {SOME_RATE.format('2.5')}",
       f"2026-10-12T00:04:00Z {SOME_RATE.format('7.5')}"],
      f"{SOME_RATE.format('#')} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04; "
-     f"# was 2.5 to 7.5, typically 2.5, highest at Oct 12 00:04")
-], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "its-highest-minute"])
+     f"# was 2.5 to 7.5, typically 2.5, highest at Oct 12 00:04"),
+    ([f"2026-10-12T00:05:00 {SOME_ERROR}"], f"Oct 12 00:05 {SOME_ERROR}")
+], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "its-highest-minute",
+        "a-stamp-with-no-zone"])
 def test_a_minute_off_the_day_the_incident_began_is_said_with_its_day(lines: list[str],
                                                                       said: str) -> None:
     # Said bare in an incident whose logs ran on another day, the model and
     # the reader both took it for a minute of the onset's day. A span on one
     # day says it once; one into the next spaces its dash, so each end is a
-    # figure of its own and the second is read on its day.
+    # figure of its own and the second is read on its day. A stamp with no
+    # zone is UTC's: read as the host's, its day was whichever the host's
+    # clock put it on.
     Scenario() \
         .given(lines) \
         .when(

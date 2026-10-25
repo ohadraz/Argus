@@ -19,13 +19,13 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Final, NamedTuple
 
 from argus_core import said_as_a_day
 from argus_core.models import CitedEvidence
 
-from agent_postmortem.figures import AROUND_A_WORD, is_a_figure
+from agent_postmortem.figures import AROUND_A_WORD, SPAN_DASH, is_a_figure
 from agent_postmortem.stamps import stamped, the_minute_inside
 
 # How a group's label begins. The rest is the start of a digest of the message,
@@ -36,11 +36,13 @@ LOG_GROUP_PREFIX: Final = "G"
 # sixty-five thousand, for an incident reading a few dozen distinct messages.
 _DIGEST_LENGTH: Final = 4
 
-# Between the first minute of a span and its last.
-_TO: Final = "–"
-# Between them where they fall on different days. Spaced, so each end is a
-# word of its own and the second is read with the day said beside it.
-_TO_ANOTHER_DAY: Final = " – "
+# Between the first minute of a span and its last where they fall on
+# different days. Spaced, so each end is a word of its own and the second is
+# read with the day said beside it.
+_TO_ANOTHER_DAY: Final = f" {SPAN_DASH} "
+
+# A number inside a message - the part that varies from minute to minute.
+_A_NUMBER: Final = re.compile(r"(\d+(?:\.\d+)?)")
 
 
 class LogGroup(NamedTuple):
@@ -48,9 +50,6 @@ class LogGroup(NamedTuple):
     it quotes sits - the one part of the row that is in its writer's words."""
     cited: CitedEvidence
     quoted: tuple[int, int]
-
-# A number inside a message - the part that varies from minute to minute.
-_A_NUMBER: Final = re.compile(r"(\d+(?:\.\d+)?)")
 
 
 def grouped(log_lines: Sequence[str],
@@ -93,10 +92,21 @@ def the_groups_of(log_lines: Sequence[str],
     groups: dict[str, list[tuple[datetime | None, list[str]]]] = {}
     for line in log_lines:
         logged_at, message = stamped(line)
-        groups.setdefault(_key_of(message), []).append((logged_at, _A_NUMBER.split(message)))
+        groups.setdefault(_key_of(message), []).append((_in_utc(logged_at),
+                                                         _A_NUMBER.split(message)))
 
     return [_a_group(_label_for(key), *_said(occurrences, metrics_stopped_at, day))
             for key, occurrences in groups.items()]
+
+
+def _in_utc(logged_at: datetime | None) -> datetime | None:
+    """A stamp in UTC, one written with no zone read as UTC's - as
+    `the_minute_inside` reads it. Read as the host's, its minute was said on
+    whichever day the host's clock put it."""
+    if logged_at is None:
+        return None
+
+    return (logged_at if logged_at.tzinfo else logged_at.replace(tzinfo=UTC)).astimezone(UTC)
 
 
 def _a_group(label: str, text: str, quoted: tuple[int, int]) -> LogGroup:
@@ -290,7 +300,7 @@ def _how_often(occurrences: list[tuple[datetime | None, list[str]]], day: date) 
         return (f"{counted} in {minutes} minutes, "
                 f"{_clock(first, day)}{_TO_ANOTHER_DAY}{_clock(last, day)}")
 
-    return f"{counted} in {minutes} minutes, {_clock(first, day)}{_TO}{last:%H:%M}"
+    return f"{counted} in {minutes} minutes, {_clock(first, day)}{SPAN_DASH}{last:%H:%M}"
 
 
 def _how_it_ranged(readings: list[tuple[datetime | None, str]], day: date) -> str:
