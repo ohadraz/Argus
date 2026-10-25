@@ -5,17 +5,138 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01RHRnLRwQAECvXtfNLPK3jX",
+      "id": "toolu_01TgGayCJd57A6B9h75b4vsc",
       "input": {
-        "answer": false,
-        "explanation": "The whole fault is inside this repository. In src/io_shop/spend_summary.py, `average_spend_per_item_this_month` divided by the number of purchases made this month, and that number is zero for any shopper who hasn't bought anything this month. With the patch it returns 0 for that case. The flag only decides which code path a request takes, so nothing about the flag service or any other outside system has to change. With the patch deployed, monthly-spend-feature can be switched back on without those requests failing."
+        "action_items": [
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Turn on monthly-spend-feature, and flags like it, in stages, starting with a small share of shoppers instead of most traffic at once.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Watch the account page error rate at each stage of a flag rollout, and switch the flag back off automatically when the rate rises above its baseline.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Require tests that exercise a flag's on path before the flag can be switched on in production, including accounts with past purchases but none this month.",
+            "type": "process"
+          },
+          {
+            "answers": [],
+            "item": "Keep monthly-spend-feature off until the fix proposed in pull request #351 has been merged and deployed.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [],
+            "item": "Route HighErrorRate on io-shop so that it pages the on-call engineer.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "Gbac1",
+              "G5309"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account page requests failed. The share of all requests returning server errors rose from {series_before} before the onset to {series_while_broken} on average, with a peak of {series_at_worst}. The service's own warning put the account page error rate at its highest at {Gbac1.7}."
+          },
+          {
+            "cites": [
+              "G5309"
+            ],
+            "ruled_out": [],
+            "step": "During {G5309.3}, account page requests raised ZeroDivisionError: division by zero in src/io_shop/spend_summary.py, at line {F1.1}, and each one became a failed page."
+          },
+          {
+            "cites": [
+              "P1",
+              "G7e5d",
+              "G971b",
+              "Gce95",
+              "T15",
+              "T18",
+              "T20",
+              "T21"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T8",
+                  "T9",
+                  "T10"
+                ],
+                "what": "A deployment: no deploy came back for the day before the onset, the only production change read was the flag switch, and all replicas run one revision."
+              },
+              {
+                "cites": [
+                  "G46bc",
+                  "Gbac1",
+                  "Gad41"
+                ],
+                "what": "Shoppers closing the connection (ClientDisconnected): these errors show up across the whole log window, including before the onset, while the account page error rate sat near its usual level and pages rendered normally."
+              }
+            ],
+            "step": "Requests reached that code because the feature flag monthly-spend-feature was switched on by admin at {P1.1}. That sent account page requests down the new spend-summary path. Before the switch, every flag evaluation came back off. In the minute of the switch, {G971b.3} of {G971b.4} came back on, and after that every evaluation came back on. Switching the flag off at {T18.1} brought the service back below the incident's level from {T20.2}, and the action was judged confirmed."
+          },
+          {
+            "cites": [
+              "F1",
+              "G5309"
+            ],
+            "ruled_out": [],
+            "step": "The division by zero likely happens because the monthly average divides by the number of this month's purchases. That list is empty for an ordinary shopper who has bought before but not yet this month, which Code-Fix's reading calls very common. The lifetime average's divisor is empty only for accounts that have never bought anything."
+          }
+        ],
+        "cause_in_plain_words": "Switching on a new monthly spending summary sent shoppers' account pages through a calculation that divided by zero, likely because shoppers who had bought before but not yet this month had no purchases this month to divide by.",
+        "cause_rests_on_an_unrun_reading": true,
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "No test of the flag-on spend-summary path for a shopper with past purchases but none this month was seen before the flag was switched on. Code-Fix's reading says such calls raise ZeroDivisionError against the current code.",
+            "had_it_been_otherwise": "A test like that would have hit the division by zero before the flag was switched on in production.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The flag went from off to on for most evaluations in one step. In the first minute, {G971b.3} of {G971b.4} evaluations were on, and every evaluation was on after that. No staged rollout of the flag was seen, and no check of the error rate tied to the flag change was seen.",
+            "had_it_been_otherwise": "A staged rollout would have exposed only a small share of shoppers to the failing path, and a check tied to the flag change could have switched it back before most traffic was hit.",
+            "label": "CF-2"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            "Argus switched monthly-spend-feature off {T18.1 - alert_raised} after the alert was raised, acting on the only candidate, and the revert can be undone.",
+            "Argus confirmed the revert from the service's own metrics before marking the incident mitigated.",
+            "Code-Fix opened draft pull request #351 {T23.1 - alert_raised} after the alert was raised, with tests for shoppers who have past purchases but none this month."
+          ],
+          "went_wrong": [
+            "Nobody was paged: no on-call incident was linked, so no person was told about an incident in which a large share of account pages failed."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "With monthly-spend-feature on, account pages go through `average_spend_per_item_this_month` in src/io_shop/spend_summary.py. That function divides the shopper's total for this month by the number of purchases they made this month. For a shopper who has bought before but not yet this month, that number is zero, so the request raised ZeroDivisionError at line {F1.1}. `serve_account_page` caught the error at the request boundary and returned a failed page.",
+        "still_at_risk": "The division by zero is still in the code with the flag off, so switching monthly-spend-feature back on would likely make account pages fail again for shoppers who have bought before but not yet this month.",
+        "symptom": "Account pages failed to load for many shoppers"
       },
-      "name": "answer_question",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgHUo7t5BXzWzSNQuR7tp",
+  "id": "msg_011CgPiqwdQibh68hY5Jm1cs",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -25,13 +146,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3416
+      "ephemeral_5m_input_tokens": 2227
     },
-    "cache_creation_input_tokens": 3416,
-    "cache_read_input_tokens": 12171,
+    "cache_creation_input_tokens": 2227,
+    "cache_read_input_tokens": 9094,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 226,
+    "output_tokens": 2132,
     "output_tokens_details": {
       "thinking_tokens": 0
     },
