@@ -1923,6 +1923,113 @@ def test_a_role_said_where_no_lines_outside_the_patch_were_shown_is_accepted() -
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("contrast", [
+    "and the reconciliation still compares it with the purchases",
+    "and the reconciliation sets it against the purchases"
+], ids=["its-own-verb", "against"])
+def test_a_sentence_saying_what_the_line_set_against_a_call_does_is_accepted(
+        contrast: str) -> None:
+    # A true contrast: each line is said as its row says it, and the role is
+    # said of the field. The refusal asks for exactly this sentence.
+    Scenario() \
+        .given(
+            an_answer_telling_them_apart := _an_answer(
+                root_cause=f"The monthly statement and the spend summary still read it, "
+                           f"{contrast}, so the field was still relied on.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_telling_them_apart, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "As a result, the monthly statement, the spend summary and the reconciliation read it.",
+    "The monthly statement, the spend summary and the reconciliation read it, as its "
+    "docstring says.",
+    "Readers such as the monthly statement and the reconciliation read it.",
+    "The monthly statement as well as the reconciliation read it."
+], ids=["as-a-result", "as-it-says", "such-as", "as-well-as"])
+def test_an_as_that_says_no_role_is_accepted(sentence: str) -> None:
+    Scenario() \
+        .given(
+            an_answer := _an_answer(root_cause=sentence)
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("lumped", [
+    "Monthly statements, spend summaries and the reconciliation read it as the month's figure.",
+    "U1, U2 and U3 read it as the month's figure."
+], ids=["plurals", "labels"])
+def test_a_line_is_named_in_the_plural_or_by_its_label(lumped: str) -> None:
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(root_cause=lumped)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named("[U3]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_sentence_saying_the_lines_would_derive_it_themselves_is_named() -> None:
+    # The reconciliation adds the purchases up already: that all of them should
+    # have derived the month themselves says of it what its row does not.
+    lumped = ("Held until the monthly statement, the spend summary and the reconciliation "
+              "derived the month total themselves.")
+
+    Scenario() \
+        .given(
+            an_answer_lumping_them := _an_answer(contributing_factors=[
+                SubmittedFactor(label="CF-1", factor=DONT_CARE_PROSE,
+                                had_it_been_otherwise=lumped, addressed_by=["AI-1"])])
+        ) \
+        .when(
+            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            all_of(
+                _named(f"[{lumped}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_derivation_said_before_the_lines_are_named_is_accepted() -> None:
+    # The change meant the month to be derived; that the readers still read
+    # the stored field is true of every one of them.
+    Scenario() \
+        .given(
+            an_answer := _an_answer(
+                root_cause="The month was to be derived from the purchases, but the monthly "
+                           "statement, the spend summary and the reconciliation still read it.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
 def _given_lines_of_two_kinds() -> Given:
     """`SOME_GIVEN`, with lines outside Code-Fix's patch of both kinds: two
     taking the stored figure's value, and one setting it against what a
@@ -1935,7 +2042,8 @@ def _given_lines_of_two_kinds() -> Given:
         "U3": CodeUse(name="month", path="src/shop/spend_reconciliation.py", line=20,
                       function="reconcile",
                       does="compares it with bought(account), where bought(account) returns "
-                           "sum(account.purchases)")
+                           "sum(account.purchases)",
+                      set_against_a_call=True)
     }})
 
 

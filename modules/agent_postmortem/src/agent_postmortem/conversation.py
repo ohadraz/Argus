@@ -37,14 +37,10 @@ from agent_postmortem.prompting import (
     the_change_that_set_it_off,
     the_evidence_labelled,
     the_files_as_they_ran_labelled,
+    the_uses_outside_labelled,
 )
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
-from agent_postmortem.sections import (
-    USES_OUTSIDE_PREFIX,
-    label_of,
-    logs_in_the_gap_of,
-    record_action_items_of,
-)
+from agent_postmortem.sections import logs_in_the_gap_of, record_action_items_of
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +126,9 @@ def _what_was_given(evidence: IncidentEvidence,
         figures=figures,
         as_it_ran={cited.label: cited.text.split("\n", 1)[0]
                    for cited in the_files_as_they_ran_labelled(evidence)},
-        uses={label_of(USES_OUTSIDE_PREFIX, position): use
-              for position, use in enumerate(evidence.uses_outside, start=1)}
+        uses={cited.label: use
+              for cited, use in zip(the_uses_outside_labelled(evidence), evidence.uses_outside,
+                                    strict=True)}
     )
 
 

@@ -222,7 +222,9 @@ def _uses_in(path: str,
         if isinstance(node, ast.Attribute) and node.attr in changes.fields:
             yield CodeUse(name=node.attr, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
-                          does=_what_it_does(node, parents, text, lines, returns))
+                          does=_what_it_does(node, parents, text, lines, returns),
+                          set_against_a_call=_the_function_that_only_returns_it_calls(
+                              _the_operand_it_is_set_against(node, parents), returns) is not None)
         elif isinstance(node, ast.Call) and (called := _a_changed_call(node, changes, modules)):
             yield CodeUse(name=called, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
@@ -317,19 +319,16 @@ def _what_it_does(node: ast.Attribute,
     still counted among the readers that take it as the month's."""
     parent = parents.get(node)
     line = lines[node.lineno - 1].strip()
+    other = _the_operand_it_is_set_against(node, parents)
 
     if isinstance(node.ctx, ast.Store):
         return f"sets it: {line}"
 
-    if isinstance(parent, ast.Compare):
-        other = parent.comparators[0] if parent.left is node else parent.left
-
+    if isinstance(parent, ast.Compare) and other is not None:
         return (f"compares it with {ast.get_source_segment(text, other)}"
                 f"{_what_it_returns(other, text, returns)}")
 
-    if isinstance(parent, ast.BinOp) and type(parent.op) in _VERBS:
-        other = parent.right if parent.left is node else parent.left
-
+    if isinstance(parent, ast.BinOp) and other is not None:
         return (f"{_VERBS[type(parent.op)]} with it: {ast.get_source_segment(text, parent)}"
                 f"{_what_it_returns(other, text, returns)}")
 
@@ -345,14 +344,39 @@ def _what_it_does(node: ast.Attribute,
     return f"reads it: {line}"
 
 
+def _the_operand_it_is_set_against(node: ast.Attribute, parents: Parents) -> ast.expr | None:
+    """What a field is compared with, or worked out with, on its line - `None`
+    where the expression it sits in is neither."""
+    parent = parents.get(node)
+
+    if isinstance(parent, ast.Compare):
+        return parent.comparators[0] if parent.left is node else parent.left
+
+    if isinstance(parent, ast.BinOp) and type(parent.op) in _VERBS:
+        return parent.right if parent.left is node else parent.left
+
+    return None
+
+
+def _the_function_that_only_returns_it_calls(operand: ast.expr | None,
+                                             returns: Mapping[str, str]) -> str | None:
+    """The function of its file that only returns an operand calls - `None`
+    where it is no call of one."""
+    if (isinstance(operand, ast.Call) and isinstance(operand.func, ast.Name)
+            and operand.func.id in returns):
+        return operand.func.id
+
+    return None
+
+
 def _what_it_returns(operand: ast.expr, text: str, returns: Mapping[str, str]) -> str:
     """", where <the call> returns <what it returns>" for a call of a function
     of the file that only returns - nothing for any other operand."""
-    if (isinstance(operand, ast.Call) and isinstance(operand.func, ast.Name)
-            and operand.func.id in returns):
-        return f", where {ast.get_source_segment(text, operand)} returns {returns[operand.func.id]}"
+    called = _the_function_that_only_returns_it_calls(operand, returns)
+    if called is None:
+        return ""
 
-    return ""
+    return f", where {ast.get_source_segment(text, operand)} returns {returns[called]}"
 
 
 def _the_function_around(node: ast.AST, parents: Parents) -> str | None:

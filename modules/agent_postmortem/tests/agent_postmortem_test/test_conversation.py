@@ -679,7 +679,7 @@ def test_a_root_cause_saying_one_role_of_lines_whose_rows_differ_is_asked_for_ag
         CodeUse(name="month", path="src/shop/spend_reconciliation.py", line=20,
                 function="reconcile",
                 does="compares it with bought(account), where bought(account) returns "
-                     "sum(account.purchases)")
+                     "sum(account.purchases)", set_against_a_call=True)
     ]
 
     Scenario() \

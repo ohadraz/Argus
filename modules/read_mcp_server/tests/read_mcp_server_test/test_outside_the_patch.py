@@ -515,7 +515,7 @@ def test_a_field_set_against_a_one_line_function_of_its_file_says_what_that_retu
         .then(
             the_answer_was(CodeOutsideThePatch(
                 uses=[CodeUse(name="month", path=some_reader, line=6, function="reader",
-                              does=does)],
+                              does=does, set_against_a_call=True)],
                 defined={"bought": [some_reader], "reader": [some_reader]}
             ))
         )
@@ -547,7 +547,7 @@ def test_what_a_function_returns_is_quoted_as_its_source_spells_it_on_one_line()
                 uses=[CodeUse(name="month", path=some_reader, line=9, function="reader",
                               does="compares it with bought(account), where bought(account) "
                                    "returns sum(purchase.price for purchase in "
-                                   "account.purchases)")],
+                                   "account.purchases)", set_against_a_call=True)],
                 defined={"bought": [some_reader], "reader": [some_reader]}
             ))
         )

@@ -182,9 +182,18 @@ _A_ROLE: Final = re.compile(
     r"|\btrust|\brel(?:y|ies|ied|ying) on\b|\btreat",
     re.IGNORECASE)
 
-# A line outside the patch that sets the field against what a function of its
-# own file returns, as the read server says it (`outside_the_patch`).
-_SET_AGAINST_A_CALL: Final = re.compile(r", where .+ returns ")
+# An "as" that says no role: "such as", "as well as", "as a result", and "as"
+# a source says something ("as its docstring says").
+_AN_AS_OF_NO_ROLE: Final = re.compile(
+    r"\bsuch as\b|\bas well as\b|\bas a result\b|\bas [^,.;]*?\b(?:says|said|shows)\b",
+    re.IGNORECASE)
+
+# What a line is said to do in place of reading the stored figure - work it out
+# for itself. A role only where the lines are named first: "the month was to
+# be derived" before them says what the change meant, not what they do.
+_A_DERIVATION: Final = re.compile(
+    r"\bderiv\w*|\bwork\w*(?:\s+\w+){0,3}\s+out\b|\badd\w*(?:\s+\w+){0,3}\s+up\b",
+    re.IGNORECASE)
 
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
@@ -454,7 +463,9 @@ def _one_role_said_of_lines_whose_rows_differ(answer: SubmittedPostmortem,
     month's figure": the reconciliation's own row sets it against the
     purchases added up again. That they all read it is true, and passes; a
     role said of them together is said of one row wrongly. Only a sentence
-    naming both kinds can, and only lines shown in rows can be held to it."""
+    naming both kinds can, and only lines shown in rows can be held to it. One
+    saying what the checking line does - its own row's verb, or "against" -
+    tells them apart, and is the sentence the fault asks for."""
     if not given.uses:
         return []
 
@@ -474,27 +485,59 @@ def _one_role_said_of_lines_whose_rows_differ(answer: SubmittedPostmortem,
             for field, prose in said
             if prose is not None
             for sentence in _A_SENTENCE_END.split(prose.strip())
-            if _A_ROLE.search(sentence)
-            for named in [_the_rows_named_in(sentence, given.uses)]
-            if len({bool(_SET_AGAINST_A_CALL.search(given.uses[label].does))
-                    for label in named}) == 2]
+            for named in [_where_each_row_is_named(sentence, given.uses)]
+            if _says_one_role_of_both_kinds(sentence, named, given.uses)]
 
 
-def _the_rows_named_in(sentence: str, uses: dict[str, CodeUse]) -> list[str]:
-    """The label of each row whose file or function a sentence names: the file
-    by its path, its stem, the stem with spaces for underscores, or the stem's
-    last word - whole words, whatever their case."""
-    return [label for label, use in uses.items()
-            if any(re.search(rf"(?<![\w/.]){re.escape(name)}(?![\w/])", sentence, re.IGNORECASE)
-                   for name in _names_of(use))]
+def _says_one_role_of_both_kinds(sentence: str,
+                                 named: dict[str, int],
+                                 uses: dict[str, CodeUse]) -> bool:
+    """Whether a sentence naming these rows names both kinds, says a role of
+    them, and says nothing of what the checking lines do."""
+    checking = [label for label in named if uses[label].set_against_a_call]
+    if not checking or len(checking) == len(named):
+        return False
+
+    verbs = {"against", *(uses[label].does.split(maxsplit=1)[0] for label in checking)}
+    if any(re.search(rf"\b{re.escape(verb)}\b", sentence, re.IGNORECASE) for verb in verbs):
+        return False
+
+    return bool(_A_ROLE.search(_AN_AS_OF_NO_ROLE.sub(" ", sentence))
+                or _A_DERIVATION.search(sentence, min(named.values())))
 
 
-def _names_of(use: CodeUse) -> set[str]:
-    """Every name a sentence may call a line's file or function by."""
+def _where_each_row_is_named(sentence: str, uses: dict[str, CodeUse]) -> dict[str, int]:
+    """Each row whose label, file or function a sentence names, with where it
+    is first named: the file by its path, its stem, the stem with spaces for
+    underscores, or the stem's last word - whole words, in the singular or the
+    plural, whatever their case."""
+    named: dict[str, int] = {}
+
+    for label, use in uses.items():
+        found = [match.start()
+                 for name in _names_of(label, use)
+                 for match in re.finditer(rf"(?<![\w/.]){_in_either_number(name)}(?![\w/])",
+                                          sentence, re.IGNORECASE)]
+        if found:
+            named[label] = min(found)
+
+    return named
+
+
+def _names_of(label: str, use: CodeUse) -> set[str]:
+    """Every name a sentence may call a line by."""
     stem = use.path.rsplit("/", 1)[-1].removesuffix(".py")
 
-    return {use.path, stem, stem.replace("_", " "), stem.rsplit("_", 1)[-1],
+    return {label, use.path, stem, stem.replace("_", " "), stem.rsplit("_", 1)[-1],
             *([use.function] if use.function else [])}
+
+
+def _in_either_number(name: str) -> str:
+    """A pattern for a name, singular or plural: +s, +es, or y to ies."""
+    if name.endswith("y"):
+        return rf"(?:{re.escape(name)}|{re.escape(name[:-1])}ies)"
+
+    return rf"{re.escape(name)}(?:e?s)?"
 
 
 def _steps_resting_on_nothing(answer: SubmittedPostmortem, given: Given) -> list[str]:

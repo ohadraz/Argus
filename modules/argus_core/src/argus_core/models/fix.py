@@ -80,6 +80,11 @@ class CodeUse(BaseModel):
     the branch holds, byte for byte - as `FileAsItRan.as_read` says of a file
     Code-Fix's reading names. Only where it is does the line say anything of
     what ran.
+
+    `set_against_a_call` is whether the line sets what it uses against a
+    function of its own file whose whole body is one `return` - what `does`
+    quotes that function returning. A line that does reads it to check it, not
+    as the figure it uses.
     """
 
     name: str
@@ -89,6 +94,7 @@ class CodeUse(BaseModel):
     does: str
     revision: str | None = None
     as_read: bool = False
+    set_against_a_call: bool = False
 
 
 class CodeOutsideThePatch(BaseModel):
