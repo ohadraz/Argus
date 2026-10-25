@@ -1217,8 +1217,8 @@ def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
                     (step.by, None, None), (step.kind, None, None),
                     (step.outcome_in_the_table, None, None)]
                    for step in steps],
-                  # The time column as wide as the timeline's, since a step off
-                  # the head's day says its day as a timeline row does; who as
+                  # The time column as wide as a time with its day, since a step
+                  # off the head's day says its day as a timeline row does; who as
                   # wide as "Code-Fix Agent", and the outcome as "withdrawn,
                   # still in place" - the action, which wraps anyway, gives way,
                   # though no further than "Reverted the feature flag".

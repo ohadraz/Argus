@@ -195,18 +195,15 @@ def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
     # and a value broken over two lines was found only by reading a PDF by
     # hand. Each value here is the widest its column holds on one line: a time
     # off the head's day, the fix row's author, the kind with no way back, and
-    # the longest outcome that fits. The action wraps anyway, but a flag's
-    # revert keeps "Reverted the feature flag" on its first line: narrowed to
-    # make room for the others, it broke over three, with "flag" alone.
-    some_step = ResolutionStep(at=SOME_ONSET + timedelta(days=7, minutes=42, seconds=44),
-                               action="Reverted the feature flag monthly-spend-feature",
-                               by="Code-Fix Agent", has_a_way_back=False,
-                               outcome="withdrawn, still in place", label="M1")
+    # the longest outcome that fits.
+    widest_step = ResolutionStep(at=SOME_ONSET + timedelta(days=7, minutes=42, seconds=44),
+                                 action="dont care", by="Code-Fix Agent", has_a_way_back=False,
+                                 outcome="withdrawn, still in place", label="M1")
 
     Scenario() \
         .given(
             some_rendered := render(
-                a_postmortem(resolution=[some_step],
+                a_postmortem(resolution=[widest_step],
                              timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)]),
                 an_alert(), [], SOME_ADDRESS)
         ) \
@@ -214,11 +211,35 @@ def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
             lambda: as_pdf(some_rendered)
         ) \
         .then(all_of(
-            _a_cell_reads("Oct 18 14:45:44"),
-            _a_cell_reads("Reverted the feature flag"),
-            _a_cell_reads("Code-Fix Agent"),
+            _a_cell_reads(f"{widest_step.at:%b %d %H:%M:%S}"),
+            _a_cell_reads(widest_step.by),
             _a_cell_reads("nothing to put back"),
-            _a_cell_reads("withdrawn, still in place")))
+            _a_cell_reads(widest_step.outcome)))
+
+
+@pytest.mark.unit
+def test_a_flag_revert_keeps_reverted_the_feature_flag_on_one_line() -> None:
+    # The action is the column that gives way to the others, and wraps anyway
+    # - but a flag's revert keeps "Reverted the feature flag" on its first
+    # line: narrowed to make room for the others, it broke over three, with
+    # "flag" alone.
+    first_line = "Reverted the feature flag"
+    revert = ResolutionStep(at=SOME_ONSET, action=f"{first_line} monthly-spend-feature",
+                            by="dont care", has_a_way_back=True, outcome="dont care",
+                            label="M1")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(resolution=[revert],
+                             timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_ONSET)]),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_cell_reads(first_line))
 
 
 @pytest.mark.unit
