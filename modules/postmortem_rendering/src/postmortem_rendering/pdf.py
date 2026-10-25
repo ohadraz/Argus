@@ -1220,8 +1220,9 @@ def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
                   # The time column as wide as the timeline's, since a step off
                   # the head's day says its day as a timeline row does; who as
                   # wide as "Code-Fix Agent", and the outcome as "withdrawn,
-                  # still in place" - the action, which wraps anyway, gives way.
-                  widths=(12, 31, 35, 28, 31, 37),
+                  # still in place" - the action, which wraps anyway, gives way,
+                  # though no further than "Reverted the feature flag".
+                  widths=(10, 29, 40, 27, 31, 37),
                   landings=[(step.label,) if step.label else () for step in steps],
                   under_a_heading=_A_HEADING if taken.person is None else 0.0)
 

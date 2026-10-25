@@ -195,9 +195,12 @@ def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
     # and a value broken over two lines was found only by reading a PDF by
     # hand. Each value here is the widest its column holds on one line: a time
     # off the head's day, the fix row's author, the kind with no way back, and
-    # the longest outcome that fits.
+    # the longest outcome that fits. The action wraps anyway, but a flag's
+    # revert keeps "Reverted the feature flag" on its first line: narrowed to
+    # make room for the others, it broke over three, with "flag" alone.
     some_step = ResolutionStep(at=SOME_ONSET + timedelta(days=7, minutes=42, seconds=44),
-                               action="dont care", by="Code-Fix Agent", has_a_way_back=False,
+                               action="Reverted the feature flag monthly-spend-feature",
+                               by="Code-Fix Agent", has_a_way_back=False,
                                outcome="withdrawn, still in place", label="M1")
 
     Scenario() \
@@ -212,6 +215,7 @@ def test_each_cell_of_a_step_is_printed_on_one_line() -> None:
         ) \
         .then(all_of(
             _a_cell_reads("Oct 18 14:45:44"),
+            _a_cell_reads("Reverted the feature flag"),
             _a_cell_reads("Code-Fix Agent"),
             _a_cell_reads("nothing to put back"),
             _a_cell_reads("withdrawn, still in place")))
