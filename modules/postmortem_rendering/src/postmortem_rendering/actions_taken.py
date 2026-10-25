@@ -8,12 +8,14 @@ one thing still owed sits in a list further down.
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Final
 
 from argus_core import said_as_a_time
 from argus_core.models import PostmortemDocument, whether_it_can_be_put_back
 from pydantic import BaseModel, ConfigDict
 
+from postmortem_rendering.formatting import on_the_clock_of
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import ReportedResolution
 from postmortem_rendering.supporting import OPENED_AS_A_DRAFT
@@ -72,11 +74,20 @@ class ActionsTakenSection(BaseModel):
 
 
 def the_actions_taken(postmortem: PostmortemDocument,
-                      resolution: ReportedResolution | None) -> ActionsTakenSection:
+                      resolution: ReportedResolution | None,
+                      day: date | None) -> ActionsTakenSection:
     """The section, with a person's resolution read off the record when the
-    document is shown - it can arrive after the document was written."""
+    document is shown - it can arrive after the document was written.
+
+    Each time is said against `day`, the day the head names: alone on it, and
+    with its own day on any other, since the response often runs on a later
+    day than the incident began. `None` where the document names no day, and
+    every time is said alone."""
+    def said(at: datetime) -> str:
+        return on_the_clock_of(at, day) if day is not None else said_as_a_time(at)
+
     steps = tuple(StepRow(label=step.label,
-                          at=said_as_a_time(step.at),
+                          at=said(step.at),
                           action=Line(runs=(Run(text=step.action),)),
                           by=step.by,
                           kind=whether_it_can_be_put_back(step.has_a_way_back),
@@ -89,7 +100,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
         proposed = next((entry.at for entry in postmortem.timeline if entry.who == _THE_FIXER),
                         None)
         fix = StepRow(label=None,
-                      at=said_as_a_time(proposed) if proposed else "-",
+                      at=said(proposed) if proposed else "-",
                       action=Line(runs=(Run(text="Proposed a fix: "),
                                         Run.a_pull_request(postmortem.pull_request)
                                         .linked_to(postmortem.pull_request.url))),

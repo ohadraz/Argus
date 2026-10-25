@@ -113,6 +113,11 @@ def _when_and_for_how_long(measured: Measurements,
 
     With no onset measured, said so, and the time counted from the alert
     rather than from when it broke: the alert is when the rule fired.
+
+    A stretch never seen back ends at the incident's ending, said as the
+    instant it was still not back by rather than as when Argus stopped
+    working on it: a walk ending in a recommendation or a mitigation goes on
+    to Code-Fix after it.
     """
     onset = measured.onset_at is not None
     said = [] if onset else [f"No onset was measured; the alert came at {written(BEGAN_FIGURE)}."]
@@ -120,8 +125,8 @@ def _when_and_for_how_long(measured: Measurements,
     if measured.unobserved_from is not None:
         return [*said,
                 f"No metrics were collected from {written(UNOBSERVED_FROM_FIGURE)} on, and "
-                f"they had not resumed when Argus stopped working on the incident at "
-                f"{written(ARGUS_STOPPED_FIGURE)}, {written(DURATION_FIGURE)} later.",
+                f"they had not resumed by {written(ARGUS_STOPPED_FIGURE)}, "
+                f"{written(DURATION_FIGURE)} later.",
                 _what_the_logs_show(read, written_if_any)]
 
     broke = f"The service broke at {written(BEGAN_FIGURE)} and was" if onset else "The service was"
@@ -129,8 +134,8 @@ def _when_and_for_how_long(measured: Measurements,
 
     if measured.back_to_normal_at is None:
         return [*said,
-                f"{broke} not back to normal when Argus stopped working on the incident at "
-                f"{written(ARGUS_STOPPED_FIGURE)}, at least {written(DURATION_FIGURE)} {later}."]
+                f"{broke} not back to normal by {written(ARGUS_STOPPED_FIGURE)}, "
+                f"at least {written(DURATION_FIGURE)} {later}."]
 
     return [*said,
             f"{broke} back to normal at {written(BACK_TO_NORMAL_FIGURE)}, "

@@ -1217,7 +1217,9 @@ def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
                     (step.by, None, None), (step.kind, None, None),
                     (step.outcome_in_the_table, None, None)]
                    for step in steps],
-                  widths=(12, 18, 48, 24, 34, 38),
+                  # The time column as wide as the timeline's, since a step off
+                  # the head's day says its day as a timeline row does.
+                  widths=(12, 31, 41, 24, 34, 32),
                   landings=[(step.label,) if step.label else () for step in steps],
                   under_a_heading=_A_HEADING if taken.person is None else 0.0)
 

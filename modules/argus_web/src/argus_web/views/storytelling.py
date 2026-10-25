@@ -132,7 +132,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     lines: dict[str, LogLine] = {}
     # Each change with the moment of the line that read it.
     changed: dict[str, tuple[ChangeEvent, datetime]] = {}
-    toggled: dict[tuple[str, str], FlagChange] = {}
+    toggled: dict[tuple[str, str], tuple[FlagChange, datetime]] = {}
 
     for line in narration:
         minutes.update({bucket.bucket_id: bucket for bucket in line.buckets})
@@ -141,10 +141,11 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
         # Keyed by flag and moment together: one flag moving twice is two
         # changes, and it is exactly the flag that moved twice - tried, then
         # put back - whose second move a reader must not lose.
-        toggled.update({(toggle.flag, toggle.occurred_at): toggle
+        toggled.update({(toggle.flag, toggle.occurred_at): (toggle, line.at)
                         for toggle in line.flag_changes})
 
-    flag_history = a_flag_history(sorted(toggled.values(), key=lambda toggle: toggle.occurred_at))
+    flag_history = a_flag_history([(toggle, to_iso(read_at)) for toggle, read_at in
+                                   sorted(toggled.values(), key=lambda read: read[0].occurred_at)])
     held = the_rows_held(minutes.values(), lines.values(), flag_history)
 
     return Story(

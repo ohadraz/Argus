@@ -183,6 +183,25 @@ def test_a_flag_that_moved_twice_keeps_both_of_its_moves() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("read_at", "said"), [
+    (datetime(2026, 8, 30, 10, 15, tzinfo=UTC), "10:13"),
+    (datetime(2026, 8, 31, 9, 0, tzinfo=UTC), "Aug 30 10:13")
+], ids=["on-the-day-it-was-read", "a-day-before-it-was-read"])
+def test_when_a_flag_was_moved_is_said_as_a_change_read_is(read_at: datetime,
+                                                            said: str) -> None:
+    # Read against the line that read it, as a deploy is, so a flag switched
+    # on a week before the alert does not read as switched at its minute.
+    Scenario() \
+        .given(
+            a_flag_move_read := [_flag_history([
+                FlagChange(flag=SOME_FLAG, enabled=True, occurred_at=AN_EARLIER_MINUTE)
+            ]).model_copy(update={"at": read_at})]
+        ) \
+        .when(lambda: build_story(a_flag_move_read)) \
+        .then(_the_flag_moves_were_made([said]))
+
+
+@pytest.mark.unit
 def test_the_onset_leads_to_its_minute_where_the_metrics_table_holds_it() -> None:
     # The lines are told what the page holds by the story that gathered it:
     # the minutes of its metrics table.
@@ -614,6 +633,18 @@ def _the_flag_moves_shown_are(expected: list[tuple[str, str]]) -> Assertion[Stor
 
         if shown != expected:
             raise AssertionError(f"Expected the moves {expected}, got {shown}")
+
+        return True
+
+    return assertion
+
+
+def _the_flag_moves_were_made(expected: list[str]) -> Assertion[Story]:
+    def assertion(story: Story) -> bool:
+        made = [row.when for row in story.flag_changes]
+
+        if made != expected:
+            raise AssertionError(f"Expected the flag moves said made at {expected}, got {made}.")
 
         return True
 

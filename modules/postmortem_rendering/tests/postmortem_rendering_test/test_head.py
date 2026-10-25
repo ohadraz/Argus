@@ -579,6 +579,51 @@ def test_a_person_s_resolution_ends_the_incident_whatever_argus_did() -> None:
             the_answer_was("Kuki Buki"))
 
 
+@pytest.mark.unit
+def test_an_incident_argus_recommended_a_move_for_was_ended_by_the_recommendation() -> None:
+    # The refusal that recommended what it refused hands the incident to a
+    # person, as an escalation does: nothing was done to the service, nobody
+    # resolved it, and the step taken before it did not end it either.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                recommended_action="Put monthly-spend-feature back",
+                resolution=[
+                    ResolutionStep(at=SOME_ONSET - timedelta(minutes=5),
+                                   action="Restarted io-shop", by="Argus",
+                                   has_a_way_back=False, outcome="refuted", label="M1"),
+                    ResolutionStep(at=SOME_ONSET, action="Refused to act - dont care",
+                                   by="Argus", has_a_way_back=False, outcome="not taken",
+                                   label=None, refused=Refusal.NOTHING_COULD_CONFIRM_IT)])
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: recommended to a person, Oct 11, 2026, 14:03 UTC - put "
+                      "monthly-spend-feature back"))
+
+
+@pytest.mark.unit
+def test_an_escalation_after_a_recommendation_ended_the_incident() -> None:
+    some_postmortem = a_postmortem(
+        recommended_action="dont care",
+        resolution=[ResolutionStep(at=SOME_ONSET, action="Refused to act - dont care",
+                                   by="Argus", has_a_way_back=False, outcome="not taken",
+                                   label=None, refused=Refusal.NOTHING_COULD_CONFIRM_IT)])
+
+    Scenario() \
+        .given(
+            some_escalation := Escalation(at=SOME_ONSET + timedelta(minutes=5), detail=None)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None,
+                           escalation=some_escalation).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: escalated to a person, Oct 11, 2026, 14:08 UTC"))
+
+
 def _an_action_item(number: str, status: ActionItemStatus) -> ActionItem:
     return ActionItem(number=number, text="dont care", type=ActionItemType.MITIGATE,
                       owner=None, tracking=None, status=status)

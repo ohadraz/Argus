@@ -86,6 +86,7 @@ from agent_postmortem.figures import (
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    the_narration_figures,
     what_came_after_the_wait,
 )
 from agent_postmortem.log_groups import grouped, labels_reaching_into
@@ -1043,10 +1044,25 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
 
     One list for the asking and the reading of the answer alike - a figure
     shown and not on it is one the check refuses and nothing writes in.
+
+    The walk's own lines apart from the rest: a time of day in one is Argus's,
+    on a day it said, and in anything else is in its writer's words.
     """
-    return figures_of(evidence, measured) | the_evidence_figures(
-        _the_evidence_listed(evidence, measured.unobserved_from),
-        the_day_it_began(evidence, measured))
+    listed = _the_evidence_listed(evidence, measured.unobserved_from)
+    walked = _the_walk_s_labels(evidence)
+    day = the_day_it_began(evidence, measured)
+
+    return (figures_of(evidence, measured)
+            | the_evidence_figures([cited for cited in listed if cited.label not in walked], day)
+            | the_narration_figures([cited for cited in listed if cited.label in walked], day))
+
+
+def _the_walk_s_labels(evidence: IncidentEvidence) -> set[str]:
+    """The labels of the narration's lines the walk said, not those outside it."""
+    return {label
+            for entry, label in zip(evidence.timeline, labels_of_the_narration(evidence.timeline),
+                                    strict=True)
+            if not entry.outside_the_walk}
 
 
 def the_evidence_labelled(evidence: IncidentEvidence,

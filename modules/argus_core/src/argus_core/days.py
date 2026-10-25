@@ -14,7 +14,7 @@ be sure to know.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Final
 
 _MONTHS: Final = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -30,6 +30,31 @@ def said_as_a_day(at: datetime) -> str:
     at = at.astimezone(UTC)
 
     return f"{_MONTHS[at.month - 1]} {at.day:02d}"
+
+
+def the_day_said(said: str, near: date) -> date | None:
+    """The day a day said ("Oct 20") names, read back as `said_as_a_day`
+    says one - `None` where it is no day said so.
+
+    A day said carries no year, so it is the year that puts it nearest
+    `near`: nothing Argus says names a day a year from the incident it is
+    about. `None` too where no year near has that day - Feb 29 in most."""
+    if not A_DAY_SAID.fullmatch(said):
+        return None
+
+    month_said, day_of_the_month = said.split()
+    month = _MONTHS.index(month_said) + 1
+
+    return min((on for year in (near.year - 1, near.year, near.year + 1)
+                if (on := _a_day(year, month, int(day_of_the_month))) is not None),
+               key=lambda on: abs(on - near), default=None)
+
+
+def _a_day(year: int, month: int, day_of_the_month: int) -> date | None:
+    try:
+        return date(year, month, day_of_the_month)
+    except ValueError:
+        return None
 
 
 def said_as_a_time(at: datetime) -> str:

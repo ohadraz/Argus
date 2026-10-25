@@ -434,6 +434,31 @@ def test_a_line_outside_the_walk_is_shown_under_a_label_of_its_own() -> None:
 
 
 @pytest.mark.unit
+def test_a_time_alone_is_read_on_its_line_s_day_only_in_a_line_the_walk_said() -> None:
+    # A line the walk said is Argus's, and says a time alone only on its own
+    # day. A message written outside the walk is in its writer's words, and
+    # Argus knows neither the day nor the zone of a time said in one.
+    day_after_the_onset = ONSET + timedelta(days=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("anchored on 07:44:29", at=day_after_the_onset),
+                          a_timeline_entry("back by 07:44:29", at=day_after_the_onset,
+                                           outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: {name: figure
+                     for name, figure in figures_shown(evidence, a_measured_incident()).items()
+                     if name in ("T1.2", "XW1.2")}
+        ) \
+        .then(
+            the_answer_was({"T1.2": Figure(given="07:44:29", written="Sep 03, 07:44:29 UTC"),
+                            "XW1.2": Figure(given="07:44:29", written="07:44:29")})
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_shown_each_piece_of_evidence_under_its_label() -> None:
     some_log_line = "ERROR checkout"
 

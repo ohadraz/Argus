@@ -7,12 +7,17 @@ Each case is one postmortem and what the section says.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from argus_core.models import OpenedPullRequest, ResolutionStep, TimelineEntry
 from argus_testkit import Assertion, Scenario, the_answer_was
-from postmortem_rendering.actions_taken import StepRow, the_actions_taken, the_person_who_resolved
+from postmortem_rendering.actions_taken import (
+    ActionsTakenSection,
+    StepRow,
+    the_actions_taken,
+    the_person_who_resolved,
+)
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import ReportedResolution
 
@@ -33,7 +38,7 @@ def test_each_action_is_a_row_saying_when_what_who_whether_it_undoes_and_what_it
                                outcome="recovered, still in place", label="M1")])
         ) \
         .when(
-            lambda: the_actions_taken(some_postmortem, resolution=None).steps
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).steps
         ) \
         .then(
             the_answer_was((StepRow(label="M1", at="14:08:30",
@@ -55,7 +60,7 @@ def test_an_action_taken_on_the_minute_says_its_time_to_the_minute() -> None:
         ) \
         .when(
             lambda: [step.at for step in the_actions_taken(some_postmortem,
-                                                          resolution=None).steps]
+                                                          resolution=None, day=None).steps]
         ) \
         .then(
             the_answer_was(["14:08"]))
@@ -75,7 +80,7 @@ def test_an_action_that_left_automatic_sync_off_says_so_in_its_row_alone() -> No
         ) \
         .when(
             lambda: [(step.outcome, step.outcome_in_the_table) for step in
-                     the_actions_taken(some_postmortem, resolution=None).steps]
+                     the_actions_taken(some_postmortem, resolution=None, day=None).steps]
         ) \
         .then(
             the_answer_was([("confirmed, still in place",
@@ -93,7 +98,7 @@ def test_an_action_with_nothing_to_put_back_says_so() -> None:
                                has_a_way_back=False, outcome="dont care", label="M1")])
         ) \
         .when(
-            lambda: the_actions_taken(some_postmortem, resolution=None).steps[0].kind
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).steps[0].kind
         ) \
         .then(
             the_answer_was("nothing to put back"))
@@ -106,7 +111,7 @@ def test_the_table_names_its_columns_and_their_zone() -> None:
             dont_care_postmortem := a_postmortem()
         ) \
         .when(
-            lambda: the_actions_taken(dont_care_postmortem, resolution=None).headings
+            lambda: the_actions_taken(dont_care_postmortem, resolution=None, day=None).headings
         ) \
         .then(
             the_answer_was(("", "Time (UTC)", "Action", "By", "Kind", "Outcome")))
@@ -122,7 +127,7 @@ def test_the_proposed_fix_is_a_row_of_its_own_dated_by_the_line_that_proposed_it
                                         text="proposed a fix")])
         ) \
         .when(
-            lambda: the_actions_taken(some_postmortem, resolution=None).fix
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).fix
         ) \
         .then(
             the_answer_was(StepRow(label=None, at="14:08:30",
@@ -140,10 +145,36 @@ def test_a_fix_no_line_dates_has_no_time() -> None:
             some_postmortem := a_postmortem(pull_request=SOME_FIX, timeline=[])
         ) \
         .when(
-            lambda: the_actions_taken(some_postmortem, resolution=None).fix
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).fix
         ) \
         .then(
             _it_is_dated("-"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("day", "said"), [
+    (SOME_MOMENT.date(), ["14:08:30", "14:08:30"]),
+    (SOME_MOMENT.date() - timedelta(days=7), ["Oct 11 14:08:30", "Oct 11 14:08:30"])
+], ids=["on-the-head-s-day", "a-week-after-the-head-s-day"])
+def test_an_action_and_the_fix_say_their_day_where_it_is_not_the_head_s(
+        day: date, said: list[str]) -> None:
+    # The head dates the incident once, and a time alone below it reads as a
+    # time of that day - which a response running on a later day is not.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                resolution=[ResolutionStep(at=SOME_MOMENT, action="dont care", by="dont care",
+                                           has_a_way_back=True, outcome="dont care",
+                                           label="M1")],
+                pull_request=SOME_FIX,
+                timeline=[TimelineEntry(at=SOME_MOMENT, who="Code-Fix Agent",
+                                        text="proposed a fix")])
+        ) \
+        .when(
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=day)
+        ) \
+        .then(
+            _the_times_said_are(said))
 
 
 @pytest.mark.unit
@@ -156,7 +187,7 @@ def test_a_person_s_resolution_is_said_before_the_actions() -> None:
             some_resolution
         ) \
         .when(
-            lambda: the_actions_taken(a_postmortem(), resolution=some_resolution).person
+            lambda: the_actions_taken(a_postmortem(), resolution=some_resolution, day=None).person
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text="Resolved by "),
@@ -183,7 +214,8 @@ def test_a_person_s_resolution_is_said_the_same_where_there_is_no_document() -> 
             lambda: the_person_who_resolved(some_resolution)
         ) \
         .then(
-            the_answer_was(the_actions_taken(a_postmortem(), resolution=some_resolution).person))
+            the_answer_was(the_actions_taken(a_postmortem(), resolution=some_resolution,
+                                             day=None).person))
 
 
 @pytest.mark.unit
@@ -193,7 +225,7 @@ def test_nothing_done_says_so() -> None:
             some_postmortem := a_postmortem(resolution=[], pull_request=None)
         ) \
         .when(
-            lambda: the_actions_taken(some_postmortem, resolution=None).absent
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).absent
         ) \
         .then(
             the_answer_was("Nothing was done to end it."))
@@ -209,10 +241,22 @@ def test_an_incident_only_a_person_ended_is_not_one_where_nothing_was_done() -> 
             some_postmortem := a_postmortem(resolution=[], pull_request=None)
         ) \
         .when(
-            lambda: the_actions_taken(some_postmortem, resolution=some_resolution).absent
+            lambda: the_actions_taken(some_postmortem, resolution=some_resolution, day=None).absent
         ) \
         .then(
             the_answer_was(None))
+
+
+def _the_times_said_are(expected: list[str]) -> Assertion[ActionsTakenSection]:
+    def assertion(taken: ActionsTakenSection) -> bool:
+        said = [step.at for step in taken.steps] + ([taken.fix.at] if taken.fix else [])
+
+        if said != expected:
+            raise AssertionError(f"Expected the times {expected}, got {said}.")
+
+        return True
+
+    return assertion
 
 
 def _it_is_dated(expected: str) -> Assertion[StepRow | None]:

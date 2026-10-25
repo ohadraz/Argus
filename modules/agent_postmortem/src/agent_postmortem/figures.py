@@ -41,6 +41,7 @@ from argus_core import (
     said_as_a_share,
     said_as_a_span,
     said_as_a_time,
+    the_day_said,
     to_iso,
 )
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
@@ -221,6 +222,9 @@ _A_COUNT_OF_A_UNIT: Final = re.compile(r"(\d+) (day|hour|minute|second)s?")
 
 # An instant as a wire format writes one, which the alert's sender may.
 _AN_INSTANT: Final = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
+
+# A time of day as the kernel says one, to the minute or to the second.
+_A_TIME_OF_DAY: Final = re.compile(r"(\d{2}):(\d{2})(?::(\d{2}))?")
 
 
 def is_a_figure(word: str) -> bool:
@@ -422,6 +426,23 @@ def the_evidence_figures(cited: Sequence[CitedEvidence], day: date) -> dict[str,
             for name, figure in _the_figures_in(each.text, f"{each.label}.", day).items()}
 
 
+def the_narration_figures(lines: Sequence[CitedEvidence], day: date) -> dict[str, Figure]:
+    """The figures each line of the walk's narration states, named as the
+    evidence's are.
+
+    A time of day here is one Argus said, so an instant on a day it said: the
+    one beside it ("Oct 24 19:44:24"), or else the day of the stamp the line
+    opens with - a line says a time alone only on its own day. Written as a
+    bare time, either read as a time of the onset's day. Nowhere else: an
+    instant quoted further along is somebody else's, and so is the zone of a
+    time said after it.
+    """
+    return {name: figure
+            for each in lines
+            for name, figure in _the_narrated_figures_in(each.text, f"{each.label}.",
+                                                         day).items()}
+
+
 def the_evidence_named(cited: CitedEvidence) -> str:
     """A piece of evidence with each figure's name after it, as the model reads
     it."""
@@ -429,17 +450,43 @@ def the_evidence_named(cited: CitedEvidence) -> str:
 
 
 def _the_figures_in(text: str, prefix: str, day: date) -> dict[str, Figure]:
-    figures = [word for _, word in _the_words_of(text) if word is not None]
-
+    """Each figure the text states, named in the order it states them, and
+    written in as its writer gave it: a time of day is in the writer's zone and
+    on the writer's day, neither of which Argus knows."""
     return {f"{prefix}{position}": _as_the_alert_gave_it(figure, day)
-            for position, figure in enumerate(figures, start=1)}
+            for position, (figure, _) in enumerate(_the_figures_and_days_of(text), start=1)}
+
+
+def _the_narrated_figures_in(text: str, prefix: str, day: date) -> dict[str, Figure]:
+    """Each figure a line of the narration states, named in the order it states
+    them, with a time of day on the day said beside it or the line's own."""
+    opened_on = _the_day_it_opens_on(text)
+
+    return {f"{prefix}{position}": _on_its_day(
+                figure, the_day_said(beside, day) if beside is not None else opened_on, day)
+            for position, (figure, beside) in enumerate(_the_figures_and_days_of(text), start=1)}
+
+
+def _the_figures_and_days_of(text: str) -> list[tuple[str, str | None]]:
+    return [(word, beside) for _, word, beside in _the_words_and_days_of(text)
+            if word is not None]
+
+
+def _the_day_it_opens_on(text: str) -> date | None:
+    """The day of the instant the text opens with, `None` where it opens with
+    none."""
+    opening = text.split(maxsplit=1)
+    if not opening or not _AN_INSTANT.fullmatch(opening[0]):
+        return None
+
+    return parse_iso(opening[0]).astimezone(UTC).date()
 
 
 def _said_with_names(text: str, prefix: str) -> str:
     said = []
     position = 0
 
-    for part, figure in _the_words_of(text):
+    for part, figure, _ in _the_words_and_days_of(text):
         if figure is None:
             said.append(part)
             continue
@@ -634,9 +681,11 @@ def _how_many_times(ratio: Decimal) -> str:
     return f"{ratio.quantize(_A_TENTH, rounding=ROUND_HALF_UP)} times"
 
 
-def _the_words_of(text: str) -> Iterator[tuple[str, str | None]]:
+def _the_words_and_days_of(text: str) -> Iterator[tuple[str, str | None, str | None]]:
     """Every stretch of the text in order, each with the figure it is - or
-    `None` for the spaces between words and for every word that is no figure.
+    `None` for the spaces between words and for every word that is no figure -
+    and the day said right before it, where it is a time of day that day is
+    said beside.
 
     A diff's hunk header states none: where in a file a hunk sits is no figure
     of the incident's, and named as one it is offered as one. Found by the
@@ -644,23 +693,29 @@ def _the_words_of(text: str) -> Iterator[tuple[str, str | None]]:
     begins with `@@` keeps its figures. The values the diff changed are
     figures, since one of them can be the cause.
 
-    Nor does a day said as narration says one beside a time ("20 Oct 20:31"):
+    Nor does a day said as narration says one beside a time ("Oct 20 20:31"):
     read word by word, the day of the month was a figure of its own, offered as
-    a number the incident gave. The time beside it is one.
+    a number the incident gave. The time beside it is one, and the day is what
+    makes it an instant rather than a time of the onset's day.
     """
     for line in text.splitlines(keepends=True):
         if line.startswith(PATCH_LINE_INDENT + HUNK_HEADER):
-            yield line, None
+            yield line, None, None
             continue
 
+        said: str | None = None
         for stretch, is_a_day in _the_days_apart(line):
             if is_a_day:
-                yield stretch, None
+                said = stretch
+                yield stretch, None, None
                 continue
 
             for part in re.split(r"(\s+)", stretch):
                 word = part.strip(AROUND_A_WORD)
-                yield part, word if word and is_a_figure(word) else None
+                figure = word if word and is_a_figure(word) else None
+                yield (part, figure,
+                       said if figure is not None and _A_TIME_OF_DAY.fullmatch(figure) else None)
+                said = None if part.strip() else said
 
 
 def _the_days_apart(line: str) -> Iterator[tuple[str, bool]]:
@@ -680,6 +735,21 @@ def _as_the_alert_gave_it(figure: str, day: date) -> Figure:
         return Figure(given=figure, written=_as_a_reader_says(parse_iso(figure), day))
 
     return Figure(given=figure, written=figure)
+
+
+def _on_its_day(figure: str, on: date | None, day: date) -> Figure:
+    """A time of day written as the instant it is on `on` - with its day where
+    that is not the `day` the incident began, as every instant is - and as it
+    was given where it is no time of day or `on` is not known. Shown to the
+    model as it was given either way."""
+    clock = _A_TIME_OF_DAY.fullmatch(figure)
+    if clock is None or on is None:
+        return _as_the_alert_gave_it(figure, day)
+
+    at = datetime(on.year, on.month, on.day, int(clock[1]), int(clock[2]), int(clock[3] or 0),
+                  tzinfo=UTC)
+
+    return Figure(given=figure, written=_as_a_reader_says(at, day))
 
 
 def _an_instant(at: datetime, day: date) -> Figure:

@@ -61,7 +61,7 @@ def test_an_ordinary_incident_is_summed_up_in_the_order_a_reader_asks_about_it()
 
 
 @pytest.mark.unit
-def test_a_service_never_seen_back_is_said_broken_for_at_least_as_long_as_argus_worked_on_it(
+def test_a_service_never_seen_back_is_said_not_back_by_the_incident_s_ending(
 ) -> None:
     Scenario() \
         .given(
@@ -72,8 +72,8 @@ def test_a_service_never_seen_back_is_said_broken_for_at_least_as_long_as_argus_
             lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
         ) \
         .then(
-            _says("The service broke at 12:00 UTC and was not back to normal when Argus "
-                  "stopped working on the incident at 12:30 UTC, at least 30 minutes later.")
+            _says("The service broke at 12:00 UTC and was not back to normal by 12:30 UTC, "
+                  "at least 30 minutes later.")
         )
 
 
@@ -96,9 +96,8 @@ def test_an_incident_that_spans_days_dates_every_instant_in_its_summary() -> Non
             lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
         ) \
         .then(
-            _says("The service broke at Sep 02, 12:00 UTC and was not back to normal when "
-                  "Argus stopped working on the incident at Sep 09, 12:00:49 UTC, at least "
-                  "7 days 49 seconds later.")
+            _says("The service broke at Sep 02, 12:00 UTC and was not back to normal by "
+                  "Sep 09, 12:00:49 UTC, at least 7 days 49 seconds later.")
         )
 
 
@@ -121,8 +120,8 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
             lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
         ) \
         .then(
-            _says("No metrics were collected from 12:00 UTC on, and they had not resumed when "
-                  "Argus stopped working on the incident at 12:30 UTC, 30 minutes later. The "
+            _says("No metrics were collected from 12:00 UTC on, and they had not resumed by "
+                  "12:30 UTC, 30 minutes later. The "
                   "service's own logs reach into that stretch until 12:04 UTC, and they were "
                   "read up to 12:20 UTC.")
         )

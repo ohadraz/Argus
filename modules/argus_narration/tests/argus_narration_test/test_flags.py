@@ -7,7 +7,8 @@ record when a flag's state *changes*, so a flag that arrived ON is a flag that
 was OFF, and that is the meaning of the record rather than an assumption about
 production.
 
-Which flag and which moment are arbitrary throughout. What is not arbitrary is
+Which flag is arbitrary throughout, and which moment but for when a change is
+said to have been made. What is not arbitrary is
 which way a change went and which of a flag's changes is its newest, because an
 action points at the newest one and a link to an older move would show a reader
 the wrong reason for what Argus did.
@@ -115,12 +116,29 @@ def test_a_history_nobody_recorded_anything_in_is_empty() -> None:
     # The flag provider answering with nothing is a finding of its own - it is
     # what rules a toggle out - and it arrives here as an empty history rather
     # than as an absence.
-    nothing_was_recorded: list[FlagChange] = []
+    nothing_was_recorded: list[tuple[FlagChange, str]] = []
 
     Scenario() \
         .given(nothing_was_recorded) \
         .when(lambda: a_flag_history(nothing_was_recorded)) \
         .then(_there_are_no_rows())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("read_at", "said"), [
+    ("2026-08-30T10:15:00Z", "10:05"),
+    ("2026-08-31T09:00:00Z", "Aug 30 10:05")
+], ids=["on-the-day-it-was-read", "a-day-before-it-was-read"])
+def test_when_a_change_was_made_is_said_against_the_line_that_read_it(read_at: str,
+                                                                       said: str) -> None:
+    # Beside the line's own clock a time alone reads as that line's day: a
+    # flag switched on a week before the alert read as switched at its minute.
+    some_change = _a_change(enabled=True, occurred_at=SOME_MOMENT, read_at=read_at)
+
+    Scenario() \
+        .given(some_change) \
+        .when(lambda: a_flag_history([some_change])) \
+        .then(_the_only_row_was_made(said))
 
 
 @pytest.mark.unit
@@ -159,14 +177,27 @@ def test_a_cause_that_moved_between_no_states_says_nothing() -> None:
 def _a_change(enabled: bool,
               flag: str = "some-ramped-flag",
               occurred_at: str = SOME_MOMENT,
-              actor: str | None = "a-human") -> FlagChange:
-    """One recorded move of one flag.
+              actor: str | None = "a-human",
+              read_at: str = SOME_MOMENT) -> tuple[FlagChange, str]:
+    """One recorded move of one flag, with the moment of the line that read it.
 
-    `enabled` has no default because it is the only field any of these turns
+    `enabled` has no default because it is the only field most of these turn
     on: it is the state the flag arrived in, and the state it left is read back
     out of it.
     """
-    return FlagChange(flag=flag, enabled=enabled, occurred_at=occurred_at, actor=actor)
+    return FlagChange(flag=flag, enabled=enabled, occurred_at=occurred_at, actor=actor), read_at
+
+
+def _the_only_row_was_made(expected: str) -> Assertion[list[FlagToggleRow]]:
+    def assertion(history: list[FlagToggleRow]) -> bool:
+        row = _the_only(history)
+
+        if row.when != expected:
+            raise AssertionError(f"Expected a move made at [{expected}], got [{row.when}].")
+
+        return True
+
+    return assertion
 
 
 def _the_only_row_moved(was: str, now: str) -> Assertion[list[FlagToggleRow]]:

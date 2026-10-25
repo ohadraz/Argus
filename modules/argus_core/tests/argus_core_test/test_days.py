@@ -9,10 +9,10 @@ the day of the month to the model as a number the incident gave.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
-from argus_core import A_DAY_SAID, said_as_a_day, said_as_a_time
+from argus_core import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
 from argus_testkit import Assertion, Scenario, the_answer_was
 
 
@@ -91,6 +91,28 @@ def test_a_time_with_seconds_is_said_to_the_second() -> None:
         ) \
         .then(
             the_answer_was("20:31:54")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("said", "near", "named"), [
+    ("Oct 20", date(2026, 10, 25), date(2026, 10, 20)),
+    ("Dec 30", date(2027, 1, 2), date(2026, 12, 30)),
+    ("Feb 29", date(2028, 3, 1), date(2028, 2, 29)),
+    ("Feb 29", date(2026, 3, 1), None),
+    ("20 connections", date(2026, 10, 25), None)
+], ids=["in-the-year-near", "in-the-year-before", "feb-29-in-a-leap-year-near",
+        "feb-29-with-no-leap-year-near", "no-day-said"])
+def test_a_day_said_is_read_back_in_the_year_nearest_the_day_it_is_said_near(
+        said: str, near: date, named: date | None) -> None:
+    # A day said carries no year, and nothing Argus says names a day a year
+    # from the incident it is about.
+    Scenario() \
+        .when(
+            lambda: the_day_said(said, near)
+        ) \
+        .then(
+            the_answer_was(named)
         )
 
 

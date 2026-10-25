@@ -53,6 +53,7 @@ from agent_postmortem.figures import (
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    the_narration_figures,
     with_figures_written,
 )
 from agent_postmortem.prompting import (
@@ -499,19 +500,120 @@ def test_a_diff_is_shown_with_its_hunk_header_as_it_was_read() -> None:
 @pytest.mark.unit
 def test_a_day_said_beside_a_time_states_no_figure() -> None:
     # Read word by word, the day of the month was a figure of its own, offered
-    # to the model as a number the incident gave. The time beside it is one.
+    # to the model as a number the incident gave. The time beside it is one -
+    # here on the incident's own day, so written as a time of that day.
     Scenario() \
         .given(
             some_line := SOME_LINE_DATING_A_TIME
         ) \
         .when(
-            lambda: the_evidence_figures([some_line], DONT_CARE_DAY)
+            lambda: the_narration_figures([some_line], SOME_MOMENT_ON_ANOTHER_DAY.date())
         ) \
         .then(
             the_answer_was({
                 "T8.1": Figure(given="1", written="1"),
-                "T8.2": Figure(given="20:31", written="20:31")
+                "T8.2": Figure(given="20:31", written="20:31 UTC")
             })
+        )
+
+
+@pytest.mark.unit
+def test_a_time_said_beside_another_day_than_the_incident_s_is_written_with_that_day() -> None:
+    # Written as a bare time, "the replica restarts at 19:44:24" read as a
+    # time of the onset's day, not of the day the line said. Shown to the
+    # model as it was given: only how it is written in changes.
+    Scenario() \
+        .given(
+            some_line := SOME_LINE_DATING_A_TIME
+        ) \
+        .when(
+            lambda: the_narration_figures([some_line], ONSET.date())["T8.2"]
+        ) \
+        .then(
+            the_answer_was(Figure(given="20:31", written="Oct 20, 20:31 UTC"))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("day", "written"), [
+    (date(2028, 3, 1), "Feb 29, 10:00 UTC"),
+    (date(2026, 3, 1), "10:00")
+], ids=["a-leap-year-is-near", "no-leap-year-is-near"])
+def test_a_time_said_beside_feb_29_is_read_in_the_leap_year_nearest_the_incident(
+        day: date, written: str) -> None:
+    # The day carries no year, so it is read in the year nearest the
+    # incident's that has one. With none near, it is written as it was given.
+    Scenario() \
+        .given(
+            some_line := CitedEvidence(label="T3", text="restarted Feb 29 10:00")
+        ) \
+        .when(
+            lambda: the_narration_figures([some_line], day)["T3.1"]
+        ) \
+        .then(
+            the_answer_was(Figure(given="10:00", written=written))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("text", "name", "written"), [
+    ("2026-10-25T07:45:02Z Asked for the metrics, anchored on 07:44:29", "T4.2",
+     "Oct 25, 07:44:29 UTC"),
+    ("Asked for the metrics, anchored on 07:44:29", "T4.1", "07:44:29"),
+    ("2026-10-25T07:45:02Z Logged 2026-10-24T23:59:00Z, anchored on 07:44:29", "T4.3",
+     "Oct 25, 07:44:29 UTC")
+], ids=["after-the-line-s-stamp", "with-no-stamp-before-it",
+        "after-an-instant-it-quotes"])
+def test_a_time_alone_is_on_the_day_of_the_stamp_its_line_opens_with(text: str, name: str,
+                                                                      written: str) -> None:
+    # A line of the narration says a time alone only on its own day, which its
+    # stamp says. Written as a bare time, it read as a time of the onset's day.
+    Scenario() \
+        .given(
+            some_line := CitedEvidence(label="T4", text=text)
+        ) \
+        .when(
+            lambda: the_narration_figures([some_line], date(2026, 10, 18))[name]
+        ) \
+        .then(
+            the_answer_was(Figure(given="07:44:29", written=written))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("text", "name"), [
+    ("2026-10-25T07:45:02Z checkout retried, last at 07:44:29", "G1.2"),
+    ("checkout retried Oct 25 07:44:29", "G1.1")
+], ids=["after-an-instant-it-quotes", "beside-a-day-it-quotes"])
+def test_a_time_in_words_argus_quotes_is_written_as_its_writer_gave_it(text: str,
+                                                                       name: str) -> None:
+    # A log line, a change's summary or a person's note is in its writer's
+    # words, and Argus knows neither the day nor the zone of a time said in
+    # one. Read on a day, it was written in as a time of UTC.
+    Scenario() \
+        .given(
+            some_evidence := CitedEvidence(label="G1", text=text)
+        ) \
+        .when(
+            lambda: the_evidence_figures([some_evidence], date(2026, 10, 18))[name]
+        ) \
+        .then(
+            the_answer_was(Figure(given="07:44:29", written="07:44:29"))
+        )
+
+
+@pytest.mark.unit
+def test_a_time_beside_a_day_in_the_alert_is_written_as_its_sender_gave_it() -> None:
+    # The alert is in its sender's words, whose zone Argus does not know.
+    Scenario() \
+        .given(
+            some_finding := "Totals stopped reconciling Oct 25 07:44:29."
+        ) \
+        .when(
+            lambda: the_alerts_figures(some_finding, date(2026, 10, 18))
+        ) \
+        .then(
+            the_answer_was({"A1": Figure(given="07:44:29", written="07:44:29")})
         )
 
 

@@ -8,7 +8,7 @@ is read here, once, and handed to every part that says it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any, Final
 
@@ -21,6 +21,7 @@ from postmortem_rendering.actions_taken import ActionsTakenSection, the_actions_
 from postmortem_rendering.cause import CauseSection, the_cause
 from postmortem_rendering.cost import the_response_effort
 from postmortem_rendering.detection import DetectionSection, the_detection
+from postmortem_rendering.formatting import on_the_clock_of
 from postmortem_rendering.head import Head, a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.hypotheses import HypothesesSection, the_hypotheses
 from postmortem_rendering.impact import (
@@ -122,14 +123,14 @@ def render(postmortem: Postmortem,
     leads = the_leads(postmortem)
     day = the_day_it_is_dated_by(postmortem)
     hypotheses = the_hypotheses(postmortem, day)
-    actions_taken = the_actions_taken(postmortem, resolution)
+    actions_taken = the_actions_taken(postmortem, resolution, day)
     action_items = the_action_items(postmortem)
     timeline = the_timeline(postmortem)
     supporting = the_supporting_information(postmortem, incident_address)
     detection = the_detection(postmortem, alert)
     impact = the_impact(postmortem, alert)
     rows = _the_rows(hypotheses, actions_taken, action_items, timeline, leads, supporting,
-                     detection)
+                     detection, _the_lines_cited_at(postmortem, day))
     # What the alert said, where Impact is the one place it is said.
     found = the_alert_s_own_finding(alert)
     if impact.finding_label and found:
@@ -205,10 +206,13 @@ def _the_rows(hypotheses: HypothesesSection,
               timeline: TimelineSection,
               leads: Sequence[LeadItem],
               supporting: SupportingSection,
-              detection: DetectionSection) -> dict[str, Line]:
+              detection: DetectionSection,
+              lines_cited_at: Mapping[str, str]) -> dict[str, Line]:
     """Each label a row of the document goes by, and the line it says itself
     in - so an item the causal chain cites is said the way its own row says
-    it, not in the words the model was briefed in.
+    it, not in the words the model was briefed in. A line of the timeline is
+    said at `lines_cited_at`'s time for it rather than its row's, which leaves
+    the day to the rows above it.
 
     A candidate goes by every label it stands for. A step taken has its
     outcome after a colon, the outcome having dashes of its own. A diff and a
@@ -224,7 +228,8 @@ def _the_rows(hypotheses: HypothesesSection,
                                     Run(text=": "), Run(text=step.outcome)))
              for step in actions_taken.steps if step.label}
     rows |= {item.number: item.text for item in action_items.rows}
-    rows |= {line.label: Line(runs=(Run(text=line.at), Run(text=" "),
+    rows |= {line.label: Line(runs=(Run(text=lines_cited_at.get(line.label, line.at)),
+                                    Run(text=" "),
                                     *((Run(text=line.who), Run(text=": ")) if line.who else ()),
                                     *line.text.runs))
              for line in timeline.rows if line.label}
@@ -238,6 +243,18 @@ def _the_rows(hypotheses: HypothesesSection,
     if detection.said is not None:
         rows[detection.said.label] = detection.said.said
     return rows
+
+
+def _the_lines_cited_at(postmortem: Postmortem, day: date | None) -> dict[str, str]:
+    """Each labelled line of the timeline's time as a citation says it, away
+    from the rows above it: alone on `day`, the day the head names, and with
+    its day on any other. Empty where the document names no day, and each is
+    said as its row says it."""
+    if day is None:
+        return {}
+
+    return {entry.label: on_the_clock_of(entry.at, day)
+            for entry in postmortem.timeline if entry.label}
 
 
 def _its_first_line(line: Line) -> Line:

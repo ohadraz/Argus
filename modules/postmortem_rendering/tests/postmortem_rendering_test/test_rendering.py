@@ -321,6 +321,36 @@ def test_a_cited_step_taken_reads_as_its_row() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("after", "label", "rests_on"), [
+    (timedelta(0), "T1", "T1 14:04:07 The flag went on"),
+    (timedelta(days=7), "T1", "T1 Oct 18 14:04:07 The flag went on"),
+    (timedelta(days=7), "M1", "M1 Oct 18 14:03:07 Turned the flag off: recovered")
+], ids=["a-line-on-the-head-s-day", "a-line-a-week-on", "a-step-a-week-on"])
+def test_a_cited_row_says_its_day_where_it_is_not_the_head_s(after: timedelta, label: str,
+                                                            rests_on: str) -> None:
+    # Cited away from the rows above it, a time alone reads as the head's day:
+    # a response a week on read as the morning the incident began. The cited
+    # line follows another of its own day, so its row says its time alone.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_MOMENT),
+                          TimelineEntry(at=SOME_MOMENT + after, who=None, text="dont care"),
+                          TimelineEntry(at=SOME_MOMENT + after + timedelta(minutes=1),
+                                        who=None, text="The flag went on", label="T1")],
+                resolution=[ResolutionStep(at=SOME_MOMENT + after, action="Turned the flag off",
+                                           by="dont care", has_a_way_back=True,
+                                           outcome="recovered", label="M1")],
+                causal_chain=_a_step_citing(label))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on(rests_on))
+
+
+@pytest.mark.unit
 def test_a_cited_candidate_reads_as_its_row_under_whichever_label_it_goes_by() -> None:
     # Two candidates shown as one row: the second's label leads to that row,
     # and reads as it.

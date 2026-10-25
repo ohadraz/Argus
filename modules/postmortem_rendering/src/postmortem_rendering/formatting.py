@@ -10,7 +10,7 @@ amount written two ways is two figures to a reader comparing them.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Final
 
 from argus_core import said_as_a_day, said_as_a_time
@@ -106,6 +106,16 @@ def on_the_day(moment: datetime, then: str = "") -> str:
     at = moment.astimezone(UTC)
 
     return f"{said_as_a_day(at)}{at.strftime(then)}"
+
+
+def on_the_clock_of(moment: datetime, day: date) -> str:
+    """A moment as a table's time column says one: its time alone on `day`,
+    the day the head names, and its day before its time on any other - a time
+    alone below a head dated one day reads as a time of that day."""
+    if moment.astimezone(UTC).date() == day:
+        return said_as_a_time(moment)
+
+    return f"{on_the_day(moment)} {said_as_a_time(moment)}"
 
 
 def on_the_day_and_clock(moment: datetime) -> str:

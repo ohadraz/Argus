@@ -201,12 +201,14 @@ def _who_wrote_it(postmortem: Postmortem) -> Line:
 def _who_ended_it(postmortem: Postmortem,
                   resolution: ReportedResolution | None,
                   escalation: Escalation | None) -> tuple[Line, str | None]:
-    """A person's resolution where there is one; else whichever came later of
-    Argus's escalation and the last step taken - a walk that acted and then
-    gave up ended by giving up, and one escalated and then walked again ended
-    by what it did then; else that nothing is recorded - with whoever that
-    names. A refusal to act is no step taken: nothing was done in it, so it
-    ended nothing, and the step that did is the last action before it."""
+    """A person's resolution where there is one; else whichever came latest of
+    Argus's escalation, its recommendation and the last step taken - a walk
+    that acted and then gave up ended by giving up, and one escalated and then
+    walked again ended by what it did then; else that nothing is recorded -
+    with whoever that names. A refusal to act is no step taken: nothing was
+    done in it, so it ended nothing, and the step that did is the last action
+    before it - unless the refusal is the one that recommended what was
+    refused, which hands the incident to a person as an escalation does."""
     if resolution is not None:
         runs = [Run(text=resolution.by),
                 Run(text=f" from {resolution.channel}, "),
@@ -218,6 +220,13 @@ def _who_ended_it(postmortem: Postmortem,
 
     last = next((step for step in reversed(postmortem.resolution) if step.refused is None),
                 None)
+    refused = next((step for step in reversed(postmortem.resolution) if step.refused is not None),
+                   None)
+    before = [ending.at for ending in (last, escalation) if ending is not None]
+    if (postmortem.recommended_action and refused is not None
+            and all(refused.at > at for at in before)):
+        return _the_recommendation(postmortem.recommended_action, refused.at), _ARGUS
+
     if escalation is not None and (last is None or escalation.at > last.at):
         return _the_escalation(escalation, postmortem.pull_request), _ARGUS
 
@@ -244,7 +253,14 @@ def _the_escalation(escalation: Escalation, fix: OpenedPullRequest | None) -> Li
     return Line(runs=tuple(runs))
 
 
-# Who ends an incident by escalating it.
+def _the_recommendation(action: str, at: datetime) -> Line:
+    """Argus handing the incident to a person with the move it worked out and
+    declined to make, and when."""
+    return Line(runs=(Run(text=_ARGUS), Run(text=": recommended to a person, "),
+                      Run.a_moment(at), Run(text=f" - {action[:1].lower()}{action[1:]}")))
+
+
+# Who ends an incident by escalating it, or by recommending what to do.
 _ARGUS: Final = "Argus"
 
 
