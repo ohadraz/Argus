@@ -554,6 +554,35 @@ def test_what_a_function_returns_is_quoted_as_its_source_spells_it_on_one_line()
 
 
 @pytest.mark.unit
+def test_a_field_divided_by_a_one_line_function_of_its_file_is_not_set_against_it() -> None:
+    # Dividing by what a function returns uses the figure: only comparing it
+    # with what the function returns, or subtracting one from the other,
+    # checks it.
+    some_reader = "src/shop/reader.py"
+
+    Scenario() \
+        .when(
+            lambda: code_outside_the_patch(
+                {LEDGER: LEDGER_WRITING_THE_TOTAL,
+                 some_reader: "def bought(account):\n"
+                              "    return len(account.purchases)\n"
+                              "\n\n"
+                              "def reader(account):\n"
+                              "    return account.month // bought(account)\n"},
+                {LEDGER: LEDGER_WRITING_THE_MONTH_TOO}
+            )
+        ) \
+        .then(
+            the_answer_was(CodeOutsideThePatch(
+                uses=[CodeUse(name="month", path=some_reader, line=6, function="reader",
+                              does="divides with it: account.month // bought(account), where "
+                                   "bought(account) returns len(account.purchases)")],
+                defined={"bought": [some_reader], "reader": [some_reader]}
+            ))
+        )
+
+
+@pytest.mark.unit
 def test_a_field_set_against_a_function_of_more_than_a_return_says_only_the_call() -> None:
     # A body of several statements is no one expression the row could quote.
     some_reader = "src/shop/reader.py"

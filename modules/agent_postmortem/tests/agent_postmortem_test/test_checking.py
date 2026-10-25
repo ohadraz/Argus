@@ -1792,8 +1792,9 @@ def test_a_root_cause_naming_another_revision_is_accepted() -> None:
     "instead of adding the purchases up",
     "and trust it",
     "and rely on it",
-    "and treat it as the month's"
-], ids=["as-the", "rather-than", "instead-of", "trust", "rely-on", "treat"])
+    "and treat it as the month's",
+    "as the month's figure as the record shows"
+], ids=["as-the", "rather-than", "instead-of", "trust", "rely-on", "treat", "as-then-shows"])
 def test_a_sentence_saying_one_role_of_lines_whose_rows_differ_is_named(role: str) -> None:
     # Write-ups said the statement, the summary and the reconciliation all read
     # the stored month "as the month's figure", though the reconciliation's own
@@ -1926,8 +1927,9 @@ def test_a_role_said_where_no_lines_outside_the_patch_were_shown_is_accepted() -
 @pytest.mark.unit
 @pytest.mark.parametrize("contrast", [
     "and the reconciliation still compares it with the purchases",
-    "and the reconciliation sets it against the purchases"
-], ids=["its-own-verb", "against"])
+    "and the reconciliation sets it against the purchases",
+    "while the reconciliation compared it with the purchases"
+], ids=["its-own-verb", "against", "its-own-verb-in-the-past"])
 def test_a_sentence_saying_what_the_line_set_against_a_call_does_is_accepted(
         contrast: str) -> None:
     # A true contrast: each line is said as its row says it, and the role is
@@ -1970,8 +1972,10 @@ def test_an_as_that_says_no_role_is_accepted(sentence: str) -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("lumped", [
     "Monthly statements, spend summaries and the reconciliation read it as the month's figure.",
-    "U1, U2 and U3 read it as the month's figure."
-], ids=["plurals", "labels"])
+    "U1, U2 and U3 read it as the month's figure.",
+    "The monthly statement, the month comparison, the spend summary and the reconciliation "
+    "read it as the month's figure."
+], ids=["plurals", "labels", "beside-a-noun-of-its-verb"])
 def test_a_line_is_named_in_the_plural_or_by_its_label(lumped: str) -> None:
     Scenario() \
         .given(
@@ -1989,26 +1993,20 @@ def test_a_line_is_named_in_the_plural_or_by_its_label(lumped: str) -> None:
 
 
 @pytest.mark.unit
-def test_a_sentence_saying_the_lines_would_derive_it_themselves_is_named() -> None:
-    # The reconciliation adds the purchases up already: that all of them should
-    # have derived the month themselves says of it what its row does not.
-    lumped = ("Held until the monthly statement, the spend summary and the reconciliation "
-              "derived the month total themselves.")
-
+def test_a_sentence_saying_the_checking_line_adds_the_purchases_up_is_accepted() -> None:
+    # Adding the purchases up is what the reconciliation does: said beside a
+    # reader, it tells the two apart rather than lumping them.
     Scenario() \
         .given(
-            an_answer_lumping_them := _an_answer(contributing_factors=[
-                SubmittedFactor(label="CF-1", factor=DONT_CARE_PROSE,
-                                had_it_been_otherwise=lumped, addressed_by=["AI-1"])])
+            an_answer := _an_answer(
+                root_cause="Each purchase raised the sum the reconciliation adds up while the "
+                           "stored total the monthly statement shows stayed where it was.")
         ) \
         .when(
-            lambda: faults_in(an_answer_lumping_them, given=_given_lines_of_two_kinds())
+            lambda: faults_in(an_answer, given=_given_lines_of_two_kinds())
         ) \
         .then(
-            all_of(
-                _named(f"[{lumped}]"),
-                _found(1)
-            )
+            _found_nothing_wrong()
         )
 
 

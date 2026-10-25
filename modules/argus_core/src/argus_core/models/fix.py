@@ -81,10 +81,11 @@ class CodeUse(BaseModel):
     Code-Fix's reading names. Only where it is does the line say anything of
     what ran.
 
-    `set_against_a_call` is whether the line sets what it uses against a
-    function of its own file whose whole body is one `return` - what `does`
-    quotes that function returning. A line that does reads it to check it, not
-    as the figure it uses.
+    `set_against_a_call` is whether the line compares what it uses with, or
+    subtracts it from or by, a call of a function of its own file whose whole
+    body is one `return` - what `does` quotes that function returning. A line
+    that does reads it to check it, not as the figure it uses; one dividing or
+    multiplying by such a call is a reader like any other.
     """
 
     name: str

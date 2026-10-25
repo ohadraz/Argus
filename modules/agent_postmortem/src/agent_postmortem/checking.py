@@ -185,14 +185,8 @@ _A_ROLE: Final = re.compile(
 # An "as" that says no role: "such as", "as well as", "as a result", and "as"
 # a source says something ("as its docstring says").
 _AN_AS_OF_NO_ROLE: Final = re.compile(
-    r"\bsuch as\b|\bas well as\b|\bas a result\b|\bas [^,.;]*?\b(?:says|said|shows)\b",
-    re.IGNORECASE)
-
-# What a line is said to do in place of reading the stored figure - work it out
-# for itself. A role only where the lines are named first: "the month was to
-# be derived" before them says what the change meant, not what they do.
-_A_DERIVATION: Final = re.compile(
-    r"\bderiv\w*|\bwork\w*(?:\s+\w+){0,3}\s+out\b|\badd\w*(?:\s+\w+){0,3}\s+up\b",
+    r"\bsuch as\b|\bas well as\b|\bas a result\b"
+    r"|\bas (?:(?!\bas\b)[^,.;])*?\b(?:says|said|shows)\b",
     re.IGNORECASE)
 
 # What every fault about a figure asks for instead.
@@ -485,12 +479,12 @@ def _one_role_said_of_lines_whose_rows_differ(answer: SubmittedPostmortem,
             for field, prose in said
             if prose is not None
             for sentence in _A_SENTENCE_END.split(prose.strip())
-            for named in [_where_each_row_is_named(sentence, given.uses)]
+            for named in [_the_rows_named_in(sentence, given.uses)]
             if _says_one_role_of_both_kinds(sentence, named, given.uses)]
 
 
 def _says_one_role_of_both_kinds(sentence: str,
-                                 named: dict[str, int],
+                                 named: list[str],
                                  uses: dict[str, CodeUse]) -> bool:
     """Whether a sentence naming these rows names both kinds, says a role of
     them, and says nothing of what the checking lines do."""
@@ -498,30 +492,30 @@ def _says_one_role_of_both_kinds(sentence: str,
     if not checking or len(checking) == len(named):
         return False
 
-    verbs = {"against", *(uses[label].does.split(maxsplit=1)[0] for label in checking)}
-    if any(re.search(rf"\b{re.escape(verb)}\b", sentence, re.IGNORECASE) for verb in verbs):
+    if re.search(r"\bagainst\b", sentence, re.IGNORECASE) or any(
+            re.search(rf"\b{re.escape(stem)}(?:e|es|ed|ing|s)?\b", sentence, re.IGNORECASE)
+            for stem in {_the_stem_of(uses[label].does) for label in checking}):
         return False
 
-    return bool(_A_ROLE.search(_AN_AS_OF_NO_ROLE.sub(" ", sentence))
-                or _A_DERIVATION.search(sentence, min(named.values())))
+    return bool(_A_ROLE.search(_AN_AS_OF_NO_ROLE.sub(" ", sentence)))
 
 
-def _where_each_row_is_named(sentence: str, uses: dict[str, CodeUse]) -> dict[str, int]:
-    """Each row whose label, file or function a sentence names, with where it
-    is first named: the file by its path, its stem, the stem with spaces for
-    underscores, or the stem's last word - whole words, in the singular or the
-    plural, whatever their case."""
-    named: dict[str, int] = {}
+def _the_stem_of(does: str) -> str:
+    """The stem of the verb a row's line is said by, which its verb's forms
+    are spelled from: "compares" as "compar", so "compare", "compared" and
+    "comparing" are it too, and "comparison", a noun, is not."""
+    return does.split(maxsplit=1)[0].removesuffix("s").removesuffix("e")
 
-    for label, use in uses.items():
-        found = [match.start()
-                 for name in _names_of(label, use)
-                 for match in re.finditer(rf"(?<![\w/.]){_in_either_number(name)}(?![\w/])",
-                                          sentence, re.IGNORECASE)]
-        if found:
-            named[label] = min(found)
 
-    return named
+def _the_rows_named_in(sentence: str, uses: dict[str, CodeUse]) -> list[str]:
+    """The label of each row whose label, file or function a sentence names:
+    the file by its path, its stem, the stem with spaces for underscores, or
+    the stem's last word - whole words, in the singular or the plural, whatever
+    their case."""
+    return [label for label, use in uses.items()
+            if any(re.search(rf"(?<![\w/.]){_in_either_number(name)}(?![\w/])", sentence,
+                             re.IGNORECASE)
+                   for name in _names_of(label, use))]
 
 
 def _names_of(label: str, use: CodeUse) -> set[str]:

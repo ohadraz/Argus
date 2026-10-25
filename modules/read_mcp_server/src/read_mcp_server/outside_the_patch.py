@@ -223,8 +223,7 @@ def _uses_in(path: str,
             yield CodeUse(name=node.attr, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
                           does=_what_it_does(node, parents, text, lines, returns),
-                          set_against_a_call=_the_function_that_only_returns_it_calls(
-                              _the_operand_it_is_set_against(node, parents), returns) is not None)
+                          set_against_a_call=_is_set_against_a_call(node, parents, returns))
         elif isinstance(node, ast.Call) and (called := _a_changed_call(node, changes, modules)):
             yield CodeUse(name=called, path=path, line=node.lineno,
                           function=_the_function_around(node, parents),
@@ -356,6 +355,21 @@ def _the_operand_it_is_set_against(node: ast.Attribute, parents: Parents) -> ast
         return parent.right if parent.left is node else parent.left
 
     return None
+
+
+def _is_set_against_a_call(node: ast.Attribute,
+                           parents: Parents,
+                           returns: Mapping[str, str]) -> bool:
+    """Whether a field is compared with, or subtracted from or by, a call of a
+    function of its file that only returns - the line checking the field
+    against what that function works out. Dividing or multiplying by one uses
+    the field, as any reader does."""
+    parent = parents.get(node)
+    checks = isinstance(parent, ast.Compare) or (isinstance(parent, ast.BinOp)
+                                                 and isinstance(parent.op, ast.Sub))
+
+    return checks and _the_function_that_only_returns_it_calls(
+        _the_operand_it_is_set_against(node, parents), returns) is not None
 
 
 def _the_function_that_only_returns_it_calls(operand: ast.expr | None,
