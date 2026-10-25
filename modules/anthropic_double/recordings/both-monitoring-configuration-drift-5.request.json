@@ -5,13 +5,13 @@
   "max_tokens": 128000,
   "messages": [
     {
-      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: Revision c3c36da renamed every port to the estate-wide `<protocol>[-<purpose>]` convention, including the metrics port (metrics -> http-metrics). The service is still being served correctly. The monitoring scrape still selects the port by its old name, so no samples arrive.\n\nWhat that rests on:\n  - deploy/values-production.yaml: portName: metrics -> portName: http-metrics (also web -> http, admin -> http-admin), under the comment 'Every port is named for the protocol it carries... The platform's convention, applied estate-wide.'\n  - Metrics rows stop after 2026-10-22T01:04:00Z, with the deploy landing at 01:05:00Z; the rollout has converged (all 3 replicas on c3c36da).\n  - Logs keep answering across the missing minutes: 'INFO io-shop: account pages rendered normally'. The only errors are ClientDisconnected, at the usual baseline rate.\n\nFiles named in the evidence:\n  deploy/values-production.yaml\n  src/io_shop/rollout.py\nThese are what the evidence names, which is not always where the fault lives.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nYou are reading main. The revision that was running when the alert fired, c3c36da3c66c07707f227b7e70b26813083061f3, is not in main's history - it was deployed from another branch - so what main holds may differ from what ran. Say which of the two each claim about the code is about.\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The deploy at 2026-10-25T21:48:00Z renamed every port to the platform naming convention (web\u2192http, admin\u2192http-admin, metrics\u2192http-metrics). The scrape still selects the metrics port by its old name, so metrics stopped at 2026-10-25T21:48:00Z. The shop kept serving normally.\n\nWhat that rests on:\n  - deploy/values-production.yaml: metrics portName: metrics -> http-metrics (and web->http, admin->http-admin), 'The platform's convention, applied estate-wide'\n  - Metrics rows stop at 2026-10-25T21:47:00Z; MetricsAbsent fired 5m with no sample\n  - Logs keep answering across the gap: 'account pages rendered normally'; only low-level ClientDisconnected errors as before\n  - Rollout converged: all 3 replicas on c3c36da3c66c07707f227b7e70b26813083061f3\n\nFiles named in the evidence:\n  deploy/values-production.yaml\nThese are what the evidence names, which is not always where the fault lives.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nYou are reading main. The revision that was running when the alert fired, c3c36da3c66c07707f227b7e70b26813083061f3, is not in main's history - it was deployed from another branch - so what main holds may differ from what ran. Say which of the two each claim about the code is about.\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
       "role": "user"
     },
     {
       "content": [
         {
-          "id": "toolu_01Q74fQwghdfjLyaDtcbhiMQ",
+          "id": "toolu_01FzGxpCMsezYrYebuVbJiXa",
           "input": {
             "path": "deploy/values-production.yaml"
           },
@@ -19,17 +19,9 @@
           "type": "tool_use"
         },
         {
-          "id": "toolu_01RqfzJtQVMh1aTwx1uSoZf5",
+          "id": "toolu_012cLsG83Tgt1QLcF3upuVnA",
           "input": {
             "path": "deploy/scrape.yaml"
-          },
-          "name": "read_repository_file",
-          "type": "tool_use"
-        },
-        {
-          "id": "toolu_01UHq7AF49fSyWJZZfrG2vjU",
-          "input": {
-            "path": "src/io_shop/rollout.py"
           },
           "name": "read_repository_file",
           "type": "tool_use"
@@ -41,17 +33,12 @@
       "content": [
         {
           "content": "# Deployment configuration for the io-shop account service, production.\n#\n# Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n# why the service reads this file rather than being handed environment\n# variables: the values here are the deployment's, not the code's, and changing\n# one is a change to configuration that ships without the service being rebuilt.\n#\n# Owned by whoever runs the shop. Changes here go out the way any other change\n# goes out - reviewed, merged, and synced by the platform - and land without a\n# single line of io-shop's source being touched.\n\nreplicas: 3\n\nresources:\n  memoryLimitMiB: 2048\n\n# How the platform scales the shop.\n#\n# Rendered into a HorizontalPodAutoscaler, so `replicas` above is only where the\n# deployment starts: the controller decides the count from there, between the\n# floor and the ceiling here, aiming to keep each replica at the CPU target.\n#\n# `scaleDownStabilizationSeconds` is how far back the controller looks before it\n# believes a fall in load is real. Kubernetes defaults it to 300 - five minutes\n# of the highest recommendation it saw - because a controller acting on the\n# reading in front of it acts on a reading its own last action produced.\nautoscaling:\n  minReplicas: 3\n  maxReplicas: 6\n  targetCpuPercent: 70\n  scaleDownStabilizationSeconds: 0\n\n# How the platform finds the shop's metrics.\n#\n# The shop exposes its per-minute figures on this port, and the scrape config\n# selects the target by the port's *name* rather than its number - which is\n# what lets the number move without anything having to be re-pointed at it.\n#\n# The name is therefore load-bearing in a way the number is not. Nothing in the\n# shop reads it.\nmetrics:\n  port: 9090\n  portName: http-metrics\n\n# Where the rendered-summary cache lives.\n#\n# The account page reads this cache before it works a shopper's spend figure\n# out, and recomputes when the cache has nothing or cannot be reached. So the\n# shop stays correct whatever is written here - it only stays *fast* while the\n# address is right.\ncache:\n  host: cache.io-shop.svc.cluster.local\n  port: 6380\n\n# Which model files a purchase under a category.\n#\n# Every version ships in the image beside the code, and this picks the one the\n# shop loads - so moving to a new model is a change here, reviewed and synced\n# like any other, and moving back is a rollback rather than a rebuild.\ncategoriser:\n  model: v2\n",
-          "tool_use_id": "toolu_01Q74fQwghdfjLyaDtcbhiMQ",
+          "tool_use_id": "toolu_01FzGxpCMsezYrYebuVbJiXa",
           "type": "tool_result"
         },
         {
           "content": "# How the platform's Prometheus collects the shop's metrics.\n#\n# The ServiceMonitor the platform applies with the shop's chart, kept in the\n# repository beside how the shop is deployed, so that how it is collected\n# changes in the same pull request as what it is collected from.\n#\n# It selects the shop's Service by label, then the endpoint to scrape on that\n# Service by the port's *name* - never its number - so a port can move without\n# anything here being touched.\n#\n# The name here has to be the one `metrics.portName` in values-production.yaml\n# gives the port. Nothing checks that the two agree: a name that matches no port\n# is not an error to the operator, it is a target list with nothing in it.\napiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: io-shop\n  labels:\n    release: prometheus\nspec:\n  selector:\n    matchLabels:\n      app: io-shop\n  endpoints:\n    - port: metrics\n      path: /metrics\n      interval: 15s\n",
-          "tool_use_id": "toolu_01RqfzJtQVMh1aTwx1uSoZf5",
-          "type": "tool_result"
-        },
-        {
-          "content": "\"\"\"How widely the new summary is rolled out while its flag is on.\n\nA canary: the new figure sits behind a flag pointed at a slice of traffic, so a\nproblem with it shows up against a shop that is still mostly working rather than\nagainst one that is down.\n\"\"\"\n\nfrom __future__ import annotations\n\nCANARY_SHARE = 0.4\n",
-          "tool_use_id": "toolu_01UHq7AF49fSyWJZZfrG2vjU",
+          "tool_use_id": "toolu_012cLsG83Tgt1QLcF3upuVnA",
           "type": "tool_result"
         }
       ],
@@ -148,7 +135,7 @@
         "additionalProperties": false,
         "properties": {
           "explanation": {
-            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path.",
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
             "type": "string"
           },
           "files": {

@@ -2,33 +2,54 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQS3AQKEAgTGAI4AUIIdGhpbmtpbmcSDN3vh2zJxwm5xw11nxoMBKet9BA85svT3rzrIjCxgRXzkuGBSGSvN9+twso6+g1S3xVvm4YUF3krtbceuvA30MtRbBZjZfI8ADCJPqIq+QMjNXmci1O3jKOqwggQLU6xvcNv5C6p2VBi06JoCCEqlzM2ZOSXKJr2vLpL11PGZa/l6gHiuLVDs2C5N1zyuq4b3BCsDD4acVoUOGquWjR5X5LotbCdElhSBSrOcvc9iDfFg73cbIOIivlCIoOGDLE8+RA7fZ2uX9tAi+J74xpCSWySWbK6VcOuuZeXOgTvBfYRkicaR1pxbm52xtLAA34rLkjUJx5wjDrdiM8eTFKXrXGPkreapkU2zuDB22UoaeXbe4uyPQS7c/XPwVaGZw7CIBwjlrmEPO95z1KrmL9OCMGWwYoeicXqpKP3qTLSaNo3rJqd8bSHr+xeYjE+h0L5c41hRrAx94SlxjyvqyB+AGcpEv9E9yhkIBlcdq4izTdzz6KgAu7oanjcZLy0kzlvxqPwcRbkR+aOlDrjt1lh84OZc3Me3ss/bNhV16rvQq0N6MQqSH9lgKVxeTrDrut/2vMuoUrYBUhMEcQYrXSECWmaiYjWGe4h+tyniF2KrNgEmLaJ2FkDvdIrhiKYt/f+I5FbVvM0ta/zl3HE33ZInuBpCAiqitnWjMFcX1AE4TrN11b4OpxJ41c2+tOM94CfZinOzXm0L+pnGzZLrpvej0jA9a3qL/+a0so1YSF4R8mNLGQekVSaA0NUVH+2a9gQ+zk5a2nfrAhMGAE=",
-      "thinking": "I should strip the revision name out of the root_cause field so it doesn't leak implementation details.\n\n",
+      "signature": "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",
+      "thinking": "I'm examining the error logs around the incident\u2014ClientDisconnected rates stayed similar before and after, error rate warnings were slightly elevated afterward, and account pages rendered normally at 21:53 with no reported customer loss. This suggests the issue may not have had a visible customer-facing impact.\n\nThe symptom seems to be that nobody using the shop noticed anything wrong, but the shop's metrics stopped arriving entirely. Tracing the cause: the ServiceMonitor selects the scrape endpoint by the port name \"metrics,\" but the running revision actually names it \"http-metrics,\" so the mismatch broke scraping without affecting actual service traffic.\n\nI'm tracing this back to a deploy at P2 that renamed ports to match platform convention without updating scrape.yaml, and confirming that metrics were still flowing fine between the earlier P1 deploy and the actual onset \u2014 ruling P1 out as the cause since metrics data existed right up until the point things broke.\n\nThe real mechanism is that the ServiceMonitor selects by name \"metrics,\" but the rename changed it to \"http-metrics,\" and since a mismatched name isn't treated as an error, the scrape config just silently returns an empty target list. The contributing gap is that nothing validates the two names agree, and the rename was only applied to the values file while scrape.yaml was left untouched \u2014 that's the full causal chain I want to lay out from symptom to mechanism to root change.\n\nNow I'm identifying contributing factors: CF-1 is the missing consistency check between the scrape port name and values file port name, which would have caught this before deploy, and this gets addressed by the fix that adds a test \u2014 though whether CI actually runs that test is still unclear, so I should propose gating deploys on it.\n\nCF-2 is that a ServiceMonitor port mismatch isn't an error \u2014 it silently produces an empty target list, so detection only happened via the MetricsAbsent alert minutes later. An alert on an empty scrape target set could have caught this faster at deploy time. There's also the fact that nobody was paged since there was no linked on-call incident, suggesting a paging gap that may have delayed human action during escalation.\n\nThe deeper root cause is that the platform-wide naming convention rename didn't include the scrape config, pointing to a cross-file coupling issue \u2014 templating the ServiceMonitor port from a single metrics.portName source would prevent future drift between the two files.\n\nAlso, revision c3c36da running now isn't in main's history, so the branch it came from needs the same one-line scrape port fix applied and a new revision deployed carrying it; merging the fix into main alone won't change what's actually running until a deploy picks it up. Until that happens, the shop's metrics stay uncollected, meaning any real fault there would go undetected by metrics-based alerts.\n\nFor the lessons, I'm noting what went well: Argus correctly tied the service stop to the deploy and read the diff shortly after the alert, Code-Fix proposed a draft PR promptly, and Argus rightly declined to roll back what was an intentional change.\n\nFor what went wrong, I'm weighing whether the real issue is that the rename shipped to production without updating the scrape config, and noting that Code-Fix's fix targets main rather than the actual running revision, so merging it alone wouldn't restore metrics \u2014 the branch with the running commit needs the same fix. I'm also flagging a bit of luck: the rename also touched web and admin port names, so if anything else had been routing or probing by the old names, shoppers could have actually been affected.\n\nI'll keep the second point and note my assumption rests on the comment in scrape.yaml rather than a directly observed target list, since nothing confirms the empty list was actually read. In plain words: a port renaming done for naming-convention reasons wasn't reflected in the separate scrape config, so monitoring had nothing to collect from \u2014 the root cause traces to the ServiceMonitor definition in deploy/scrape.yaml.\n\nThe ServiceMonitor selects by the port name `metrics`, but a later revision renamed it to `http-metrics` in values-production.yaml, and since a mismatched port name isn't flagged as an error, Prometheus silently ended up with an empty target list. I'll steer away from citing specific numbers like revision hashes or PR numbers directly, referring to things like \"the draft pull request\" instead, and keep any timing references as placeholders in the steps.\n\nI'm ruling out the P1 hypothesis based on earlier evidence, and noting flags without restating the still-valid mechanism from C2 since it hasn't been refuted. For action items, I'm separating the fix into two distinct steps: first, making the same one-line scrape port correction on the branch that the problematic revision originated from, and second, deploying a revision carrying that change \u2014 keeping \"confirm metrics resume\" as a separate concern rather than folding it into the deploy step.\n\nFor prevention, I want the ServiceMonitor's port to be derived directly from metrics.portName so the two values can't diverge, and I want the port-name consistency test added to the gating checks for deploys. For detection, I'd alert when the io-shop ServiceMonitor has no scrape targets, and for process, route the MetricsAbsent alert to on-call and add monitoring configs like ServiceMonitors to the checklist for the estate-wide port-naming rollout, since that's likely where the gap originated.\n\nI'm now reconsidering CF-2: the issue is that an empty target list from a mismatched port name doesn't surface as its own error -- it only gets caught once MetricsAbsent's wait period passes, which delayed detection. I'm debating whether to fold that into root cause or keep it as a separate contributing factor about missing alerting on empty scrape targets, but I'll keep root cause focused and treat this as its own factor.\n\nFor CF-3, paging matters: if someone had been paged, they'd have picked up the fix and redeployed sooner. That settles the factors, so now I'll write it up.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01QRBTEfTEPJLzDygVjJ5S9k",
+      "id": "toolu_016jsQRGU8dymeZdQeTUd3W2",
       "input": {
         "action_items": [
           {
-            "answers": [
-              "CF-1"
-            ],
-            "item": "Make the port-name agreement test from PR #339 a required check on every change to the deploy/ directory, so a change cannot merge while the scraped port name and `metrics.portName` disagree.",
-            "type": "prevent"
-          },
-          {
             "answers": [],
-            "item": "Once the scrape.yaml change is merged, deploy it to production and confirm that io-shop samples arrive again.",
+            "item": "Make the same one-line change to deploy/scrape.yaml (port `http-metrics`) on the branch that revision c3c36da was deployed from, which is not in main's history.",
             "type": "mitigate"
           },
           {
             "answers": [],
-            "item": "Find anything else that selects io-shop's web or admin ports by their old names (`web`, `admin`), which the deploy renamed to `http` and `http-admin`, and update it.",
+            "item": "Deploy to io-shop a revision that carries the scrape port change.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Render the ServiceMonitor's endpoint port from `metrics.portName` in the values file so the two cannot drift apart.",
             "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Run the port-name consistency test from the draft fix as a required check on changes to the deploy/ directory.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add an alert that fires when the io-shop ServiceMonitor selects no scrape targets.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Route MetricsAbsent alerts on io-shop to the on-call page.",
+            "type": "process"
           }
         ],
         "causal_chain": [
@@ -41,7 +62,7 @@
               "Gad41"
             ],
             "ruled_out": [],
-            "step": "Nobody using the shop was seen to have a problem. What was seen instead was the shop's metrics stopping after the minute at {T5.2}, with no sample since, which raised MetricsAbsent."
+            "step": "Nobody using the shop saw anything wrong. Instead, the shop's metrics stopped arriving from {metrics_stopped_at}, and MetricsAbsent fired."
           },
           {
             "cites": [
@@ -49,12 +70,13 @@
               "S2"
             ],
             "ruled_out": [],
-            "step": "Prometheus had no target to collect from. At the running revision, the ServiceMonitor picks the endpoint by the port name `metrics` [S1], but the shop's metrics port is named `http-metrics` [S2]. The selector matches no port, and scrape.yaml's own comment says a name that matches no port is not an error to the operator: it is a target list with nothing in it."
+            "step": "The metrics stopped because Prometheus had nothing to scrape. In the running revision, the ServiceMonitor selects the endpoint by the port name `metrics`, but the values file names the metrics port `http-metrics`. A name that matches no port is not an error to the operator: it gives a target list with nothing in it."
           },
           {
             "cites": [
               "P2",
               "D1",
+              "S1",
               "T13"
             ],
             "ruled_out": [
@@ -63,53 +85,67 @@
                   "P1",
                   "T5"
                 ],
-                "what": "The earlier deploy of revision 2c8f731 at {P1.1}: metrics kept arriving with it in place, up to the minute at {T5.2}."
+                "what": "The earlier deploy of revision 2c8f731: the shop's metrics were still being collected with it in place, up to the minute before the onset."
               },
               {
                 "cites": [
                   "T16"
                 ],
-                "what": "A feature flag change: the flag provider showed {T16.2} flag changes by anyone but Argus in the hour Argus checked."
+                "what": "A feature-flag change: the flag provider shows no flag changes by anyone but Argus in the hour before it was read."
               }
             ],
-            "step": "The port had been renamed by the deploy of revision c3c36da at {P2.1}. That deploy renamed every port to the estate-wide `<protocol>[-<purpose>]` convention, including metrics -> http-metrics, and changed only deploy/values-production.yaml, leaving deploy/scrape.yaml as it was [D1]. As of {T13.1}, all {T13.2} replicas ran that revision."
+            "step": "The names disagree because the deploy of revision c3c36da at {P2.1} renamed every port to the platform convention (web to http, admin to http-admin, metrics to http-metrics) in deploy/values-production.yaml. That is the only file its diff lists, so deploy/scrape.yaml still selects `metrics`. As of {T13.1}, all {T13.2} replicas ran that revision."
           }
         ],
-        "cause_in_plain_words": "A configuration change renamed the connection point where the shop publishes its measurements, but the monitoring setting that finds that point by its name was not updated, so monitoring found nothing to collect.",
+        "cause_in_plain_words": "A planned renaming of the shop's network connection points, made to follow a platform-wide naming convention, was not carried into the separate setting that tells the monitoring system where to collect the shop's measurements, so the monitoring system found nothing to collect.",
         "cause_rests_on_an_unrun_reading": false,
         "contributing_factors": [
           {
             "addressed_by": [
               "AI-1"
             ],
-            "factor": "No check was seen that the port name the ServiceMonitor scrapes matches `metrics.portName` in values-production.yaml. scrape.yaml's own comment says nothing checks that the two agree, so renaming one side alone went out without failing anything.",
-            "had_it_been_otherwise": "The rename would have failed before it was deployed, and the metrics would never have stopped.",
+            "factor": "Nothing checks that the port name in deploy/scrape.yaml matches `metrics.portName` in deploy/values-production.yaml (the scrape file says so itself). No check of the rename against the scrape configuration was seen before the deploy.",
+            "had_it_been_otherwise": "The mismatch would have been caught before the rename reached production, and the metrics would not have stopped.",
             "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No alert was seen for the shop's ServiceMonitor selecting no scrape targets. The fault was found only by MetricsAbsent, which waits for a stretch with no samples.",
+            "had_it_been_otherwise": "The empty target list would have been flagged as soon as the deploy landed, not only after the absence window had passed.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "MetricsAbsent on io-shop did not page anyone: no on-call incident was linked to the alert.",
+            "had_it_been_otherwise": "A person would have known straight away that the shop was unwatched and could have pushed the scrape fix through to a deploy sooner.",
+            "label": "CF-3"
           }
         ],
         "lessons": {
-          "got_lucky": [],
+          "got_lucky": [
+            "The shop kept no metrics for the whole stretch. Had it actually broken during that time, nothing watching its metrics would have shown it or alerted on it."
+          ],
           "went_well": [
-            "Argus tied the gap to the deploy, reading at {T13.1} that every replica ran revision c3c36da, {T13.1 - alert_raised} after the alert.",
-            "Argus declined to undo the deliberate estate-wide port rename just to test the candidate, at {T18.1}, {T18.1 - alert_raised} after the alert.",
-            "Code-Fix proposed a fix as draft PR #339, which changes the scraped port name in deploy/scrape.yaml and adds a test, at {T20.1}, {T20.1 - alert_raised} after the alert."
+            "Argus read the diff of the suspect deploy {T12.1 - alert_raised} after the alert was raised, and tied the stopped metrics to the port rename.",
+            "Argus declined to roll back the rename, because undoing it would reverse a change made on purpose. It sent the incident on toward a fix instead.",
+            "Code-Fix opened a draft pull request {T20.1 - alert_raised} after the alert was raised. It changes the scrape's port name and adds a test that keeps the two files in step."
           ],
           "went_wrong": [
-            "The MetricsAbsent alert paged nobody, so no person was engaged until Argus escalated."
+            "Code-Fix wrote its fix against main, which does not contain the running revision. Merging it will not bring the metrics back until a deploy carries the change, and the branch that revision c3c36da came from needs the same change before it is deployed again."
           ]
         },
         "logs_show_serving_as_before": true,
         "reaches_a_cause": true,
-        "root_cause": "The platform's Prometheus ServiceMonitor (deploy/scrape.yaml) picks the shop's endpoint to scrape by port name and still asks for `metrics`. The deployed configuration now names the metrics port `http-metrics` in deploy/values-production.yaml. The name in the selector matches no port, and the operator does not treat that as an error: it leaves a target list with nothing in it, so no samples were collected.",
-        "still_at_risk": "As long as the scrape asks for a port name that no longer exists, no metrics are collected from the shop, so a real failure there would not be caught by any alert that reads them.",
-        "symptom": "Nobody using the shop saw anything wrong; the shop's metrics stopped arriving instead."
+        "root_cause": "The ServiceMonitor in deploy/scrape.yaml picks the endpoint to scrape by the port name `metrics`. Revision c3c36da renamed that port to `http-metrics` in deploy/values-production.yaml and left the scrape file alone. A ServiceMonitor port name that matches no port is not an error to the operator, so Prometheus was left with an empty target list and collected nothing from the shop.",
+        "still_at_risk": "The scrape was still looking for a port name the running revision no longer has, so any real trouble in the shop would go unseen by anything that watches its metrics until a deploy brings the two names back into line.",
+        "symptom": "Nobody using the shop saw anything wrong; the shop's metrics stopped arriving."
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgMKu5pviWxGYYa4EuMwn",
+  "id": "msg_011CgPhYHGkT6SNFYMSbAQHW",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -119,15 +155,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1895
+      "ephemeral_5m_input_tokens": 11054
     },
-    "cache_creation_input_tokens": 1895,
-    "cache_read_input_tokens": 11070,
+    "cache_creation_input_tokens": 11054,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1805,
+    "input_tokens": 4,
+    "output_tokens": 6447,
     "output_tokens_details": {
-      "thinking_tokens": 14
+      "thinking_tokens": 4223
     },
     "service_tier": "standard",
     "speed": "standard"
