@@ -2,35 +2,33 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQS6gQKEAgTGAI4AUIIdGhpbmtpbmcSDN+UTDq3bNt5fQ35uBoM3OW1CaeNXQ+VPKnGIjCHiYWUBvFhFyZZeYf7FuYPrBcMHBNk4l0wrLpml4dLVW3dND3mIo0uyShNBAYQ4mgqhwTvDNhlqAIKZuTbyXNmhvXOmwyej5Vk61ja3Sy5+25UAtHDA3fRN7XdL7OmUe4gXiuxk0ZornK5ZMujJHOu4WPTWj+8mIT69Fdb6nceqMNbOEjDV3a8tQHllMfK0nc0PQx89C9looDwcThP3Ob2y1MvqTo7XraDSLSYZ9+LUX1CXc5z64nWgNAoiUcsKWoDuryzf96LbuTh3ac4pQ2XJAKMHca7w2kbGEhOd9M2B5mbfWdQNnMkf4NFB9l8k4Movd5yKCXU8GMOyiuuOO9JksIZZGKKvkkIqOu8BnL4B4i1NfEP4rA/3faHDjuJe02IrtUOnxKENi5OZlEEGeCs3L0BWRZDpTnhAvJ7vr5jku9kOz9hNDfvVgA+fKO32uwtn/XwxOYqyiHuR1eTUxyq9gxe8praQ55fDhRlQkR+gsLj8S0xPe9X7KIgtBM0igDsEMHh3HNHaUw+8G2mZ/FmCJz7lwQr1Qb6AWBpPPzTsh3rP0wa0cXODjbdESJB0jOULUeD7dvtl96SXBoNnhpapUgRqiDOiCU5dNsQ2OXCqefxuXpts6UwV3cMIDjqL86RDRjAEOgHBLjtzF3+D4ke5EcT7uL9cqu2+EFswXruBcv6oMTen/t2RN5snto/aHE3eShBMShF/H8Q1jXqrWoKcqWr79m3MZvSHZiGJKGY9JpWEW/KlhrGtK4YAQ==",
-      "thinking": "I should fix this to use single sentences and make sure the F1 step citations include S1.\n\n",
+      "signature": "CAQS1AgKEAgTGAI4AUIIdGhpbmtpbmcSDMlwYHxsXQ+guhp88BoMlDWGzBk0PVxxazkTIjD0+vQ6kMEihM03xHAupRETUEfqxDjzex6JTz38GLOoaC54DRXdrhM2KPy6wxtF6SUq8QdUEe4Kww94wKRNIUMzWJWV4RaKRFuthB4s2CyDQ2exHZf+rNmgO3xLefyzp0lJebZ65gFQRkHFGwoTePoR2XwGfhBwIp8sXajKezFUfKXb5MzgP6dX+ZSPaLQappIrdQEDZr3RJgWa4PiVmMi+TU8CZ7jGnHowCkr3Z2UcCNIOKtQk8hy5px62rl8qt1AHCI1WhuWVu1HwVNyvkN2z0O90EPEk011NqgcvKAHdSJO8J5DwZLMcejnS3OaX5QEogZgaJcP+pD6Ru1XWgyVJbAAL2Q6zHF1ljAQQK0PEPdO6MOnM0Rnv+IaglLuaMVJdd74TJQnDSxH47MprfiVOwJewbiCnmWbiPKJJu2H7KYtv0nTFWIrajyiGP/MrAbXqdVfCp53GbZnV92JNrWx24gvehHhS7qEbKDl3RNSnqLw/9ejCNQ0ulzkHHLnj5LYulsOYFDf9WHgMCmGBeZ9ZQpX3L5nbaL0t2a+WFjhqNyN1x60FOFSzD2LLbohhP0rP6volwCF/ux2wiReRELy5DpxRr58OI399RtO2/ZyeZmbdCxC+vEenaL+jWLk9+oY3JA1dZrj21k+SUI1Nk+h3F6AdA4zZvWWGbEc206ii1GKrbeWhhu/8x85hTCyz38eXtFR12ZeWIxCnK6lgQW4+X/UGeMi80nP8wNM9SNcKm2i2uuDyHsfW9ZGB1qADk+3Vfs0WzjuhvrUeHx3qCSNLFzaKXd7BG/Yf16aZAajufZKIIPc0e5uuIHfMlVjD6CLktQBuRTG1gFehVRQjUOzXA9uw0ewYwa1hHsWmVYMoSJPKzCdGswnl2RwNbvCbaiuEGpgTgMToK47ml+MV3G75KfCk+sSfztoFojpDOAoLRQ2hcdJtwoQlBYzL89lv/FgpEK5CX7SFNo7RX3keKXoAYu7nXQggqqRlCHlz6uhz6fyvai5hsU7+GlGUIa0Q6KRl5+ZYox6JCB4vQcnOHhC/i8j4/yHgsyFZ9Mn6XZ3ln+80Ul0VQaKeUkw4DIcI1H4R18zYUBHkpCbMOT+2Tfdp8fMDItWb97GTbxnP3JSfwXFSi8antTanTY6WbqDlYNgpOt3QFzfK28TJ7Sm9ZEeEVcuSz1op0VkvITVZngRh0LB+d02/2SraNWZTlaCoAA7E2/Im2inWrW+DmmJaQYYdAfd0TQ1l/ffUrvzM5L5fn/Sjnd57+lFOEcAj221I31An+okH1m7MNq6U1ow0e20S2dbQ1cWYzNm+gQQDp4sI0PGaNbSYCV3BlUNkRxvq59s6U5ny8muaOtafRmbrUojt3g1XhYBEbQvlqujXFYuHkqkIqLt0kYTIoD5Yd4tuuBiw9NWoGAE=",
+      "thinking": "I should confirm the repository still points to v2 given AI-3's note about re-enabling automatic sync, and double check that my proposed item actually answers CF-2 as required.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_012jtuQf2ZYoziJJJeNeMawW",
+      "id": "toolu_01GTThzQm2uTHwA24F9ZJaVC",
       "input": {
         "action_items": [
           {
-            "answers": [
-              "CF-1"
-            ],
-            "item": "Add a pre-deploy check for any change to `categoriser.model` in deploy/values-production.yaml. It runs a sample of real purchase titles, with their case as written, through the newly selected model and blocks the change if its confident share falls below the current model's.",
-            "type": "prevent"
+            "answers": [],
+            "item": "Set categoriser.model in deploy/values-production.yaml back to v1 until a deploy carries a fix for v2's input handling, so the repository says what should run.",
+            "type": "mitigate"
           },
           {
             "answers": [
               "CF-2"
             ],
-            "item": "Roll out changes to `categoriser.model` to part of the replicas first, and stop the rollout automatically if the share of confidently categorised purchases falls.",
+            "item": "Roll out categoriser model changes to a canary first, and stop the rollout automatically if the share of purchases categorised confidently falls below its baseline.",
             "type": "prevent"
           },
           {
             "answers": [],
-            "item": "Set `categoriser.model` in the repository's deploy/values-production.yaml back to v1 until a revision carrying the lowercasing fix is deployed, so that turning automatic sync back on does not put v2 back.",
-            "type": "mitigate"
+            "item": "Page the on-call engineer when CategorisationConfidenceLow fires on io-shop.",
+            "type": "detect"
           }
         ],
         "causal_chain": [
@@ -41,91 +39,91 @@
               "T6"
             ],
             "ruled_out": [],
-            "step": "From the onset at {T6.2}, far fewer purchases got a confident category. The share of purchases categorised confidently fell from {series_before} before the onset to an average of {series_while_broken}, and to {series_at_worst} at its worst. The error rate stayed at {errors_while_broken}, against {errors_before} before, so requests kept succeeding but many purchases were left without a confident category."
-          },
-          {
-            "cites": [
-              "T10",
-              "S1"
-            ],
-            "ruled_out": [],
-            "step": "The shop was categorising purchases with model v2 instead of v1. As of {T10.1}, all {T10.2} replicas ran revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342. That revision's production values file sets `categoriser.model: v2`."
+            "step": "Many purchases stopped being sorted confidently into a category. From {began}, the share of purchases categorised confidently fell from {series_before} to an average of {series_while_broken}, reaching {series_at_worst} at its worst. Requests did not fail more than they normally do."
           },
           {
             "cites": [
               "P2",
               "D1",
-              "M1",
+              "T10",
+              "T17",
               "T19",
-              "T20"
+              "T20",
+              "M1"
             ],
             "ruled_out": [
               {
                 "cites": [
-                  "P1",
                   "T5",
                   "T6"
                 ],
-                "what": "The earlier deploy of revision d268103129978816ce705c50c14cd42c7c5fe46e at {P1.1}. The metrics read back {T5.2} minutes from {T4.2} show the service healthy with that revision in place, at {series_before}, until the onset at {T6.2}."
+                "what": "The earlier deploy of revision d268103129978816ce705c50c14cd42c7c5fe46e at {P1.1}. The metrics read across the hours after it held the confident share at its normal level until the onset at {began}."
               },
               {
                 "cites": [
                   "T14"
                 ],
-                "what": "A feature-flag change. The flag provider's history showed {T14.2} flag changes by anyone but Argus in the {T14.3} hour before {T14.4}."
+                "what": "A feature flag change. The flag provider's history showed no flag changes by anyone but Argus in the hour before the incident was acted on."
+              },
+              {
+                "cites": [
+                  "D1"
+                ],
+                "what": "A change to the source code in the deploy. The deploy's diff touches only the model setting in the values file."
               }
             ],
-            "step": "The deploy of revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342 at {P2.1} changed `categoriser.model` from v1 to v2 in deploy/values-production.yaml. That is the only change its diff shows: no source file changed. Rolling the deployment back off this revision brought the service back from the incident's level, and the action was judged confirmed."
+            "step": "Every replica was running categoriser model v2 instead of v1. The deploy of revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342 at {P2.1} changed categoriser.model from v1 to v2 in deploy/values-production.yaml and changed no other file. At {T10.1}, all {T10.2} replicas were read as running that revision. Rolling the deployment back brought the service off the incident's level, and that action was confirmed."
           },
           {
             "cites": [
-              "S1",
-              "F1",
-              "D1"
+              "F1"
             ],
             "ruled_out": [],
-            "step": "Model v2 likely misses capitalised words. The running values file selects v2, which ships in the image beside the code. In the source Code-Fix read, `categorise()` passes the model `title.split()` with each word's case unchanged. `CategoriserModel.predict` lowercases words only when `lowercases_its_input` is true, which v1 sets and v2 does not. v2's vocabulary was built from lowercased titles, so under v2 a capitalised word misses the vocabulary and the purchase is filed under \"General\" with confident=False, without an error. This reading is of main, and nothing ran it. D1 shows the revision changed no source file compared with the revision before it."
+            "step": "Under v2, capitalised words in purchase titles likely match nothing the model knows. Code-Fix read the code on main. In that code, v2 does not lowercase the words it receives and expects lowercase input, but `categorise` passes the title's words to it unchanged. So a title with no known all-lowercase word falls through to \"General\" with confident=False, and no request fails. Code-Fix did not read the running revision's own copy of this code."
           }
         ],
-        "cause_in_plain_words": "A configuration change moved the shop to a newer model for sorting purchases into categories, and because that model likely expects every word in lowercase while the shop hands it words as written, it could not confidently place many purchases.",
+        "cause_in_plain_words": "The shop switched to a newer model for sorting purchases into categories, and that model likely fails to recognise capitalised words because it expects lower-case text that the shop never converts its product titles into.",
         "cause_rests_on_an_unrun_reading": true,
         "contributing_factors": [
           {
             "addressed_by": [
               "AI-2"
             ],
-            "factor": "No check was seen that runs real purchase titles, with their case as written, through a newly selected model version before a values change that switches models ships to production.",
-            "had_it_been_otherwise": "The drop in confident categorisation under v2 would likely have shown up before the deploy, and the switch would not have reached shoppers.",
+            "factor": "No test was seen that checked v2 against capitalised titles. Code-Fix read that the existing v2 tests covered only titles whose matching word was already lowercase.",
+            "had_it_been_otherwise": "A test giving v2 capitalised titles would have failed before the model switch shipped, and the switch would not have reached production as it did.",
             "label": "CF-1"
           },
           {
             "addressed_by": [],
-            "factor": "The model switch went to every replica at once. As of {T10.1}, all {T10.2} replicas ran the new revision, and no staged or partial rollout of the model change was seen.",
-            "had_it_been_otherwise": "Only some purchases would have been categorised by v2 before the drop was noticed, and the rollout could have been stopped before it reached the whole shop.",
+            "factor": "The model switch reached every replica at once. No staged rollout and no check of how many purchases were categorised confidently was seen gating it before it served all traffic.",
+            "had_it_been_otherwise": "A canary watching the confident share would have shown the drop on a small part of the traffic and stopped the rollout before all purchases were affected.",
             "label": "CF-2"
           }
         ],
         "lessons": {
           "got_lucky": [],
           "went_well": [
-            "The Investigator tied the drop to the model switch in revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342, and Argus rolled the deployment back {T17.1 - alert_raised} after the alert was raised.",
-            "Argus confirmed the rollback had brought the service back from the incident's level {T20.1 - alert_raised} after the alert was raised.",
-            "Because every model version ships in the image, moving back off v2 was a rollback rather than a rebuild (S1).",
-            "Code-Fix opened draft pull request #353 {T22.1 - alert_raised} after the alert was raised. It proposes lowercasing each word in `categorise()` before it reaches the model, plus tests for capitalised titles under v2."
+            "The Investigator tied the drop to the model switch by reading the deploy's own diff. Argus checked the flag provider's history before acting.",
+            "Argus rolled back the deployment {T17.1 - alert_raised} after the alert was raised.",
+            "Argus confirmed, {T20.1 - alert_raised} after the alert was raised, that the rollback had brought the service off the incident's level.",
+            "Code-Fix proposed a fix as draft pull request #354, {T22.1 - alert_raised} after the alert was raised."
           ],
-          "went_wrong": []
+          "went_wrong": [
+            "Nobody was paged. No on-call incident was linked to the alert, so no person was brought in while the incident ran.",
+            "Code-Fix read the code on main rather than the revision that was running, and assumed the running revision's categorising code matched main's."
+          ]
         },
         "reaches_a_cause": true,
-        "root_cause": "Model v2 does not lowercase the words it is given (v1 does), because v2 was trained on a vocabulary built from lowercased titles. The shop's `categorise()` passes it `title.split()` with the case of each word unchanged. Any capitalised word misses v2's vocabulary, and the purchase is filed under \"General\" with confident=False, without an error or a slowdown.",
-        "still_at_risk": "The shop's code still hands the model words with their case unchanged and the repository's production configuration still selects model v2, so deploying that configuration again would likely bring back the same drop in confident categorisation.",
-        "symptom": "Many purchases were filed without a confident category, while requests kept succeeding"
+        "root_cause": "Model v2 does not lowercase the words it is given. It expects lowercase input, because its training pipeline lowercased every title before its vocabulary was built. Code-Fix read on main that the shop's `categorise` passes the title's words to the model unchanged. So under v2, capitalised words match nothing, and a title with no known all-lowercase word falls through to \"General\" with confident=False.",
+        "still_at_risk": "By Code-Fix's reading the shop still passes titles to the model without lowercasing them, so putting model v2 back into production before a deploy carries a fix would likely bring the drop in confident categorisation straight back.",
+        "symptom": "Many purchases were no longer placed confidently into their proper category"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgPqW6D7ec6PimrB5EW9h",
+  "id": "msg_011CgQY4kgC2Nv47HoiJ8yQm",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -135,15 +133,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2810
+      "ephemeral_5m_input_tokens": 2299
     },
-    "cache_creation_input_tokens": 2810,
-    "cache_read_input_tokens": 10476,
+    "cache_creation_input_tokens": 2299,
+    "cache_read_input_tokens": 9619,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 2297,
+    "output_tokens": 2180,
     "output_tokens_details": {
-      "thinking_tokens": 24
+      "thinking_tokens": 187
     },
     "service_tier": "standard",
     "speed": "standard"
