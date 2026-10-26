@@ -223,10 +223,9 @@ class RecordAction(Protocol):
         # and the subject here as one identity - and neither can recover it
         # from anywhere else.
         subject: str | None,
-        # The instant the action is dated by, which the announcement of it
-        # carries too. Left to the database's clock, the row was read a moment
-        # before the announcement and the pages put the one action in two
-        # different seconds.
+        # When the claim is written, on the walk's clock rather than the
+        # database's - the one a replay's simulated clock moves. Not when the
+        # action was taken: that is its announcement's.
         at: datetime
     ) -> bool: ...
 

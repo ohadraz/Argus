@@ -66,7 +66,7 @@ def read_incident(conn: psycopg.Connection,
     `None` rather than an empty detail: an id that never existed has no walk to
     be empty, and the caller owes a reader that distinction.
 
-    Four reads rather than one join, because each is a repository's own
+    Five reads rather than one join, because each is a repository's own
     question and the join belongs to the view, which is where the answers are
     arranged for somebody to look at. `minutes` and `logged` are the rows the
     page beside the walk holds, for its findings to lead to, and `revisions`
@@ -80,6 +80,7 @@ def read_incident(conn: psycopg.Connection,
         incident,
         candidates=hypotheses.get_all_by_incident(conn, incident_id),
         attempts=taken_actions.get_by_incident(conn, incident_id),
+        account=events.get_by_incident(conn, incident_id),
         minutes=minutes,
         logged=logged,
         revisions=revisions or {}

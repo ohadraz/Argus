@@ -71,6 +71,7 @@ from argus_core.models import (
 )
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
+from argus_incidents import when_it_was_taken
 from argus_incidents.repository import (
     conversation,
     events,
@@ -538,7 +539,7 @@ def _what_was_done(conn: psycopg.Connection,
     where = _where_each_is_said(announced, told)
 
     return [
-        ActionRecord(taken_at=_when_it_was_taken(taken_action, said),
+        ActionRecord(taken_at=when_it_was_taken(taken_action, announced),
                      action=_what_it_did(taken_action, said),
                      has_a_way_back=taken_action.has_a_way_back,
                      verdict=taken_action.outcome,
@@ -582,12 +583,6 @@ def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
             return undo.application
         case _:
             return None
-
-
-def _when_it_was_taken(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> datetime:
-    line = said.get(taken_action.hypothesis_id or "")
-
-    return line.at if line is not None else taken_action.taken_at
 
 
 def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> str:

@@ -217,7 +217,7 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
 
 
 @pytest.mark.unit
-def test_the_claim_and_the_announcement_are_dated_by_one_reading_of_the_clock(
+def test_the_claim_is_dated_on_the_walks_clock_before_the_action_is_announced(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -225,10 +225,10 @@ def test_the_claim_and_the_announcement_are_dated_by_one_reading_of_the_clock(
     already_taken: MagicMock,
     still_wanted: MagicMock
 ) -> None:
-    # Read once for the row and again for the announcement, the clock moved
-    # between the two: one page dated the roll-back 18:04:48 from the row and
-    # 18:04:49 from the announcement. A clock that moves on every reading tells
-    # one reading from two.
+    # The claim is written before the agent taking the action is called in,
+    # and the announcement after. Dated by one reading taken at the claim, the
+    # announcement put the roll-back before the agent that took it. A clock
+    # that moves on every reading tells the two apart.
     published: list[IncidentEvent] = []
     readings = count()
 
@@ -252,7 +252,7 @@ def test_the_claim_and_the_announcement_are_dated_by_one_reading_of_the_clock(
                                       still_wanted=still_wanted,
                                       publisher=published.append,
                                       now=a_clock_that_moves)) \
-        .then(_the_claim_is_dated_as_the_announcement_is(record_action, published))
+        .then(_the_claim_is_dated_before_the_announcement(record_action, published))
 
 
 @pytest.mark.unit
@@ -2109,17 +2109,19 @@ def _the_subject_recorded_is(service: str,
     return assertion
 
 
-def _the_claim_is_dated_as_the_announcement_is(record_action: MagicMock,
-                                               published: list[IncidentEvent]
-                                               ) -> Assertion[StateDelta]:
+def _the_claim_is_dated_before_the_announcement(record_action: MagicMock,
+                                                published: list[IncidentEvent]
+                                                ) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
         claimed = record_action.call_args.kwargs["at"]
         announced = [event.at for event in published if isinstance(event, ActionTaken)]
 
-        if announced != [claimed]:
+        if claimed != SOME_MOMENT_THE_CLAIM_WAS_WRITTEN or len(announced) != 1 \
+                or not announced[0] > claimed:
             raise AssertionError(
-                f"Expected the one action announced at the instant it was claimed, "
-                f"[{claimed}], got {announced}."
+                f"Expected the claim dated [{SOME_MOMENT_THE_CLAIM_WAS_WRITTEN}] by the "
+                f"walk's clock and the one action announced after it, got the claim at "
+                f"[{claimed}] and announcements at {announced}."
             )
 
         return True

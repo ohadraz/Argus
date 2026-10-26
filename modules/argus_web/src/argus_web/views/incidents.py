@@ -17,6 +17,7 @@ from types import MappingProxyType
 from typing import Final
 
 from argus_core import UuidStr, to_iso
+from argus_core.events import IncidentEvent
 from argus_core.models import (
     Alert,
     FailureMode,
@@ -26,6 +27,7 @@ from argus_core.models import (
     TakenAction,
     Verdict,
 )
+from argus_incidents import when_it_was_taken
 from argus_narration import (
     Finding,
     ShownRevision,
@@ -125,6 +127,7 @@ def build_incident_detail(
     incident: Incident,
     candidates: list[Hypothesis],
     attempts: list[TakenAction],
+    account: Sequence[IncidentEvent],
     minutes: Sequence[str] = (),
     logged: Sequence[str] = (),
     revisions: Mapping[str, ShownRevision] = _NO_REVISIONS
@@ -138,6 +141,9 @@ def build_incident_detail(
 
     Attempts are attached to the candidate they name, because "what did we try
     for this explanation?" is the question a reader has while looking at one.
+    Each is dated as the postmortem dates it, by `account` - the incident's
+    events - through `when_it_was_taken`: dated by its row, the page put a
+    roll-back a second before the postmortem did.
 
     `minutes` and `logged` are the rows the page holds - the minutes read and
     the minutes logged - so a finding naming one of them leads to it, as the
@@ -152,7 +158,7 @@ def build_incident_detail(
     unattributed: list[Attempt] = []
 
     for taken_action in attempts:
-        shown = _an_attempt(taken_action)
+        shown = _an_attempt(taken_action, account)
         if taken_action.hypothesis_id is None:
             unattributed.append(shown)
         else:
@@ -172,7 +178,7 @@ def build_incident_detail(
     )
 
 
-def _an_attempt(taken_action: TakenAction) -> Attempt:
+def _an_attempt(taken_action: TakenAction, account: Sequence[IncidentEvent]) -> Attempt:
     """One action row, as a reader sees it.
 
     An action with no outcome yet is undecided rather than undone: it was taken
@@ -198,7 +204,7 @@ def _an_attempt(taken_action: TakenAction) -> Attempt:
         action_type=taken_action.type,
         outcome=taken_action.outcome,
         undone=taken_action.outcome is Verdict.REFUTED,
-        taken_at=taken_action.taken_at
+        taken_at=when_it_was_taken(taken_action, account)
     )
 
 

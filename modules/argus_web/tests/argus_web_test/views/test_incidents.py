@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_core import new_id
+from argus_core.events import ActionTaken, IncidentEvent
 from argus_core.models import (
     Alert,
     Evidence,
@@ -41,6 +42,7 @@ from argus_web.views.incidents import (
 _OPENED_AT = datetime(2026, 8, 30, 10, 15, tzinfo=UTC)
 
 NOTHING_WAS_TRIED: list[TakenAction] = []
+NOTHING_WAS_SAID: list[IncidentEvent] = []
 NOTHING_WAS_FORMED: list[Hypothesis] = []
 
 REFUTED = Verdict.REFUTED
@@ -65,11 +67,39 @@ def test_an_attempt_is_shown_against_the_candidate_it_was_taken_for() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[the_first_candidate, the_second_candidate],
-            attempts=each_candidate_was_tried_once
+            attempts=each_candidate_was_tried_once,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_attempts_shown_per_candidate_are(
             [("first", [REFUTED]), ("second", [CONFIRMED])]
         ))
+
+
+@pytest.mark.unit
+def test_an_attempt_is_dated_by_its_announcement_as_the_postmortem_dates_it() -> None:
+    # The row is a claim written before the agent taking the action is called
+    # in. Dated by it, the page put a roll-back at 18:04:48 and the postmortem,
+    # dated by the announcement, at 18:04:49.
+    an_incident = _an_incident()
+    some_candidate = _a_candidate(an_incident.id, subject="io-shop", rank=1)
+    an_attempt = _an_attempt(an_incident.id, some_candidate.id, outcome=CONFIRMED)
+    announced_at = an_attempt.taken_at + timedelta(milliseconds=438)
+
+    Scenario() \
+        .given(
+            its_announcement := [ActionTaken(incident_id=an_incident.id,
+                                             hypothesis_id=some_candidate.id,
+                                             action_type="revert-feature-flag",
+                                             subject="dont-care",
+                                             at=announced_at)]
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[some_candidate],
+            attempts=[an_attempt],
+            account=its_announcement
+        )) \
+        .then(_the_first_attempt_was_taken_at(announced_at))
 
 
 @pytest.mark.unit
@@ -87,7 +117,8 @@ def test_a_candidate_the_walk_never_reached_is_shown_as_untried() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_never_reached],
-            attempts=NOTHING_WAS_TRIED
+            attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID
         )) \
         .then(all_of(_the_first_candidate_was_tested(False),
                      _the_first_candidate_resulted_in(None),
@@ -113,7 +144,8 @@ def test_a_refuted_attempt_is_shown_as_having_been_put_back() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[the_refuted_candidate, the_confirmed_candidate],
-            attempts=one_of_each_verdict
+            attempts=one_of_each_verdict,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_attempts_were_undone([True, False]))
 
@@ -134,7 +166,8 @@ def test_an_attempt_with_no_verdict_yet_is_shown_as_undecided_rather_than_undone
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_being_acted_on],
-            attempts=an_attempt_the_service_has_not_answered
+            attempts=an_attempt_the_service_has_not_answered,
+            account=NOTHING_WAS_SAID
         )) \
         .then(all_of(_the_attempts_shown_per_candidate_are([("in flight", [None])]),
                      _the_attempts_were_undone([False])))
@@ -157,7 +190,8 @@ def test_an_attempt_naming_no_candidate_is_still_shown() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[some_candidate],
-            attempts=an_attempt_attributed_to_nothing
+            attempts=an_attempt_attributed_to_nothing,
+            account=NOTHING_WAS_SAID
         )) \
         .then(all_of(_the_attempts_shown_per_candidate_are([("a-flag", [])]),
                      _the_unattributed_attempts_are([CONFIRMED])))
@@ -179,7 +213,8 @@ def test_a_candidate_is_shown_with_the_move_it_blamed() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_blaming_a_toggle],
-            attempts=NOTHING_WAS_TRIED
+            attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_only_candidate_moved(was="OFF", now="ON"))
 
@@ -204,7 +239,8 @@ def test_a_candidate_carries_the_evidence_it_was_formed_from() -> None:
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_that_cited_two_things],
-            attempts=NOTHING_WAS_TRIED
+            attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_first_candidate_cites(["error rate rose at 10:14",
                                           "a-flag was enabled at 10:13"]))
@@ -229,6 +265,7 @@ def test_a_finding_naming_a_minute_the_page_holds_leads_to_it() -> None:
             an_incident,
             candidates=[a_candidate_citing_that_minute],
             attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID,
             minutes=[the_minute_read],
             logged=[the_minute_logged]
         )) \
@@ -255,7 +292,8 @@ def test_an_instant_a_candidate_names_is_said_as_the_timeline_says_it(named: str
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_naming_an_instant],
-            attempts=NOTHING_WAS_TRIED
+            attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_first_candidate_says(f"the deploy at {said} broke it"))
 
@@ -280,7 +318,8 @@ def test_an_instant_a_finding_names_is_said_as_its_candidate_says_one(named: str
         .when(lambda: build_incident_detail(
             an_incident,
             candidates=[a_candidate_citing_an_instant],
-            attempts=NOTHING_WAS_TRIED
+            attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_first_candidate_cites([f"the deploy at {said} broke it"]))
 
@@ -305,6 +344,7 @@ def test_a_revision_a_candidate_names_is_said_short_and_leads_to_its_commit() ->
             an_incident,
             candidates=[a_candidate_naming_it],
             attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID,
             revisions={some_revision: ShownRevision(short=some_revision[:7],
                                                     address=some_commit)}
         )) \
@@ -335,6 +375,7 @@ def test_a_revision_a_candidate_moved_from_or_to_is_said_short_and_leads_to_its_
             an_incident,
             candidates=[a_candidate_blaming_the_deploy],
             attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID,
             revisions={
                 some_revision: ShownRevision(short=some_revision[:7], address=some_commit),
                 some_earlier_revision: ShownRevision(short=some_earlier_revision[:7],
@@ -367,7 +408,8 @@ def test_an_incident_that_formed_no_candidate_is_shown_as_empty() -> None:
         .when(lambda: build_incident_detail(
             an_incident_that_explained_nothing,
             candidates=NOTHING_WAS_FORMED,
-            attempts=NOTHING_WAS_TRIED
+            attempts=NOTHING_WAS_TRIED,
+            account=NOTHING_WAS_SAID
         )) \
         .then(_the_attempts_shown_per_candidate_are([]))
 
@@ -417,6 +459,19 @@ def _an_attempt(incident_id: str,
         outcome=outcome,
         taken_at=_OPENED_AT + timedelta(minutes=1)
     )
+
+
+def _the_first_attempt_was_taken_at(expected: datetime) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        shown = [attempt.taken_at for candidate in detail.candidates
+                 for attempt in candidate.attempts]
+
+        if shown[:1] != [expected]:
+            raise AssertionError(f"Expected the attempt dated [{expected}], got {shown}.")
+
+        return True
+
+    return assertion
 
 
 def _the_attempts_shown_per_candidate_are(

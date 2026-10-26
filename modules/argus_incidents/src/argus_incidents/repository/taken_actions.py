@@ -73,10 +73,11 @@ def claim(
     and its `undo_descriptor` is then NULL either because there was never
     anything to record or because nobody got to record it.
 
-    `at` is the instant the caller dates the action by, handed in rather than
-    read off the database's clock: the account of the action is dated by the
-    caller's, and two clocks read a moment apart put the one action in two
-    different seconds on one page.
+    `at` is when the claim is written, on the caller's clock rather than the
+    database's: every other instant of the incident is the caller's, a replay's
+    simulated one included. It is not when the action was taken - the claim is
+    written before the agent taking it is called in - and a reader dating the
+    action asks its announcement (`when_it_was_taken`).
     """
     with conn.cursor() as cursor:
         cursor.execute(

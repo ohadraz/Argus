@@ -2066,9 +2066,8 @@ def _an_action_taken(conn: psycopg.Connection,
 def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                   incident_id: str,
                                   taken_at: datetime) -> None:
-    """One action whose row was claimed earlier than the account says its
-    change was made at `taken_at` - as a walk resumed onto an earlier walk's
-    claim writes it."""
+    """One action whose row was claimed before the account says its change was
+    made at `taken_at` - the two moments a walk writes for every action."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary="dont care",
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,

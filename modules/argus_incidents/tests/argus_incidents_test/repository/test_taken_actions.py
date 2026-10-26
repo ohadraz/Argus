@@ -28,15 +28,15 @@ DONT_CARE_INSTANT = datetime(2026, 10, 11, 23, 38, tzinfo=UTC)
 
 
 @pytest.mark.integration
-def test_an_action_is_dated_at_the_instant_its_claim_is_handed() -> None:
-    # The walk dates the action and its account by one reading of its clock.
-    # Dated by the database's instead, read a moment before the account's, the
-    # row put the action in 18:04:48 and the account in 18:04:49, on one page.
+def test_an_action_is_claimed_at_the_instant_its_claim_is_handed() -> None:
+    # On the walk's clock, which dates everything else in the incident - a
+    # replay's simulated one included - rather than on the database's, which
+    # dates nothing else.
     some_alert = Alert(service="io-shop", alert_name="HighLatency")
 
     with connect_from_env() as conn:
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
-        the_action_read_back_was_taken_at = partial(_the_action_read_back_was_taken_at, conn)
+        the_action_read_back_was_claimed_at = partial(_the_action_read_back_was_claimed_at, conn)
 
         Scenario() \
             .given(
@@ -56,7 +56,7 @@ def test_an_action_is_dated_at_the_instant_its_claim_is_handed() -> None:
                 )
             ) \
             .then(
-                the_action_read_back_was_taken_at(incident_id, SOME_INSTANT)
+                the_action_read_back_was_claimed_at(incident_id, SOME_INSTANT)
             )
 
 
@@ -557,14 +557,14 @@ def _the_action_read_back_changed(conn: psycopg.Connection,
     return assertion
 
 
-def _the_action_read_back_was_taken_at(conn: psycopg.Connection,
+def _the_action_read_back_was_claimed_at(conn: psycopg.Connection,
                                        incident_id: str,
                                        instant: datetime) -> Assertion[object]:
     def assertion(_result: object) -> bool:
         read_back = taken_actions.get_by_incident(conn, incident_id)
 
         if [taken.taken_at for taken in read_back] != [instant]:
-            raise AssertionError(f"Expected one action taken at [{instant}], got "
+            raise AssertionError(f"Expected one action claimed at [{instant}], got "
                                  f"{[str(taken.taken_at) for taken in read_back]}.")
 
         return True
