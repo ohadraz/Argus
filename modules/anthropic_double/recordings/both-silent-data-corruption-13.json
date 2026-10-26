@@ -1,0 +1,164 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01LArWm1AYvtf9LuACD44oZ5",
+      "input": {
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Run the spend-integrity check much more often than once every {A5} days.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-4"
+            ],
+            "item": "Page on-call when SpendTotalsDoNotReconcile fires on io-shop.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Make running the spend reconciliation part of switching any io-shop feature flag, and check it soon after the switch.",
+            "type": "process"
+          },
+          {
+            "answers": [],
+            "item": "Before running scripts/repair_monthly_spend_totals.py, confirm that the account export really is JSON lines shaped like `io_shop.accounts.Account`, as Code-Fix assumed.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [],
+            "item": "Once the fix is deployed, run scripts/repair_monthly_spend_totals.py with `--write`, load its corrected accounts back into the store, and do this before switching monthly-spend-feature back on.",
+            "type": "mitigate"
+          },
+          {
+            "answers": [],
+            "item": "Find any monthly statements or spend summaries shown to shoppers while their month totals were short, and correct them.",
+            "type": "mitigate"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' stored spend totals no longer matched the purchases behind them: {A1} of {A2} totals the spend-integrity check looked at did not reconcile, the widest short by {A3}. The oldest affected purchase was recorded at {A4}."
+          },
+          {
+            "cites": [
+              "F1",
+              "U4",
+              "U5",
+              "AL1"
+            ],
+            "ruled_out": [],
+            "step": "Purchases recorded from the onset on were added to each shopper's purchase history but not to the stored month total, which the reconciliation compares with the sum of the month's purchases. So each total fell behind by the price of every such purchase. This rests on Code-Fix's reading of the code, which nothing ran."
+          },
+          {
+            "cites": [
+              "P1",
+              "T14",
+              "AL1",
+              "F1"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T8",
+                  "T9"
+                ],
+                "what": "A deploy or release in the window before the alert: no deploys came back, and the flag change was the only production change read back."
+              }
+            ],
+            "step": "An admin switched the monthly-spend-feature flag on at {P1.1}, shortly before the oldest affected purchase at {A4}. According to Code-Fix's reading, with the feature on, `record_a_purchase` is called with `derive_the_month=True` and hands each purchase to `record_purchase_deriving_the_month` rather than to `record_purchase`."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "ruled_out": [],
+            "step": "`record_purchase_deriving_the_month` moves `total_cents` but by design never writes `total_this_month_cents`: its docstring says the purchase is recorded \"without the month's total being moved\". The flag-off path, `record_purchase`, does add the price to the month total."
+          }
+        ],
+        "cause_in_plain_words": "Switching on a new feature likely sent shoppers' purchases through a way of recording them that adds each purchase to the shopper's history but not to their running total for the month, so those monthly totals came up short.",
+        "cause_rests_on_an_unrun_reading": true,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "The spend-integrity check that found the fault runs only once every {A5} days, and no other check of the stored totals was seen.",
+            "had_it_been_otherwise": "A more frequent reconciliation would have caught the short totals much sooner after the flag was switched on, with fewer purchases written short and fewer totals to repair.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [
+              "AI-1"
+            ],
+            "factor": "No test was seen that recorded a purchase with `derive_the_month=True` and checked the month total. The cases that do this are new in Code-Fix's proposed patch.",
+            "had_it_been_otherwise": "Such a test would have failed on the code as it stood (Code-Fix expects it to get {F1.3} where it expects {F1.4}), exposing the missing month-total update before the flag was switched on.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No check that spend totals still reconciled was seen after monthly-spend-feature was switched on, either before or right after the switch.",
+            "had_it_been_otherwise": "A reconciliation run tied to the flag change would have shown the totals going short right after the switch, and the flag could have been put back almost at once.",
+            "label": "CF-3"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The SpendTotalsDoNotReconcile alert is not linked to paging, so no person was paged when it fired.",
+            "had_it_been_otherwise": "A person would have been told to act at once on the recommendation to put monthly-spend-feature back, cutting short the stretch in which new purchases keep the totals short.",
+            "label": "CF-4"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            "Argus tied the alert to the monthly-spend-feature flag change and formed its candidate causes {T12.1 - alert_raised} after the alert was raised.",
+            "Argus did not flip the flag itself when nothing could tell it within its wait whether the action worked. It left putting the flag back to a person as a recommendation.",
+            "Code-Fix opened draft pull request #355, with new tests and a one-off repair script, {T19.1 - alert_raised} after the alert was raised."
+          ],
+          "went_wrong": []
+        },
+        "reaches_a_cause": true,
+        "root_cause": "With monthly-spend-feature on, purchases are recorded through `record_purchase_deriving_the_month` in src/io_shop/purchase_ledger.py. That function adds the purchase to the history and moves `total_cents`, but by design it never writes `total_this_month_cents`, so every purchase recorded that way leaves the stored month total short by that purchase's price. The flag-off path, `record_purchase`, does add the price.",
+        "still_at_risk": "The stored monthly totals were still short, every new purchase was likely to leave them shorter while monthly-spend-feature stayed on, and the monthly statements, spending comparisons and per-item averages that read those totals would show the wrong figures.",
+        "symptom": "Shoppers' monthly spend totals fell short of the purchases behind them"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgQa7AuFtLrKg7gZuKRq5",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2451
+    },
+    "cache_creation_input_tokens": 2451,
+    "cache_read_input_tokens": 9273,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 2280,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
