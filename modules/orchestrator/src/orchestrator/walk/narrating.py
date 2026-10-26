@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any, Final
 
 from argus_core.events import StatusChanged
-from argus_core.models import IncidentStatus
+from argus_core.models import IncidentStatus, Meaning
 from argus_incidents import EndedByAPerson, WaitForPeople
 
 from orchestrator.walk.deltas import StateDelta
@@ -108,12 +108,16 @@ def with_status(
     person's report waits, is announced on the page and in the thread after
     they said it was over, and reads as Argus pressing on regardless of them.
     A wait the person's press ended moves the incident nowhere - their ending
-    is the row's. Here for the reason the ending is asked here: every node
-    passes through, so no step can follow another while a person is being
-    asked. A wait that waited asks the ending again. The default waits for
-    nobody, for the cases about everything else and for the postmortem, after
-    which there is no step to hold off; the graph hands every other node the
-    real one.
+    is the row's. A move that takes away an ending a person could have been
+    offered is the exception, and is written first: the wait reads the row to
+    decide whether an offer still stands, and a row left at `mitigating` while a
+    confirmed mitigation waits would let a press withdraw it - the unwind
+    putting the failure back. Here for the reason the ending is asked here:
+    every node passes through, so no step can follow another while a person is
+    being asked. A wait that waited asks the ending again. The default waits
+    for nobody, for the cases about everything else and for the postmortem,
+    after which there is no step to hold off; the graph hands every other node
+    the real one.
 
     The answer is reported into the state rather than swallowed. A node that
     quietly did nothing leaves every field as it was, and the routers decide
@@ -149,21 +153,49 @@ def with_status(
         if ending is not None:
             return updates
 
-        if wait_for_people(state.incident_id):
-            ending = ended_by_a_person(state.incident_id)
+        next_status = status_after(state.model_copy(update=updates), max_rounds)
 
-            if ending in stops_for:
-                logger.info("ended by a person while the walk waited", extra={"ending": ending})
+        if not _takes_an_ending_away(state.status, next_status):
+            ending = ended_while_waiting(state.incident_id)
+
+            if ending is not None:
                 return {**updates, "status": ending}
 
-        return moved(state, delta, updates)
+            return moved(state, next_status, delta, updates)
 
-    def moved(state: IncidentState, delta: StateDelta,
+        # Written before the wait, because the wait reads the row to decide
+        # whether an offer still stands: left at the status before, it would
+        # hold open an ending this move takes away.
+        updates = moved(state, next_status, delta, updates)
+
+        # A refused move already carries the person's ending.
+        if updates["status"] in stops_for:
+            return updates
+
+        ending = ended_while_waiting(state.incident_id)
+
+        return updates if ending is None else {**updates, "status": ending}
+
+    def ended_while_waiting(incident_id: str) -> IncidentStatus | None:
+        """The ending a person gave while the walk waited for them, or `None`
+        where nobody was waited for or nobody ended it."""
+        if not wait_for_people(incident_id):
+            return None
+
+        ending = ended_by_a_person(incident_id)
+
+        if ending not in stops_for:
+            return None
+
+        logger.info("ended by a person while the walk waited", extra={"ending": ending})
+
+        return ending
+
+    def moved(state: IncidentState, next_status: IncidentStatus, delta: StateDelta,
               updates: dict[str, Any]) -> dict[str, Any]:
         """The status the step implies, written with the line saying why -
         or the updates as they were where it implies none."""
         narration = delta.narration
-        next_status = status_after(state.model_copy(update=updates), max_rounds)
 
         if next_status == state.status:
             return updates
@@ -209,3 +241,12 @@ def with_status(
         return {**updates, "status": next_status}
 
     return run
+
+
+def _takes_an_ending_away(before: IncidentStatus, after: IncidentStatus) -> bool:
+    """Whether moving from `before` to `after` refuses an ending a person could
+    have been offered at `before` - a withdrawal once a mitigation held, a
+    resolution once the alarm was disproven."""
+    return any(before.accepts_what_was_asked(meaning)
+               and not after.accepts_what_was_asked(meaning)
+               for meaning in Meaning)

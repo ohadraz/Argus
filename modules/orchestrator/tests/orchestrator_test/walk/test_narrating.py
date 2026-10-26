@@ -26,7 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from argus_core.events import StatusChanged
-from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
+from argus_core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus, Verdict
 from argus_incidents.ending import EndedByAPerson
 from argus_incidents.waiting import WaitForPeople
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
@@ -389,6 +389,61 @@ def test_the_walk_waits_for_people_before_it_writes_where_a_step_moved_the_incid
             wait_for_people=_a_wait_noting(happened))(an_incident_being_investigated)
         ) \
         .then(_it_happened_in_order(happened, ["waited", "moved"]))
+
+
+@pytest.mark.unit
+def test_a_move_that_takes_an_ending_away_is_written_before_the_walk_waits(
+    transition_incident: MagicMock
+) -> None:
+    # The wait reads the row to decide whether an offer still stands. Left at
+    # `mitigating` while a confirmed mitigation waits, the row keeps an offer to
+    # withdraw open - and a press withdraws an incident whose mitigation is
+    # holding the service up, and the unwind puts the failure back. Written
+    # first, the move takes the offer with it, so nothing waits on it.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: transition_incident.configure_mock(
+                side_effect=_a_move_noting(happened))),
+            a_mitigation_that_held := _a_node_returning({"action_outcome": Verdict.CONFIRMED}),
+            an_incident_mitigating := _an_incident_mitigating()
+        ) \
+        .when(lambda: with_status(
+            a_mitigation_that_held,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=nobody_ended_the_incident(),
+            wait_for_people=_a_wait_noting(happened))(an_incident_mitigating)
+        ) \
+        .then(_it_happened_in_order(happened, ["moved", "waited"]))
+
+
+@pytest.mark.unit
+def test_a_mitigated_incident_a_person_reported_resolved_while_the_walk_waited_is_resolved(
+    transition_incident: MagicMock
+) -> None:
+    # Mitigated is written before the wait, and a report of the incident over
+    # is still accepted from it - so the press the wait was for decides where
+    # the walk goes, as it does after a move written after the wait.
+    ended: list[IncidentStatus] = []
+
+    Scenario() \
+        .given(
+            a_mitigation_that_held := _a_node_returning({"action_outcome": Verdict.CONFIRMED}),
+            an_incident_mitigating := _an_incident_mitigating()
+        ) \
+        .when(lambda: with_status(
+            a_mitigation_that_held,
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=_ended_as_noted(ended),
+            wait_for_people=_a_wait_ending_it(ended, IncidentStatus.RESOLVED)
+        )(an_incident_mitigating)) \
+        .then(all_of(
+            _the_incident_was_moved_once_to(IncidentStatus.MITIGATED, transition_incident),
+            the_updates_carry("status", IncidentStatus.RESOLVED)
+        ))
 
 
 @pytest.mark.unit
