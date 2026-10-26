@@ -39,7 +39,7 @@ from argus_core.models import (
     Verdict,
 )
 
-from agent_postmortem.evidence import CandidateRecord, IncidentEvidence
+from agent_postmortem.evidence import CandidateRecord, DeploymentChangesRecord, IncidentEvidence
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.stamps import the_last_minute_logged_inside
@@ -318,30 +318,24 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
 
     A candidate blaming a file and naming no states blames no setting in it:
     what carried it is the deploy whose diff names that file among those it
-    changed (`_it_changes_the_file`).
+    changed (`_the_part_about`).
 
-    A setting named with the file it lives in - `path:key` - is the key, and
-    is looked for in that file's part of each diff alone: the same key in
-    another file is another setting. Named with no states, it is still the
-    key and not the file: what carried it is the deploy whose part of the
-    diff about that file removes or adds the key's own line
-    (`_it_changes_the_setting`).
+    A setting named with the file it lives in is the key, and is looked for in
+    that file's part of each diff alone: the same key in another file is
+    another setting. The file is set off from the key by a colon or a space
+    (`_the_file_and_key`). Named with no states, it is still the key and not
+    the file: what carried it is the deploy whose part of the diff about that
+    file removes or adds the key's own line (`_it_changes_the_setting`). A file
+    named alone with two states blames the one key in it that went between
+    them (`_one_key_moves`).
     """
     subject, from_state, to_state = blamed.subject, blamed.from_state, blamed.to_state
-    if subject is None:
+    if subject is None or (from_state is None) != (to_state is None):
         return None
 
-    path, _, key = subject.rpartition(_A_FILE_S_KEY)
-    if from_state is None and to_state is None:
-        moved = {looked_into.revision for looked_into in evidence.deployment_changes
-                 if (_it_changes_the_setting(_the_part_about(looked_into.said, path), key)
-                     if path else _it_changes_the_file(looked_into.said, subject))}
-    elif from_state is None or to_state is None:
-        return None
-    else:
-        moved = {looked_into.revision for looked_into in evidence.deployment_changes
-                 if _it_moves(_the_part_about(looked_into.said, path) if path
-                              else looked_into.said, key, from_state, to_state)}
+    path, key = _the_file_and_key(subject, evidence.deployment_changes)
+    moved = {looked_into.revision for looked_into in evidence.deployment_changes
+             if _it_carries(looked_into.said, path, key, from_state, to_state)}
     carriers = [(position, change) for position, change in enumerate(evidence.changes, start=1)
                 if change.kind is ChangeKind.DEPLOY and change.reference in moved
                 and (evidence.onset_at is None
@@ -350,9 +344,56 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
     return carriers[0] if len(carriers) == 1 else None
 
 
-# What parts a file from the key in it where a setting is named with its file:
-# `deploy/values-production.yaml:ports.metrics.portName`.
+def _the_file_and_key(subject: str,
+                      read: list[DeploymentChangesRecord]) -> tuple[str | None, str]:
+    """The file a subject names and the key it names in that file - `None` and
+    the whole subject where it names no file.
+
+    The file is the longest start of the subject that a diff read names among
+    the files it changed, ending where the subject does or at a colon or a
+    space, the rest being the key: `deploy/values-production.yaml:ports.metrics.portName`,
+    `deploy/values-production.yaml cache.port`, `deploy/values-production.yaml`.
+
+    Where no diff read names the file, a start set off from the rest by a
+    colon, or holding a path's `/`, is still a file: the key is in a file no
+    deploy read changed, so nothing read carried it. Read whole instead, its
+    words would be found in another file's keys.
+    """
+    ends = [at for at, character in enumerate(subject) if character in _WHAT_ENDS_A_FILE]
+    for end in sorted([*ends, len(subject)], reverse=True):
+        if any(names_as_changed(line, subject[:end])
+               for looked_into in read for line in looked_into.said):
+            return subject[:end], subject[end:].lstrip(_WHAT_ENDS_A_FILE)
+
+    end = min(ends, default=len(subject))
+    if subject[end:end + 1] == _A_FILE_S_KEY or _A_PATH_S_SEPARATOR in subject[:end]:
+        return subject[:end], subject[end:].lstrip(_WHAT_ENDS_A_FILE)
+    return None, subject
+
+
+# What sets a file off from the key in it where a setting is named with its
+# file: `deploy/values-production.yaml:ports.metrics.portName`, or the same
+# with a space - and what says the start is a file at all, where no diff read
+# names it.
 _A_FILE_S_KEY: Final = ":"
+_WHAT_ENDS_A_FILE: Final = f"{_A_FILE_S_KEY} "
+_A_PATH_S_SEPARATOR: Final = "/"
+
+
+def _it_carries(said: list[str], path: str | None, key: str,
+                from_state: str | None, to_state: str | None) -> bool:
+    """Whether a deploy's diff, as the read tier said it, carries the setting
+    `key` - in the file `path` where one is named - from `from_state` to
+    `to_state`, or changes it at all where no states are named."""
+    if path is None:
+        return (from_state is not None and to_state is not None
+                and _it_moves(said, key, from_state, to_state))
+
+    part = _the_part_about(said, path)
+    if from_state is None or to_state is None:
+        return _it_changes_the_setting(part, key) if key else bool(part)
+    return (_it_moves(part, key, from_state, to_state) if key
+            else _one_key_moves(part, from_state, to_state))
 
 
 def _the_part_about(said: list[str], path: str) -> list[str]:
@@ -367,12 +408,6 @@ def _the_part_about(said: list[str], path: str) -> list[str]:
             part.append(line)
 
     return part
-
-
-def _it_changes_the_file(said: list[str], path: str) -> bool:
-    """Whether a deploy's diff, as the read tier said it, names `path` among
-    the files it changed (`names_as_changed`)."""
-    return any(names_as_changed(line, path) for line in said)
 
 
 def _it_changes_the_setting(said: list[str], subject: str) -> bool:
@@ -427,12 +462,28 @@ def _a_key_like_it_moves(hunk: list[str], subject: str, from_state: str, to_stat
     `subject` two of its words, or all of a one-word name."""
     words = _the_words_of(subject)
     needed = min(2, len(words))
-    left = {(key, parent) for marker, key, value, parent in _the_keyed_lines(hunk)
-            if marker == "-" and value == from_state
-            and len(words & _the_words_of(key, parent)) >= needed}
 
-    return any(marker == "+" and value == to_state and (key, parent) in left
-               for marker, key, value, parent in _the_keyed_lines(hunk))
+    return any(len(words & _the_words_of(key, parent)) >= needed
+               for key, parent in _the_keys_moved(hunk, from_state, to_state))
+
+
+def _one_key_moves(said: list[str], from_state: str, to_state: str) -> bool:
+    """Whether exactly one key, across a diff's hunks, goes from `from_state`
+    to `to_state` (`_the_keys_moved`) - two, and the diff cannot say which a
+    file named alone meant."""
+    return len({moved for hunk in _the_hunks(said)
+                for moved in _the_keys_moved(hunk, from_state, to_state)}) == 1
+
+
+def _the_keys_moved(hunk: list[str], from_state: str, to_state: str) -> set[tuple[str, str]]:
+    """Each key in `hunk`, with the key it sits under, removed at `from_state`
+    and added at `to_state` under the same parent, each the key's whole value."""
+    keyed = _the_keyed_lines(hunk)
+    left = {(key, parent) for marker, key, value, parent in keyed
+            if marker == "-" and value == from_state}
+
+    return {(key, parent) for marker, key, value, parent in keyed
+            if marker == "+" and value == to_state and (key, parent) in left}
 
 
 def _the_keyed_lines(hunk: list[str]) -> list[tuple[str, str, str, str]]:

@@ -1003,6 +1003,132 @@ def test_a_comment_naming_a_setting_in_words_does_not_hide_its_value_moving() ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("from_state", "to_state", "changed"), [
+    ("6379", "6380", [" cache:", "-  port: 6379", "+  port: 6380"]),
+    (None, None, [" cache:", "-  port: 6379", "+  port: 6380"])],
+    ids=["with-its-states", "with-no-states"])
+def test_a_file_s_setting_set_off_by_a_space_is_carried_by_the_deploy_that_moved_it(
+        from_state: str | None, to_state: str | None, changed: list[str]) -> None:
+    # The investigation sets the file before the key with a space between them
+    # rather than a colon: the file is still the file the diff names, and the
+    # rest is the key in it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml cache.port",
+                                        from_state=from_state, to_state=to_state)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION,
+                                                        ["@@ -1,3 +1,3 @@", *changed])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", ["deploy/scrape.yaml ports.metrics.portName",
+                                     "deploy/scrape.yaml portName",
+                                     "deploy/scrape.yaml metrics port",
+                                     "deploy/scrape.yaml"],
+                         ids=["a-dotted-key", "a-last-name", "words", "the-file-alone"])
+def test_a_setting_in_another_file_carries_nothing(subject: str) -> None:
+    # The file is part of the name however it is set off from the key - by a
+    # space too, where no diff read names it - and named alone it is the whole
+    # of it: the same value moving in another file is another setting, though
+    # that file's key shares the words of the one named.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=subject,
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_file_named_with_states_is_carried_by_the_deploy_moving_one_key_between_them() -> None:
+    # The investigation names the file alone and the two states: the setting is
+    # the one key in that file's part of the diff going from the one to the
+    # other.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/values-production.yaml",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,7 +1,7 @@ ports:",
+                    "   web:",
+                    "-    portName: web",
+                    "+    portName: http",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="deploy/values-production.yaml",
+                                   from_state="metrics",
+                                   to_state="http-metrics",
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_named_with_states_two_of_its_keys_moved_between_carries_nothing() -> None:
+    # Two keys in the file going between the same two states, and the diff
+    # cannot say which of them the investigation meant.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="deploy/values-production.yaml",
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,7 +1,7 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics",
+                    " scrape:",
+                    "-  selects: metrics",
+                    "+  selects: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> None:
     # The investigation blames a file, not a setting in it, and says no states:
     # the file is what the diff names a deploy as changing. That deploy, made by
