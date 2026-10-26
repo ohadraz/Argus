@@ -26,6 +26,7 @@ from argus_core.events import (
     ActionTaken,
     CandidateSelected,
     ChangesRetrieved,
+    FixAttempted,
     FlagChangesRetrieved,
     IncidentEvent,
     LogsRetrieved,
@@ -37,13 +38,15 @@ from argus_core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    FixOutcome,
     FlagChange,
     Incident,
     IncidentStatus,
     MetricBucket,
+    OpenedPullRequest,
     RevisionSource,
 )
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.storytelling import LiveIncident, Story, build_live_incident, build_story
 from postmortem_rendering import Role, Run
 
@@ -54,6 +57,7 @@ AN_EARLIER_MINUTE = "2026-08-30T10:13:00Z"
 SOME_FLAG = "some-ramped-flag"
 SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 SOME_REPOSITORY = "https://github.invalid/acme/shop"
+SOME_PULL_REQUEST = "https://github.invalid/acme/shop/pull/7"
 
 
 @pytest.mark.unit
@@ -297,6 +301,23 @@ def test_a_revision_a_line_names_opens_its_commit() -> None:
         ) \
         .when(lambda: build_story(a_candidate_naming_a_revision)) \
         .then(_a_line_shown_links({SOME_REVISION[:7]: _the_commit_of(SOME_REVISION)}))
+
+
+@pytest.mark.unit
+def test_a_pull_request_a_line_names_is_shown_by_its_name_and_opens_it() -> None:
+    # Said by its address in the record. On the page, by the name Argus gives
+    # it everywhere - the escalation it left the incident in too.
+    Scenario() \
+        .given(
+            a_proposal_and_its_escalation := [
+                _a_fix_proposed_as(7, SOME_PULL_REQUEST),
+                _escalated_with(f"a draft pull request is open at {SOME_PULL_REQUEST}")]
+        ) \
+        .when(lambda: build_story(a_proposal_and_its_escalation)) \
+        .then(all_of(
+            _a_line_shown_reads("Moved the incident to ESCALATED - a draft pull request is open "
+                                "at PR #7", "ESCALATED"),
+            _a_line_shown_links({"PR #7": SOME_PULL_REQUEST})))
 
 
 @pytest.mark.unit
@@ -568,6 +589,17 @@ def _what_the_changes_did_opens(expected: list[list[tuple[str, str | None]]]) ->
         return True
 
     return assertion
+
+
+def _a_fix_proposed_as(number: int, url: str) -> IncidentEvent:
+    return FixAttempted(incident_id=new_id(), outcome=FixOutcome.PROPOSED,
+                        pull_request=OpenedPullRequest(number=number, url=url,
+                                                       branch="argus/fix-abc"),
+                        detail="dont care")
+
+
+def _escalated_with(detail: str) -> IncidentEvent:
+    return StatusChanged(incident_id=new_id(), to_status=IncidentStatus.ESCALATED, detail=detail)
 
 
 def _a_candidate_selected(summary: str) -> CandidateSelected:
