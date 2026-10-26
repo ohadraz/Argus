@@ -809,6 +809,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "not \"Argus confirmed the rollback had brought the "
                                    "service back from the incident's level {T20.1 - "
                                    f"{ALERT_RAISED_FIGURE}}} after the alert was raised\". "
+                                   "Set a purpose or a reason beside the action it "
+                                   "belongs to, and say it once. "
                                    "Name what Code-Fix proposed without saying what it "
                                    "does: the action items and Code-Fix's own reading "
                                    "say that, with its conditions."

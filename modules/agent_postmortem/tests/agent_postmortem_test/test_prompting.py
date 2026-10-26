@@ -3444,6 +3444,23 @@ def test_a_span_set_after_something_else_is_shown_beside_the_form_to_write() -> 
 
 
 @pytest.mark.unit
+def test_a_reason_is_asked_to_be_set_beside_the_action_it_belongs_to() -> None:
+    # A write-up praised Argus as having "declined to roll back a change that
+    # was made on purpose to test the leading candidate, rather than undoing a
+    # deliberate platform-wide rename": the purpose of the rollback set beside
+    # the rename, so the rename read as made to test the candidate, and the
+    # refusal's reason said a second time.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("beside the action it belongs to", "say it once")
+        )
+
+
+@pytest.mark.unit
 def test_what_went_well_names_what_code_fix_proposed_without_saying_what_it_does() -> None:
     # Squeezed into a line about how quickly a fix was proposed, a repair
     # script that reports by default and writes with --apply became "a
