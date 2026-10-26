@@ -784,6 +784,63 @@ def test_a_setting_written_flat_is_carried_by_the_deploy_that_moved_it() -> None
 
 
 @pytest.mark.unit
+def test_a_setting_named_with_its_file_is_carried_by_the_deploy_that_moved_it_there() -> None:
+    # The investigation names a nested key with the file it lives in -
+    # `path:key`. Read as one dotted name, the file became a parent no line
+    # names, and the deploy that moved the key carried nothing: the document
+    # said no trigger was established beside a root cause naming that deploy.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName",
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+def test_a_setting_named_with_its_file_moving_in_another_file_carries_nothing() -> None:
+    # The file is part of the name: the same key moving in another file is
+    # another setting.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/scrape.yaml:ports.metrics.portName",
+                                        from_state="metrics", to_state="http-metrics",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> None:
     # The investigation blames a file, not a setting in it, and says no states:
     # the file is what the diff names a deploy as changing. That deploy, made by

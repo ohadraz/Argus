@@ -315,25 +315,50 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
     A candidate blaming a file and naming no states blames no setting in it:
     what carried it is the deploy whose diff names that file among those it
     changed (`_it_changes_the_file`).
+
+    A setting named with the file it lives in - `path:key` - is the key, and
+    is looked for in that file's part of each diff alone: the same key in
+    another file is another setting.
     """
     subject, from_state, to_state = blamed.subject, blamed.from_state, blamed.to_state
     if subject is None:
         return None
 
+    path, _, key = subject.rpartition(_A_FILE_S_KEY)
     if from_state is None and to_state is None:
         moved = {looked_into.revision for looked_into in evidence.deployment_changes
-                 if _it_changes_the_file(looked_into.said, subject)}
+                 if _it_changes_the_file(looked_into.said, path or subject)}
     elif from_state is None or to_state is None:
         return None
     else:
         moved = {looked_into.revision for looked_into in evidence.deployment_changes
-                 if _it_moves(looked_into.said, subject, from_state, to_state)}
+                 if _it_moves(_the_part_about(looked_into.said, path) if path
+                              else looked_into.said, key, from_state, to_state)}
     carriers = [(position, change) for position, change in enumerate(evidence.changes, start=1)
                 if change.kind is ChangeKind.DEPLOY and change.reference in moved
                 and (evidence.onset_at is None
                      or parse_iso(change.occurred_at) <= evidence.onset_at)]
 
     return carriers[0] if len(carriers) == 1 else None
+
+
+# What parts a file from the key in it where a setting is named with its file:
+# `deploy/values-production.yaml:ports.metrics.portName`.
+_A_FILE_S_KEY: Final = ":"
+
+
+def _the_part_about(said: list[str], path: str) -> list[str]:
+    """A deploy's diff as the read tier said it, cut to the part about `path`:
+    the line naming it as changed, and the patch lines set in under it."""
+    part: list[str] = []
+    inside = False
+    for line in said:
+        if not line.startswith(PATCH_LINE_INDENT):
+            inside = names_as_changed(line, path)
+        if inside:
+            part.append(line)
+
+    return part
 
 
 def _it_changes_the_file(said: list[str], path: str) -> bool:

@@ -607,7 +607,7 @@ def _tiles(pdf: _Sheet, cards: Sequence[Card]) -> None:
 _A_SPAN_S_BREAKS: Final = re.compile(r"(?<=\d[dhm]) (?=\d)")
 
 # A space no line breaks at.
-_NO_BREAK: Final = " "
+_NO_BREAK: Final = "\u00a0"
 
 
 def _figures_size(pdf: _Sheet, cards: Sequence[Card], width: float) -> float:
