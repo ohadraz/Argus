@@ -18,7 +18,14 @@ from typing import Final
 
 from argus_core import A_REVISION
 from argus_core.llm import LLMClient
-from argus_core.models import ChangeKind, CitedChange, ThreadMessage, Transcript, Turn
+from argus_core.models import (
+    ChangeKind,
+    CitedChange,
+    OpenedPullRequest,
+    ThreadMessage,
+    Transcript,
+    Turn,
+)
 
 from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn
 from agent_postmortem.evidence import IncidentEvidence
@@ -45,6 +52,7 @@ from agent_postmortem.prompting import (
     the_files_as_they_ran_labelled,
     the_uses_outside_labelled,
 )
+from agent_postmortem.pull_requests import with_the_pull_request_named
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
 from agent_postmortem.sections import logs_in_the_gap_of, record_action_items_of
 
@@ -89,7 +97,8 @@ def answer_worth_writing(llm: LLMClient,
         "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required})
     submitted = llm.converse(asked, [submit])
 
-    first, told = _reading_of(submitted, evidence.leads, given, figures, off_the_page)
+    first, told = _reading_of(submitted, evidence.leads, given, figures, off_the_page,
+                              evidence.pull_request)
     if not told:
         return _with_its_chain_in_order(llm, (first, []))
 
@@ -98,7 +107,8 @@ def answer_worth_writing(llm: LLMClient,
 
     asked_again = _asking_again(asked, submitted, faults)
     resubmitted = llm.converse(asked_again, [submit])
-    second, found = _reading_of(resubmitted, evidence.leads, given, figures, off_the_page)
+    second, found = _reading_of(resubmitted, evidence.leads, given, figures, off_the_page,
+                                evidence.pull_request)
     # Untold is what a check found that found nothing in the first answer: a
     # fault quotes the answer, so one it was told of in other words is new
     # text and the same fault.
@@ -115,7 +125,7 @@ def answer_worth_writing(llm: LLMClient,
     asked_last = (rejecting(asked_again, resubmitted, untold) if resubmitted.tool_calls
                   else opening_ask_again(asked, faults + untold))
     third, still = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures,
-                               off_the_page)
+                               off_the_page, evidence.pull_request)
 
     return _with_its_chain_in_order(llm, (third, _every_one_of(still)))
 
@@ -187,7 +197,8 @@ def _reading_of(turn: Turn,
                 leads: Sequence[ThreadMessage],
                 given: Given,
                 figures: dict[str, Figure],
-                off_the_page: date | None
+                off_the_page: date | None,
+                pull_request: OpenedPullRequest | None
                 ) -> tuple[SubmittedPostmortem, dict[str, list[str]]]:
     """What one turn amounts to: its answer and whatever is wrong with it, by
     the check that found it (`faults_by_check`).
@@ -197,6 +208,8 @@ def _reading_of(turn: Turn,
     A turn that submitted twice is a fault of its own (`faults_in_the_turn`).
     A revision a few characters off is written as the real one first, since
     code knows which it was; only one starting like none is left to refuse.
+    So is any pull request it names, as the one the record holds
+    (`pull_request`): a replayed answer names its recording run's.
 
     The figures are written in last, after the check: it reads the names, and
     a figure written in before it would read as one the model wrote in digits.
@@ -205,7 +218,8 @@ def _reading_of(turn: Turn,
     written in with the page's figures, a time in one was bare in a paragraph
     posted where no head dates the incident.
     """
-    answer = with_revisions_corrected(_answer_from(turn), given.revisions)
+    answer = with_the_pull_request_named(
+        with_revisions_corrected(_answer_from(turn), given.revisions), pull_request)
     of_the_turn = faults_in_the_turn(turn)
     written = with_figures_written(answer, figures)
     in_the_summary = (written if off_the_page is None

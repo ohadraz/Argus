@@ -571,7 +571,8 @@ def _tiles(pdf: _Sheet, cards: Sequence[Card]) -> None:
     # Each part's face, size, leading and colour, in the order a card says them.
     looks = ((_MONO, _figures_size(pdf, cards, inside), 5.6, _INK), (_BODY, 7.1, 3.4, _MUTED),
              (_BODY, 6.4, 3.1, _MUTED))
-    said = [(card.value, card.label, card.note or "") for card in cards]
+    said = [(_A_SPAN_S_BREAKS.sub(_NO_BREAK, card.value), card.label, card.note or "")
+            for card in cards]
 
     depths = []
     for part, (face, size, leading, _) in enumerate(looks):
@@ -598,6 +599,15 @@ def _tiles(pdf: _Sheet, cards: Sequence[Card]) -> None:
             y += depth
     pdf.set_text_color(*_INK)
     pdf.set_xy(_SIDE, top + height + 2)
+
+
+# The spaces between a span's parts - "7d 0h 0m 33s" - which a tile too narrow
+# for "at least" and the span breaks after "at least" rather than at: "7d 0h 0m"
+# over "33s" reads as two spans.
+_A_SPAN_S_BREAKS: Final = re.compile(r"(?<=\d[dhm]) (?=\d)")
+
+# A space no line breaks at.
+_NO_BREAK: Final = " "
 
 
 def _figures_size(pdf: _Sheet, cards: Sequence[Card], width: float) -> float:

@@ -50,6 +50,7 @@ from argus_core.models import (
     ChangeKind,
     CodeUse,
     FileAsItRan,
+    OpenedPullRequest,
     ToolDefinition,
     ToolResults,
     Transcript,
@@ -746,6 +747,34 @@ def test_a_revision_the_model_misremembered_is_written_as_the_one_it_meant() -> 
             all_of(
                 _was_asked(asks),
                 _answered_with(ROOT_CAUSE_FIELD, f"revision {some_revision_read[:7]} broke it"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_pull_request_another_run_opened_is_written_as_the_one_the_record_holds() -> None:
+    # A replayed answer names the pull request its recording run opened. Written
+    # by code, as a misremembered revision is: the record holds one.
+    some_pull_request = OpenedPullRequest(number=1,
+                                          url="https://github.invalid/acme/shop/pull/1",
+                                          branch="argus/fix-abc")
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_naming_another := a_model_answering_in_turn(
+                an_answer(root_cause="PR #356 holds the fix"), recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model_naming_another,
+                                         an_evidence_bundle(pull_request=some_pull_request),
+                                         a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks),
+                _answered_with(ROOT_CAUSE_FIELD, "PR #1 holds the fix"),
                 _found_no_fault()
             )
         )

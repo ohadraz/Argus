@@ -894,6 +894,30 @@ def test_a_card_s_figure_is_printed_whole_on_one_line_however_many_cards_share_t
 
 
 @pytest.mark.unit
+def test_a_span_too_wide_for_its_tile_beside_at_least_breaks_after_at_least() -> None:
+    # "at least 7d 0h 0m 33s" was too wide for the first of five tiles at the
+    # figures' smallest size, and broke before its seconds: "at least 7d 0h 0m"
+    # over "33s" reads as two spans.
+    some_harm = RuleSeriesHarm(before=0.8994, while_broken=0.45943, at_its_worst=0.39071,
+                               worse_when="below")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(impact=Impact(duration=timedelta(days=7, seconds=33),
+                                           extent=ImpactExtent.AT_LEAST, peak_error_rate=0.339,
+                                           requests_failed=4210, rule_series_harm=some_harm),
+                             customer_loss_estimate=Decimal("1736.68"), estimate_currency="usd"),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_cell_reads("7d 0h 0m 33s"))
+
+
+@pytest.mark.unit
 def test_a_page_breaking_inside_an_indented_block_keeps_its_header_and_footer_in_place() -> None:
     # One step of the chain longer than a page: the page breaks while the
     # step's indent is the margin, and the footer closing one page and the
