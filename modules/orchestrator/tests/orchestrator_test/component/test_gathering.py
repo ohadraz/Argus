@@ -998,12 +998,13 @@ def test_the_evidence_carries_the_minute_the_recovery_was_recorded_at(
 
 
 @pytest.mark.component
-def test_a_persons_resolution_dates_a_recovery_argus_never_recorded(
+def test_the_evidence_carries_when_a_person_reported_the_incident_resolved(
         a_clean_database: None) -> None:
-    # A person saying the incident is over is the fact (spec §16), so the
-    # recovery is dated from what they said rather than searched for in a
-    # series - which would be Argus looking for a level falling to corroborate
-    # a report it does not test.
+    # A person saying the incident is over is the fact (spec §16). Carried apart
+    # from a recovery Argus recorded, because the document searches the series
+    # from a recorded minute for where the service was back to normal - and
+    # searching it from a report would be Argus looking for a level falling to
+    # corroborate a report it does not test.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
@@ -1018,17 +1019,18 @@ def test_a_persons_resolution_dates_a_recovery_argus_never_recorded(
             .when(
                 lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
             ) \
-            .then(
-                _carries_the_recovery(the_report.at)
-            )
+            .then(all_of(
+                _carries_the_report(the_report.at),
+                _carries_no_recovery()
+            ))
 
 
 @pytest.mark.component
-def test_a_recovery_argus_confirmed_stands_over_a_later_resolution(
+def test_a_recovery_argus_confirmed_and_a_later_resolution_are_both_carried(
         a_clean_database: None) -> None:
-    # Not a contradiction of the report: Argus measured the service coming
-    # back, and the person reported the incident over afterwards. The earlier
-    # measurement is the better answer to when it came back.
+    # Which of the two ends the incident is the document's to say, and it says
+    # the earlier measurement: not a contradiction of the report, but a better
+    # answer to when the service came back.
     the_minute_it_came_back = "2026-09-02T12:06:00Z"
 
     with connect_from_env() as conn:
@@ -1049,9 +1051,10 @@ def test_a_recovery_argus_confirmed_stands_over_a_later_resolution(
             .when(
                 lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
             ) \
-            .then(
-                _carries_the_recovery(parse_iso(the_minute_it_came_back))
-            )
+            .then(all_of(
+                _carries_the_recovery(parse_iso(the_minute_it_came_back)),
+                _carries_the_report(the_report.at)
+            ))
 
 
 @pytest.mark.component
@@ -1067,9 +1070,10 @@ def test_an_ending_argus_reached_itself_dates_no_recovery(a_clean_database: None
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
-            .then(
-                _carries_no_recovery()
-            )
+            .then(all_of(
+                _carries_no_recovery(),
+                _carries_no_report()
+            ))
 
 
 @pytest.mark.component
@@ -2198,6 +2202,29 @@ def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
             raise AssertionError(
                 f"Expected the recovery recorded at [{expected}], got "
                 f"[{evidence.recorded_recovery_at}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_report(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.resolution_reported_at != expected:
+            raise AssertionError(
+                f"Expected the resolution reported at [{expected}], got "
+                f"[{evidence.resolution_reported_at}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_no_report() -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.resolution_reported_at is not None:
+            raise AssertionError(
+                f"Expected no resolution reported, got [{evidence.resolution_reported_at}].")
 
         return True
 

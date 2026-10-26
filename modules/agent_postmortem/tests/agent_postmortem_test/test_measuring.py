@@ -818,6 +818,86 @@ def test_a_service_never_back_to_normal_after_its_recorded_recovery_reports_no_e
 
 
 @pytest.mark.unit
+def test_a_persons_resolution_is_where_the_incident_ended_whatever_the_series_reads() -> None:
+    # A person saying the incident is over is the fact (spec §16). The series
+    # here never gets back to normal, and searching it from the report would be
+    # Argus testing the report against a level falling - which it may not do,
+    # and which would end the incident nowhere.
+    the_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(resolution_reported_at=the_report)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_report)
+        )
+
+
+@pytest.mark.unit
+def test_a_persons_resolution_ends_an_incident_mitigation_never_saw_recover() -> None:
+    # Mitigation's looks said the service was still broken, and then a person
+    # said it was over. The looks are Argus's answer and the report is the
+    # person's, and the person's is the fact.
+    the_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(resolution_reported_at=the_report,
+                                           watched_and_never_recovered=True)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_report)
+        )
+
+
+@pytest.mark.unit
+def test_a_recovery_argus_recorded_stands_over_a_later_resolution() -> None:
+    # Not a contradiction of the report: Argus measured the service coming back,
+    # and the person reported the incident over afterwards. The earlier
+    # measurement is the better answer to when it came back.
+    some_later_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT,
+                                           resolution_reported_at=some_later_report)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
+        ) \
+        .then(
+            _it_was_back_to_normal_at(RECOVERED_AT)
+        )
+
+
+@pytest.mark.unit
+def test_a_persons_resolution_ends_an_incident_its_recorded_recovery_never_ended() -> None:
+    # Mitigation saw the service fall off the incident's level, and the minutes
+    # after it never get back inside its normal range - so the recorded minute
+    # answers nothing about when it was over. The person's report does.
+    the_report = ENDED_AT - timedelta(minutes=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT,
+                                           resolution_reported_at=the_report)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources())
+        ) \
+        .then(
+            _it_was_back_to_normal_at(the_report)
+        )
+
+
+@pytest.mark.unit
 def test_a_service_back_to_normal_in_the_minute_its_fix_landed_ended_at_the_fix() -> None:
     # The minute holding the action reads as normal, and only its seconds after
     # the action can be: it says nothing of the seconds before. The end is the
@@ -1426,9 +1506,10 @@ def _the_rise_is_unknown() -> Assertion[Measurements]:
 def _it_was_back_to_normal_at(expected: datetime) -> Assertion[Measurements]:
     """That the incident was measured as ending at this instant.
 
-    Read off the metrics, so it is a fact about the service. A test asserting
-    it against the moment the walk closed the incident would be asserting a
-    fact about Argus, which is the substitution all of this exists to undo.
+    Read off the metrics or a person's report, so it is a fact about the
+    service. A test asserting it against the moment the walk closed the
+    incident would be asserting a fact about Argus, which is the substitution
+    all of this exists to undo.
     """
     def assertion(measured: Measurements) -> bool:
         if measured.back_to_normal_at != expected:

@@ -229,6 +229,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     back_to_normal_at, back_before_the_action = _found_back_before(
         _when_the_service_came_back(
             evidence.recorded_recovery_at,
+            evidence.resolution_reported_at,
             evidence.watched_and_never_recovered,
             [bucket for bucket in metrics
              if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
@@ -415,6 +416,7 @@ def _loss(shortfall: Decimal | None, variation: Decimal | None) -> Decimal | Non
 
 
 def _when_the_service_came_back(recorded: datetime | None,
+                                reported: datetime | None,
                                 watched_and_never_recovered: bool,
                                 metrics: list[MetricBucket],
                                 thresholds: AnomalyThresholds,
@@ -439,6 +441,15 @@ def _when_the_service_came_back(recorded: datetime | None,
     and relapsed afterwards would have its recovery withdrawn by minutes that
     came after Argus had stopped looking.
 
+    Where a person reported the incident resolved, the report is the end, as
+    said: it is the fact (spec §16), and searching the series from it would be
+    Argus looking for a level falling to corroborate a claim it does not test.
+    Second only to a recorded minute the service is found back to normal from,
+    which is an earlier answer to when it was over; a recorded minute it never
+    gets back from answers nothing, and the report stands. Over Mitigation
+    never having seen the service come back, too - that is Argus's answer, and
+    the report is the person's.
+
     The same holds where the answer was no. Mitigation watched, never saw the
     service come back, and said so on every look - and asking again of this
     window would resolve the same disagreement in favour of the window that was
@@ -462,7 +473,12 @@ def _when_the_service_came_back(recorded: datetime | None,
     incident started can open on an earlier episode and end that one instead.
     """
     if recorded is not None:
-        return _back_to_normal_from(recorded, metrics, thresholds)
+        back = _back_to_normal_from(recorded, metrics, thresholds)
+        if back is not None or reported is None:
+            return back
+
+    if reported is not None:
+        return reported
 
     if watched_and_never_recovered:
         return None

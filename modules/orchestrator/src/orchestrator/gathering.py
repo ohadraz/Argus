@@ -174,6 +174,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         onset_at=_when_it_actually_began(conn, incident_id),
         onset_stated_by_the_alert=_when_the_alert_said_it_began(incident.alert_payload),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
+        resolution_reported_at=_when_a_person_said_it_was_over(account),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
         escalated=_it_was_handed_to_a_person(account),
         rule=_the_rule_that_paged(incident.alert_payload),
@@ -325,29 +326,33 @@ def _when_it_came_back(conn: psycopg.Connection,
     mitigates again - so what stands is the confirmation the incident actually
     ended on, which is the last.
 
-    Where no look carried one, a person reporting the incident resolved dates
-    it: their report is the fact (spec §16), and searching the series for a
-    level falling would be Argus corroborating a claim it does not test. Second
-    to a minute Argus measured, not over it - a recovery confirmed before the
-    report is an earlier answer to when the service came back, not a
-    contradiction of it.
+    Never a person's report, which is carried apart
+    (`_when_a_person_said_it_was_over`): the document searches the series from
+    this minute for where the service was back to normal, and a report is not
+    a minute to search from.
 
-    `None` where neither exists, which is three ordinary cases rather than a
-    failure: an incident that escalated, one nobody mitigated, and a
-    confirmation reached on a window with nothing in it to date. The document
-    measures its own answer from the series there.
+    `None` where no look carried one, which is three ordinary cases rather than
+    a failure: an incident that escalated, one nobody mitigated, and a
+    confirmation reached on a window with nothing in it to date.
     """
-    recorded = events.get_by_incident(conn, incident_id)
     recoveries = [event.recovered_minute
-                  for event in recorded
+                  for event in events.get_by_incident(conn, incident_id)
                   if isinstance(event, RecoveryChecked)
                   and event.recovered_minute is not None]
 
-    if recoveries:
-        return parse_iso(recoveries[-1])
+    return parse_iso(recoveries[-1]) if recoveries else None
 
+
+def _when_a_person_said_it_was_over(account: list[IncidentEvent]) -> datetime | None:
+    """When a person reported the incident resolved, or `None` where nobody did.
+
+    Their report is the fact (spec §16), and the document ends the incident at
+    it as said - searching the series for a level falling would be Argus
+    corroborating a claim it does not test. Which of this and a recovery Argus
+    recorded ends the incident is the document's to say, so both are carried.
+    """
     resolved_by_a_person = [event.at
-                            for event in recorded
+                            for event in account
                             if isinstance(event, StatusChanged)
                             and event.to_status is IncidentStatus.RESOLVED
                             and event.reported is not None]

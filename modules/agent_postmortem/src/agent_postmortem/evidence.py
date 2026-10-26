@@ -155,6 +155,13 @@ class IncidentEvidence(BaseModel):
     # then falls back to the series, which is the best available answer and the
     # only one there is.
     recorded_recovery_at: datetime | None = None
+    # When a person reported the incident resolved, where one did. Their report
+    # is the fact (spec §16), so it ends the incident as said - never a minute
+    # the series is searched from, as a recorded recovery is, which would be
+    # Argus looking for a level falling to corroborate a claim it does not test.
+    # Second to a recorded recovery, not over it: a recovery confirmed before
+    # the report is an earlier answer to when the service came back.
+    resolution_reported_at: datetime | None = None
     # That Mitigation watched for the service to come back and never saw it -
     # every look it recorded found it still broken. An answer rather than the
     # absence of one, so the measurement takes it as it takes a recorded minute:
