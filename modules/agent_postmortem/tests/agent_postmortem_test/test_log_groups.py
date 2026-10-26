@@ -134,8 +134,39 @@ def test_what_varied_is_said_as_its_range_its_typical_value_and_its_worst_minute
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - 3 occurrences in 3 minutes, "
-                            f"23:37–23:39; # was 1.50 to 24.00, typically 3.00, "
+                            f"23:37–23:39; # was 1.50% to 24.00%, typically 3.00%, "
                             f"highest at 23:38"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("message", "said"), [
+    ("WARN io-shop: account page error rate at {}% over the last minute",
+     "# was 1.50% to 24.00%, typically 3.00%"),
+    ("WARN io-shop: slow upstream call took {}ms",
+     "# was 1.50ms to 24.00ms, typically 3.00ms"),
+    ("WARN io-shop: account page error rate at {}%.",
+     "# was 1.50% to 24.00%, typically 3.00%"),
+    ("WARN io-shop: {} requests queued",
+     "# was 1.50 to 24.00, typically 3.00")
+], ids=["a-percentage", "a-unit-in-letters", "a-unit-before-a-full-stop", "no-unit"])
+def test_a_number_that_varied_is_said_with_the_unit_its_message_writes_after_it(
+        message: str, said: str) -> None:
+    # Handed a rate logged as "36.50%" as "# was 0.50 to 36.50", a write-up said
+    # the account page error rate was "as high as 36.00". The unit is the rest
+    # of the number's word; the punctuation closing the word is no part of it.
+    Scenario() \
+        .given(
+            some_lines := [f"2026-10-11T23:37:00Z {message.format('1.50')}",
+                           f"2026-10-11T23:38:00Z {message.format('24.00')}",
+                           f"2026-10-11T23:39:00Z {message.format('3.00')}"]
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
+        ) \
+        .then(
+            the_answer_was([f"{message.format('#')} - 3 occurrences in 3 minutes, "
+                            f"23:37–23:39; {said}, highest at 23:38"])
         )
 
 
@@ -248,7 +279,7 @@ def test_a_number_inside_a_name_that_varied_is_said_by_how_many_names_there_were
         ) \
         .then(
             the_answer_was([f"{SOME_SLOW_CALL.format('#', '#-#-#', '#')} - 3 occurrences in "
-                            f"3 minutes, 23:37–23:39; # was 900 to 2300, typically 1200, "
+                            f"3 minutes, 23:37–23:39; # was 900ms to 2300ms, typically 1200ms, "
                             f"highest at 23:37; /baskets/shopper-#-#-# took 2 different values; "
                             f"# was 5 to 7, typically 6, highest at 23:38"])
         )
@@ -314,10 +345,10 @@ def test_a_message_logged_on_both_sides_of_where_the_metrics_stopped_is_said_in_
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
-                            f"3 occurrences in 3 minutes, 23:37–23:39; # was 1.50 to 24.00, "
-                            f"typically 3.00, highest at 23:38. After they stopped: "
-                            f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50 to 1.00, "
-                            f"typically 0.50, highest at 23:41"])
+                            f"3 occurrences in 3 minutes, 23:37–23:39; # was 1.50% to 24.00%, "
+                            f"typically 3.00%, highest at 23:38. After they stopped: "
+                            f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50% to 1.00%, "
+                            f"typically 0.50%, highest at 23:41"])
         )
 
 
@@ -337,9 +368,9 @@ def test_a_part_that_read_one_value_is_said_as_that_value() -> None:
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
-                            f"2 occurrences in 2 minutes, 23:38–23:39; # was 3.00 to 24.00, "
-                            f"typically 3.00, highest at 23:38. After they stopped: "
-                            f"1 occurrence in 1 minute, 23:40; # was 0.50"])
+                            f"2 occurrences in 2 minutes, 23:38–23:39; # was 3.00% to 24.00%, "
+                            f"typically 3.00%, highest at 23:38. After they stopped: "
+                            f"1 occurrence in 1 minute, 23:40; # was 0.50%"])
         )
 
 
@@ -360,9 +391,9 @@ def test_a_part_whose_lines_all_read_one_value_is_said_as_that_value() -> None:
         ) \
         .then(
             the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
-                            f"2 occurrences in 2 minutes, 23:38–23:39; # was 3.00 to 24.00, "
-                            f"typically 3.00, highest at 23:38. After they stopped: "
-                            f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50"])
+                            f"2 occurrences in 2 minutes, 23:38–23:39; # was 3.00% to 24.00%, "
+                            f"typically 3.00%, highest at 23:38. After they stopped: "
+                            f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50%"])
         )
 
 
@@ -383,10 +414,11 @@ def test_a_name_that_held_within_a_part_is_said_as_that_name() -> None:
         ) \
         .then(
             the_answer_was([f"{SOME_SLOW_CALL.format('#', '#-#-#', '#')} - before the metrics "
-                            f"stopped: 2 occurrences in 2 minutes, 23:37–23:38; # was 900 to "
-                            f"2300, typically 900, highest at 23:37; /baskets/shopper-#-#-# took "
-                            f"2 different values; # was 5 to 7, typically 5, highest at 23:38. "
-                            f"After they stopped: 1 occurrence in 1 minute, 23:40; # was 1200; "
+                            f"stopped: 2 occurrences in 2 minutes, 23:37–23:38; # was 900ms to "
+                            f"2300ms, typically 900ms, highest at 23:37; /baskets/shopper-#-#-# "
+                            f"took 2 different values; # was 5 to 7, typically 5, highest at "
+                            f"23:38. After they stopped: 1 occurrence in 1 minute, 23:40; "
+                            f"# was 1200ms; "
                             f"/baskets/shopper-#-#-# was /baskets/shopper-1-2-3; # was 6"])
         )
 
@@ -423,7 +455,7 @@ def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: l
     ([f"2026-10-11T23:58:00Z {SOME_RATE.format('2.5')}",
       f"2026-10-12T00:04:00Z {SOME_RATE.format('7.5')}"],
      f"{SOME_RATE.format('#')} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04; "
-     f"# was 2.5 to 7.5, typically 2.5, highest at Oct 12 00:04"),
+     f"# was 2.5% to 7.5%, typically 2.5%, highest at Oct 12 00:04"),
     ([f"2026-10-12T00:05:00 {SOME_ERROR}"],
      f"{SOME_ERROR} - 1 occurrence in 1 minute, Oct 12 00:05")
 ], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "its-highest-minute",

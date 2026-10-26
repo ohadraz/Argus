@@ -651,6 +651,61 @@ def test_a_log_group_s_own_minutes_are_read_on_their_day_and_its_message_as_give
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("value", "written"), [
+    ("36.00%", "36%"),
+    ("36.0%", "36%"),
+    ("36.50%", "36.5%"),
+    ("36.36%", "36.36%"),
+    ("1.50ms", "1.5ms"),
+    ("2300ms", "2300ms"),
+    ("12.50", "12.50"),
+    ("1.50M", "1.50M")
+], ids=["zeros-only", "one-zero", "a-zero-after-a-digit", "no-zero", "a-unit-in-letters",
+        "no-fraction", "no-unit", "a-magnitude"])
+def test_a_measurement_a_log_group_says_is_written_without_the_zeros_ending_its_fraction(
+        value: str, written: str) -> None:
+    # The row says each value to as many places as the service logged it, and
+    # the model reads it so. A reader handed "36.00%" reads a column of a
+    # report. A number with no unit of measure, or with a magnitude, can be a
+    # price, and money is read to two places: it is written as logged.
+    message = "WARN io-shop: account page error rate at #% over the last minute"
+
+    Scenario() \
+        .given(
+            some_group := CitedEvidence(
+                label="G1",
+                text=f"{message} - 2 occurrences in 2 minutes, 23:37–23:38; "
+                     f"# was {value} to 40.25%")
+        ) \
+        .when(
+            lambda: the_log_group_figures([(some_group, (0, len(message)))],
+                                          date(2026, 10, 11))["G1.4"]
+        ) \
+        .then(
+            the_answer_was(Figure(given=value, written=written))
+        )
+
+
+@pytest.mark.unit
+def test_a_number_the_message_of_a_log_group_says_is_written_as_given() -> None:
+    # The message is its writer's words, quoted.
+    message = "WARN io-shop: account page error rate at 36.00% over the last minute"
+
+    Scenario() \
+        .given(
+            some_group := CitedEvidence(label="G1",
+                                        text=f"{message} - 1 occurrence in 1 minute, 23:37")
+        ) \
+        .when(
+            lambda: the_log_group_figures([(some_group, (0, len(message)))],
+                                          date(2026, 10, 11))["G1.1"]
+        ) \
+        .then(
+            the_answer_was(Figure(given="36.00%", written="36.00%"))
+        )
+
+
+@pytest.mark.unit
 def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> None:
     # Off the page no head dates the incident. Only a wire instant was dated,
     # so a time a line of the narration or a group of log lines gave stayed

@@ -224,7 +224,8 @@ def _a_part(occurrences: list[tuple[datetime | None, list[str]]],
         if is_a_figure(first_words[word].strip(AROUND_A_WORD)):
             varied.append(_how_it_ranged(
                 [(logged_at, each[position])
-                 for (logged_at, _), each in zip(occurrences, numbers, strict=True)], day))
+                 for (logged_at, _), each in zip(occurrences, numbers, strict=True)],
+                _its_unit(first, position), day))
             continue
 
         names_said.add(word)
@@ -299,26 +300,45 @@ def _how_often(occurrences: list[tuple[datetime | None, list[str]]], day: date) 
     return f"{counted} in {minutes} minutes, {_clock(first, day)}{SPAN_DASH}{last:%H:%M}"
 
 
-def _how_it_ranged(readings: list[tuple[datetime | None, str]], day: date) -> str:
+def _its_unit(parts: list[str], position: int) -> str:
+    """What a message split around its numbers writes right after one of them,
+    to the end of its word: the `%` of `36.50%`, the `ms` of `2300ms`.
+
+    A number another follows inside its word - the first of `1.5-2.0` - has
+    none of its own, and the punctuation closing the word is no part of one.
+    """
+    after = parts[2 * position + 2]
+    attached = after.split()[0] if after and not after[0].isspace() else ""
+
+    if attached == after and 2 * position + 3 < len(parts):
+        return ""
+
+    return attached.rstrip(AROUND_A_WORD)
+
+
+def _how_it_ranged(readings: list[tuple[datetime | None, str]], unit: str, day: date) -> str:
     """One varying number: lowest to highest, the middle value read, and the
     minute of the highest.
 
     Typical is a value some minute actually read - the lower middle, never an
-    average no minute logged. Each value is said as it was logged.
+    average no minute logged. Each value is said as it was logged, with the
+    `unit` its message writes after it: handed `0.50 to 36.50` of a rate logged
+    as `36.50%`, a write-up said the rate was as high as 36.50.
 
     A number that read one value - which a part of a group split where the
     metrics stopped can - is said as that value: "0.50 to 0.50, typically
     0.50" is a range of one number.
     """
     if len({value for _, value in readings}) == 1:
-        return f"# was {readings[0][1]}"
+        return f"# was {readings[0][1]}{unit}"
 
     ordered = sorted(readings, key=lambda reading: float(reading[1]))
     typical = ordered[(len(ordered) - 1) // 2][1]
     highest_at, _ = max(readings, key=lambda reading: float(reading[1]))
     when = f", highest at {_clock(highest_at, day)}" if highest_at is not None else ""
 
-    return f"# was {ordered[0][1]} to {ordered[-1][1]}, typically {typical}{when}"
+    return (f"# was {ordered[0][1]}{unit} to {ordered[-1][1]}{unit}, "
+            f"typically {typical}{unit}{when}")
 
 
 def _clock(logged_at: datetime, day: date) -> str:

@@ -226,6 +226,14 @@ _AN_INSTANT: Final = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
 # A time of day as the kernel says one, to the minute or to the second.
 _A_TIME_OF_DAY: Final = re.compile(r"(\d{2}):(\d{2})(?::(\d{2}))?")
 
+# A measurement with a fraction, as a group of log lines says one: the whole
+# part, the fraction short of the zeros that end it, and its unit - `36.50%` is
+# `36`, `5` and `%`. Only a unit of measure: a number with none, or with a
+# magnitude (`1.50M`), can be a price, whose two places are how money is read.
+_A_MEASUREMENT: Final = re.compile(
+    r"(\d[\d,]*)\.(\d*?)0*"
+    r"(%|ms|s|secs?|m|mins?|minutes?|h|hrs?|hours?|d|days?|weeks?|x|[KMGT]i?B)")
+
 # What joins the two ends of a span on one day, as a log group says one.
 SPAN_DASH: Final = "–"
 
@@ -512,11 +520,32 @@ def _the_grouped_figures_in(text: str, prefix: str, quoted: tuple[int, int],
         if figure is not None:
             name = f"{prefix}{len(figures) + 1}"
             figures[name] = (_as_the_alert_gave_it(figure, day) if quoted[0] <= at < quoted[1]
-                             else _on_its_day(figure, the_day_said(beside, day)
-                                              if beside is not None else day, day))
+                             else _without_its_trailing_zeros(
+                                 _on_its_day(figure, the_day_said(beside, day)
+                                             if beside is not None else day, day)))
         at += len(part)
 
     return figures
+
+
+def _without_its_trailing_zeros(figure: Figure) -> Figure:
+    """A measurement a group of log lines said, written without the zeros that
+    end its fraction - `36.00%` as `36%`, `36.50%` as `36.5%` - and shown to
+    the model as given. Any other number is written as it was logged.
+
+    The row says each value as it was logged, to however many places the
+    service logs it, and the model reads it so; a reader handed "36.00%" reads
+    a column of a report.
+    """
+    measurement = _A_MEASUREMENT.fullmatch(figure.written)
+
+    if measurement is None:
+        return figure
+
+    whole, fraction, unit = measurement.groups()
+
+    return Figure(given=figure.given,
+                  written=f"{whole}.{fraction}{unit}" if fraction else f"{whole}{unit}")
 
 
 def _the_figures_in(text: str, prefix: str, day: date) -> dict[str, Figure]:
