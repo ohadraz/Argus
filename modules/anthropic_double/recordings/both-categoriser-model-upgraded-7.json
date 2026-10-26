@@ -5,17 +5,17 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_019NbC7FBGgyrGw3K5ziytkk",
+      "id": "toolu_017p5HomTnM9weiiVvCFDqWo",
       "input": {
         "answer": false,
-        "explanation": "The fault is entirely in this repo. `categorise` passed capitalised words to v2, a model that expects words already lowercased by its training pipeline and does no case folding itself. With the title now lowercased in `categorise`, v2 matches what it was trained on as soon as this deploys with `categoriser.model: v2`. Nothing outside this repo has to change. The model files ship in the image and their vocabularies are already lowercase."
+        "explanation": "The change is entirely inside this repository. `categorise()` in src/io_shop/categorising.py now lowercases words before the model sees them, so V2's lowercase vocabulary matches capitalised titles. Nothing outside the repository has to change, and that includes the deploy config, which can stay on v2. The one thing still needed is to deploy the change. On calling code: the only callers of `categorise` I found in this repository are the tests. I did not read the calling code that the running revision used, which came from another branch."
       },
       "name": "answer_question",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgAHpQXuinj5KMZk6c8FF",
+  "id": "msg_011CgPqRXBeTzao4JksxERKk",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -25,13 +25,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3725
+      "ephemeral_5m_input_tokens": 4099
     },
-    "cache_creation_input_tokens": 3725,
-    "cache_read_input_tokens": 7572,
+    "cache_creation_input_tokens": 4099,
+    "cache_read_input_tokens": 7862,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 208,
+    "output_tokens": 231,
     "output_tokens_details": {
       "thinking_tokens": 0
     },

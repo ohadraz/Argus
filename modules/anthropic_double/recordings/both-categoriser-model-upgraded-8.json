@@ -2,105 +2,130 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I need to avoid writing any actual figures myself, using placeholders instead for values like the before/while-broken/worst-case series, duration, and error rates. Version labels and revision hashes count as names rather than figures, so those are fine to include as given.\n\nBuilding the causal chain, I trace through: confident categorization share dropped (citing AL1) while errors stayed flat; many titles got dumped into General with confidence false (F1, unverified); the root cause is that v2 was trained on lowercased titles but the serving path never lowercases input before splitting; this was triggered by deploy 7c3ca00 switching the model from v1 to v2 (D1, P2), with earlier deploys and config flags ruled out via T13 and confirmed by the rollback (M1, T18); and the contributing factor is that tests only covered lowercase known words, so the mismatch slipped through.\n\nI mark this chain as true overall, with the caveat that the exact code-level reading of F1 is unverified \u2014 since it rests only on F rows, I note that explicitly. For contributing factors and action items, I flag the test gap (addressed by AI-2) and propose a new action item: add canary/shadow evaluation comparing confidence scores against the old model before rolling out model changes, since nothing currently checks output quality pre-rollout.\n\nFor the executive summary, I note that harm is strictly the wrong categorisation, and I leave numeric placeholders for duration and time-to-normal rather than inventing values \u2014 I just confirm the rollback and recovery timing without mentioning anything about held states.\n\n",
+      "signature": "CAQS40IKEAgTGAI4AUIIdGhpbmtpbmcSDC7AYJXaqiGulLdrqBoMxoQGfHnxaHZ3afexIjAeH7IAD2xzW+GU5sD6FZu4E5KUc6sTzEqHKkGtTrpZjWhBvP4NfJIWWdn7xTEX9PoqgEKY3r1lu3A27RvU4f6G6QHRhdwpRAEbZosVabUM4iXhuDdrGz8BfJTi6iOtU4kDguLAGfIolWAm/pcdGr97cGbEm0baYYuRDfR13DgM4WQ4B05f45+FkPll6LZ0okT5t3iun3i0zqJZfy6QZrlnmH5YCBAUEKUvJhF5wS43YXPvBZTn4VYMyNVov+BSVKZl3Ct2+WafVSqXDY7k5nCGpnFyZr7ig5tbUL190i2dNwFdri1xqvwONPVqwGGHQrxMHwG92kYCC+QZzQoz2yZjA5rfEuVJLN8pAeGN/Lvft+0hxj/0+7NRdLWBFefqQ3GRjerPjbvr5BrQDU1N5KDqfFsJpXX1a6YFrxjVY+iiWCw4xAn8nUj/B4rQaPMxezL61AaEnOUlrUAohCJCazeqHozUTH3BJXVPQgb0skCregDgka9HgmxSdhpKa6RyL7ySQDAvpUZbEygzmE7eneRp1pXBODpY9nnH32mk03xap2xfGEl+thjkzcWno+OnHoppWRzSWEY/pihLN1Yp0POmE6bf3LO0HaHpHKvT3XLenXZN3gQk/KErK8lWWgDLC71USSrQoOws5zvTpBcICOW4QcXPLBbGu+rn4SW8ForRY8MyJVK/HR4wtB6vnB6jZ547l4V/pvGSuTp9jd2h3MvtSN1KS8hgc4tbfCW70auNl9xHk8vTN/efvpcpSOM3x41/Ezjh8+ZApUZ4K97ZHi/s3mZyfZRsHEaMnvg7rB8zmsXmBd9m0D9iHH2zCLyecqoB7qE3SQ2jrR7ejYB1Yw1pfDUwgL9tInAvrfC+vtrHsmxCMFrR7Ut9lSEwO7dP8jYZMf0A8ZRBke/CeXaP1wy9ZsjV21/V2HosmigAXp3zK0oFvs67ZdV5Sq6gRqXCooGp6dXCZvpi3/qnTufTkS3otyepCAgIJG0oB7ldnGkD0+YEPlND2sFKnbW+1MwPWWiIkZFtTi8XojyW8f97i8k7ZgjIFsEgFbnXbi5t/A7tNDLWqRFDzjmMLJRoVHTg8pPCadhn058Tj9KWyXWJiVI2ZA4yR63SUswBjBFVnhZsOFiMj/vDcz8QXV5LfLVqwdS9SFZerQGq39DdW5HKbu6Sd3f7gWFk90JN+g5S16sWok76ShowmvWVkDT7OUWNjNB4QsDgZGJXD28BDUhioc7FNSOzN724YMoks5rc918FZLmHUPJRmgLpmaG/G5Ok7g8Am25J0vbV6NxiQgFvzozOhbRzx0/pEMjr75IP7MCyD2lS9bioeDLcTfF/L4H+FUG8EhJSDuQZdB84iIkAKripVCFvWElPJp8W5Eq6TElMdoeAjrLL4p3XfAKNUqyKheoGuhh1nkNiDMGXTIZ1Tf6qow9iXV4t1YOHfM2qifIkhPbVeMK0ebkjTHwMU4/D2AlUEti8x9dJO4VSNMZacfO/3NKvx+nnZm+RO7A9yumOHqrjFz66QVOXk+nLZ/SVEJa+YO0lw4SJtkmYfoENjXaqe/Z1JdDq0hPaDXV+qiR0lHyrPQSo8YOMDzTXcxxQXBKlgmYjReNoqXLSbLy3fXhU1bE16fMvOVnrpExxwRskDAKaK/oVXwKOhcTxIcYR6UPzzILclB1guvbPz6w7JFHIucju/meIpCh00S+VAkHiLbkfkTm21NeMYUCQlsO2vLiFMNaavZHyaudvKvtv3qPnLfwNSaF0xXh6kV95ZbC8f2vf2JNIJ8nQUZ6wYDn9JDZiEbMBYKFusyW5vE10CslVz5JTgY/EmOtMwgHiBQra+Rhb9rXCndZdrt+BkxdUiMWtkPb4f4R7fTsHXcignaZzAQ2t2F0tMJ82nYlNv8WjqOVHbhqkurrY0qHfCZ4+WdEZaSF74CrgQlECkK7IKTcRh+s8FIATnQpiqE2jB66LVWLNyEks4qxN6wqGabWzvXOfL6txfJZz9UhU3KmdnAJHPff/qRfnNOztFSqWgONPM9waOJeVk4KZfRH5zZX/wmTCvvsHrzqpVdL/2Z+/pbfajGWjWAqszVtr6CW1ju8f098qctX65mM3NVtOup/24PzVq2dQFKdKw5cEbTX6hQxbUa/7s+dT1U56sYZZ7PvzEdmFdw762+hKnA/KBo6Dm5g4VdBJINhLSqVY44Bj4pOZDi1JNJiZ0M8kBDounXvNwmUIembHxbx9n3ZsopVXwq7pWI0yC/Nd2tsL7A7OxL0N1esDtswhPXxSEQzY6Cx89qOWOs2S2UpHpB+YEql2c9hgDO35a8W0xbaCuqXUQ9Emb13ak67S5wEEIN/MyMtob4bzbDSsi1TRZbW0m3OQGKMCMYtdyDanJuwF/mFSWKp9GQDOVwMHSJ8Y+ayatRuH20uu754RIhs6EHULHlOFoqrnhOvEYiavI0MKwYapxfA0gJT1FfSR16Xhf77yjnWRUjXABSpXs2b0OXhI7/jeiijf2nQPlreLqkTM+UgMX8iqH1x89STOfkxV8eqZ0it7Zu7HMPHTKqfZ6sTM24vQHYI3+/t9oydjmOsNnINT4RZ80bNHmML18NXpGh1rpQS9car+EDtT5zmzqVX5V16ETy333Np0BeheWV5ePgtb6fVEd13puCPzwIpVhr0uzLasXIs+8EfXOEola25z8+zQLMwqquWvKM24HY80n0Odrx+rmjOlNEGHmJOZiQIqcScET+pIujLMT7Px5YANsddElJhuTIQhwQozx5JBcYsvCRN5ryWGmp612Jr/rPu5OJRMgB8S598NRY3MDt5oiddgk197t6tksJHmm1QmkuXgWTGfcKq0KMF7055khq3BaYX08KapA6fZCSaHZfT4nH9M5uaCbXaMAlCwN8JeK7HPmpLFCMJztCpwigp/FLo3+LuzZkANpBems2YYrfqzqfj7/zKJ0STLwWs2ybOB3NEtfMCkY12rzqfkJx/Gxp8wr7uh/4w5aHjTy45T9+iBdkdyMEEU26KpB8Ni86FWnDL4b7Wloq69KYqW/i7szS9NKS/xMV5w6zbHzBfrdv0s8r3OikecQRUEqArdqmFzUWEqBzYgy3e/mmcA0RKIdwdlF546lHqqwTkSUJToysGjTZ6iJ0E6bvVRyzBc+nKAUC8N0vGk7KVufp17+DQS7dmT1EXddq0dPkbMX/4uvL2BQRTjtDCo/soWu9TRJP2VEAWYXGTQ9zCH2445upj7yD+J3O8+TrhQ/baaKzCKTHxkm2EHNd9CbGdxsC0PeEqoqGpFb5tpRNKmBVgg7ygVrFW8Mh+qFMACCLx2YCFGXVi7st+xq03Ibm2Rug6+n/zIdoNNGjrX/3w+ls0FDiNsSkO3BmfmTWTn87hMlMyPDFGMucVndHPzFJYwGRZ6Ld69Noodv74Sw9jYfaNFh3L45+ra5x/EvKmWZewSJiqcc76AqMV1jf5YvB07Zqi/Po3ZxzWCX8/XRsCmrCyaPWvHvz+6/Evfx9hf7wl7pPsWSNYduY8WM0I9ARIN54qpXBS3nqeRSSAZII3GmwYPkkkUylRwp2ms7+uWOZwnxoncmhwXH6wUWvT+HgfGBQt3eTA9hqII2PShX2QMVpaX/uuNJGcvKnL8kR4e916HA1/p2P01Y6RMgw4+lqieCUnNk4f39Q77LkSvdgZfgO0ongMzXjBWT+tMNOigyX7YbOXZccLBGRXruZl7oTB8MUYnL+wOW6xKra8Z15IcpSThKjzz3CujniEfgVB+8jp7O/AUiX3pz1/xYIuBAa30Tpj3FAoZwjyunX/9Pr2/nhnO7ymiKz3f+zz+nBlzkOJ+epHRnAItfsIS9AupjtlmDXyIv20VVly0RwPDHE0IZG36DOcB/GB1oD2+JT7nnxIA57DQzLKXhK/V7kjv8g6MbB8eocRFaznfqm/3sGK56EP5JYjV9lGCMZ0EaGCGZm9NRDsatGRiZ//psI7fdPR440ueDZn3PncQVJ/9u/geuhaUBysoNxIvHkFaUotH3sKdQ0sgyiqdPFlcGyc05gmny38Wj7JXuRs7vz/FB5B1mOiD9c7oGWeCqoPz2Gm3Lre602lqLmhi3vpWP/0LjU7ECm4Oy0JXTKXWkXLJXhp299pGEcVx1/UBOaIcHxslZVJFydSxLNEmcQk0Dm7HK/yxKspD4Fhm2/Z8exwQlzSp6QJK7NQ9e9bXNlPl//QS8NNNOSryWZLHU+n9HjNWgfn0dGx4xGmV0IG0VI4N9WsHVcR36Iar5B1868MZcarQsbAM/YENJPdaE9VDfpvlNMVUxf4gXTDkjHF0cM18wvtD/P6PYhSPqHVLhm/A1uYoitNGS72G0LbsgrBeIvxjWLp9pVDZixOAvYxaYm5Je2AO9cpGW8BPh+Nn4Sb9i1qLjc8HCroiEJy1GJQQAys7NCf6r76LLFx5KvXPsr+zgzsiE4oayh882u81La7iAR8A+rTdos5G8AUXVHxUZD67VtzVZjY6VtG+SOqPb1JQiyIjVfgn1YqRK/9rk1wPN9jyxQQX06R7GXCvNgJ7aFk9FB9vb9HUEfkpFC2waUhQ3WRCtixB7qHL/Xx2RqI2wsgo0qh8/xvfqFhVobS3mI+F17KzeB2VlvKXu+rxiok63FvJlF3l4dg9s/0XGEdQgzOkQEuNxvbK96ibGL67kAXwcmfvF3dbV7gO1XqjDhEy3f24dmp/By2x1XgznFDOENMYhEZFhXL22D1kWc2Os+nBNvxXPG5QbrLF2RQqzf/rYjhl7lcQC+xfDe7CN+TChoZpdBUeZqw4ZXrQIdYPxj66N0/8qAdJryJn5u5B/smP8INyiC665K7go3XETsYKEY2s3hsFKylFHVDU+MlSv0G/MKusC3bd6fLwnZ4IK6oeHizLNmxHMMBC2gHfDDg+r9DEadB162vBRhep6x3CMzTnB65C0nz6gauAgEve8zw7cIuT2MUYotUtRx9/R+Hcu5As0xLCOMZbvcDLGDlAhYTzHjf/zxQr9WoC92nXpjDlT0QGvjtlqrlIaeZxqc4wvVSsgXTmdCw0/ZN3NQABFYqWPPFtWvcXrP/oLk1rWs5qEtFSh4SpfSo5VQk9QJ5Ps7c6/BJJLyO/x7jTowUcRdSclU003cagrsDXJC4YS1/OmxiZi62KgYfaARRjVwwJ+ZP5FNsCEzLHKo+zortRQZflz4ioUK2BQefbJUnn4n3ZzooAMq0BnxrA5F3gEuOK7GPtF9YDW0cuBj8YmQaYW1Rrw7U9Lc0Cwa4NNeJObrjKdmfYo//7ruV4ECvS/ai6scdptFgRO94TMU15Rdb+5ciolnUQo/gDFsxaU+WEsEJhbkzP5Sk2Dd6TZljU1PFWYkMLVeLShQnq9G4/TCUmrCmH7eZaB6Xz29WBsW0c9hJUqMuP2pzRRSs4ReL7H1qCzBqxblKF5p/Jp3TOBx7kfYsD2MXgQwr34EIubR3hv8DljiuT383WqV+PqBfLoIWjI9yT1ZeC5c80dVhQaCeZ5JHsceG6BGZ1gGWYYqVCmb+yZaDBhP7xwm1e8VgxRl/cQBGvxeW/13fM9U7XyZLfKCzJ3bIb1VPYhn0AlmDyoIIkGIpHcqruhlgZO+et2p2tQ/vgUnYz/EmH9Viw/f5XcaOemULmpYZvlYwxgTVr4s9T1YVlRgUl4r2PMrJHkAEPrPozpb8itZaNeNhSQM0uddMlJxxIhkgnGno9FAer3E0lkza0y84+up23C69M8ERMehdMEq0S6NtR1FT9yTtdd+4ZJ8Pfe/lMYQ0qJlghQijcjXqV9qlWOc8/vS2X4oSE+sVh+VjSIVf1T1dWkxNibyqykbwiMAAWLPTecie9rzomSD1b5BYqd6cEInU8GdrnHVJxalZIB1a7ztTUv5HDrfSfUUHQNMbi8r6xc5NBvBQKCC2hv9n0oEQ0iwmwZNhTG+Co/zlN8craj+Gjal28JCTF7soTej5as8Q8Morenv5SGIlcCF0LCKwYnwcPwzzjBrBcNlyjNJP+//duyzlewS6BAaVHW5uldpdEGEj4uFCMK4Qh/i5wN/FlXkK+YbdT1va76QbM5WMibzluzHYawPwPl8WEtfpTwYolJaxwfqD31yY0nGwc5H2+m/Sq0YNB0JEkTQQiENbLfAy4nROZOMTLm6ct+EgpjCt/L0cmT/geJvjt8C1A1jQ4FRi5HzaEd1Iz5UWOW4plXF2d36kQN09iqad1aCtkP6mffllgBeU8jaKN9VCb7rn4Cl4zTQDXDyiWZeKrUttEJHBNrjr81bARqz+qh68mEaNfZzfVOGH+B3a15e36MiQri5/I+iRTyvwsex5pelv+yp+kp73g9LRaRkBmtySVRNpsnt9A6fCuPyh2NfWE+Mga6GDHRueiq4j6AkeDmFjioRlvvsoI0Md16fB8gyNn9bZixWCtu79IrAX2dFx6jVPEYmjU4bNACsbATDOI8X5UKIh67fukr6aFcivJ5bK9V+8dSoTsQWpD3ZyvFGlc164hONUHLR5T4A8epp8BYxJ7k6d1jMheJjOCiNbnVKCHuCRm6EwrvcbBEei1TJjMlN2Kcjpj7VSwQduf0cA7qVNLEPUiJ33mumz90XKAWWwrz3RbFujMF3cuUixdXERI7UIl0fBOZSpJwMSC/78o4+WXrhOL/WDJI9BmpZDN5biXPaccD0Rfhd17PTAv7LChsTYKkPGiqmhP45l7BbH35cq66mzxBHO/3DwhS6HOGQN/Z8XQU/DfbqD6rhIKZcYH4vqc4ZsSjAW9L0Q1eNyKp5CxayRPNa8YwABbQt4MNJ6YxIFv+pFnwK1Y0CAw7/3XikgpTUh6nKOXJVncv9iPnxBC6qL3uLJtDDIK9oKloPZ9RHWh2tt2VidhfnmvI14BRppW4qLL8nJPu1xN/kQwLw6552tbCJVa9EInwSkogrrIPZf/rBfJNui3bgyGdYo8sfE3b5uY8H1ojADZj9CAPvBf/87tCsAsRI9xBEnYx6bDdckaP4Y8MYKgqlzsmmAzt9TDENIruxprqo5VY+mI8/ec8DzpbIknEO7PayslKjOJIRnOokBq1pHr4GwbIWCMOCElJoev4g9BNNHRdADJ5TYZzFB0lczI6HODwRlJ/SWjX11dEzwNR0yz+XQYJdzHsAJHSzOgESqgT1FA5xJk3rGT5CUu2aNcev2OBwy8O6YcIvBwLiBDlk5znZVqyJIttssDNSChziAoq26LjRL7gUmYZkaqzTFBD+yQAVNTvjdA0cR7ChIH8fq31QxV3oGyQSVk9OvnAOZa+9QA9gYMNUvEBu0QpO2hOmOQLgviwNohP+O41xVdHF1KD19qFaZ5E5f56cd0ABtQF9eOeE6mTBLd6Ed9k7+fhNvjpNtqXi8J92hhMIIUkqcBnQmMOKSDlbZoTMirdtDfKidXLkef6hL+46KDN4bwljeYI1e8pXFoF9YkmIEPVRllz0+BJSlk9vUALY6TJ1eYI+1fpwh5V1JzkGZzC5+4MN78WSkuufuytODcuX0wuFPy9wUKlDJ8cTVoTqfyy6dVMpbtcLrPe99wCLC9p6WNmOLAyXmHr8yVM5VQnTDH+9/LVzcyRC/hvxZk/kYPeTzTaoPdwmgA1ioRL2g97Qfau33SHlbsq5ATKeexDBtjonZHCz3F8crbTPDca17ftgPqgu4nBnUJiasep0Yaq+t3A28mw1Bo8tql1PQaFy53PZUbcTOGeYfIx6VtaAROMRMoVyRnmvnqmZADYCsyP3gD3dGggWfKtB57r9u+JCk/XyD5QKCATfjyrhRG0HNnvokP3ztVzbzOm6PUsoXO4ta76kmZ21p5l1VYb4q/p4PC6DRPmY6wvyRGKrr1ghOD/CcbezhSeveEcJtflh2lowiW6bhhRmXxzg4Is3rLyjf58zRY+cCo9e1nW+yc6HIx0tIBYbCk9EeFp334T0KSlR/+9BFEaR6cZ0cry7buU+sAvZVttlxccEJAoq1WCyF6SM7RpCqU4uFmyZiTtX+V7VRsujuXm8oZ1kB9HCh9gUHO4WSHD5YDD6VPhz5XVOSAfy8x1AHuuYmYg6RJsxG/z++u0Ify34b65D0j+FE4J9RzwOPp8HUzWwjR1Y9Bxkzquk6L04uaRKsyG1hK74c1N5J1nlbmKzYhbq4/kLsy/4KpPSRv7cWbDFawYTbxtaD8BoAHvW5Fw9eu7h7ULrcGS0xXovIe7IUOH6b8yBH2SXQCA9cQiB9+qoOizP7RvIkKlRNbjdTHbdgOZ7aKKQWAtxkf3dBrRVfCczxBHv+DxdZyDeo42vrgsl38W0wYH14l5+0H1ztZ9Xlv1E57c92bHYWvyRbMFifubj6sOyzHoLwEcgR8b16gXtGG8wGLgkES3k5MXBw4ffoaAFC2RzrRdI29cwDN4IdEqCuCWXGT1qEXnJroCcUthooohXDBKdpJwg5HlG0hNuEsd7k/9kvoy1Zyg24t37PCoDsfPLhDCfOdp2yniEKQlr5wgU0dqe9ZbcP8EVgIKccJ4NdGY2scfdDwlGumAhliv/4IEZWUwp29X/wQBVdHwvQPnevdK/YgzVCcLFcK9GcsZx92cRIxrSsuhmDuS75l7MdfcQlds05CD30ejLzLpILoNGlBdM1+AcWorG32/lVKLjNW9mSaxijQfAH5tEuVkVZi/3ejcNv5abVOfuDQxcXghuq+ytxHPtUSI9TAETZE41eYhVAPtXx2dTE2y72bEQX9yow5spelmJc73adrYOeffS6r2MtU+VWGYCYGQD5UYuZyxrDzdfRq1rlZ1U7Kx2pezxx8nSn50Whqufc0hjo5EeYseBoyDNjIe1lPbmV/YZgIwoM0dFYJWbn+hsjs1JZrjlanA8IWATK3Ahewqqxo7yljNg42l43rnNYeqiSa6UXas0jETyZssRXyRmlWDGMSArRdf6tTNI1y/Dy1h4Gmz0mT17VsezePMU/BJvUzKpikAqzc29w8m+ltP0osiXWxHGQObZSjvMJErN80jmVIGyDcMpU1+n9wC0xJpuprqtCLSrYKToNhufg2KW4/5faXvW9+G16hLMu1CXzoZlpnuTWxMYhWnq2vy6PBgZb8/Xldvnm9ctJeaR2qZDzJquOgprjB4qHFj/zrxj5OL0/mNLY3FTE75XDIl8zrhjMkOmWvH9E1nZQK0mumvh8OUzi+uBMoxbqD4BIqfUMAZFFEp25zo39pXzwGcqfVMHz8/lishgST8e68Hl3jGbNT5fFizFR3sKfPg9XubaVbAneGXLYjdi2cRvjX/P/dTPUnKeMUluuSkZcDgO7dqMC6Pla67Lsv5d6/HGHyAeVHINVtd1bpWyz+2v/dq7Zmn2D4dlB1zbg7PFUHY5qsGO/qGGE0poiDoT6Dkcoh/2BNb+p3+7ZdKGX28MY0cZ/7jCrX4gp/Xu9VO3UPfIF6GethunvI1Ib3Q2LSTCzy2S3VH9bu/fDPCy1vmimGmxiDuGYJHBkQtIrawt929u2jUYgDhpmpgsRg62MRzWjoGgBFNgzDosJ0YT+lPMrKDlLad3GAkNgrFSNdzkJ3ujoQVDob33yV/qHVPwyrS+9PHAzVIz3BV+SW8Xb+WGz4NXWpWzGJsYGCuVe6C9C6F8zKSCDuyRAJIdPzNByngCOrpcNN7HxDzB/1CmzXlDKunRwoSKMNrKXz8XNn4BY/VKG60EqxuBV2nvNeCAcq4uB153r5AVTYA8oCJt6bO3qVrLisHDXVkyH60ia/Gv4vss6PLpvHdDOJl7xfB7mvDQoYK2ABAMxWw5XWmvvu4ExzvPMo56AfKh/+W5XeLzgXGxnUeaLC+b70Y0fY6tLwLnyqm17wmOzQ1wSLrBQwxhL68BSZSnKaDN8Hig7XJ/YyCzn1uAlX6MgUtEKAhTa4W5IOj+T03c15foLX2ronpfbYwfsfvSNCR47i3HaIvmenZo4JH1W0dARYLCSQFJ3ZiZQxQh2OpnF4Z8qZL6GGq6iBSG5u3ID1Af93OuNaL5mX+PqTdp63VyDmUJdG6V0/DWlt4dV5hcH5pz3VxlLPrbm746knxp0MJGmQxbckJ/nrodqGTJIMEBquBbku89AovTmWgsSwGMF4+R1aH3E8riBtUcGnEiWkMC1JQieDynMzz+pZXZNoC57DkvugMZkFCy8bBINueJzFcwxXO5BI7zgpQEXd9KOI2wHMAlpb2hOAPkBUIHS+SQDbYmPcPl2aEfmDroOGbzCdDt0FkYTRW3j+nAT8x/eqvQyg/tolicip5CzNtVplBAG1yJEAD58G1t/FLAsHDCTMjSrJ6InHY2t22xPj5jHmyWevRsok6tPTvHCGuCnpdGi8gMHM6Y7bCFdPXhgtOc6O6uhJKOWfstw0RgVTjWnwGVPTnRVrsSqkx2KEZ31Z98i1uyIyOqxLLfsSu9W/EwFCyy6TSI/WIq7aTCiRBL3it+71X3oqzdGiYSnISGKqIvmQ58o2EvDNBFPT7+k3CXEp3DQJpCCghOLhB4TnW4n3FBM98y3kVZlX2AQdHv3zDkeQKkPuzmF0B7YFWB54/Gj4rdqII/7cfsp6gkSYLV87XoYVfQGRnH5sT7+kE+NXX4n9Lj+YiXrFSrkttVbbAS22G9ZW73/1lnSE38EdiYN7zP1xO3cVD01W//+eAmO5pe5vJxUAsvj470fjHw9wQUyA3wrEW67KXGr4oeZlgcs6JZAnlU0TJ8OsImqrZpA5fCW6AhZqriLs8hZwQ2q/mXPrO/chFVvbadp3GNjJGlxITcn+d9mhM4w8sWVi9zYvJ12WT5VE0Klbab7Mykaatjtu7B4WE35gyTJXbdHiQAMw4+eI+2NWCZLeoHs84fzOT3Cm4EQHFQa2AN8S7jL0sc4gyaCYsoFN1DD191QhEhkGcnOP+3kwqkTxAUXilGydAE7iVjNFymINCiZpAcS4nYX24NT3l8Q1jUrOEA1uUlJJf28r07wX06voOafjL2ClA57E0plCrcO0UsxGkeYhqWVjvE7MpjYu0QWWsf7+0ZGIulvNMlsVYD8NRKZjs+84UpRwiWhawv8K5IKKoPW+3rdszyyKhTpez3T3iRKsfElepkDU++fZ1yxFxbo/vat+i+320wxS8bfKIxasejICyuPrcm5Fm35vHYUogLgY16FSdsDd8cn6wIvg8lUD8ivd1n8S0nMCZ6geQxCjVw9MRGsxPGfXtBP+decPEMi71qnlt1Y0LbtLV2pyiaJgic69dT0DRrljG8PxkCPYWDNGElL8QbbuYobcpxRpQbXHHil9ioyboIpZ39b3/Y7towSVg1RNzgkJOE1EcwGtLwZ/EQE4sZK5V5GHS4NFkwnqB7Iq5N/Mh00vF6cp1hrhI6UYAQ==",
+      "thinking": "I'm trying to phrase the symptom simply, without numbers, capturing that purchases stopped being confidently categorised and many fell into a generic bucket instead.\n\nFor the cause, I'm checking the evidence: the shop was running categoriser model v2 instead of v1, confirmed across all three replicas and the deploy logs. I'm also ruling out the earlier deploy as a trigger since metrics before that point remained healthy right up until the actual onset time, and no flag changes occurred around then either.\n\nThe real trigger was the deploy that switched categoriser.model from v1 to v2 in the values file with no source code change \u2014 confirmed by the diff and corroborated by the rollback restoring healthy behavior. As for why v2 caused lower confidence, I'm tracing it to a case-sensitivity issue: the categorise function passes words through without lowercasing, so capitalized words miss matches against the lowercase vocabulary and get miscategorized as low-confidence, with the source code itself unchanged between versions.\n\nThe risk remains live since the repository's production config still names v2, so re-enabling sync would reintroduce the same failure without any code change. As a contributing factor, there doesn't seem to have been a check ensuring the new model version got input in the format it expected, or a test of categorisation under v2 with capitalised titles before the config shipped \u2014 something that could have caught this before deploy.\n\nA second factor: the switch went straight to all three replicas with no canary or staged rollout, so the failure hit everything at once instead of being contained; I'd propose gating model changes behind a partial rollout with a confidence threshold. And a third factor is that nobody got paged \u2014 the alert doesn't page.\n\nFor detection, Argus caught it six minutes after onset and handled it, so paging wasn't actually necessary to shorten the incident, so I'll skip that as a contributing factor rather than something that went wrong.\n\nFor action items, I'm drafting two preventive measures: a pre-deploy check that runs a sample of real titles through any new model version and blocks the change if confidence drops, and a staged rollout mechanism for categoriser.model changes that pulls back automatically if confidence falls. I'm also noting the immediate fix of reverting categoriser.model in the production values file back to v1.\n\nI'm considering whether to add a mitigation item ensuring AI-3's repository sync doesn't reintroduce the broken version before the fix merges, since AI-3's own description implies this requirement without explicitly tracking it. I'm also weighing whether to flag that the categorising.py comparison only checked against the previous revision rather than main, but deciding to leave that as an assumption rather than a formal action item. For things that went well, I want to credit Argus for catching the issue quickly.\n\nGot-lucky seems empty too \u2014 no failed requests or lost sales isn't luck, and the rollback working because every version ships in the image is by design, not chance. For assumptions, I'm checking that F1 runs against main and that the file matches what D1 shows, with harm to users inferred from low-confidence purchases being filed under \"General.\" I'll keep figures as placeholders like \"many\" rather than specific numbers.\n\nRuling out the flag-change theory: no flag changes by anyone but Argus in the hour before, phrased with placeholder tokens for the time window. For v2, I'm noting that as of the known timestamp, all replicas ran the same revision. Earlier deploy is ruled out since the metrics pulled a few minutes back from the reference time still showed the series healthy.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_015TcpJxFcveb8ALpgMvM8kK",
+      "id": "toolu_01GMCPsEbkkZdZW3172Nsxnr",
       "input": {
         "action_items": [
           {
-            "item": "Run a pre-release comparison of confident-categorisation share between the current and candidate categoriser model on a sample of real mixed-case titles. Block a model switch in deploy/values-production.yaml if confidence drops materially.",
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a pre-deploy check for any change to `categoriser.model` in deploy/values-production.yaml. It runs a sample of real purchase titles, with their case as written, through the newly selected model and blocks the change if its confident share falls below the current model's.",
             "type": "prevent"
           },
           {
-            "item": "Add a guard that fails loudly if the serving-path preprocessing (such as case folding) does not match what the selected model was trained on.",
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Roll out changes to `categoriser.model` to part of the replicas first, and stop the rollout automatically if the share of confidently categorised purchases falls.",
             "type": "prevent"
+          },
+          {
+            "answers": [],
+            "item": "Set `categoriser.model` in the repository's deploy/values-production.yaml back to v1 until a revision carrying the lowercasing fix is deployed, so that turning automatic sync back on does not put v2 back.",
+            "type": "mitigate"
           }
         ],
         "causal_chain": [
           {
             "cites": [
               "AL1",
-              "C1"
+              "T5",
+              "T6"
             ],
-            "step": "People using the shop had purchases categorised with low confidence. The share categorised confidently fell from {series_before} to {series_while_broken} on average, and to {series_at_worst} at its worst, and the alert paged. Failed requests did not rise: the error rate was {errors_while_broken} against {errors_before} before, so the service kept answering but answered worse."
+            "ruled_out": [],
+            "step": "From the onset at {T6.2}, far fewer purchases got a confident category. The share of purchases categorised confidently fell from {series_before} before the onset to an average of {series_while_broken}, and to {series_at_worst} at its worst. The error rate stayed at {errors_while_broken}, against {errors_before} before, so requests kept succeeding but many purchases were left without a confident category."
           },
           {
             "cites": [
-              "F1"
+              "T10",
+              "S1"
             ],
-            "step": "Many titles were being filed under \"General\" with confident=False instead of a specific category. This is from a static reading of the code that nothing ran, so it is unverified. The reading matches the flat errors and latency with a fall in confidence."
+            "ruled_out": [],
+            "step": "The shop was categorising purchases with model v2 instead of v1. As of {T10.1}, all {T10.2} replicas ran revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342. That revision's production values file sets `categoriser.model: v2`."
           },
           {
             "cites": [
-              "F1"
-            ],
-            "step": "The v2 categoriser was trained on titles that had already been lowercased and no longer lowercases its own input. The serving path passed the title through unchanged, so a title with a capitalised known word (such as \"Kettle in brushed steel\") matched nothing in its vocabulary. This is also an unverified reading of the source."
-          },
-          {
-            "cites": [
-              "D1",
               "P2",
-              "P1",
-              "T13",
+              "D1",
               "M1",
-              "T18"
+              "T19",
+              "T20"
             ],
-            "step": "The change that exposed this was deploy 7c3ca00, which changed categoriser.model from v1 to v2 in deploy/values-production.yaml. The earlier deploy was not the cause: it went out hours before the onset. The flag provider showed no recent flag changes. Rolling back off 7c3ca00 brought the series back to normal, which confirms the model switch as the trigger."
+            "ruled_out": [
+              {
+                "cites": [
+                  "P1",
+                  "T5",
+                  "T6"
+                ],
+                "what": "The earlier deploy of revision d268103129978816ce705c50c14cd42c7c5fe46e at {P1.1}. The metrics read back {T5.2} minutes from {T4.2} show the service healthy with that revision in place, at {series_before}, until the onset at {T6.2}."
+              },
+              {
+                "cites": [
+                  "T14"
+                ],
+                "what": "A feature-flag change. The flag provider's history showed {T14.2} flag changes by anyone but Argus in the {T14.3} hour before {T14.4}."
+              }
+            ],
+            "step": "The deploy of revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342 at {P2.1} changed `categoriser.model` from v1 to v2 in deploy/values-production.yaml. That is the only change its diff shows: no source file changed. Rolling the deployment back off this revision brought the service back from the incident's level, and the action was judged confirmed."
+          },
+          {
+            "cites": [
+              "F1",
+              "D1"
+            ],
+            "ruled_out": [],
+            "step": "Model v2 likely misses capitalised words. In the source Code-Fix read, `categorise()` passes the model `title.split()` with each word's case unchanged. `CategoriserModel.predict` lowercases words only when `lowercases_its_input` is true, which v1 sets and v2 does not. v2's vocabulary was built from lowercased titles, so under v2 a capitalised word misses the vocabulary and the purchase is filed under \"General\" with confident=False, without an error. This reading is of main, and nothing ran it. D1 shows the revision changed no source file compared with the revision before it."
           }
         ],
+        "cause_in_plain_words": "A configuration change moved the shop to a newer model for sorting purchases into categories. That model likely expects every word in lowercase, but the shop hands it words exactly as written, so it could not confidently place many purchases.",
+        "cause_rests_on_an_unrun_reading": true,
         "contributing_factors": [
           {
             "addressed_by": [
               "AI-2"
             ],
-            "factor": "The existing tests for v2 only used lower-case known words, so the case-handling mismatch between training and serving was not caught before release. This is from the code reading; no test result was seen."
+            "factor": "No check was seen that runs real purchase titles, with their case as written, through a newly selected model version before a values change that switches models ships to production.",
+            "had_it_been_otherwise": "The drop in confident categorisation under v2 would likely have shown up before the deploy, and the switch would not have reached shoppers.",
+            "label": "CF-1"
           },
           {
-            "addressed_by": [
-              "AI-4"
-            ],
-            "factor": "No check was seen that compared the new model's categorisation confidence with the old model's on realistic, mixed-case titles before the model switch reached production. The drop showed up only through the live alert."
-          },
-          {
-            "addressed_by": [
-              "AI-3"
-            ],
-            "factor": "Automatic sync of io-shop is off after the rollback, so a merged fix will not reach production until it is turned back on."
+            "addressed_by": [],
+            "factor": "The model switch went to every replica at once. As of {T10.1}, all {T10.2} replicas ran the new revision, and no staged or partial rollout of the model change was seen.",
+            "had_it_been_otherwise": "Only some purchases would have been categorised by v2 before the drop was noticed, and the rollout could have been stopped before it reached the whole shop.",
+            "label": "CF-2"
           }
         ],
-        "executive_summary": "For a short stretch ({duration}) the shop sorted many purchases into a generic \"General\" category instead of a specific one. Pages kept loading and almost nothing failed, so the harm was wrong categorisation, not an outage. The trigger was a release that switched the categorisation model to a newer version. Argus rolled the release back, and the share of confidently categorised purchases returned to normal. A fix to the newer model's input handling has been proposed as a draft pull request and has not yet been reviewed.",
         "lessons": {
-          "got_lucky": [
-            "The fault was a drop in quality, not failed requests, so users still got answers. The harm was limited to wrong categories."
-          ],
+          "got_lucky": [],
           "went_well": [
-            "The alert fired and Argus took the incident up within seconds, placed the onset correctly, and tied it to the model change in the deploy diff.",
-            "The rollback was confirmed from the metrics, and the rule that paged stopped firing.",
-            "A draft fix with tests that fail against the current code was proposed right after mitigation."
+            "The Investigator tied the drop to the model switch in revision 7c3ca00c7528df68d533f6e87acd4f23a55ab342, and Argus rolled the deployment back {T17.1 - alert_raised} after the alert was raised.",
+            "Argus confirmed the rollback had brought the service back from the incident's level {T20.1 - alert_raised} after the alert was raised.",
+            "Because every model version ships in the image, moving back off v2 was a rollback rather than a rebuild (S1).",
+            "Code-Fix opened draft pull request #353 {T22.1 - alert_raised} after the alert was raised. It proposes lowercasing each word in `categorise()` before it reaches the model, plus tests for capitalised titles under v2."
           ],
-          "went_wrong": [
-            "A model change that degraded output quality passed through review and sync with no quality gate seen.",
-            "The usual health signals (errors, latency, memory, CPU) stayed flat, so only the confidence metric showed the problem.",
-            "Automatic sync is still off, so merging the fix does not by itself deliver it."
-          ]
+          "went_wrong": []
         },
         "reaches_a_cause": true,
-        "root_cause": "The categoriser v2 model was trained on lowercased titles and does not lowercase its own input, but the serving path passed titles through unchanged. After the deploy switched the model to v2, titles with a capitalised known word matched nothing and were filed under \"General\" as not confident. This comes from a static reading of the code (F1) that nothing ran, so it is unverified. The rollback to v1 did restore confidence.",
-        "symptom": "Purchases were categorised with low confidence"
+        "root_cause": "Model v2 does not lowercase the words it is given (v1 does), because v2 was trained on a vocabulary built from lowercased titles. The shop's `categorise()` passes it `title.split()` with the case of each word unchanged. Any capitalised word misses v2's vocabulary, and the purchase is filed under \"General\" with confident=False. Nothing raises an error or slows down.",
+        "still_at_risk": "The shop's code still hands the model words with their case unchanged, and the repository's production configuration still selects model v2 (S1). Anything that deploys that configuration again would likely bring back the same drop in confident categorisation.",
+        "symptom": "Many purchases were filed without a confident category, while requests kept succeeding"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgAHq2EkMdkv9yQd1NZ5d",
-  "model": "claude-sonnet-5-5",
+  "id": "msg_011CgPqSLVEgA7snwjQbAoCc",
+  "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -109,15 +134,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 3455
+      "ephemeral_5m_input_tokens": 10476
     },
-    "cache_creation_input_tokens": 3455,
-    "cache_read_input_tokens": 2531,
+    "cache_creation_input_tokens": 10476,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
     "input_tokens": 4,
-    "output_tokens": 2606,
+    "output_tokens": 5217,
     "output_tokens_details": {
-      "thinking_tokens": 970
+      "thinking_tokens": 2952
     },
     "service_tier": "standard",
     "speed": "standard"
