@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
 
@@ -21,6 +22,42 @@ from argus_testkit import Assertion, Scenario, all_of
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import an_incident_created_for
+
+SOME_INSTANT = datetime(2026, 10, 26, 18, 4, 49, 35000, tzinfo=UTC)
+DONT_CARE_INSTANT = datetime(2026, 10, 11, 23, 38, tzinfo=UTC)
+
+
+@pytest.mark.integration
+def test_an_action_is_dated_at_the_instant_its_claim_is_handed() -> None:
+    # The walk dates the action and its account by one reading of its clock.
+    # Dated by the database's instead, read a moment before the account's, the
+    # row put the action in 18:04:48 and the account in 18:04:49, on one page.
+    some_alert = Alert(service="io-shop", alert_name="HighLatency")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        the_action_read_back_was_taken_at = partial(_the_action_read_back_was_taken_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    at=SOME_INSTANT
+                )
+            ) \
+            .then(
+                the_action_read_back_was_taken_at(incident_id, SOME_INSTANT)
+            )
 
 
 @pytest.mark.integration
@@ -56,7 +93,8 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
                     action_type="revert-feature-flag",
                     subject="monthly-spend-feature",
                     outcome=Verdict.CONFIRMED,
-                    undo_descriptor=some_undo_descriptor
+                    undo_descriptor=some_undo_descriptor,
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .then(all_of(
@@ -94,7 +132,8 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
                     action_type="revert-feature-flag",
                     subject="dont-care-flag",
                     outcome=Verdict.ESCALATED,
-                    undo_descriptor=None
+                    undo_descriptor=None,
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .then(
@@ -139,7 +178,8 @@ def test_an_action_names_the_subject_it_changed() -> None:
                     outcome=Verdict.CONFIRMED,
                     undo_descriptor=FlagUndo(
                         flag=the_flag_that_was_changed, was_enabled=True
-                    )
+                    ),
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .then(all_of(
@@ -176,7 +216,8 @@ def test_an_action_claimed_and_not_yet_finished_already_names_its_subject() -> N
                     incident_id,
                     hypothesis_id=dont_care_hypothesis_id,
                     action_type="revert-feature-flag",
-                    subject=the_flag_that_was_changed
+                    subject=the_flag_that_was_changed,
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .then(
@@ -213,7 +254,8 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                     action_type="revert-feature-flag",
                     subject="monthly-spend-feature",
                     outcome=Verdict.REFUTED,
-                    undo_descriptor=FlagUndo(flag="monthly-spend-feature", was_enabled=False)
+                    undo_descriptor=FlagUndo(flag="monthly-spend-feature", was_enabled=False),
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .then(
@@ -250,7 +292,8 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
                     action_type="revert-feature-flag",
                     subject=the_contested_flag,
                     outcome=outcome,
-                    undo_descriptor=FlagUndo(flag=the_contested_flag, was_enabled=True)
+                    undo_descriptor=FlagUndo(flag=the_contested_flag, was_enabled=True),
+                    at=DONT_CARE_INSTANT
                 )
 
         Scenario() \
@@ -277,7 +320,9 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
         second = a_hypothesis_recorded_for(incident_id, subject="second", rank=2)
 
         def two_actions_are_taken() -> None:
-            for candidate, outcome in ((first, Verdict.REFUTED), (second, Verdict.CONFIRMED)):
+            for candidate, outcome, at in ((first, Verdict.REFUTED, SOME_INSTANT),
+                                           (second, Verdict.CONFIRMED,
+                                            SOME_INSTANT + timedelta(minutes=4))):
                 taken_actions.record(
                     conn,
                     incident_id,
@@ -285,7 +330,8 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
                     action_type="revert-feature-flag",
                     subject="dont-care",
                     outcome=outcome,
-                    undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True)
+                    undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
+                    at=at
                 )
 
         Scenario() \
@@ -322,7 +368,8 @@ def test_an_outcome_no_verdict_spells_comes_back_unread_rather_than_absent() -> 
                     incident_id,
                     hypothesis_id=hypothesis_id,
                     action_type="revert-feature-flag",
-                    subject="monthly-spend-feature"
+                    subject="monthly-spend-feature",
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .given(
@@ -376,7 +423,8 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
                     outcome=Verdict.CONFIRMED,
                     undo_descriptor=FlagUndo(
                         flag=the_flag_that_was_changed, was_enabled=True
-                    )
+                    ),
+                    at=DONT_CARE_INSTANT
                 )
             ) \
             .then(
@@ -503,6 +551,21 @@ def _the_action_read_back_changed(conn: psycopg.Connection,
             f"Expected the action read back to name {subject}, "
             f"got {read_back[0].subject}."
         )
+
+        return True
+
+    return assertion
+
+
+def _the_action_read_back_was_taken_at(conn: psycopg.Connection,
+                                       incident_id: str,
+                                       instant: datetime) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        read_back = taken_actions.get_by_incident(conn, incident_id)
+
+        if [taken.taken_at for taken in read_back] != [instant]:
+            raise AssertionError(f"Expected one action taken at [{instant}], got "
+                                 f"{[str(taken.taken_at) for taken in read_back]}.")
 
         return True
 

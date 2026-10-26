@@ -14,6 +14,8 @@ around the graph is where a database is a fact of life.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from agent_postmortem import said_off_the_page
 from argus_core import Connections
 from argus_core.events import IncidentEvent, LeadWeighed, PostmortemWritten
@@ -113,7 +115,8 @@ class Records:
         incident_id: str,
         hypothesis_id: str,
         action_type: ActionType,
-        subject: str | None
+        subject: str | None,
+        at: datetime
     ) -> bool:
         with self._connections() as conn:
             return taken_actions.claim(
@@ -121,7 +124,8 @@ class Records:
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 action_type=action_type,
-                subject=subject
+                subject=subject,
+                at=at
             )
 
     def complete_action(

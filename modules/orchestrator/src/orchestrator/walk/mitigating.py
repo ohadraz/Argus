@@ -88,6 +88,11 @@ def mitigation_node(
     if state.proposed_action is None or state.hypothesis is None:
         return _nothing_to_act_on()
 
+    # One reading of the clock for the row and the announcement. Read twice, a
+    # moment apart, they put the one action in two different seconds on one
+    # page.
+    acted_at = now()
+
     # The claim goes in before anything happens, so that a walk resumed inside
     # this node is refused by the database rather than by a check it could race
     # with. Losing it means an earlier attempt already acted on this candidate.
@@ -102,7 +107,8 @@ def mitigation_node(
         # subject is prose a model wrote about the symptom, so a row carrying
         # it quotes something nobody did, and the cap on attempts per subject
         # counts a phrase that comes out different every round.
-        subject=the_subject_of(state.proposed_action)
+        subject=the_subject_of(state.proposed_action),
+        at=acted_at
     ):
         resumed = _what_the_earlier_attempt_left(
             state, already_taken, change_landed, publisher
@@ -129,7 +135,7 @@ def mitigation_node(
             state.proposed_action, state.alert.service
         ),
         accelerator=the_accelerator_of(state.proposed_action),
-        at=now()
+        at=acted_at
     )
     publish(announced, publisher)
 

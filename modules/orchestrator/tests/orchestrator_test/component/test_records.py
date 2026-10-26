@@ -211,7 +211,8 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
             incident_id,
             hypothesis_id=candidate.id,
             action_type=DONT_CARE_ACTION,
-            subject="dont-care-flag"
+            subject="dont-care-flag",
+            at=utc_now()
         )
 
     seen_mid_write: list[str | None] = []
@@ -268,7 +269,8 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
             incident_id,
             hypothesis_id=candidate.id,
             action_type=DONT_CARE_ACTION,
-            subject="dont-care-flag"
+            subject="dont-care-flag",
+            at=utc_now()
         )
 
     records = Records(connect_from_env, publisher_for=lambda dont_care_conn: _nobody_can_write)

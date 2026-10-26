@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import psycopg
 from argus_core.models import (
     ActionType,
@@ -18,6 +20,7 @@ def claim(
     hypothesis_id: str,
     action_type: ActionType,
     subject: str | None,
+    at: datetime,
 ) -> bool:
     """Takes the right to act on one candidate, and says whether it got it
     (spec §11.1, §13).
@@ -69,12 +72,17 @@ def claim(
     is - the row this table exists for is one a worker stopped after writing,
     and its `undo_descriptor` is then NULL either because there was never
     anything to record or because nobody got to record it.
+
+    `at` is the instant the caller dates the action by, handed in rather than
+    read off the database's clock: the account of the action is dated by the
+    caller's, and two clocks read a moment apart put the one action in two
+    different seconds on one page.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO action (incident_id, hypothesis_id, type, subject, "
-            "                    has_a_way_back) "
-            "VALUES (%s, %s, %s, %s, %s) "
+            "                    has_a_way_back, taken_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING",
             (
@@ -83,6 +91,7 @@ def claim(
                 action_type,
                 subject,
                 leaves_something_to_put_back(action_type),
+                at,
             ),
         )
         claimed = cursor.rowcount == 1
@@ -139,6 +148,7 @@ def record(
     subject: str | None,
     outcome: Verdict,
     undo_descriptor: UndoDescriptor | None,
+    at: datetime,
 ) -> None:
     """One action, claimed and completed in a single step.
 
@@ -148,7 +158,7 @@ def record(
     it as the two halves at every call site would spread the ordering rule
     across everything that writes one.
     """
-    claim(conn, incident_id, hypothesis_id, action_type, subject)
+    claim(conn, incident_id, hypothesis_id, action_type, subject, at)
     complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor)
 
 

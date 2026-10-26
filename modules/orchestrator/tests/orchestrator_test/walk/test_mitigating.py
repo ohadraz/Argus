@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from itertools import count
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
@@ -213,6 +214,45 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
         .then(_the_subject_recorded_is(
             some_restarted_service, record_action, published
         ))
+
+
+@pytest.mark.unit
+def test_the_claim_and_the_announcement_are_dated_by_one_reading_of_the_clock(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Read once for the row and again for the announcement, the clock moved
+    # between the two: one page dated the roll-back 18:04:48 from the row and
+    # 18:04:49 from the announcement. A clock that moves on every reading tells
+    # one reading from two.
+    published: list[IncidentEvent] = []
+    readings = count()
+
+    def a_clock_that_moves() -> datetime:
+        return SOME_MOMENT_THE_CLAIM_WAS_WRITTEN + timedelta(milliseconds=400 * next(readings))
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append,
+                                      now=a_clock_that_moves)) \
+        .then(_the_claim_is_dated_as_the_announcement_is(record_action, published))
 
 
 @pytest.mark.unit
@@ -2062,6 +2102,24 @@ def _the_subject_recorded_is(service: str,
             raise AssertionError(
                 f"Expected one action announced against [{service}], got "
                 f"{[event.subject for event in announced]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_claim_is_dated_as_the_announcement_is(record_action: MagicMock,
+                                               published: list[IncidentEvent]
+                                               ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        claimed = record_action.call_args.kwargs["at"]
+        announced = [event.at for event in published if isinstance(event, ActionTaken)]
+
+        if announced != [claimed]:
+            raise AssertionError(
+                f"Expected the one action announced at the instant it was claimed, "
+                f"[{claimed}], got {announced}."
             )
 
         return True

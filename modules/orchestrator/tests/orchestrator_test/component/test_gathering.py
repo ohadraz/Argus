@@ -23,7 +23,7 @@ without all five installed and reachable.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import psycopg
@@ -128,6 +128,9 @@ DONT_CARE_THRESHOLDS = AnomalyThresholds(
 # How late the metrics source reports a minute. Unread here for the reason the
 # thresholds are, and without a default for the same one.
 DONT_CARE_REPORTING_LAG_MINUTES = 0
+
+# When an action a case never asks the moment of was taken.
+DONT_CARE_TAKEN_AT = parse_iso("2026-09-02T11:52:00Z")
 
 # The flag the actions here act on. Any name does.
 SOME_FLAG = "monthly-spend-feature"
@@ -1387,8 +1390,10 @@ def test_each_action_points_at_its_own_line_once_each_wait_is_told_once(
 
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
-        the_first = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.REFUTED)
-        the_second = _a_candidate_acted_on(conn, incident_id, some_other_flag, Verdict.CONFIRMED)
+        the_first = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.REFUTED,
+                                          "2026-09-02T12:05:00Z")
+        the_second = _a_candidate_acted_on(conn, incident_id, some_other_flag, Verdict.CONFIRMED,
+                                           "2026-09-02T12:08:00Z")
 
         Scenario() \
             .given(
@@ -1421,7 +1426,8 @@ def test_an_action_announced_twice_points_at_the_announcement_it_was_taken_by(
 
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
-        the_candidate = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.CONFIRMED)
+        the_candidate = _a_candidate_acted_on(conn, incident_id, SOME_FLAG, Verdict.CONFIRMED,
+                                              "2026-09-02T12:05:00Z")
 
         Scenario() \
             .given(
@@ -2053,14 +2059,16 @@ def _an_action_taken(conn: psycopg.Connection,
                          action_type=action_type,
                          subject=SOME_FLAG,
                          outcome=outcome,
-                         undo_descriptor=undo_descriptor)
+                         undo_descriptor=undo_descriptor,
+                         at=DONT_CARE_TAKEN_AT)
 
 
 def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                   incident_id: str,
                                   taken_at: datetime) -> None:
-    """One action whose row was claimed now and whose change the account says
-    was made at `taken_at` - the two moments a walk writes for every action."""
+    """One action whose row was claimed earlier than the account says its
+    change was made at `taken_at` - as a walk resumed onto an earlier walk's
+    claim writes it."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary="dont care",
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
@@ -2072,7 +2080,8 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                          action_type=REVERT_FEATURE_FLAG,
                          subject=SOME_FLAG,
                          outcome=Verdict.CONFIRMED,
-                         undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True))
+                         undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                         at=taken_at - timedelta(minutes=4))
     events.record(conn, ActionTaken(incident_id=incident_id,
                                     hypothesis_id=candidate.id,
                                     action_type=REVERT_FEATURE_FLAG,
@@ -2083,7 +2092,8 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
 def _a_candidate_acted_on(conn: psycopg.Connection,
                           incident_id: str,
                           subject: str,
-                          outcome: Verdict) -> str:
+                          outcome: Verdict,
+                          taken_at: str) -> str:
     """A candidate and its action's row, the account's lines about it left to
     the case - a walk can announce one action more than once."""
     candidate = Hypothesis(incident_id=incident_id,
@@ -2097,7 +2107,8 @@ def _a_candidate_acted_on(conn: psycopg.Connection,
                          action_type=REVERT_FEATURE_FLAG,
                          subject=subject,
                          outcome=outcome,
-                         undo_descriptor=FlagUndo(flag=subject, was_enabled=True))
+                         undo_descriptor=FlagUndo(flag=subject, was_enabled=True),
+                         at=parse_iso(taken_at))
 
     return candidate.id
 

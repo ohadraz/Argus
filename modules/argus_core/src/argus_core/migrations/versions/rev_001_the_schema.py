@@ -110,7 +110,11 @@ CREATE TABLE IF NOT EXISTS action (
     has_a_way_back BOOLEAN NOT NULL,
     undo_descriptor JSONB,
     outcome TEXT,
-    taken_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- The instant the walk dated the action by, which the account of it is
+    -- dated by too. No default: the database's own clock read at the insert
+    -- is a second instant, and a page dating the action by it disagreed by a
+    -- second with the account on the same page.
+    taken_at TIMESTAMPTZ NOT NULL
 );
 
 -- What makes one action one action. A partial index rather than a table
