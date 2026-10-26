@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Copies the Target Service's source into the fixture the GitHub double serves.
+Copies the Target Service's source and deployment into the fixture the GitHub
+double serves.
 
 The double stands in for the repository Argus reads and proposes fixes to, so
 what it holds decides what Code-Fix can find. It held four files chosen by
@@ -27,6 +28,7 @@ every code-fix recording would then be of an agent finding an empty repository.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Final
@@ -40,11 +42,16 @@ THE_SHOP: Final = HERE.parent / "Argus-Demo-Target-App"
 # not context for the change, they are part of it, and a repository that showed
 # Code-Fix the one without the other would be asking for a broken pull request.
 #
+# And how it is deployed, because a fault can live there rather than in code: a
+# misconfigured cache is a port in `deploy/values-production.yaml`, and with the
+# module tree alone Code-Fix's read of that file at `main` was a 404 in every
+# replay, where the paid run that recorded it had read the file.
+#
 # `tests/target_app/` is deliberately absent. That tree tests the machinery
 # that stages incidents - scenarios, generators, flags - which is the harness
 # around the shop rather than the shop, and no incident is ever a fault in it.
 # It is also three thousand lines for Code-Fix to read past.
-THE_SHOP_IS: Final = ("src/io_shop", "tests/io_shop")
+THE_SHOP_IS: Final = ("src/io_shop", "tests/io_shop", "deploy")
 
 FIXTURE_DIR: Final = (
     HERE / "modules" / "github_double" / "src" / "github_double" / "fixture"
@@ -57,8 +64,9 @@ FIXTURE_DIR: Final = (
 NOT_CODE_HERE: Final = ".txt"
 
 
-def what_the_shop_holds() -> dict[str, Path]:
-    """Every file of the shop, by the path it has in its own repository.
+def what_the_shop_holds() -> dict[str, bytes]:
+    """Every file of the shop, by the path it has in its own repository, as
+    its checked-out commit holds it.
 
     Keyed by repository path rather than by name, because that is what the
     double serves and what Code-Fix asks for: a fix names
@@ -67,11 +75,25 @@ def what_the_shop_holds() -> dict[str, Path]:
     than flattening it - two files may share a name across `src` and `tests`,
     and flattened they would be one file with whichever content was copied
     last.
+
+    Every file of each tree, not its Python alone: `deploy/` holds none.
+
+    Read from the commit rather than from the working tree, because the commit
+    is what GitHub serves. A checkout on Windows writes every line ending as
+    CRLF, so a copy of the working tree was a repository whose every line is a
+    byte longer than GitHub's - and a file nobody committed is one GitHub never
+    had.
     """
+    listed = subprocess.run(
+        ["git", "-C", str(THE_SHOP), "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+         *THE_SHOP_IS],
+        check=True, capture_output=True
+    ).stdout.decode()
+
     return {
-        f"{tree}/{found.name}": found
-        for tree in THE_SHOP_IS
-        for found in sorted((THE_SHOP / tree).glob("*.py"))
+        path: subprocess.run(["git", "-C", str(THE_SHOP), "show", f"HEAD:{path}"],
+                             check=True, capture_output=True).stdout
+        for path in sorted(filter(None, listed.split("\0")))
     }
 
 
@@ -102,17 +124,17 @@ def main() -> None:
     for stale in FIXTURE_DIR.rglob(f"*{NOT_CODE_HERE}"):
         stale.unlink()
 
-    # Byte for byte, which is why this is a copy rather than a read and a
-    # write. Reading as text and writing it back translates the line endings on
-    # Windows, and what would land in the fixture is the shop's source with
-    # every line a byte longer than the shop has it - a snapshot that is not
-    # one, in the one dimension the large-file case actually measures.
-    for path, found in held.items():
+    # Byte for byte, as bytes rather than text. Written as text on Windows, the
+    # line endings are translated, and what would land in the fixture is the
+    # shop's source with every line a byte longer than the shop has it - a
+    # snapshot that is not one, in the one dimension the large-file case
+    # actually measures.
+    for path, content in held.items():
         into = FIXTURE_DIR / f"{path}{NOT_CODE_HERE}"
         into.parent.mkdir(parents=True, exist_ok=True)
-        into.write_bytes(found.read_bytes())
+        into.write_bytes(content)
 
-    print(f"{len(held)} files from [{THE_SHOP}]:")
+    print(f"{len(held)} files from [{THE_SHOP}] at its checked-out commit:")
     for path in held:
         print(f"  {path}")
 

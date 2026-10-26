@@ -56,7 +56,7 @@ DEFAULT_BASE_BRANCH: Final = "main"
 DEFAULT_FILES: Final = {
     stored.relative_to(_FIXTURE_DIR).with_suffix("").as_posix():
         stored.read_text(encoding="utf-8")
-    for stored in sorted(_FIXTURE_DIR.rglob("*.py.txt"))
+    for stored in sorted(_FIXTURE_DIR.rglob("*.txt"))
 }
 
 # How the archive names its own root. GitHub wraps a tarball in a directory
