@@ -105,14 +105,16 @@ def _the_incident_it_leads_to(line: NarrationLine) -> dict[str, str]:
 
 
 def _the_marked_word_goes_to(line: NarrationLine) -> str:
-    """The address behind the marked word, where the two are the same string.
+    """The address behind the marked word, where the word is that address or
+    the name a shown line says it by ("PR #7").
 
     Both conditions, because either alone is wrong. A line naming an address
     but marking something else would put the link around the wrong word, and a
     marked word on a line naming no address is prose - the refusal a failed fix
     reports - which is exactly the thing a reader must not be invited to click.
     """
-    if not line.names_url or line.emphasis != line.names_url:
+    if (not line.names_url or not line.emphasis
+            or line.emphasis not in (line.names_url, line.shown_url_as)):
         return ""
 
     return line.names_url

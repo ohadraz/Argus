@@ -37,6 +37,9 @@ SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 # One sharing the first's seven characters and parting from it at the eighth.
 SOME_RIVAL = "26f1d7e90000000000000000000000000000000a"
 
+# Where a pull request Argus opened can be read.
+SOME_PULL_REQUEST = "https://github.invalid/acme/shop/pull/7"
+
 
 @pytest.mark.unit
 def test_a_quoted_name_is_shown_without_its_brackets() -> None:
@@ -217,6 +220,49 @@ def test_a_line_shown_twice_reads_as_it_did_shown_once() -> None:
         ) \
         .when(
             lambda: shown(once, some_revisions)
+        ) \
+        .then(
+            the_answer_was(once))
+
+
+@pytest.mark.unit
+def test_a_pull_request_is_shown_by_its_name_leading_to_its_address() -> None:
+    # An address is a name for a browser. A reader is told the one Argus gives
+    # the pull request everywhere it mentions it, and it opens there.
+    some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="fix-attempted", who="Code-Fix",
+                              text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}",
+                              before_emphasis="Proposed a fix as a draft pull request - ",
+                              emphasis=SOME_PULL_REQUEST,
+                              names_url=SOME_PULL_REQUEST, shown_url_as="PR #7")
+
+    Scenario() \
+        .given(
+            some_line
+        ) \
+        .when(
+            lambda: shown(some_line, NO_REVISIONS)
+        ) \
+        .then(
+            the_answer_was(some_line.model_copy(update={
+                "text": "Proposed a fix as a draft pull request - PR #7",
+                "emphasis": "PR #7",
+                "links": {"PR #7": SOME_PULL_REQUEST}})))
+
+
+@pytest.mark.unit
+def test_a_pull_request_shown_twice_still_leads_to_its_address() -> None:
+    # Shown once, the line no longer says the address; its link is read off the
+    # name it says instead.
+    some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="fix-attempted", who="Code-Fix",
+                              text=f"Proposed a fix as a draft pull request - {SOME_PULL_REQUEST}",
+                              names_url=SOME_PULL_REQUEST, shown_url_as="PR #7")
+
+    Scenario() \
+        .given(
+            once := shown(some_line, NO_REVISIONS)
+        ) \
+        .when(
+            lambda: shown(once, NO_REVISIONS)
         ) \
         .then(
             the_answer_was(once))

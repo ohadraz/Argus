@@ -49,6 +49,7 @@ from argus_core.models import (
     ChangeKind,
     FixOutcome,
     IncidentStatus,
+    OpenedPullRequest,
     Reference,
     Report,
     ReportChannel,
@@ -332,6 +333,31 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
             .then(
                 _that_message_marks(slack,
                                     f"<{its_commit}|{some_revision[:7]}> made every page slow")
+            )
+
+
+@pytest.mark.component
+def test_a_proposed_fix_is_said_by_its_name_and_opens_the_pull_request(
+        slack: str, a_clean_database: None) -> None:
+    # An address is a name for a browser. Said by the name Argus gives the pull
+    # request everywhere it mentions it, and leading there.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    where_it_can_be_read = "https://github.invalid/acme/shop/pull/7"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id,
+                                  a_narration_line(_a_fix_proposed_on(incident_id,
+                                                                      where_it_can_be_read)),
+                                  Register.ANNOUNCED)) \
+            .then(
+                _that_message_marks(slack, f"<{where_it_can_be_read}|PR #7>")
             )
 
 
@@ -999,6 +1025,14 @@ def _no_fix_found_on(incident_id: str, explanation: str) -> IncidentEvent:
                         outcome=FixOutcome.NOT_WARRANTED,
                         detail="dont care what the node said",
                         explanation=explanation)
+
+
+def _a_fix_proposed_on(incident_id: str, url: str) -> IncidentEvent:
+    """A fix proposed as pull request #7, read at `url`."""
+    return FixAttempted(incident_id=incident_id,
+                        outcome=FixOutcome.PROPOSED,
+                        pull_request=OpenedPullRequest(number=7, url=url, branch="argus/fix-abc"),
+                        detail="dont care what the node said")
 
 
 def _a_candidate_quoting_names_on(incident_id: str) -> IncidentEvent:

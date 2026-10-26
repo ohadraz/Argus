@@ -23,6 +23,10 @@ one its postmortem says it by (`short_form`), whether the line named it whole
 or by a start of it only it begins - and only there: what a model is told
 keeps what was written, which is what it reads and quotes back. Said short, it
 is a name a reader cannot look up by hand, so the line carries where it opens.
+
+A pull request is said by its address in the record, which is what a model is
+told and quotes back. Where a line is shown it is said by Argus's one name for
+it, "PR #7", as the postmortem says it, and the name opens the address.
 """
 
 from __future__ import annotations
@@ -68,8 +72,9 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
     alike, since the marked word and the words either side are one sentence
     split for a destination that sets the word apart, and the candidates under
     it with it, the move each blamed among them - each revision in `revisions`
-    said by its short form, and leading where it opens. A line written outside
-    the walk is shown as it was written.
+    said by its short form, and the address the line names by the name it is
+    shown by, each leading where it opens. A line written outside the walk is
+    shown as it was written.
 
     Its links are read off what the shown line names rather than off what this
     call re-said, so a line shown twice leads where it led shown once."""
@@ -77,7 +82,7 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
         return line
 
     def said(text: str) -> str:
-        return said_as_shown(text, revisions)
+        return _the_address_by_its_name(line, said_as_shown(text, revisions))
 
     parts = {"text": said(line.text),
              "before_emphasis": said(line.before_emphasis),
@@ -98,7 +103,30 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
                             *(finding.text for finding in candidate.evidence)))]
 
     return line.model_copy(update={**parts, "candidates": candidates,
-                                   "links": the_links_in(named, revisions)})
+                                   "links": the_links_in(named, revisions)
+                                   | _the_address_s_name_in(line, named)})
+
+
+def _the_address_by_its_name(line: NarrationLine, text: str) -> str:
+    """`text` with the address the line names said by the name it is shown
+    by - a pull request as "PR #7" - where it has one."""
+    if not line.names_url or not line.shown_url_as:
+        return text
+
+    return text.replace(line.names_url, line.shown_url_as)
+
+
+def _the_address_s_name_in(line: NarrationLine, parts: Iterable[str]) -> dict[str, str]:
+    """The name the line's address is shown by, leading there, where a shown
+    part says it - matched whole, as a revision's short form is, so "PR #7"
+    is never found in "PR #70"."""
+    name = line.shown_url_as
+    if not line.names_url or not name:
+        return {}
+
+    named = any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", part) for part in parts)
+
+    return {name: line.names_url} if named else {}
 
 
 def said_as_shown(text: str, revisions: Mapping[str, ShownRevision]) -> str:

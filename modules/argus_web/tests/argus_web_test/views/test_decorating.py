@@ -32,7 +32,7 @@ from argus_core.models import (
     OpenedPullRequest,
     Verdict,
 )
-from argus_narration import NarrationLine, a_narration_line
+from argus_narration import NarrationLine, a_narration_line, shown
 from argus_testkit import Assertion, Scenario, all_of
 from argus_web.views.decorating import DecoratedLine, RowsHeld, decorated
 
@@ -209,6 +209,30 @@ def test_a_proposed_fix_makes_the_address_it_marked_clickable() -> None:
         ) \
         .when(lambda: decorated(the_proposal, held=DONT_CARE_ROWS)) \
         .then(_the_marked_word_is_a_link_to(where_it_can_be_read))
+
+
+@pytest.mark.unit
+def test_a_proposed_fix_shown_by_its_name_makes_the_name_clickable() -> None:
+    # Shown, the line marks "PR #7" rather than the address, and the name is
+    # the way there.
+    where_it_can_be_read = "https://example.invalid/pull/7"
+
+    Scenario() \
+        .given(
+            the_proposal := shown(a_narration_line(
+                FixAttempted(
+                    incident_id=new_id(),
+                    outcome=FixOutcome.PROPOSED,
+                    pull_request=OpenedPullRequest(
+                        number=7, url=where_it_can_be_read, branch="argus/fix-abc"
+                    ),
+                    detail="dont care what the node said"
+                )
+            ), {})
+        ) \
+        .when(lambda: decorated(the_proposal, held=DONT_CARE_ROWS)) \
+        .then(all_of(_it_still_marks(the_proposal),
+                     _the_marked_word_is_a_link_to(where_it_can_be_read)))
 
 
 @pytest.mark.unit

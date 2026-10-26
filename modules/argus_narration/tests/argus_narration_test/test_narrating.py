@@ -2139,6 +2139,25 @@ def test_a_proposed_fix_names_the_address_it_can_be_read_at() -> None:
 
 
 @pytest.mark.unit
+def test_a_proposed_fix_carries_the_name_argus_gives_the_pull_request() -> None:
+    # What a shown line says in the address's place. The sentence keeps the
+    # address: it is what the record holds and what a model is told.
+    a_proposal = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.PROPOSED,
+        pull_request=OpenedPullRequest(
+            number=7, url="https://example.invalid/pull/7", branch="argus/fix-abc"
+        ),
+        detail="dont care what the node said"
+    )
+
+    Scenario() \
+        .given(a_proposal) \
+        .when(lambda: build_narration([a_proposal])) \
+        .then(_the_only_line_shows_the_address_as("PR #7"))
+
+
+@pytest.mark.unit
 def test_a_fix_that_proposed_nothing_names_no_address() -> None:
     # The marked word on a failed attempt is the refusal, which is prose. A
     # destination that took every marked word for an address would turn "could
@@ -3148,6 +3167,21 @@ def _the_only_line_moved(was: str, now: str) -> Assertion[list[NarrationLine]]:
             raise AssertionError(
                 f"Expected a move from [{was}] to [{now}], "
                 f"got [{line.moved_from}] to [{line.moved_to}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_shows_the_address_as(expected: str) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.shown_url_as != expected:
+            raise AssertionError(
+                f"Expected the line to show its address as [{expected}], "
+                f"got [{line.shown_url_as}]."
             )
 
         return True
