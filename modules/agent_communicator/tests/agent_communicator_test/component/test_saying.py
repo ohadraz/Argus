@@ -346,6 +346,32 @@ def test_a_proposed_fix_is_said_by_its_name_and_opens_the_pull_request(
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, the_proposal := _a_fix_proposed_on(incident_id,
+                                                                where_it_can_be_read))
+        conn.commit()
+
+        Scenario() \
+            .given(
+                say := _a_destination_pointed_at(slack)
+            ) \
+            .when(lambda: say(incident_id, a_narration_line(the_proposal),
+                                  Register.ANNOUNCED)) \
+            .then(
+                _that_message_marks(slack, f"<{where_it_can_be_read}|PR #7>")
+            )
+
+
+@pytest.mark.component
+def test_the_escalation_a_proposed_fix_left_says_it_by_its_name_too(
+        slack: str, a_clean_database: None) -> None:
+    # The line moving the incident to escalated names the pull request it is
+    # waiting on, and says it as the proposal's own line does.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    where_it_can_be_read = "https://github.invalid/acme/shop/pull/7"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _a_fix_proposed_on(incident_id, where_it_can_be_read))
         conn.commit()
 
         Scenario() \
@@ -353,11 +379,14 @@ def test_a_proposed_fix_is_said_by_its_name_and_opens_the_pull_request(
                 say := _a_destination_pointed_at(slack)
             ) \
             .when(lambda: say(incident_id,
-                                  a_narration_line(_a_fix_proposed_on(incident_id,
-                                                                      where_it_can_be_read)),
+                                  a_narration_line(StatusChanged(
+                                      incident_id=incident_id,
+                                      to_status=IncidentStatus.ESCALATED,
+                                      detail=f"a draft pull request is open at "
+                                             f"{where_it_can_be_read}")),
                                   Register.ANNOUNCED)) \
             .then(
-                _that_message_marks(slack, f"<{where_it_can_be_read}|PR #7>")
+                _that_message_says(slack, f"open at <{where_it_can_be_read}|PR #7>")
             )
 
 

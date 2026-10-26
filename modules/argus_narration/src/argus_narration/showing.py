@@ -36,7 +36,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Final
 
 from argus_core import said_short, short_form
-from argus_core.events import ChangesRetrieved, IncidentEvent
+from argus_core.events import ChangesRetrieved, FixAttempted, IncidentEvent
 from pydantic import BaseModel, ConfigDict
 
 from argus_narration.narrating import NarrationLine
@@ -67,13 +67,14 @@ def as_shown(text: str) -> str:
                    for part in _A_CODE_SPAN.split(text))
 
 
-def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> NarrationLine:
+def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision],
+          pull_requests: Mapping[str, str]) -> NarrationLine:
     """A line of the account as a destination shows it - every part of it
     alike, since the marked word and the words either side are one sentence
     split for a destination that sets the word apart, and the candidates under
     it with it, the move each blamed among them - each revision in `revisions`
-    said by its short form, and the address the line names by the name it is
-    shown by, each leading where it opens. A line written outside the walk is
+    said by its short form, and each pull request in `pull_requests` by its
+    name, each leading where it opens. A line written outside the walk is
     shown as it was written.
 
     Its links are read off what the shown line names rather than off what this
@@ -82,7 +83,7 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
         return line
 
     def said(text: str) -> str:
-        return _the_address_by_its_name(line, said_as_shown(text, revisions))
+        return said_as_shown(_by_their_names(text, pull_requests), revisions)
 
     parts = {"text": said(line.text),
              "before_emphasis": said(line.before_emphasis),
@@ -104,29 +105,37 @@ def shown(line: NarrationLine, revisions: Mapping[str, ShownRevision]) -> Narrat
 
     return line.model_copy(update={**parts, "candidates": candidates,
                                    "links": the_links_in(named, revisions)
-                                   | _the_address_s_name_in(line, named)})
+                                   | _the_names_said_in(named, pull_requests)})
 
 
-def _the_address_by_its_name(line: NarrationLine, text: str) -> str:
-    """`text` with the address the line names said by the name it is shown
-    by - a pull request as "PR #7" - where it has one."""
-    if not line.names_url or not line.shown_url_as:
+def the_pull_requests(events: Sequence[IncidentEvent]) -> dict[str, str]:
+    """Each pull request the incident opened, by its address, and the name a
+    shown line says it by - Argus's one name for it, as the postmortem says
+    it."""
+    return {event.pull_request.url: event.pull_request.name for event in events
+            if isinstance(event, FixAttempted) and event.pull_request is not None}
+
+
+def _by_their_names(text: str, pull_requests: Mapping[str, str]) -> str:
+    """`text` with each address in `pull_requests` it says, matched whole,
+    said by its name - so the seventh pull request's is never found in the
+    seventieth's."""
+    if not pull_requests:
         return text
 
-    return text.replace(line.names_url, line.shown_url_as)
+    addresses = "|".join(re.escape(address)
+                         for address in sorted(pull_requests, key=len, reverse=True))
+
+    return re.sub(rf"({addresses})(?![\w/])", lambda found: pull_requests[found.group(1)], text)
 
 
-def _the_address_s_name_in(line: NarrationLine, parts: Iterable[str]) -> dict[str, str]:
-    """The name the line's address is shown by, leading there, where a shown
-    part says it - matched whole, as a revision's short form is, so "PR #7"
-    is never found in "PR #70"."""
-    name = line.shown_url_as
-    if not line.names_url or not name:
-        return {}
+def _the_names_said_in(parts: Iterable[str], pull_requests: Mapping[str, str]) -> dict[str, str]:
+    """Each pull request's name a shown line says, matched whole, and the
+    address it opens."""
+    said = list(parts)
 
-    named = any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", part) for part in parts)
-
-    return {name: line.names_url} if named else {}
+    return {name: address for address, name in pull_requests.items()
+            if any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", part) for part in said)}
 
 
 def said_as_shown(text: str, revisions: Mapping[str, ShownRevision]) -> str:

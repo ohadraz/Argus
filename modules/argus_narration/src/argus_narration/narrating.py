@@ -222,10 +222,6 @@ class NarrationLine(BaseModel):
     # attempt the marked word is the refusal, so a destination that linked
     # whatever a line happened to mark would offer a reader prose to click on.
     names_url: str = ""
-    # What a shown line says in that address's place, and leads there by - so
-    # far, the pull request by Argus's name for it, "PR #7". The address is
-    # kept in `text`, being what the record holds and what a model is told.
-    shown_url_as: str = ""
     # The other incident this line is about, where it is about one - so far, the
     # closest match memory found. Carried as the id rather than as a link, as the
     # minute is: a destination with a page per incident leads there, and one
@@ -750,7 +746,6 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         moved_to=moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
-        shown_url_as=_the_name_it_shows_the_address_by(event),
         names_incident=_the_incident_it_names(event),
         aside=_what_it_says_beside_itself(event),
         asks_to_confirm=(event.message
@@ -1068,15 +1063,6 @@ def _the_address_it_names(event: IncidentEvent) -> str:
     """
     if isinstance(event, FixAttempted) and event.pull_request:
         return event.pull_request.url
-
-    return ""
-
-
-def _the_name_it_shows_the_address_by(event: IncidentEvent) -> str:
-    """What a shown line calls the address it names: a pull request by
-    Argus's one name for it, the name the postmortem says it by."""
-    if isinstance(event, FixAttempted) and event.pull_request:
-        return event.pull_request.name
 
     return ""
 

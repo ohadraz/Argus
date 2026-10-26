@@ -32,6 +32,7 @@ from argus_narration import (
     pointed_at,
     shown,
     the_minutes_logged,
+    the_pull_requests,
     the_revisions,
 )
 from postmortem_rendering import Run, a_reference, what_a_change_did
@@ -127,6 +128,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     """
     narration = build_narration(events)
     revisions = the_revisions(events)
+    pull_requests = the_pull_requests(events)
 
     minutes: dict[str, BucketRow] = {}
     lines: dict[str, LogLine] = {}
@@ -149,7 +151,7 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     held = the_rows_held(minutes.values(), lines.values(), flag_history)
 
     return Story(
-        narration=[decorated(_pointed_at(shown(line, revisions), held), held=held)
+        narration=[decorated(_pointed_at(shown(line, revisions, pull_requests), held), held=held)
                    for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
         logs=sorted(lines.values(), key=lambda log: log.stamp or ""),

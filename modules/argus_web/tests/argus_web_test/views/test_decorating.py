@@ -228,7 +228,7 @@ def test_a_proposed_fix_shown_by_its_name_makes_the_name_clickable() -> None:
                     ),
                     detail="dont care what the node said"
                 )
-            ), {})
+            ), {}, {where_it_can_be_read: "PR #7"})
         ) \
         .when(lambda: decorated(the_proposal, held=DONT_CARE_ROWS)) \
         .then(all_of(_it_still_marks(the_proposal),

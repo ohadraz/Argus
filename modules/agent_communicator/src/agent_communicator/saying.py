@@ -31,7 +31,13 @@ from argus_core.models import (
     the_place_of,
 )
 from argus_incidents.repository import events, references
-from argus_narration import NarrationLine, ShownRevision, shown, the_revisions
+from argus_narration import (
+    NarrationLine,
+    ShownRevision,
+    shown,
+    the_pull_requests,
+    the_revisions,
+)
 from chat_platform import ChatPlatformWrites, Line, Link, Offer
 
 from agent_communicator.policy import Register
@@ -160,7 +166,7 @@ def a_chat_destination(connections: Connections,
         # mid-incident, and a line in the wrong shape is worth more than
         # silence about an incident being worked.
         replying_to = thread if register is Register.FOLLOWED else None
-        said = _the_chat_line(line, link, _the_revisions_of(connections, incident_id))
+        said = _the_chat_line(line, link, *_the_names_read_by(connections, incident_id))
         about = line.asks_to_confirm
         ending = line.offers_to_end_as
         offer = (Offer(about=about, label=_CONFIRMING[ending])
@@ -215,16 +221,18 @@ def a_chat_destination(connections: Connections,
 
 def _the_chat_line(line: NarrationLine,
                    link: Link | None,
-                   revisions: Mapping[str, ShownRevision]) -> Line:
+                   revisions: Mapping[str, ShownRevision],
+                   pull_requests: Mapping[str, str]) -> Line:
     """One line of the account, as the chat platform is handed it: who said
     it, what they said, the word set apart, where to read more, and the words
     that open somewhere of their own.
 
     The split is the narration's, made once for every view, so that the page
     and the chat mark the same word - and shown as the page shows it, without
-    the brackets the walk quotes a name in for its model, and each revision
-    the incident read said by its short form, leading to its commit
-    (`revisions`).
+    the brackets the walk quotes a name in for its model, each revision the
+    incident read said by its short form, leading to its commit (`revisions`),
+    and each pull request it opened by its name, leading to it
+    (`pull_requests`).
 
     A line carrying candidates says each by its rank, as the walk page shows
     it beneath the line, and what it is: a message that has only the sentence
@@ -232,7 +240,7 @@ def _the_chat_line(line: NarrationLine,
     per candidate. Never by a C label: the rank restarts with each round of
     the investigation, and the postmortem's C labels count across them.
     """
-    said = shown(_with_its_move(_with_its_candidates(line)), revisions)
+    said = shown(_with_its_move(_with_its_candidates(line)), revisions, pull_requests)
 
     return Line(who=said.who,
                 text=said.text,
@@ -339,12 +347,15 @@ def _write_the_gap_down(connections: Connections,
         ))
 
 
-def _the_revisions_of(connections: Connections, incident_id: str) -> dict[str, ShownRevision]:
-    """Each revision the incident has read so far, and how a line says it -
-    read from the record each time, since the relay may be saying a line long
-    after the read that named its revision."""
+def _the_names_read_by(connections: Connections,
+                       incident_id: str) -> tuple[dict[str, ShownRevision], dict[str, str]]:
+    """Each revision the incident has read so far and each pull request it
+    has opened, and how a line says each - read from the record each time,
+    since the relay may be saying a line long after the event that named it."""
     with connections() as conn:
-        return the_revisions(events.get_by_incident(conn, incident_id))
+        recorded = events.get_by_incident(conn, incident_id)
+
+    return the_revisions(recorded), the_pull_requests(recorded)
 
 
 def _the_thread_of(connections: Connections,

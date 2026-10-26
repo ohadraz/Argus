@@ -42,6 +42,7 @@ from argus_narration.showing import (
     said_as_shown,
     shown,
     the_links_in,
+    the_pull_requests,
     the_revisions,
 )
 
@@ -76,6 +77,7 @@ __all__ = [
     "the_instants_in",
     "the_links_in",
     "the_minutes_logged",
+    "the_pull_requests",
     "the_revisions",
     "what_to_do",
     "what_was_done",
