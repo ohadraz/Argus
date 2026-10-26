@@ -336,6 +336,14 @@ def _cited(pdf: _Sheet, runs: Sequence[Run]) -> Iterator[Run]:
                     else (run,))
 
 
+def _cited_cells(pdf: _Sheet, cells: Sequence[_Cell]) -> list[_Cell]:
+    """A row's cells, each line among them as `_cited` gives its runs - so a
+    line is measured, cut and written as the one text, and a quote's
+    backticks, left out of what is written, are left out of what is measured."""
+    return [Line(runs=tuple(_cited(pdf, cell.runs))) if isinstance(cell, Line) else cell
+            for cell in cells]
+
+
 def _link(pdf: _Sheet, run: Run) -> str | int:
     """Where a run leads: a citation to its row, a link to its address, and
     anything else nowhere."""
@@ -719,6 +727,7 @@ def _a_table(pdf: _Sheet, headings: Sequence[str] | None, rows: Sequence[Sequenc
     pdf.set_fill_color(pdf.DEFAULT_FILL_COLOR)
     pdf.set_line_width(0.26)
     aligned = list(align) if align else ["L"] * len(widths)
+    rows = [_cited_cells(pdf, cells) for cells in rows]
     pieces = _as_the_pages_hold_them(pdf, rows, widths, headings is not None, under_a_heading)
     starts = list(accumulate((len(each) for each in pieces[:-1]), initial=0))
     rows = [piece for each in pieces for piece in each]
@@ -1016,15 +1025,16 @@ def _cell_lines(pdf: _Sheet, text: str, width: float) -> list[str]:
 def _a_line_in_a_cell(pdf: _Sheet, line: Line, width: float) -> None:
     """A line written in body text into the cell the table left for it, from
     the cell's top left corner where the page is now: broken where the table
-    would have broken it, and set run by run, so a citation in it is a link.
-    The page is left where it was found."""
+    would have broken it, and set run by run, so a citation in it is a link -
+    its runs already cited, as the table measured them (`_cited_cells`). The
+    page is left where it was found."""
     x, top = pdf.x, pdf.y
     pdf.set_font(_BODY, "", _TABLE_PT)
     text = line.said
     spans = _where_the_lines_lie(pdf, text, width)
     runs: list[tuple[int, Run]] = []
     start = 0
-    for run in _cited(pdf, line.runs):
+    for run in line.runs:
         runs.append((start, run))
         start += len(run.text)
 
@@ -1354,7 +1364,7 @@ def _how_much_of_a_table_starts(pdf: _Sheet, table: _Table) -> float:
         return 0.0
     pdf.set_font(_BODY, "", _TABLE_PT)
     headings = _A_ROW + _CELL_LINE if table.headings is not None else 0.0
-    whole = headings + _how_tall_a_row_is(pdf, table.rows[0], table.widths)
+    whole = headings + _how_tall_a_row_is(pdf, _cited_cells(pdf, table.rows[0]), table.widths)
     if _fits_a_page_under_its_heading(pdf, whole, table.under_a_heading):
         return whole
     return headings + _A_ROW + _CELL_LINE * (_FEWEST_LINES_BEGUN + 1)

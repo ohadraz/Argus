@@ -790,6 +790,28 @@ def test_an_action_item_too_long_for_one_line_wraps_inside_its_cell() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_item_quoting_code_is_printed_whole_without_its_backticks() -> None:
+    # The quote is set apart as code with its backticks left out, and the item
+    # is measured and written from those words - measured with the backticks
+    # still in, each one cost a character off the item's end.
+    some_item = ActionItem(number="AI-1",
+                           text="Pin `categoriser.model` to v1 until purchases recover.",
+                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN)
+
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(action_items=[some_item]),
+                                    an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_says("AI-1 Pin categoriser.model to v1 until purchases recover."))
+
+
+@pytest.mark.unit
 def test_no_cell_is_painted_over_the_words_written_into_it() -> None:
     # An action item's text is written into the cell the table leaves for it;
     # a table that then fills the cell paints the words out, and the column
