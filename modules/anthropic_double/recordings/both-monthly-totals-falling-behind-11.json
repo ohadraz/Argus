@@ -2,33 +2,164 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSrQYKEAgTGAI4AUIIdGhpbmtpbmcSDJp6bmK462hQOYidXRoMn4FBpUhRwjOJqV0vIjBOmHtPiok8V7kaxE2yokhBKY8qHtwbR1j5ypiO7KjHjjJ8ImjDNDBIkPyZkpQUSYAqygXg+Tj59tI80PoDsEXdvazdTyLWRFRFaqBgQGozmFAOBmJoZ77dvHUmVDKLWa4JDPgBi1hLrNJLnM5sJ4D+tDqNHDZ30iEfEff9BmCU5JvVTBbbZPV8yHo5sV/pT8BV8FP+cTxSeAAB9xi11wrtpyBb8RUsiHHjDxhLVtz1cLGJ0g8OVci9DSp2FI4MAByIyYjD5cOkHIySAP1fqoG4DZJRf04EMVaioOtCKqm1JYiOBsy2F5Ykn/FYylg82yuVhA7jyq96kCVEs8SZgZYw1IOTVfognkXgK3DCmoHyhpbutSbP1TcsC6X0CeTScKizOQKHulrdIQEfq5D9Ycrey1Qv8+aZXbtIStpTSmQYGTYqT41PWKscz7zR3xlgOjfiAnsgAsXyllD1RZML+4E5n+iewze9DFG5gZjSrsIlam3szEEdfCVIajZ3/EqflUKH8ITrROyGIKpnj185q1bx5UTsZO/rJH/ByL7TTk+y4FYMKMER4HVkUvUa0pYDLRsA/+iynBX8/C3NXXJ/2KdpbUolKNh03TemPwyFoQJh9uNtd4idxMyW+vZUCY0+NxCMFR9ZZwgeVoDTNkkK2bkWLR3LXTFEfnYrOXsnO+dlkV19yyp0GXKbuMCxecI3KSwIiMboz5a9rVPNxn0ZHExGntrkWpK/uKahB8F3udVpvL6Ka1gsVF6U6F5QaYpO6N70DRyCL36fePPi64/FnifSmVTPQ+TMBw15nphtBzvPklYAkWhF3wXtkhuYFGL9pHW8tJ2/Aj9jXp/AK6LyHvNnQafX0d2vEnwDfCtFLEqxHxzp345JDZuF3sPTqbh6L7L+USvjIsyeTfPQNLclKPfnCyD3PdHJqx28/6Gmg85JQljsngOYZAJ1WFP7DSAEVmrlunc436xy/YxLea6ww7B5kjPRupx3GgwDXWsufUojBku1gizhdWUjJWpkEL0YAQ==",
-      "thinking": "I'm sequencing the causal chain: the symptom comes first, then the fact that every purchase was written without updating, then the revision that removed the update logic, and finally the underlying mechanism explaining why that removal broke things. That ordering already makes sense as is.\n\n",
+      "signature": "CAQS7AYKEAgTGAI4AUIIdGhpbmtpbmcSDDHj1BzSCqrI7Z/N1RoM6keenKTWUTMfuMhQIjBSov9CBBBCfj+RoVp6tsCeBxz5YA0nj5CkaPQxvkwb8dPSXgLj7KfcaeQ9Vb2MnYAqiQbHb7wnoKyyiUKAG15uGlQI/BoCstcTjqGF5ODOd6w193wz+XFQ0yk/URvWx4ExMyWcTCsehfE0mFJO+NcmeWFPV5tTOjV1N7myC+jrnCQCHlogkbDAPSlFl2sZXRczxPeMv3uNJ7IA835eVHw5eEjgrRCT56+RQ6MiNbgySnSZO+Gt4ZxYc9SxxIuDkpvBRcqQ5QB1gGkNQJVQz4FB9zAx8q/FNOdZf+ZczmtNGhKLXETnbD0RgHmrgNa1FKjvOgTpWRmgzFokwa89RU/tvRPI9B8J2TRQwDPtRSE9JkFHf+k67mgCktka5lGMwnTI6QzXKx0Vh/N6eGhaMC/lU8A1gZF3d2anh9HkFgqszYVoZuBIrmcZum0dxGR+J5KL836NPzLHR44uEknG+Dvo4PUVX2sjwymat4sugFuvRkGHMf9yz0EXqcbFKK9DyZuxaXbs7OiCDpkYF+TGCG410Dpuuha9YJkzfM5k92H2CcpwbSuqIyuM7laAQvmj8CJrPfWopCo/LcaARdA2XqK/t3Rre9FJMqEXt2atgYGc5paINWcWwxnI+7JguYiBWjPitt0N3BwXMWNBysXGRg+T4haDIwwOFN5Xc95Y489X6lYhcR4A395DOokvWqPaSjMwuPCQe3HPJ9fRFLDSgJi5tRA0bEJHEsXNZjylTrq+R+/TNQxiJjHBbQ/FVA0PJmLBcQhq2iImVhDqi5WO4qc7+0yp+Do/rjxqiyqAMiJ4vj6UkvPxtYf2Ub/CFoGbDJWKb7rbdZdOmxcSEEz1kzN9H1hBAMie2pCmqoAWoTkt1lYArwpdbYA46eMdeKAzdMgyJd0oSQ+jnXoepGELHUTgWBdEy6p6xDEpzYVlm6uBor2zD5EYjFYQ7ZkpsFyOpzQ8kp62iGMQGyxdIkIPvvWinoIx9dOwuw4JkwL3SM6GAEvJpb3qBE41FTZqtVkJ5ouHKR22x1X8Ix8Z/LGFtYKbQKVmmuw/PcKhVsIR9t/EDd3cg+AV7V4UrQ/WcsaytBvlbYUM6N26A3z2aHIYAQ==",
+      "thinking": "I need to strip the revision name from root_cause. The timing checks out\u2014onset and alert both fall in October, so the fix running before month rollover should be fine, if a bit risky. The reference to 26f1d7e in still_at_risk seems acceptable to keep.\n\n",
       "type": "thinking"
-    },
-    {
-      "text": "The steps are already in the right order, so I'm submitting 1, 2, 3, 4.",
-      "type": "text"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_0182mLhSJAegnVdbEnkaHnWi",
+      "id": "toolu_01NaRTAXXMACxqppCYSDMeTh",
       "input": {
-        "order": [
-          1,
-          2,
-          3,
-          4
-        ]
+        "action_items": [
+          {
+            "answers": [],
+            "item": "Rewrite the stored month total of each account the reconciliation check reports, setting it from that account's current-month purchases, and load the corrected accounts back into the store before the month rolls over (the draft PR's repair script only reports by default and does not load anything back).",
+            "type": "mitigate"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a test that recording a current-month purchase through record_purchase moves total_this_month_cents, and that recording an earlier month's purchase leaves it alone.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add a review check that a change which stops writing a stored account field also updates, or is blocked by, every place that still reads that field.",
+            "type": "process"
+          },
+          {
+            "answers": [
+              "CF-3"
+            ],
+            "item": "Run the spend-integrity reconciliation of month totals after every io-shop deploy, not only on its fixed schedule.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-4"
+            ],
+            "item": "Route SpendTotalsDoNotReconcile on io-shop to page the on-call engineer.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "U3",
+              "U4",
+              "U5"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' stored spend totals for the month fell short of the purchases behind them. These are the figures the monthly statement shows. The spend-integrity check found {A1} of {A2} shopper totals that did not reconcile with their purchases. The widest was short by {A3}, and the oldest affected purchase was recorded at {A4}."
+          },
+          {
+            "cites": [
+              "S1",
+              "AL1"
+            ],
+            "ruled_out": [],
+            "step": "Purchases recorded since the onset were added to the shopper's history and lifetime total, but the stored month total was left where it was. In the code that ran, both write paths build the account with only purchases and total_cents moved."
+          },
+          {
+            "cites": [
+              "P2",
+              "D1",
+              "S1",
+              "T13"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "AL1",
+                  "P1",
+                  "D1"
+                ],
+                "what": "The earlier deploy of 4c810f2 at {P1.1}: the alert dates the first affected purchase at {A4}, after the deploy of 26f1d7e at {P2.1}, and D1 shows that 4c810f2's record_purchase still moved the month total."
+              },
+              {
+                "cites": [
+                  "T16"
+                ],
+                "what": "A feature-flag change: the flag provider showed {T16.2} flag changes by anyone but Argus in the {T16.3} hour before the onset at {T16.4}."
+              },
+              {
+                "cites": [
+                  "T13"
+                ],
+                "what": "A split between versions: all replicas ran the same revision."
+              }
+            ],
+            "step": "Revision 26f1d7e, deployed at {P2.1}, removed the update of total_this_month_cents from record_purchase, which had previously added the price of each current-month purchase. When T13 read the rollout at {T13.1}, all {T13.2} replicas were running that revision."
+          },
+          {
+            "cites": [
+              "D1",
+              "U1",
+              "U2",
+              "U3",
+              "U4",
+              "U6"
+            ],
+            "ruled_out": [],
+            "step": "The change dropped the stored month total on the stated premise that the month figure would be derived from the purchases whenever it is needed. Nothing was changed to derive it: the monthly statement, the spend summary and the reconciliation check still read account.total_this_month_cents directly. The field they read therefore stopped following new purchases."
+          }
+        ],
+        "cause_in_plain_words": "A software update changed how purchases are written down so that each shopper's stored total for the month stopped going up, while the parts of the shop that show and check that total still read the stored figure.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "No test was seen that fails when recording a current-month purchase leaves the stored month total unmoved, so the removal in revision 26f1d7e reached production.",
+            "had_it_been_otherwise": "The change would have failed before deploy and never reached shoppers' accounts.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No review step was seen that checks the readers of a stored field when a change stops writing it. The change dropped the write while the monthly statement, the spend summary and the reconciliation check still read the field.",
+            "had_it_been_otherwise": "The mismatch between the dropped write and the remaining readers would have been caught in review, before deploy.",
+            "label": "CF-2"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The only thing seen to check that month totals reconcile was the spend-integrity check, which runs every {A5} days. The fault was therefore found only {alerted_after_the_onset} after the onset.",
+            "had_it_been_otherwise": "A check run soon after the deploy would have found the mismatch while few accounts were wrong, and the wrong totals would have stopped spreading much sooner.",
+            "label": "CF-3"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The SpendTotalsDoNotReconcile alert paged nobody: no on-call incident was linked to it, so the rollback Argus recommended had no person called to carry it out.",
+            "had_it_been_otherwise": "A person would have been called to roll back as soon as the alert fired, cutting short the time new purchases kept being written wrong.",
+            "label": "CF-4"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [
+            "The onset and the alert fell in the same calendar month. That means the wrong totals can still be rebuilt from purchases marked as falling in the current month, as long as that is done before the month rolls over."
+          ],
+          "went_well": [
+            "The Investigator read the deployment diff of revision 26f1d7e {T12.1 - alert_raised} after the alert was raised, and the diff shows the dropped month-total update directly.",
+            "Argus checked the flag provider's history, ruling out a flag change as what set the incident off.",
+            "Code-Fix proposed a draft pull request with tests and a repair script, PR #356, {T21.1 - alert_raised} after the alert was raised."
+          ],
+          "went_wrong": []
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The change stopped record_purchase from updating the stored month total (total_this_month_cents). Its docstring says the month figure would now be worked out from the purchase history whenever it is needed, but nothing was changed to do that. The monthly statement, the spend summary and the reconciliation check all still read the stored field, which no longer moves when a purchase is added. In the code that ran, the other write path, record_purchase_deriving_the_month, does not move it either, so no purchase written there updates the month total.",
+        "still_at_risk": "Revision 26f1d7e was still running on every replica, so each new purchase would go on leaving the shopper's month total where it was, widening the gap behind what the monthly statement shows; the totals already written wrong stayed wrong; and the other write path in the same file leaves the month total unmoved even on main and in the revision a rollback would restore, so it could do the same thing again if it were used.",
+        "symptom": "Shoppers' spend totals for the month fell short of what they had bought"
       },
-      "name": "order_chain",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgPg3idZejxpNBegr33TK",
+  "id": "msg_011CgQbiVsN7KSn9MFUJ3wrx",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -38,15 +169,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 1528
+      "ephemeral_5m_input_tokens": 2604
     },
-    "cache_creation_input_tokens": 1528,
-    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 2604,
+    "cache_read_input_tokens": 12080,
     "inference_geo": "global",
-    "input_tokens": 4,
-    "output_tokens": 210,
+    "input_tokens": 2,
+    "output_tokens": 2637,
     "output_tokens_details": {
-      "thinking_tokens": 123
+      "thinking_tokens": 125
     },
     "service_tier": "standard",
     "speed": "standard"

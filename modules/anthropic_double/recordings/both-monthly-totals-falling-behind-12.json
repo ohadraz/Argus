@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSqQYKEAgTGAI4AUIIdGhpbmtpbmcSDLTcrgKJNZpFDg6TkBoMmTXcFbbZQHXDz+1jIjCW12NtzzoOLeSadKpPqiqXUtFZ1MGx4/rUMtpgMVS1BbP/3lKA49eF/8/SbEyZSNsqxgUoY/wKwdwBAkcG8W3QLc0KDhmxDY2d/YVMbyHEI2zTNTFf/le57t03Io9DKQL7D8Q7iUrRNdehTF7wxwaUXsHnvGhXeXOBIus/at3jX06qN2ykKzEamMmN1PbrICPPKoTBxEIu9BnWL+JY6R9bmj/qnLb4pOnjMLMsbFhnqJGCWQlVBsiNhf3AA3PuzeFvdYQtgRzBLQK2I0SH+3LqjsKkS86sTaz+jl/MWWWgBFRA00eP4CtPRdLOrtpdY4XT3deQlxAmicUC26UQdAlfWmVkBdrxJ0BRYmCJnhn/mm5YLgQE84ZYJ3fEDaoKqgmZs4KXBYDI1FQxVFKm719xVo4bVJw2qXFOW3bkMbzFCkXfN7B9sOAN57yRI+Opbl7kCuz9+0PY35YtrCSvDUqylIjhjuSR8iFNi4+aoJCjAouYHyzfRNQGl++KqY1oEQ8G/CRXIIw8ZSAA70v1UW2SybKfS6aHKpGxMo4w+C+Qx4JpiN176d8lgURui/E8+/fJOD8hlNXO/V8zvlYhkbDhnn5WwFHVSQY57mnyxEaQ1DF3LYxgscF74MaFf+I9F7x7EDLghkcetLZV5zzYTBi2vqDPSrKnB4YgBmL566LUdPqH6r8zQ66Q8Pf2DP+qNp0LnkYdIGwKZ3cNSPwYHxKnd8lcoHi5F1N4ol4p6JJMNzRYsqNoCKe/aSifyP26XO+Mo2Ei1KnqLTiknTIltgEoIRxi6+Xbcr+NeE/SxzkV1cWhodibIpKUGaW1i9r1y6KnO55KCz0Sry1+MQrNP0CLQ9AgPmuHZlc7mGEmg8sj4cQWZ1Ia8zsbyBp/BJCAYYwS+eQJA1ylzH1AKmSl6v1X7+4fuKltQsSm9aRsM6HBg5M28l8h9rSr/esXh1/73jwthAQKnVR86Yx6D9nPzvsLN1LW4QFZVOK7j/tbPM58zktSQDuW4HhcKRgB",
+      "thinking": "I'm ordering the causal chain: purchases get added but the month total never updates, because a revision removed that update step, yet the readers still reference that stale field \u2014 so the sequence runs symptom first, then the two root causes, ending with the resulting break.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01V78QWZEM61RZd6irtBC4eC",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgQbju87zfhL5Dy3EYYoR",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1392
+    },
+    "cache_creation_input_tokens": 1392,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 153,
+    "output_tokens_details": {
+      "thinking_tokens": 95
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
