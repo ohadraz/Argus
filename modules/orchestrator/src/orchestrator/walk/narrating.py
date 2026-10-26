@@ -100,15 +100,20 @@ def with_status(
     A node that runs on an incident a person already ended moves it nowhere -
     the row says how it ended, and nothing the node did changes that.
 
-    Once a step is done and its status written, the walk waits for anybody
-    Argus has asked to confirm the incident is over (`wait_for_people`) - after
-    the step rather than before the next, so the press the wait was for is
-    heard before the next step is even chosen, and that step is never entered.
-    Here for the reason the ending is asked here: every node passes through, so
-    no step can follow another while a person is being asked. A wait that
-    waited asks the ending again. The default waits for nobody, for the cases
-    about everything else and for the postmortem, after which there is no step
-    to hold off; the graph hands every other node the real one.
+    Once a step is done, the walk waits for anybody Argus has asked to confirm
+    the incident is over (`wait_for_people`) - after the step rather than
+    before the next, so the press the wait was for is heard before the next
+    step is even chosen, and that step is never entered. And before the step's
+    status is written rather than after: a move to act, written while a
+    person's report waits, is announced on the page and in the thread after
+    they said it was over, and reads as Argus pressing on regardless of them.
+    A wait the person's press ended moves the incident nowhere - their ending
+    is the row's. Here for the reason the ending is asked here: every node
+    passes through, so no step can follow another while a person is being
+    asked. A wait that waited asks the ending again. The default waits for
+    nobody, for the cases about everything else and for the postmortem, after
+    which there is no step to hold off; the graph hands every other node the
+    real one.
 
     The answer is reported into the state rather than swallowed. A node that
     quietly did nothing leaves every field as it was, and the routers decide
@@ -119,22 +124,6 @@ def with_status(
     already says it, and whoever ended the incident recorded that.
     """
     def run(state: IncidentState) -> dict[str, Any]:
-        updates = stepped(state)
-
-        # A step that ended the walk has nobody to wait for: the person's
-        # ending is already its answer.
-        if updates.get("status") in stops_for or not wait_for_people(state.incident_id):
-            return updates
-
-        ending = ended_by_a_person(state.incident_id)
-
-        if ending in stops_for:
-            logger.info("ended by a person while the walk waited", extra={"ending": ending})
-            return {**updates, "status": ending}
-
-        return updates
-
-    def stepped(state: IncidentState) -> dict[str, Any]:
         ending = ended_by_a_person(state.incident_id)
 
         if ending in stops_for:
@@ -160,6 +149,19 @@ def with_status(
         if ending is not None:
             return updates
 
+        if wait_for_people(state.incident_id):
+            ending = ended_by_a_person(state.incident_id)
+
+            if ending in stops_for:
+                logger.info("ended by a person while the walk waited", extra={"ending": ending})
+                return {**updates, "status": ending}
+
+        return moved(state, delta, updates)
+
+    def moved(state: IncidentState, delta: StateDelta,
+              updates: dict[str, Any]) -> dict[str, Any]:
+        """The status the step implies, written with the line saying why -
+        or the updates as they were where it implies none."""
         narration = delta.narration
         next_status = status_after(state.model_copy(update=updates), max_rounds)
 
