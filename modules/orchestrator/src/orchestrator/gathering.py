@@ -26,6 +26,7 @@ from agent_postmortem import (
     DeploymentChangesRecord,
     IncidentEvidence,
     RefusalRecord,
+    ResolutionRecord,
     Sources,
     write_postmortem,
 )
@@ -40,13 +41,19 @@ from argus_core.events import (
     FlagChangesRetrieved,
     IncidentEvent,
     IncidentRemembered,
+    LeadWeighed,
     LogsRetrieved,
+    MessageUnderstood,
     OnsetDetected,
+    PersonWrote,
+    QuestionAnswered,
     RecoveryChecked,
     RememberingFailed,
+    ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
     StatusChanged,
+    WithdrawalOffered,
     the_escalations,
 )
 from argus_core.llm import ClientFor
@@ -60,8 +67,10 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     Hypothesis,
     IncidentStatus,
+    Meaning,
     OpenedPullRequest,
     PostmortemDocument,
+    Reference,
     ReplicaUndo,
     RetrievalChannel,
     TakenAction,
@@ -84,6 +93,7 @@ from argus_narration import (
     NarrationLine,
     build_narration,
     each_wait_told_once,
+    said_as_meant,
     said_in_full,
     what_to_do,
     what_was_done,
@@ -96,6 +106,16 @@ from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 _ACTION_TAKEN: Final[str] = ActionTaken.model_fields["kind"].default
 # And the kind a line telling the gate refusing to act carries.
 _ACTION_REFUSED: Final[str] = ActionRefused.model_fields["kind"].default
+# The kinds of a line telling a person's message and an incident's move.
+_PERSON_WROTE: Final[str] = PersonWrote.model_fields["kind"].default
+_STATUS_CHANGED: Final[str] = StatusChanged.model_fields["kind"].default
+# The moves as the narration sets them apart: a move to act, and a person's
+# report that the incident is over.
+_TO_ACT: Final = str(IncidentStatus.MITIGATING).upper()
+_RESOLVED: Final = str(IncidentStatus.RESOLVED).upper()
+# What a person can mean that bears on the incident whatever else came of it:
+# it ends, or they take it over.
+_AN_ENDING: Final = (Meaning.RESOLVE, Meaning.WITHDRAW)
 
 
 def write_postmortem_for(incident_id: str,
@@ -174,7 +194,8 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         onset_at=_when_it_actually_began(conn, incident_id),
         onset_stated_by_the_alert=_when_the_alert_said_it_began(incident.alert_payload),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
-        resolution_reported_at=_when_a_person_said_it_was_over(account),
+        resolution=_the_resolution(account, told),
+        people_wrote=any(line.kind == _PERSON_WROTE for line in told),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
         escalated=_it_was_handed_to_a_person(account),
         rule=_the_rule_that_paged(incident.alert_payload),
@@ -343,21 +364,34 @@ def _when_it_came_back(conn: psycopg.Connection,
     return parse_iso(recoveries[-1]) if recoveries else None
 
 
-def _when_a_person_said_it_was_over(account: list[IncidentEvent]) -> datetime | None:
-    """When a person reported the incident resolved, or `None` where nobody did.
+def _the_resolution(account: list[IncidentEvent],
+                    told: list[NarrationLine]) -> ResolutionRecord | None:
+    """A person reporting the incident resolved - when, who, and where in
+    `told` the line saying so sits - or `None` where nobody did.
 
     Their report is the fact (spec §16), and the document ends the incident at
     it as said - searching the series for a level falling would be Argus
     corroborating a claim it does not test. Which of this and a recovery Argus
     recorded ends the incident is the document's to say, so both are carried.
-    """
-    resolved_by_a_person = [event.at
-                            for event in account
-                            if isinstance(event, StatusChanged)
-                            and event.to_status is IncidentStatus.RESOLVED
-                            and event.reported is not None]
 
-    return resolved_by_a_person[-1] if resolved_by_a_person else None
+    The last, as the line is: an incident resolved is over, and a report before
+    it was undone by whatever reopened it.
+    """
+    reports = [event for event in account
+               if isinstance(event, StatusChanged)
+               and event.to_status is IncidentStatus.RESOLVED
+               and event.reported is not None]
+    if not reports:
+        return None
+
+    lines = [position for position, line in enumerate(told)
+             if line.kind == _STATUS_CHANGED and line.outside_the_walk
+             and line.emphasis == _RESOLVED]
+    report = reports[-1]
+    assert report.reported is not None
+
+    return ResolutionRecord(at=report.at, by=report.reported.by,
+                            line=lines[-1] if lines else None)
 
 
 def _it_was_handed_to_a_person(account: list[IncidentEvent]) -> bool:
@@ -485,13 +519,84 @@ def _the_account_told(account: list[IncidentEvent]) -> list[NarrationLine]:
     what was read a row of its own (`_what_each_deployment_changed`). The row
     says what changed; only the line says when it was read, among the steps the
     investigation took - and left out, the timeline skipped the one it turned on.
+
+    What people wrote is kept only where it bore on the incident
+    (`_what_bore_on_it`), and said as what it meant (`said_as_meant`). And a
+    move to act that no act followed is left out: a person ended the incident
+    first, and a timeline holding the move after their report reads as Argus
+    pressing on regardless of it - where the walk held off from the moment the
+    move was written.
     """
-    about_this_incident = [
+    about_this_incident: list[IncidentEvent] = [
         event for event in account
         if not isinstance(event, IncidentRemembered | RememberingFailed)
     ]
+    kept = _what_bore_on_it(about_this_incident)
+    told = _without_a_move_nothing_came_of(each_wait_told_once(build_narration(kept)))
 
-    return each_wait_told_once(build_narration(about_this_incident))
+    return _each_message_as_meant(told, kept, about_this_incident)
+
+
+def _what_bore_on_it(account: list[IncidentEvent]) -> list[IncidentEvent]:
+    """The account less what people wrote that bore on nothing, and less the
+    offers back to them.
+
+    A message bore on the incident where it ended it or handed it over - a
+    resolution or a withdrawal - or where the investigation weighed it as a
+    lead, whatever it found: a lead ruled out is as much of the story as one
+    that turned it. A question, a thank-you or anything never weighed did not,
+    and goes with what was made of it and any answer to it.
+
+    The offer is how a report is confirmed, and says nothing the report and the
+    move it made do not.
+    """
+    understood = [event for event in account if isinstance(event, MessageUnderstood)]
+    weighed = [event.message for event in account if isinstance(event, LeadWeighed)]
+    bore = [*(event.message for event in understood if event.meaning in _AN_ENDING), *weighed]
+
+    return [event for event in account
+            if not isinstance(event, ResolutionOffered | WithdrawalOffered)
+            and not (isinstance(event, PersonWrote | MessageUnderstood | QuestionAnswered)
+                     and event.message not in bore)]
+
+
+def _without_a_move_nothing_came_of(told: list[NarrationLine]) -> list[NarrationLine]:
+    """`told` less a move to act after which the walk did nothing."""
+    return [line for position, line in enumerate(told)
+            if not (line.kind == _STATUS_CHANGED and not line.outside_the_walk
+                    and line.emphasis == _TO_ACT
+                    and all(later.outside_the_walk for later in told[position + 1:]))]
+
+
+def _each_message_as_meant(told: list[NarrationLine],
+                           kept: list[IncidentEvent],
+                           account: list[IncidentEvent]) -> list[NarrationLine]:
+    """`told` with each person's message said as what it was understood to
+    mean, by the name it was offered back to them under - read off `account`,
+    since the offer itself is not among what was `kept`.
+
+    By order, as an action's line is found: each message kept is told as a line
+    of its own, in the order published.
+    """
+    written = iter([event.message for event in kept if isinstance(event, PersonWrote)])
+
+    return [_a_message_as_meant(line, next(written), account)
+            if line.kind == _PERSON_WROTE else line
+            for line in told]
+
+
+def _a_message_as_meant(line: NarrationLine,
+                        message: Reference,
+                        account: list[IncidentEvent]) -> NarrationLine:
+    """One message's line said as what it was understood to mean, or as it was
+    written where nothing understood it."""
+    meaning = next((event.meaning for event in account
+                    if isinstance(event, MessageUnderstood) and event.message == message), None)
+    name = next((event.person_name for event in account
+                 if isinstance(event, ResolutionOffered | WithdrawalOffered)
+                 and event.message == message), None)
+
+    return line if meaning is None else said_as_meant(line, meaning, name)
 
 
 def _what_was_considered(considered: list[Hypothesis]) -> list[CandidateRecord]:

@@ -109,6 +109,17 @@ class RefusalRecord(BaseModel):
     refusal: Refusal
 
 
+class ResolutionRecord(BaseModel):
+    """A person reporting the incident resolved: when, who, and where in the
+    incident's timeline the line saying so sits - so the document can mark
+    that line as the end rather than say the end again beside it. `line` is
+    `None` where the account holds no such line."""
+
+    at: datetime
+    by: str
+    line: int | None = None
+
+
 class IncidentEvidence(BaseModel):
     """One incident, as the postmortem reads it.
 
@@ -155,13 +166,17 @@ class IncidentEvidence(BaseModel):
     # then falls back to the series, which is the best available answer and the
     # only one there is.
     recorded_recovery_at: datetime | None = None
-    # When a person reported the incident resolved, where one did. Their report
-    # is the fact (spec §16), so it ends the incident as said - never a minute
-    # the series is searched from, as a recorded recovery is, which would be
-    # Argus looking for a level falling to corroborate a claim it does not test.
+    # A person reporting the incident resolved, where one did. Their report is
+    # the fact (spec §16), so it ends the incident as said - never a minute the
+    # series is searched from, as a recorded recovery is, which would be Argus
+    # looking for a level falling to corroborate a claim it does not test.
     # Second to a recorded recovery, not over it: a recovery confirmed before
     # the report is an earlier answer to when the service came back.
-    resolution_reported_at: datetime | None = None
+    resolution: ResolutionRecord | None = None
+    # That a person wrote in the incident's thread something the timeline
+    # keeps. A message never stops a step already running, and a model not told
+    # so reads the steps after a message as Argus pressing on regardless of it.
+    people_wrote: bool = False
     # That Mitigation watched for the service to come back and never saw it -
     # every look it recorded found it still broken. An answer rather than the
     # absence of one, so the measurement takes it as it takes a recorded minute:

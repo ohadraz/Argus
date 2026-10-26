@@ -90,14 +90,16 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
 @pytest.mark.unit
 @pytest.mark.parametrize(("extent", "expected"), [
     (ImpactExtent.MEASURED, Card(value="40m 0s", label="onset until back to normal")),
+    (ImpactExtent.REPORTED, Card(value="40m 0s", label="onset until reported resolved")),
     (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
                                  label="since onset, still not back to normal")),
     (ImpactExtent.UNOBSERVED, Card(value="at least 40m 0s", label="since onset, metrics missing"))],
-    ids=["measured", "at-least", "unobserved"])
+    ids=["measured", "reported", "at-least", "unobserved"])
 def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
     # Labelled "until back to normal", a duration that never got back names an
     # end the incident never had - and a blind spell still going when the
-    # incident closed is no more over than a failure still going.
+    # incident closed is no more over than a failure still going. An end a
+    # person reported is theirs: back to normal is the metrics showing it.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -109,6 +111,25 @@ def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -
         ) \
         .then(
             the_answer_was(expected))
+
+
+@pytest.mark.unit
+def test_a_loss_counted_to_a_persons_report_is_no_lower_bound() -> None:
+    # Their report is the end (spec §16), and the takings were counted to it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.REPORTED,
+                              peak_error_rate=None),
+                customer_loss_estimate=Decimal("500"),
+                estimate_currency="usd")
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[3]
+        ) \
+        .then(
+            the_answer_was(Card(value="500.00 USD", label="customer loss (estimated)",
+                                loss_is="measured")))
 
 
 @pytest.mark.unit

@@ -110,6 +110,7 @@ from argus_narration.narrating import (
     NarrationLine,
     build_narration,
     each_wait_told_once,
+    said_as_meant,
     said_in_full,
     what_to_do,
     what_was_done,
@@ -1395,6 +1396,64 @@ def test_what_a_person_wrote_is_said_in_their_own_words() -> None:
         .when(lambda: build_narration([some_message])) \
         .then(all_of(_the_only_line_marks(the_words),
                      _the_lines_are_credited_to(["A person"])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("meaning", "said"), [
+    (Meaning.RESOLVE, "Reported the incident resolved"),
+    (Meaning.WITHDRAW, "Asked Argus to stand down")
+], ids=["resolve", "withdraw"])
+def test_a_message_that_ended_the_incident_is_said_as_the_report_it_was(meaning: Meaning,
+                                                                        said: str) -> None:
+    # Said as no more than something written, a report reads as one Argus was
+    # free to pass over. Their words stay the marked part, untouched, and the
+    # line is theirs by name.
+    the_words = "rolled it back, all fine"
+    some_line = build_narration([PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text=the_words
+    )])[0]
+
+    Scenario() \
+        .given(some_line) \
+        .when(lambda: [said_as_meant(some_line, meaning, "Some Person")]) \
+        .then(all_of(_the_only_line_marks(the_words),
+                     _the_lines_are_credited_to(["Some Person"]),
+                     _the_only_line_says(said)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION, Meaning.OTHER])
+def test_a_message_that_ended_nothing_is_said_as_written(meaning: Meaning) -> None:
+    # What came of it is its own line, in the intent agent's voice.
+    some_line = build_narration([PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="dont care"
+    )])[0]
+
+    Scenario() \
+        .given(some_line) \
+        .when(lambda: said_as_meant(some_line, meaning, "dont care")) \
+        .then(the_answer_was(some_line))
+
+
+@pytest.mark.unit
+def test_a_report_from_somebody_the_platform_could_not_name_is_said_by_a_person() -> None:
+    some_line = build_narration([PersonWrote(
+        incident_id=new_id(),
+        message=Reference(source="some-chat", kind="some-kind", value="some-message"),
+        person_id="some-person-id",
+        text="dont care"
+    )])[0]
+
+    Scenario() \
+        .given(some_line) \
+        .when(lambda: [said_as_meant(some_line, Meaning.RESOLVE, None)]) \
+        .then(_the_lines_are_credited_to(["A person"]))
 
 
 @pytest.mark.unit

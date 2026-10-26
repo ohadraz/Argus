@@ -139,6 +139,7 @@ from agent_postmortem_test.framework.builders import (
     a_candidate,
     a_lead,
     a_measured_incident,
+    a_resolution,
     a_submission_of,
     a_timeline_entry,
     an_action,
@@ -2670,6 +2671,62 @@ def test_an_incident_back_to_normal_is_given_as_back_to_normal_rather_than_recov
             _says("when the metrics show it back to normal"),
             _does_not_say("show it recovered")
         ))
+
+
+@pytest.mark.unit
+def test_an_end_a_person_reported_is_given_as_their_report_under_its_line() -> None:
+    # Told the end only as back to normal, a model credits it to the metrics.
+    # Told nothing of how to take a report, one called it unverified and asked
+    # for reports like it to be checked.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("dont care"),
+                          a_timeline_entry("dont care either", outside_the_walk=True)],
+                resolution=a_resolution(RECOVERED_AT, line=1)),
+            measured := a_measured_incident(back_to_normal_at=RECOVERED_AT,
+                                            reported_by="Some Person")
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("when Some Person reported it resolved [XW1] - their report is the end, as "
+                  "given. A report is not a hypothesis: do not test it against the rest of the "
+                  "record, and do not propose checking reports like it."),
+            _does_not_say("back to normal")
+        ))
+
+
+@pytest.mark.unit
+def test_where_a_person_wrote_the_brief_says_a_message_never_stops_a_running_step() -> None:
+    # Not told how a message is taken in, write-ups read the steps after a
+    # person's report as Argus pressing on regardless of it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(people_wrote=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("\nA person's message never stops a step already running: between steps, "
+                  "Argus starts no new one while a message waits to be answered.\n")
+        )
+
+
+@pytest.mark.unit
+def test_where_nobody_wrote_the_brief_says_nothing_of_messages() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(people_wrote=False)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("A person's message never stops")
+        )
 
 
 @pytest.mark.unit

@@ -58,6 +58,7 @@ from agent_postmortem_test.framework.builders import (
     STARTED_AT,
     a_candidate,
     a_measured_incident,
+    a_resolution,
     a_timeline_entry,
     an_action,
     an_evidence_bundle,
@@ -1645,6 +1646,61 @@ def test_the_impact_ends_after_the_action_that_ended_it_at_the_same_moment() -> 
 
 
 @pytest.mark.unit
+def test_an_end_a_person_reported_is_marked_on_the_line_of_their_report() -> None:
+    # A row of its own would say the service was back to normal - the metrics'
+    # word for an end they never showed - and say the report a second time
+    # beside the line that already says it, by whom and when.
+    the_report = STARTED_AT + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                started_at=STARTED_AT,
+                timeline=[a_timeline_entry("dont care", at=STARTED_AT),
+                          a_timeline_entry("dont care either", at=the_report,
+                                           outside_the_walk=True)],
+                resolution=a_resolution(the_report, line=1))
+        ) \
+        .when(
+            lambda: [(entry.marker, entry.label) for entry in
+                     timeline_of(evidence, back_to_normal_at=the_report, ended_by_a_report=True)]
+        ) \
+        .then(
+            the_answer_was([
+                (TimelineMarker.IMPACT_BEGINS, None),
+                (TimelineMarker.DETECTED, None),
+                (None, "T1"),
+                (TimelineMarker.IMPACT_ENDS, "XW1")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_an_end_a_person_reported_with_no_line_of_theirs_is_a_row_saying_their_report() -> None:
+    # Where the account holds no line of the report, the end still has a row -
+    # said as the report it was, by whom, never as back to normal.
+    the_report = STARTED_AT + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                started_at=STARTED_AT,
+                timeline=[a_timeline_entry("dont care", at=STARTED_AT)],
+                resolution=a_resolution(the_report, by="Some Person"))
+        ) \
+        .when(
+            lambda: [entry.text for entry in
+                     timeline_of(evidence, back_to_normal_at=the_report, ended_by_a_report=True)
+                     if entry.marker is TimelineMarker.IMPACT_ENDS]
+        ) \
+        .then(
+            the_answer_was(["Some Person reported the incident resolved"])
+        )
+
+
+@pytest.mark.unit
 def test_each_line_of_the_narration_is_labelled_as_the_prompt_named_it() -> None:
     # The model cites a line of the narration as T1, T2. The markers with rows
     # of their own are placed among those lines by code, were never shown to
@@ -1932,6 +1988,23 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
                                   peak_error_rate=0.42,
                                   error_rates=ErrorRateLevels(before=0.01, while_broken=0.3,
                                                               rose=True)))
+        )
+
+
+@pytest.mark.unit
+def test_an_impact_a_person_reported_the_end_of_is_said_to_end_at_their_report() -> None:
+    # Not a measurement - the metrics showed no end - and not a floor either:
+    # the person's report is the end (spec §16), and every figure is counted to
+    # it.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(reported_by="Some Person")
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None).extent
+        ) \
+        .then(
+            the_answer_was(ImpactExtent.REPORTED)
         )
 
 

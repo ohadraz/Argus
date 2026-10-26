@@ -43,11 +43,15 @@ from argus_core.events import (
     HypothesisFormed,
     IncidentEvent,
     IncidentRemembered,
+    LeadWeighed,
     LogsRetrieved,
+    MessageUnderstood,
     OnsetDetected,
     PersonWrote,
+    QuestionAnswered,
     RecoveryChecked,
     RememberingFailed,
+    ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
     StatusChanged,
@@ -131,6 +135,9 @@ DONT_CARE_REPORTING_LAG_MINUTES = 0
 
 # When an action a case never asks the moment of was taken.
 DONT_CARE_TAKEN_AT = parse_iso("2026-09-02T11:52:00Z")
+
+# A message a person wrote in the incident's thread. Any reference does.
+SOME_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-message")
 
 # The flag the actions here act on. Any name does.
 SOME_FLAG = "monthly-spend-feature"
@@ -772,24 +779,181 @@ def test_the_evidence_carries_the_timeline_in_the_order_it_happened(a_clean_data
 @pytest.mark.component
 def test_a_line_written_outside_the_walk_is_carried_as_such(a_clean_database: None) -> None:
     # The document numbers the walk's lines apart from these: where a person's
-    # message lands among the walk's is timing, and counted with them it
+    # report lands among the walk's is timing, and counted with them it
     # renumbers every line of the walk after it.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
         Scenario() \
             .given(
-                somebody_writing := PersonWrote(
+                somebody_reporting := StatusChanged(
                     incident_id=incident_id,
-                    message=Reference(source="some-chat", kind="some-kind", value="some-message"),
-                    person_id="some-person-id",
-                    text="looks fine to me")
+                    to_status=IncidentStatus.RESOLVED,
+                    reported=Report(by="some person", channel=ReportChannel.ARGUS_UI))
             ) \
             .when(
-                lambda: _the_evidence_after_publishing(conn, incident_id, somebody_writing)
+                lambda: _the_evidence_after_publishing(conn, incident_id, somebody_reporting)
             ) \
             .then(
-                _only_the_lines_dated_are_outside_the_walk([somebody_writing.at])
+                _only_the_lines_dated_are_outside_the_walk([somebody_reporting.at])
+            )
+
+
+@pytest.mark.component
+def test_a_resolution_written_in_the_thread_is_said_as_the_report_it_was(
+        a_clean_database: None) -> None:
+    # Said as no more than something written, a report reads as one Argus was
+    # free to pass over - and every write-up told so said Argus pressed on
+    # regardless of it. By the name it was offered back under.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="rolled it back, all fine"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=Meaning.RESOLVE),
+                    ResolutionOffered(incident_id=incident_id, message=the_message,
+                                      person_id="U-some-person", person_name="Some Person",
+                                      said="rolled it back, all fine")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_timeline_holds("Some Person",
+                                    "Reported the incident resolved in the thread: "
+                                    "rolled it back, all fine")
+            )
+
+
+@pytest.mark.component
+def test_the_offer_back_to_the_person_is_not_on_the_timeline(a_clean_database: None) -> None:
+    # The offer is how a report is confirmed: it says nothing the report and the
+    # move it made do not.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="dont care"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=Meaning.RESOLVE),
+                    ResolutionOffered(incident_id=incident_id, message=the_message,
+                                      person_id="U-some-person", person_name="Some Person",
+                                      said="dont care")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _no_line_of_the_timeline_says("to confirm")
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("meaning", [Meaning.QUESTION, Meaning.INFORMATION, Meaning.OTHER])
+def test_a_message_that_bore_on_nothing_is_not_on_the_timeline(meaning: Meaning,
+                                                                 a_clean_database: None) -> None:
+    # A question, a thank-you, or something never weighed as a lead: neither
+    # what the person wrote nor what was made of it says anything of the
+    # incident.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="some words"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=meaning),
+                    QuestionAnswered(incident_id=incident_id, message=the_message,
+                                     answer="some answer")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _no_line_of_the_timeline_says("some words"),
+                _no_line_of_the_timeline_says("Classified the message"),
+                _no_line_of_the_timeline_says("some answer"),
+                _says_people_wrote(False)
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("standing", [Standing.REFUTED, Standing.SUPPORTED])
+def test_a_lead_the_investigation_weighed_is_on_the_timeline(standing: Standing,
+                                                             a_clean_database: None) -> None:
+    # Ruled out or taken up, a lead is part of the story: one ruled out is what
+    # the investigation did not follow, and why.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        the_message = SOME_MESSAGE
+
+        Scenario() \
+            .given(
+                calling(lambda: _recorded_in_order(conn, [
+                    PersonWrote(incident_id=incident_id, message=the_message,
+                                person_id="U-some-person", text="the cache was flushed"),
+                    MessageUnderstood(incident_id=incident_id, message=the_message,
+                                      meaning=Meaning.INFORMATION),
+                    LeadWeighed(incident_id=incident_id, message=the_message,
+                                standing=standing, reason="dont care")]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _the_timeline_holds("A person",
+                                    "Wrote in the incident's thread: the cache was flushed"),
+                _says_people_wrote(True)
+            ))
+
+
+@pytest.mark.component
+def test_a_move_to_act_that_no_act_followed_is_not_on_the_timeline(
+        a_clean_database: None) -> None:
+    # A person ended the incident first, and the walk held off from the moment
+    # the move was written. On the timeline after their report, the move reads
+    # as Argus pressing on regardless of it.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_a_person_ended(conn,
+                                                           after=[IncidentStatus.MITIGATING])
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _no_line_of_the_timeline_says("MITIGATING")
+            )
+
+
+@pytest.mark.component
+def test_a_move_to_act_the_walk_went_on_from_is_on_the_timeline(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_a_person_ended(
+                    conn, after=[IncidentStatus.MITIGATING, IncidentStatus.ESCALATED])
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _mentions_among(lambda evidence: [entry.text for entry in evidence.timeline],
+                                "MITIGATING")
             )
 
 
@@ -1020,7 +1184,7 @@ def test_the_evidence_carries_when_a_person_reported_the_incident_resolved(
                 lambda: _the_evidence_after_publishing(conn, incident_id, the_report)
             ) \
             .then(all_of(
-                _carries_the_report(the_report.at),
+                _carries_the_report(the_report.at, "some person"),
                 _carries_no_recovery()
             ))
 
@@ -1053,7 +1217,7 @@ def test_a_recovery_argus_confirmed_and_a_later_resolution_are_both_carried(
             ) \
             .then(all_of(
                 _carries_the_recovery(parse_iso(the_minute_it_came_back)),
-                _carries_the_report(the_report.at)
+                _carries_the_report(the_report.at, "some person")
             ))
 
 
@@ -2208,12 +2372,20 @@ def _carries_the_recovery(expected: datetime) -> Assertion[IncidentEvidence]:
     return assertion
 
 
-def _carries_the_report(expected: datetime) -> Assertion[IncidentEvidence]:
+def _carries_the_report(at: datetime, by: str) -> Assertion[IncidentEvidence]:
+    """The resolution reported at `at` by `by`, pointing at the timeline's line
+    of that report."""
     def assertion(evidence: IncidentEvidence) -> bool:
-        if evidence.resolution_reported_at != expected:
+        resolution = evidence.resolution
+        if resolution is None or (resolution.at, resolution.by) != (at, by):
             raise AssertionError(
-                f"Expected the resolution reported at [{expected}], got "
-                f"[{evidence.resolution_reported_at}].")
+                f"Expected the resolution reported at [{at}] by [{by}], got [{resolution}].")
+
+        line = evidence.timeline[resolution.line] if resolution.line is not None else None
+        if line is None or line.at != at or not line.outside_the_walk:
+            raise AssertionError(
+                f"Expected the resolution to point at its report's line, dated [{at}], "
+                f"got [{line}].")
 
         return True
 
@@ -2222,9 +2394,9 @@ def _carries_the_report(expected: datetime) -> Assertion[IncidentEvidence]:
 
 def _carries_no_report() -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
-        if evidence.resolution_reported_at is not None:
+        if evidence.resolution is not None:
             raise AssertionError(
-                f"Expected no resolution reported, got [{evidence.resolution_reported_at}].")
+                f"Expected no resolution reported, got [{evidence.resolution}].")
 
         return True
 
@@ -2591,6 +2763,60 @@ def _an_incident_that_ended(conn: psycopg.Connection,
     )
 
     return incident_id
+
+
+def _an_incident_a_person_ended(conn: psycopg.Connection,
+                                after: list[IncidentStatus]) -> str:
+    """An incident the walk moved through `after`, in order, and a person then
+    reported resolved - with no move of the walk's own after their report."""
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    incident_id = incidents.create(conn, some_alert, at=utc_now())
+    events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))
+    for status in after:
+        events.record(conn, StatusChanged(incident_id=incident_id, to_status=status))
+    incidents.transition(conn, incident_id, IncidentStatus.RESOLVED, at=utc_now())
+    events.record(conn, StatusChanged(
+        incident_id=incident_id,
+        to_status=IncidentStatus.RESOLVED,
+        reported=Report(by="some person", channel=ReportChannel.SLACK)))
+
+    return incident_id
+
+
+def _the_timeline_holds(who: str, text: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        said = [(entry.who, entry.text) for entry in evidence.timeline]
+
+        if (who, text) not in said:
+            raise AssertionError(f"Expected [{who}] saying [{text}] on the timeline, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _no_line_of_the_timeline_says(words: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        saying = [entry.text for entry in evidence.timeline if words in entry.text]
+
+        if saying:
+            raise AssertionError(f"Expected no line of the timeline saying [{words}], "
+                                 f"got {saying}.")
+
+        return True
+
+    return assertion
+
+
+def _says_people_wrote(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.people_wrote != expected:
+            raise AssertionError(
+                f"Expected people_wrote to be [{expected}], got [{evidence.people_wrote}].")
+
+        return True
+
+    return assertion
 
 
 def _spans_the_incident(conn: psycopg.Connection,

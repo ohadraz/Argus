@@ -78,6 +78,40 @@ def test_a_service_never_seen_back_is_said_not_back_by_the_incident_s_ending(
 
 
 @pytest.mark.unit
+def test_an_end_a_person_reported_is_said_as_their_report_never_as_back_to_normal() -> None:
+    # Back to normal is what the metrics showing it means, everywhere else it is
+    # said. The metrics showed nothing of this end: a person's word set it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(reported_by="Some Person")
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("The service broke at 12:00 UTC. Some Person reported the incident resolved "
+                  "at 12:10 UTC, 10 minutes later.")
+        )
+
+
+@pytest.mark.unit
+def test_an_end_a_person_reported_with_no_onset_is_counted_from_the_alert() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None),
+            measured := a_measured_incident(reported_by="Some Person", onset_at=None)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("Some Person reported the incident resolved at 12:10 UTC, 10 minutes after "
+                  "the alert.")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_that_spans_days_dates_every_instant_in_its_summary() -> None:
     # The page dates the incident once, in its head, and leaves the day it
     # began unsaid after that. The summary is posted to Slack too, where there

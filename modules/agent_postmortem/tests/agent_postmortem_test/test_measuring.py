@@ -43,6 +43,7 @@ from agent_postmortem_test.framework.builders import (
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
     a_bucket,
+    a_resolution,
     a_revenue_source_that_cannot_answer,
     an_action,
     an_alert_rule,
@@ -822,19 +823,22 @@ def test_a_persons_resolution_is_where_the_incident_ended_whatever_the_series_re
     # A person saying the incident is over is the fact (spec §16). The series
     # here never gets back to normal, and searching it from the report would be
     # Argus testing the report against a level falling - which it may not do,
-    # and which would end the incident nowhere.
+    # and which would end the incident nowhere. Said as theirs, by name: an end
+    # a person's word set is not one the metrics showed.
     the_report = ENDED_AT - timedelta(minutes=1)
+    the_reporter = "Some Person"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(resolution_reported_at=the_report)
+            evidence := an_evidence_bundle(resolution=a_resolution(the_report, by=the_reporter))
         ) \
         .when(
             lambda: measure(evidence, some_sources())
         ) \
-        .then(
-            _it_was_back_to_normal_at(the_report)
-        )
+        .then(all_of(
+            _it_was_back_to_normal_at(the_report),
+            _it_was_reported_by(the_reporter)
+        ))
 
 
 @pytest.mark.unit
@@ -846,7 +850,7 @@ def test_a_persons_resolution_ends_an_incident_mitigation_never_saw_recover() ->
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(resolution_reported_at=the_report,
+            evidence := an_evidence_bundle(resolution=a_resolution(the_report),
                                            watched_and_never_recovered=True)
         ) \
         .when(
@@ -861,20 +865,22 @@ def test_a_persons_resolution_ends_an_incident_mitigation_never_saw_recover() ->
 def test_a_recovery_argus_recorded_stands_over_a_later_resolution() -> None:
     # Not a contradiction of the report: Argus measured the service coming back,
     # and the person reported the incident over afterwards. The earlier
-    # measurement is the better answer to when it came back.
+    # measurement is the better answer to when it came back - and the end is
+    # the metrics', said as nobody's report.
     some_later_report = ENDED_AT - timedelta(minutes=1)
 
     Scenario() \
         .given(
             evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT,
-                                           resolution_reported_at=some_later_report)
+                                           resolution=a_resolution(some_later_report))
         ) \
         .when(
             lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
         ) \
-        .then(
-            _it_was_back_to_normal_at(RECOVERED_AT)
-        )
+        .then(all_of(
+            _it_was_back_to_normal_at(RECOVERED_AT),
+            _it_was_reported_by(None)
+        ))
 
 
 @pytest.mark.unit
@@ -887,7 +893,7 @@ def test_a_persons_resolution_ends_an_incident_its_recorded_recovery_never_ended
     Scenario() \
         .given(
             evidence := an_evidence_bundle(recorded_recovery_at=RECORDED_RECOVERY_AT,
-                                           resolution_reported_at=the_report)
+                                           resolution=a_resolution(the_report))
         ) \
         .when(
             lambda: measure(evidence, some_sources())
@@ -1516,6 +1522,18 @@ def _it_was_back_to_normal_at(expected: datetime) -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected recovery at [{expected}], got "
                 f"[{measured.back_to_normal_at}].")
+
+        return True
+
+    return assertion
+
+
+def _it_was_reported_by(expected: str | None) -> Assertion[Measurements]:
+    """Whose report the end was - `None` where nobody's was."""
+    def assertion(measured: Measurements) -> bool:
+        if measured.reported_by != expected:
+            raise AssertionError(
+                f"Expected the end reported by [{expected}], got [{measured.reported_by}].")
 
         return True
 

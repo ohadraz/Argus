@@ -23,6 +23,7 @@ from agent_postmortem import (
     CandidateRecord,
     DeploymentChangesRecord,
     IncidentEvidence,
+    ResolutionRecord,
     write_postmortem,
 )
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
@@ -167,7 +168,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        ended_at: datetime = ENDED_AT,
                        onset_at: datetime | None = ONSET,
                        recorded_recovery_at: datetime | None = None,
-                       resolution_reported_at: datetime | None = None,
+                       resolution: ResolutionRecord | None = None,
+                       people_wrote: bool = False,
                        alert_title: str = "dont care",
                        timeline: list[TimelineEntry] | None = None,
                        candidates: list[CandidateRecord] | None = None,
@@ -216,7 +218,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         ended_at=ended_at,
         onset_at=onset_at,
         recorded_recovery_at=recorded_recovery_at,
-        resolution_reported_at=resolution_reported_at,
+        resolution=resolution,
+        people_wrote=people_wrote,
         alert_title=alert_title,
         timeline=timeline if timeline is not None else [a_timeline_entry("dont care")],
         candidates=candidates if candidates is not None else [a_candidate("dont care")],
@@ -286,6 +289,14 @@ def an_action(action: str,
                         line=line)
 
 
+def a_resolution(at: datetime,
+                 by: str = "dont care",
+                 line: int | None = None) -> ResolutionRecord:
+    """A person reporting the incident resolved at `at` - with no line of the
+    account saying it, unless a test says where it sits."""
+    return ResolutionRecord(at=at, by=by, line=line)
+
+
 def a_lead(words: str,
            weighing: Weighing | None = None,
            ts: str = "1760000100.000200") -> ThreadMessage:
@@ -302,6 +313,7 @@ def a_lead(words: str,
 
 def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         back_to_normal_at: datetime | None = RECOVERED_AT,
+                        reported_by: str | None = None,
                         time_to_close_in_hours: float = DONT_CARE_TIME_TO_CLOSE,
                         error_rates: ErrorRates | None = None,
                         loss: Decimal | None = DONT_CARE_LOSS,
@@ -345,6 +357,7 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
     return Measurements(
         duration_in_hours=duration_in_hours,
         back_to_normal_at=back_to_normal_at,
+        reported_by=reported_by,
         time_to_close_in_hours=time_to_close_in_hours,
         error_rates=error_rates,
         loss=loss if baseline_revenue is not None else None,

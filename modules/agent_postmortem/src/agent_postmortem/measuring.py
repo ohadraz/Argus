@@ -101,6 +101,10 @@ class Measurements(BaseModel):
     # renders them has to say so rather than quietly presenting a bound read
     # as a measurement.
     back_to_normal_at: datetime | None
+    # Who reported the incident resolved, where that report is the end above -
+    # an end a person's word set rather than one the metrics showed, and said as
+    # theirs wherever it is said. `None` wherever anything else ended it.
+    reported_by: str | None = None
     # How long Argus held the incident - the alert to the close. The one
     # figure on the page measuring the responder rather than the fault, which
     # is why it is kept and why it never stands in for the duration above. One
@@ -229,7 +233,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     back_to_normal_at, back_before_the_action = _found_back_before(
         _when_the_service_came_back(
             evidence.recorded_recovery_at,
-            evidence.resolution_reported_at,
+            evidence.resolution.at if evidence.resolution is not None else None,
             evidence.watched_and_never_recovered,
             [bucket for bucket in metrics
              if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
@@ -272,6 +276,9 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     return Measurements(
         duration_in_hours=duration,
         back_to_normal_at=back_to_normal_at,
+        reported_by=(evidence.resolution.by
+                     if evidence.resolution is not None
+                     and back_to_normal_at == evidence.resolution.at else None),
         back_before_the_action=back_before_the_action,
         # From the incident's opening rather than from the onset or the
         # alert. The minutes before Argus had the incident are the fault's, not

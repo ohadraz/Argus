@@ -339,6 +339,39 @@ def each_wait_told_once(narration: list[NarrationLine]) -> list[NarrationLine]:
                     and _the_walk_looks_again(narration[position + 1:]))]
 
 
+def said_as_meant(line: NarrationLine, meaning: Meaning, name: str | None) -> NarrationLine:
+    """A person's message said as what it turned out to mean, by the person
+    who wrote it - for a destination telling the incident once it is over.
+
+    Told as it arrived, the line can say only that somebody wrote; what it
+    meant is decided after, and said on a line of its own. A telling written
+    afterwards has both, and a report said as no more than something written
+    reads as one Argus was free to pass over - so the two that end an incident
+    are said as the report and the request they were. Any other meaning is said
+    as written: what came of it is its own line.
+
+    `name` is who the chat platform says wrote it, `None` where it could not
+    say, and then the line keeps the person unnamed.
+    """
+    match meaning:
+        case Meaning.RESOLVE:
+            text = f"Reported the incident resolved in the thread: {line.emphasis}"
+        case Meaning.WITHDRAW:
+            text = f"Asked Argus to stand down in the thread: {line.emphasis}"
+        case Meaning.QUESTION | Meaning.INFORMATION | Meaning.OTHER:
+            return line
+        case _:
+            assert_never(meaning)
+
+    before, marked, after = _set_apart(text, line.emphasis)
+
+    return line.model_copy(update={"who": name or _A_PERSON,
+                                   "text": text,
+                                   "before_emphasis": before,
+                                   "emphasis": marked,
+                                   "after_emphasis": after})
+
+
 def a_narration_line(event: IncidentEvent) -> NarrationLine:
     """One event, said in words, by somebody.
 

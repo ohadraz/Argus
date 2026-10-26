@@ -353,16 +353,19 @@ class Detection(BaseModel):
 
 
 class ImpactExtent(StrEnum):
-    """What a duration is: a measurement, a floor, or a stretch the metrics
-    carry nothing of.
+    """What a duration is: a measurement, one ended by a person's report, a
+    floor, or a stretch the metrics carry nothing of.
 
-    Three rather than a flag, because the two ways a duration falls short of a
+    Four rather than a flag, because the two ways a duration falls short of a
     measurement are different facts: a service still failing when the metrics
     ran out, and a service whose metrics stopped at the onset - which says
-    nothing of whether it was failing at all.
+    nothing of whether it was failing at all. And an end a person reported is
+    not one the metrics showed: their report is the fact (spec §16), and said
+    as the metrics', it is credited to what never measured it.
     """
 
     MEASURED = "measured"
+    REPORTED = "reported"
     AT_LEAST = "at least"
     UNOBSERVED = "unobserved"
 

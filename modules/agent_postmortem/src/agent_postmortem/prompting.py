@@ -565,6 +565,25 @@ _SENTENCES: Final[dict[str, Any]] = {"type": "array", "items": {"type": "string"
 # fifteen as what happened.
 _NOT_WHAT_HAPPENED: Final = "is not what happened unless a row of the record shows it"
 
+_WHAT_ARGUS_DID: Final = "What Argus did, in order:"
+
+# Said where a person wrote in the thread. Not told how a message is taken in,
+# write-ups of an incident a person reported over in its thread read the steps
+# after the message as Argus pressing on regardless - that it never took the
+# report in, or was preparing to act on the flag the person had turned off.
+_A_MESSAGE_NEVER_STOPS_A_STEP: Final = (
+    "A person's message never stops a step already running: between steps, Argus "
+    "starts no new one while a message waits to be answered."
+)
+
+# Where a person's report is the end. A model told the end only as "back to
+# normal" credits it to the metrics; one told nothing of how to take it called
+# the report unverified, and asked for reports like it to be checked.
+_A_REPORT_IS_NO_HYPOTHESIS: Final = (
+    "their report is the end, as given. A report is not a hypothesis: do not test "
+    "it against the rest of the record, and do not propose checking reports like it."
+)
+
 # What a check the record does not show is written as, said in the two fields a
 # missing safeguard is written in. Said once in the tool's description, a
 # write-up still gave "nothing checked output quality before it reached
@@ -1026,7 +1045,12 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
           for line in ["", heading,
                        *(f"  - [{_its_labels(each)}] {_under_its_label(the_evidence_named(each))}"
                          for each in cited),
-                       *([] if beneath is None else [f"  - {beneath}"])]),
+                       *([] if beneath is None else [f"  - {beneath}"]),
+                       # Under the timeline and in no bullet of its own: it
+                       # says how every line above it was ordered, and is
+                       # none of them.
+                       *([_A_MESSAGE_NEVER_STOPS_A_STEP]
+                         if heading == _WHAT_ARGUS_DID and evidence.people_wrote else [])]),
         "",
         "Action items the record already holds:",
         *(_the_record_items(evidence, measured) or [f"  - {NOTHING}"]),
@@ -1150,7 +1174,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     uses_outside = the_uses_outside_labelled(evidence)
 
     return [
-        ("What Argus did, in order:", narration, None if narration else NOTHING),
+        (_WHAT_ARGUS_DID, narration, None if narration else NOTHING),
         ("Changes to production it read:",
          [CitedEvidence(label=cited.label, text=_a_change_as_a_line(cited.change))
           for cited in changes],
@@ -1797,12 +1821,25 @@ def _how_long_it_was_broken(measured: Measurements,
 
     return [
         f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}) to "
-        f"{_shown(BACK_TO_NORMAL_FIGURE, figures)}, when the metrics show it back to "
-        f"normal.",
+        f"{_shown(BACK_TO_NORMAL_FIGURE, figures)}, {_where_it_ended(measured, evidence)}",
         *_back_before(evidence.credited_action, measured, figures),
         f"That is {_shown(DURATION_FIGURE, figures)}, and every impact figure below "
         f"is measured over that stretch."
     ]
+
+
+def _where_it_ended(measured: Measurements, evidence: IncidentEvidence) -> str:
+    """What the end of a stretch that ended was: the metrics showing the
+    service back, or a person's report - said as theirs and under the label of
+    its line, never as back to normal, which is the metrics' word for it."""
+    if measured.reported_by is None:
+        return "when the metrics show it back to normal."
+
+    line = evidence.resolution.line if evidence.resolution is not None else None
+    cited = (f" [{labels_of_the_narration(evidence.timeline)[line]}]"
+             if line is not None else "")
+
+    return f"when {measured.reported_by} reported it resolved{cited} - {_A_REPORT_IS_NO_HYPOTHESIS}"
 
 
 def _the_logs_reaching_into(evidence: IncidentEvidence,

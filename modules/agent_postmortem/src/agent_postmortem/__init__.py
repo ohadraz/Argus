@@ -30,6 +30,7 @@ from agent_postmortem.evidence import (
     DeploymentChangesRecord,
     IncidentEvidence,
     RefusalRecord,
+    ResolutionRecord,
 )
 from agent_postmortem.response_cost_basis import (
     PAY_BAND_ASSUMPTION_LABEL,
@@ -87,6 +88,7 @@ __all__ = [
     "PayBand",
     "RateTable",
     "RefusalRecord",
+    "ResolutionRecord",
     "Sources",
     "postmortem_policy",
     "said_off_the_page",

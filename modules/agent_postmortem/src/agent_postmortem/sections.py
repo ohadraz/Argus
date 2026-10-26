@@ -195,6 +195,8 @@ def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -
     """
     if measured.unobserved_from is not None:
         extent = ImpactExtent.UNOBSERVED
+    elif measured.reported_by is not None:
+        extent = ImpactExtent.REPORTED
     elif measured.back_to_normal_at is None:
         extent = ImpactExtent.AT_LEAST
     else:
@@ -835,7 +837,8 @@ def record_action_items_of(evidence: IncidentEvidence,
 def timeline_of(evidence: IncidentEvidence,
                 back_to_normal_at: datetime | None,
                 back_before_the_action: bool = False,
-                metrics_stopped_at_onset: bool = False) -> list[TimelineEntry]:
+                metrics_stopped_at_onset: bool = False,
+                ended_by_a_report: bool = False) -> list[TimelineEntry]:
     """The narration in order, each line under the label the prompt cited it
     by, with the four markers placed by code.
 
@@ -848,6 +851,11 @@ def timeline_of(evidence: IncidentEvidence,
     line about it reacts to. The fourth is on the line that took the action
     credited with the recovery, which already says what was done, by whom and
     when - a row of the marker's own would say the same action twice.
+
+    An end a person reported (`ended_by_a_report`) is on the line of their
+    report instead, for the fourth marker's reason - and because a row of its
+    own would say the service was back to normal, which is the metrics' word
+    for an end they never showed.
 
     `back_to_normal_at` is where the service was back to normal rather than the
     recorded recovery: the document's duration ends there, and a timeline
@@ -867,6 +875,14 @@ def timeline_of(evidence: IncidentEvidence,
     end would fall a fraction of a second before the line and sort ahead of it
     again.
     """
+    resolution = evidence.resolution if ended_by_a_report else None
+    reported = resolution.line if resolution is not None else None
+    if resolution is not None:
+        ended = f"{resolution.by} reported the incident resolved"
+    elif back_before_the_action:
+        ended = "the service was back to normal, before the action credited with it"
+    else:
+        ended = "the service was back to normal"
     markers = [
         *([_a_marker(evidence.onset_at, TimelineMarker.METRICS_STOP, "the metrics stopped")
            if metrics_stopped_at_onset else
@@ -874,18 +890,19 @@ def timeline_of(evidence: IncidentEvidence,
           if evidence.onset_at is not None else []),
         _a_marker(evidence.alerted_at, TimelineMarker.DETECTED,
                   f"{evidence.alert_title} fired"),
-        *([_a_marker(back_to_normal_at, TimelineMarker.IMPACT_ENDS,
-                     "the service was back to normal, before the action credited with it"
-                     if back_before_the_action else "the service was back to normal")]
-          if back_to_normal_at is not None else [])
+        *([_a_marker(back_to_normal_at, TimelineMarker.IMPACT_ENDS, ended)]
+          if back_to_normal_at is not None and reported is None else [])
     ]
 
     credited = evidence.credited_action
-    marked = credited.line if credited is not None else None
+    marked = {
+        **({credited.line: TimelineMarker.MITIGATION_APPLIED}
+           if credited is not None and credited.line is not None else {}),
+        **({reported: TimelineMarker.IMPACT_ENDS} if reported is not None else {})
+    }
     narration = [entry.model_copy(update={"label": label,
                                           "text": said_of_a_line(entry),
-                                          "marker": TimelineMarker.MITIGATION_APPLIED
-                                          if position == marked else entry.marker})
+                                          "marker": marked.get(position, entry.marker)})
                  for position, (entry, label) in enumerate(
                      zip(evidence.timeline,
                          labels_of_the_narration(evidence.timeline),

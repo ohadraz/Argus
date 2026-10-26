@@ -92,7 +92,8 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     where the metrics stopped, with the incident still going there.
     """
     impact = postmortem.impact
-    a_lower_bound = impact is not None and impact.extent is not ImpactExtent.MEASURED
+    a_lower_bound = impact is not None and impact.extent in (ImpactExtent.AT_LEAST,
+                                                             ImpactExtent.UNOBSERVED)
     found = the_alert_s_own_finding(alert)
     said = postmortem.detection.said if postmortem.detection else None
 
@@ -119,7 +120,9 @@ def _the_duration(impact: Impact | None) -> Card:
     """How long, said by where it ends. Back to normal only where it got back:
     a failure still going when the metrics ran out, and metrics still missing
     when the incident closed, are each a floor - labelled as ending back
-    to normal, they name an end the incident never had."""
+    to normal, they name an end the incident never had. And an end a person
+    reported is said as their report: back to normal is what the metrics
+    showing it means, and they showed nothing of this end."""
     if impact is None:
         return Card(value="not measured", label=_UNTIL_BACK_TO_NORMAL)
 
@@ -127,6 +130,8 @@ def _the_duration(impact: Impact | None) -> Card:
     match impact.extent:
         case ImpactExtent.MEASURED:
             return Card(value=span, label=_UNTIL_BACK_TO_NORMAL)
+        case ImpactExtent.REPORTED:
+            return Card(value=span, label="onset until reported resolved")
         case ImpactExtent.AT_LEAST:
             return Card(value=f"at least {span}", label="since onset, still not back to normal")
         case ImpactExtent.UNOBSERVED:

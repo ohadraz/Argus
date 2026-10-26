@@ -104,11 +104,15 @@ def _when_and_for_how_long(measured: Measurements,
                            read: bool,
                            written: _Written,
                            written_if_any: Callable[[str], str | None]) -> list[str]:
-    """When it broke and for how long, on the three stretches the brief tells
-    apart: back to normal, never seen back, and unseen because the metrics
-    stopped - this last with how far the service's own logs reach into it and
-    where their reading ended, said apart, since where the lines stop is as
-    often where the reading did.
+    """When it broke and for how long, on the four stretches the brief tells
+    apart: back to normal, ended by a person's report, never seen back, and
+    unseen because the metrics stopped - this last with how far the service's
+    own logs reach into it and where their reading ended, said apart, since
+    where the lines stop is as often where the reading did.
+
+    An end a person reported is said as their report, never as back to normal:
+    that is what the metrics showing it means everywhere else, and the metrics
+    showed nothing of this end.
 
     With no onset measured, said so, and the time counted from the alert
     rather than from when it broke: the alert is when the rule fired.
@@ -128,8 +132,15 @@ def _when_and_for_how_long(measured: Measurements,
                 f"{written(DURATION_FIGURE)} later.",
                 _what_the_logs_show(read, written_if_any)]
 
-    broke = f"The service broke at {written(BEGAN_FIGURE)} and was" if onset else "The service was"
     later = "later" if onset else "after the alert"
+
+    if measured.reported_by is not None:
+        return [*said,
+                *([f"The service broke at {written(BEGAN_FIGURE)}."] if onset else []),
+                f"{measured.reported_by} reported the incident resolved at "
+                f"{written(BACK_TO_NORMAL_FIGURE)}, {written(DURATION_FIGURE)} {later}."]
+
+    broke = f"The service broke at {written(BEGAN_FIGURE)} and was" if onset else "The service was"
 
     if measured.back_to_normal_at is None:
         return [*said,
