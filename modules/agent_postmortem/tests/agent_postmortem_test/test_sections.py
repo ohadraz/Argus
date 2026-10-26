@@ -903,6 +903,106 @@ def test_a_file_s_setting_with_no_states_is_not_carried_by_another_change_to_it(
 
 
 @pytest.mark.unit
+def test_a_comment_naming_a_file_s_setting_does_not_carry_it() -> None:
+    # A comment that names the key is not the key's line: a deploy that added
+    # one and left the setting alone did not carry it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,5 @@",
+                    " ports:",
+                    "   metrics:",
+                    "+    # portName must match the scrape",
+                    "     portName: metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_comment_moving_between_a_setting_s_states_does_not_carry_it() -> None:
+    # A comment can spell a setting and its states without being it: a deploy
+    # that rewrote the comment and left the value moved nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    " categoriser:",
+                    "-  # model: v1 until the catalogue grows",
+                    "+  # model: v2 once the catalogue grows",
+                    "   model: v1"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_value_followed_by_a_comment_is_carried_by_the_deploy_that_moved_it() -> None:
+    # A comment after the value is no part of it: the key still goes from the
+    # one state to the other.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="metrics port name",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,3 +1,3 @@ ports:",
+                    "   metrics:",
+                    "-    portName: metrics  # what the scrape selects",
+                    "+    portName: http-metrics  # the platform's convention"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
+def test_a_comment_naming_a_setting_in_words_does_not_hide_its_value_moving() -> None:
+    # A comment that happens to spell the investigation's own words for the
+    # setting is not a line naming the setting, so the value is still read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="metrics port name",
+                                        from_state="metrics", to_state="http-metrics")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,3 +1,4 @@ ports:",
+                    "   metrics:",
+                    "+    # the metrics port name follows the platform's convention",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
 def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> None:
     # The investigation blames a file, not a setting in it, and says no states:
     # the file is what the diff names a deploy as changing. That deploy, made by

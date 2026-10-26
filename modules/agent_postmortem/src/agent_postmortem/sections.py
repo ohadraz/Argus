@@ -100,6 +100,10 @@ TURN_SYNC_BACK_ON: Final = (f"Turn automatic sync of {{application}} back on "
 # How a line of a configuration file says it is a comment: YAML's, TOML's and
 # INI's `#`, INI's `;`, and the `//` of JSON with comments.
 _COMMENT_MARKS: Final = ("#", ";", "//")
+# A comment, from its mark to the end of the line: the whole line, or what
+# follows the code after a space.
+_A_COMMENT: Final = re.compile(
+    rf"(?:^|\s)(?:{'|'.join(re.escape(mark) for mark in _COMMENT_MARKS)}).*$")
 
 
 def detection_of(evidence: IncidentEvidence,
@@ -378,7 +382,7 @@ def _it_changes_the_setting(said: list[str], subject: str) -> bool:
     *parents, last = subject.split(".")
 
     return any(line.startswith(("-", "+"))
-               and (_names(_own_text(line), last) or _names(_own_text(line), subject))
+               and (_names(_code_of(line), last) or _names(_code_of(line), subject))
                and _it_is_the_setting(hunk, at, subject, parents)
                for hunk in _the_hunks(said)
                for at, line in enumerate(hunk))
@@ -412,7 +416,7 @@ def _it_names_the_setting(hunk: list[str], subject: str) -> bool:
     """Whether any line of `hunk` names the setting - its last part or the
     whole of it."""
     last = subject.split(".")[-1]
-    return any(_names(_own_text(line), last) or _names(_own_text(line), subject)
+    return any(_names(_code_of(line), last) or _names(_code_of(line), subject)
                for line in hunk)
 
 
@@ -437,14 +441,14 @@ def _the_keyed_lines(hunk: list[str]) -> list[tuple[str, str, str, str]]:
     set in less far that names something, or nothing."""
     keyed = []
     for at, line in enumerate(hunk):
-        found = _A_KEYED_LINE.match(_own_text(line))
+        found = _A_KEYED_LINE.match(_code_of(line))
         if found is None:
             continue
         indent = _indent_of(line)
         above = next((hunk[place] for place in range(at - 1, -1, -1)
                       if _it_names_something(hunk[place]) and _indent_of(hunk[place]) < indent),
                      None)
-        parent = _A_KEYED_LINE.match(_own_text(above)) if above is not None else None
+        parent = _A_KEYED_LINE.match(_code_of(above)) if above is not None else None
         keyed.append((line[:1], found["key"], found["value"].strip("'\""),
                       parent["key"] if parent is not None else ""))
     return keyed
@@ -471,8 +475,8 @@ def _it_sets(hunk: list[str], marker: str, subject: str, state: str) -> bool:
     *parents, last = subject.split(".")
 
     return any(line.startswith(marker)
-               and (_names(_own_text(line), last) or _names(_own_text(line), subject))
-               and _names(_own_text(line), state)
+               and (_names(_code_of(line), last) or _names(_code_of(line), subject))
+               and _names(_code_of(line), state)
                and _it_is_the_setting(hunk, at, subject, parents)
                for at, line in enumerate(hunk))
 
@@ -511,7 +515,7 @@ def _it_is_the_setting(hunk: list[str], at: int, subject: str, parents: list[str
     or - walking up from it - each nearest line set in less far names the next
     of its parents in turn, as a nested `a:` over `  b: v` does. A blank line
     and a comment name nothing, and are walked past."""
-    if _names(_own_text(hunk[at]), subject):
+    if _names(_code_of(hunk[at]), subject):
         return True
 
     indent = _indent_of(hunk[at])
@@ -519,7 +523,7 @@ def _it_is_the_setting(hunk: list[str], at: int, subject: str, parents: list[str
         above = next((place for place in range(at - 1, -1, -1)
                       if _it_names_something(hunk[place]) and _indent_of(hunk[place]) < indent),
                      None)
-        if above is None or not _names(_own_text(hunk[above]), parent):
+        if above is None or not _names(_code_of(hunk[above]), parent):
             return False
         at, indent = above, _indent_of(hunk[above])
 
@@ -529,8 +533,7 @@ def _it_is_the_setting(hunk: list[str], at: int, subject: str, parents: list[str
 def _it_names_something(patch_line: str) -> bool:
     """Whether a patch line's own text is a line of the file that names a key -
     not blank, and not a comment."""
-    text = _own_text(patch_line).strip()
-    return bool(text) and not text.startswith(_COMMENT_MARKS)
+    return bool(_code_of(patch_line).strip())
 
 
 def _indent_of(patch_line: str) -> int:
@@ -543,6 +546,13 @@ def _own_text(patch_line: str) -> str:
     """A patch line as the file has it, without the marker git puts before it -
     which a removed flat key's `-` would otherwise make part of its name."""
     return patch_line[1:]
+
+
+def _code_of(patch_line: str) -> str:
+    """A patch line's own text with its comment cut off - nothing left of a
+    line that is one, and the code alone of a line that ends in one. What a
+    comment spells is never a setting, a state or the key above one."""
+    return _A_COMMENT.sub("", _own_text(patch_line))
 
 
 def _names(line: str, word: str) -> bool:
