@@ -504,7 +504,10 @@ SUBMIT_FIX = ToolDefinition(
             "description": (
                 "Why this is the fix: what the fault was, why the code behaved "
                 "that way, and why this change ends it. Written for the person "
-                "who has to approve it. Nothing will have run your test or your "
+                "who has to approve it. Say what the code does and why: what the "
+                "incident did - how many requests or evaluations it reached, and "
+                "how far a rate moved - is the investigation's to say, not yours "
+                "to restate. Nothing will have run your test or your "
                 "fix when this is read: say what the test is written to show and "
                 "what the change should do, never that the test fails or that the "
                 "fix works. Say what a file says only of the file that says it, "

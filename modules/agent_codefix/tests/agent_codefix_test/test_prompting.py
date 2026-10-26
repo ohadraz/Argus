@@ -381,6 +381,24 @@ def test_the_explanation_says_what_code_does_no_wider_than_its_lines(asked: str)
         )
 
 
+@pytest.mark.unit
+def test_the_explanation_leaves_what_the_incident_did_to_the_investigation() -> None:
+    # An explanation said "Turning on monthly-spend-feature sent about half of
+    # evaluations down this path (97 on / 103 off)": one minute's split of a
+    # flag's evaluations, the one figure it was handed, given as how far the
+    # flag reached - though every evaluation after that minute was on. Write-ups
+    # took it up in the root cause. Code-Fix reads code, not telemetry, so what
+    # the incident did is left to the investigation that measured it.
+    Scenario() \
+        .when(lambda: SUBMIT_FIX.to_wire()) \
+        .then(
+            _the_description_of(EXPLANATION_FIELD,
+                                mentions="what the incident did - how many requests or "
+                                         "evaluations it reached, and how far a rate moved - "
+                                         "is the investigation's to say, not yours to restate")
+        )
+
+
 def _the_description_of(field: str, mentions: str) -> Assertion[dict[str, Any]]:
     def assertion(offered: dict[str, Any]) -> bool:
         said = offered["input_schema"]["properties"][field]["description"]
