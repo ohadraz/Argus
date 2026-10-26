@@ -66,10 +66,9 @@ def the_groups_of(log_lines: Sequence[str],
     """Every distinct message, in the order it was first logged, each under a
     label of its own and said once, with where in the row the message sits.
 
-    A message logged once is shown as it was logged. One logged more often is
-    said with the numbers that held every time written in and a `#` where they
-    varied, then how many times it was logged over how many minutes, first to
-    last - and, for each number that varied, how far it ranged, what it
+    Each is said with the numbers that held every time written in and a `#`
+    where they varied, then how many times it was logged over how many minutes,
+    first to last - and, for each number that varied, how far it ranged, what it
     typically read, and the minute it was highest. A number inside a name - an
     id, an address, a port - is no quantity, by the rule the figures are told
     apart by (`is_a_figure`): a name whose numbers varied is said by how many
@@ -175,16 +174,13 @@ def _said(occurrences: list[tuple[datetime | None, list[str]]],
 
 def _said_once(occurrences: list[tuple[datetime | None, list[str]]],
                day: date) -> tuple[str, tuple[int, int]]:
-    """One group as one line, and where in it the message sits."""
-    if len(occurrences) == 1:
-        logged_at, parts = occurrences[0]
-        message = "".join(parts)
-        if logged_at is None:
-            return message, (0, len(message))
+    """One group as one line, and where in it the message sits.
 
-        clock = _clock(logged_at, day)
-        return f"{clock} {message}", (len(clock) + 1, len(clock) + 1 + len(message))
-
+    A message logged once is said as any other is, with how often and when.
+    Led by its minute instead, it read as saying what held from then on: a
+    write-up handed one minute's split of a flag's evaluations gave it as how
+    far the flag reached, though every evaluation after that minute was on.
+    """
     message, held = _the_message_of(occurrences)
 
     return f"{message} - {_a_part(occurrences, message, held, day)}", (0, len(message))

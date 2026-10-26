@@ -472,7 +472,7 @@ def test_a_log_group_s_minute_off_the_day_it_began_is_written_in_with_its_day() 
         ) \
         .when(
             lambda: figures_shown(evidence, a_measured_incident())[
-                f"{grouped([some_line], None, ONSET.date())[0].label}.1"]
+                f"{grouped([some_line], None, ONSET.date())[0].label}.3"]
         ) \
         .then(
             the_answer_was(Figure(given="12:00", written="Sep 03, 12:00 UTC"))

@@ -435,7 +435,7 @@ def test_a_minute_a_log_group_said_in_what_is_still_at_risk_is_dated_off_the_pag
     Scenario() \
         .given(
             a_model_quoting_the_logs := a_model_answering_in_turn(
-                an_answer(still_at_risk=f"Checkout last failed at {{{its_label}.1}}."))
+                an_answer(still_at_risk=f"Checkout last failed at {{{its_label}.3}}."))
         ) \
         .when(
             lambda: answer_worth_writing(

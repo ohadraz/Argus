@@ -140,16 +140,24 @@ def test_what_varied_is_said_as_its_range_its_typical_value_and_its_worst_minute
 
 
 @pytest.mark.unit
-def test_a_message_logged_once_is_shown_as_it_was_logged() -> None:
+@pytest.mark.parametrize(("lines", "said"), [
+    ([f"2026-10-11T23:36:00Z {SOME_ERROR}"], f"{SOME_ERROR} - 1 occurrence in 1 minute, 23:36"),
+    ([SOME_ERROR], f"{SOME_ERROR} - 1 occurrence")
+], ids=["stamped", "undated"])
+def test_a_message_logged_once_is_said_as_any_other_with_how_often_and_over_how_long(
+        lines: list[str], said: str) -> None:
+    # Led by its minute, a line logged once read as saying what held from then
+    # on: handed "12:30 ... off 103 / on 97 - 200 evaluations", write-ups gave
+    # 97 of 200 as how far a flag reached, though every evaluation after that
+    # minute was on. Said as every other message is, it holds for its one
+    # minute and no longer.
     Scenario() \
-        .given(
-            some_lines := [f"2026-10-11T23:36:00Z {SOME_ERROR}"]
-        ) \
+        .given(lines) \
         .when(
-            lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
+            lambda: [group.text for group in grouped(lines, None, ONSET_DAY)]
         ) \
         .then(
-            the_answer_was([f"23:36 {SOME_ERROR}"])
+            the_answer_was([said])
         )
 
 
@@ -406,7 +414,8 @@ def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: l
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("lines", "said"), [
-    ([f"2026-10-12T00:05:00Z {SOME_ERROR}"], f"Oct 12 00:05 {SOME_ERROR}"),
+    ([f"2026-10-12T00:05:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 1 occurrence in 1 minute, Oct 12 00:05"),
     ([f"2026-10-12T00:05:00Z {SOME_ERROR}", f"2026-10-12T00:07:00Z {SOME_ERROR}"],
      f"{SOME_ERROR} - 2 occurrences in 3 minutes, Oct 12 00:05–00:07"),
     ([f"2026-10-11T23:58:00Z {SOME_ERROR}", f"2026-10-12T00:04:00Z {SOME_ERROR}"],
@@ -415,7 +424,8 @@ def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: l
       f"2026-10-12T00:04:00Z {SOME_RATE.format('7.5')}"],
      f"{SOME_RATE.format('#')} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04; "
      f"# was 2.5 to 7.5, typically 2.5, highest at Oct 12 00:04"),
-    ([f"2026-10-12T00:05:00 {SOME_ERROR}"], f"Oct 12 00:05 {SOME_ERROR}")
+    ([f"2026-10-12T00:05:00 {SOME_ERROR}"],
+     f"{SOME_ERROR} - 1 occurrence in 1 minute, Oct 12 00:05")
 ], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "its-highest-minute",
         "a-stamp-with-no-zone"])
 def test_a_minute_off_the_day_the_incident_began_is_said_with_its_day(lines: list[str],

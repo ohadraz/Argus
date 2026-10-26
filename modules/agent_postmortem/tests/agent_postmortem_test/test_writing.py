@@ -741,7 +741,8 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
     # The label means nothing outside the prompt it was given in, and the
     # stored document is read without one.
     the_log_line = "ZeroDivisionError in monthly_average"
-    its_label = grouped([the_log_line], None, ONSET.date())[0].label
+    its_row = grouped([the_log_line], None, ONSET.date())[0]
+    its_label = its_row.label
 
     Scenario() \
         .given(
@@ -764,7 +765,7 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
                 ChainStep(text="the monthly average divided by zero",
-                          cites=[CitedEvidence(label=its_label, text=the_log_line)])
+                          cites=[CitedEvidence(label=its_label, text=its_row.text)])
             ])
         )
 
@@ -773,7 +774,8 @@ def test_each_step_carries_the_text_of_the_evidence_it_cites() -> None:
 def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> None:
     # As the step does: the label means nothing in the stored document.
     the_log_line = "ZeroDivisionError in monthly_average"
-    its_label = grouped([the_log_line], None, ONSET.date())[0].label
+    its_row = grouped([the_log_line], None, ONSET.date())[0]
+    its_label = its_row.label
 
     Scenario() \
         .given(
@@ -799,10 +801,10 @@ def test_what_a_step_ruled_out_carries_the_text_of_the_evidence_it_cites() -> No
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
                 ChainStep(text="the monthly average divided by zero",
-                          cites=[CitedEvidence(label=its_label, text=the_log_line)],
+                          cites=[CitedEvidence(label=its_label, text=its_row.text)],
                           ruled_out=[RuledOut(text="a slow database, never logged",
                                               cites=[CitedEvidence(label=its_label,
-                                                                   text=the_log_line)])])
+                                                                   text=its_row.text)])])
             ])
         )
 
@@ -849,7 +851,8 @@ def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
     # The check has named it already, and the review holds it against the
     # analysis. Kept, it would be a citation a reader can follow nowhere.
     the_log_line = "ZeroDivisionError in monthly_average"
-    its_label = grouped([the_log_line], None, ONSET.date())[0].label
+    its_row = grouped([the_log_line], None, ONSET.date())[0]
+    its_label = its_row.label
 
     Scenario() \
         .given(
@@ -873,7 +876,7 @@ def test_a_citation_of_evidence_never_shown_is_not_published() -> None:
         .then(
             _publishes("the causal chain", lambda document: document.causal_chain, [
                 ChainStep(text="the monthly average divided by zero",
-                          cites=[CitedEvidence(label=its_label, text=the_log_line)])
+                          cites=[CitedEvidence(label=its_label, text=its_row.text)])
             ])
         )
 
