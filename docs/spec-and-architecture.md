@@ -367,24 +367,24 @@ stateDiagram-v2
     investigating --> mitigating: a named cause worth trying
     investigating --> escalated: budget spent, or nothing left to try
     investigating --> disproven: the window held none of what the alarm claimed
-    mitigating --> fixing: mitigation confirmed
+    mitigating --> mitigated: mitigation confirmed
     mitigating --> mitigating: mitigation refuted, another candidate to try
     mitigating --> investigating: candidates exhausted, rounds remain
     mitigating --> escalated: action could not be taken at all
+    mitigating --> recommended: nothing could confirm the action, so it is recommended
     mitigating --> fixing: no mitigation left to try
-    mitigating --> fixing: nothing could confirm the action, so it is recommended
     mitigating --> fixing: Argus takes no mitigation for the cause in hand
-    fixing --> resolved: PR opened + target repo's test suite passes against it
-    fixing --> recommended: an action nobody took is what the incident leaves behind
-    fixing --> escalated: no code-level fix found after N iterations
+    fixing --> escalated: a fix proposed or none found, with the symptom still there
     acknowledged --> resolved: a person reports it over
     investigating --> resolved: a person reports it over
     mitigating --> resolved: a person reports it over
     fixing --> resolved: a person reports it over
+    mitigated --> resolved: a person reports it over
     escalated --> resolved: a person reports it over
     recommended --> resolved: a person reports it over
     resolved --> [*]: postmortem generated, unless one already was
-    recommended --> [*]: postmortem generated + the action a person must take
+    mitigated --> [*]: Code-Fix asked for a fix + postmortem generated
+    recommended --> [*]: Code-Fix asked for a fix + postmortem generated + the action a person must take
     escalated --> [*]: postmortem generated (partial) + human paged
     disproven --> [*]: postmortem generated + the rule named as what to look at
     acknowledged --> withdrawn: a human takes the incident back
@@ -394,7 +394,7 @@ stateDiagram-v2
     withdrawn --> [*]: every change Argus made put back
 ```
 
-**A mitigation that worked does not end the incident.** `fixing` is reached by two roads, and a confirmed mitigation is one of them: the symptom is gone and the fault that caused it is still in the code, with a flag holding it off or a fresh process yet to fill up. Calling that resolved would file a postmortem about an incident that is still waiting to happen - and for a leak it is not even a pause, only the length of time the new process takes to climb back. Argus itself reaches `resolved` only through a fix; a person can report an incident there from almost anywhere, below. The other road to `fixing` is Argus running out of mitigations it may take, and the two are worth telling apart in the record even though they arrive at the same node.
+**A mitigation that worked does not resolve the incident.** A confirmed mitigation is `mitigated`: the symptom is gone and the fault that caused it is still in the code, with a flag holding it off or a fresh process yet to fill up. Calling that resolved would file a postmortem about an incident that is still waiting to happen - and for a leak it is not even a pause, only the length of time the new process takes to climb back. So the walk goes on from `mitigated` to Code-Fix, and the incident stays `mitigated` whatever Code-Fix finds - as a `recommended` one does, for the same reason. Argus never reaches `resolved` itself: a mitigation stops a symptom and a draft pull request proposes a change nobody has made, and neither ends the cause. Only a person reports an incident resolved, from almost anywhere, below. `fixing` is the third road, for an incident with nothing mitigated and nothing recommended - Argus out of mitigations it may take, or taking none for the cause in hand - and it ends `escalated` whatever Code-Fix finds, because the symptom is still happening and a proposal does not stop it. The three roads arrive at the same node and are worth telling apart in the record: one hands a human an incident whose symptom has stopped, one an action to take, and one neither.
 
 What admits the walk is a *named* cause, not a confident one: a generic mitigation taken alone, confirmed against the service and put back where there is anything to put back costs two minutes, and the ambiguous incident is exactly the one the walk exists for. An investigation that named nothing, or whose every candidate the walk has already disproved, escalates instead. One whose cause is named exactly and answered by nothing in the declared set is a different thing, and is refused in different words: a cause nobody could act on is a gap in the evidence, where a kind of failure no mitigation reaches is a decision. That refusal ends the mitigation phase rather than passing to the next explanation - the candidate in hand is the likeliest reading still standing, and acting on a less likely one would be acting against the diagnosis - so the walk goes to Code-Fix and then to a human, without spending its remaining rounds. An upstream dependency's outage is one such kind, and a monitoring configuration left behind by a deliberate change is another; the distinction is what a human picking the incident up acts on. Escalation from `investigating` is the budget (§9) binding first; from `mitigating` it is the round budget. All of these are named, environment-driven config - the first values to tune against benchmark results (§21).
 

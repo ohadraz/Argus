@@ -479,12 +479,12 @@ def route_after_mitigation(state: IncidentState) -> str:
     """A confirmed action goes on to look for a permanent fix; anything else
     that left the world intact hands over to the walk.
 
-    A mitigation that worked is not the end of the incident, and this is where
-    that stopped being pretended. The symptom is gone and the fault that caused
-    it is still in the code with a flag holding it off, so the incident carries
-    on to Code-Fix - which is why `fixing` is reached by two different roads
-    now. The other one is Argus running out of mitigations it may take; this one is
-    Argus having made one that worked.
+    A mitigation that worked does not resolve the incident. The symptom is gone
+    and the fault that caused it is still in the code with a flag holding it
+    off, so the walk carries on to Code-Fix - with the incident `mitigated`,
+    which it stays whatever Code-Fix finds. Another road to Code-Fix is
+    `fixing`, Argus running out of mitigations it may take; this one is Argus
+    having made one that worked.
 
     A refuted action stays in `mitigating` and goes to the node that decides
     whether another explanation is left to try.
