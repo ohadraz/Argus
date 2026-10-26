@@ -193,7 +193,8 @@ def _one_explanation() -> dict[str, Any]:
                     "evidence, a file by its path in the repository, or a key nested "
                     "in a configuration file by its full dotted path, `section.key`. "
                     "An explanation that reads a change another explanation blames "
-                    "another way still names that change. Null only when the cause "
+                    "another way gives that change the same subject, from_state and "
+                    "to_state as the other, word for word. Null only when the cause "
                     "names nothing specific at all, and null when you named no cause."
                 )
             },

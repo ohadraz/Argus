@@ -385,9 +385,8 @@ _WHAT_EACH_MODE_MEANS: dict[FailureMode, str] = {
         "minute of the window is present and sitting at its baseline, and there "
         "the minutes are missing altogether because nothing was reporting them. "
         "Choose it over state-divergence on which store is wrong: here the store "
-        "of record itself holds the wrong value, so nothing that discards a copy "
-        "of it helps and the repair is a rewrite nobody may do unasked, where "
-        "there the record is right and only a derived copy is stale"
+        "of record itself holds the wrong value, where there the record is "
+        "right and only a derived copy is stale"
     ),
     FailureMode.MONITORING_BLIND_SPOT: (
         "the service is well and nothing can see that it is - it serves as it "

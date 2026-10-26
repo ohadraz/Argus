@@ -3425,6 +3425,25 @@ def test_a_span_is_asked_to_be_set_beside_what_it_times() -> None:
 
 
 @pytest.mark.unit
+def test_a_span_set_after_something_else_is_shown_beside_the_form_to_write() -> None:
+    # Told the rule, a write-up still set the confirmation's span after "brought
+    # the service back", so it read as a three-minute recovery from a service
+    # back in one. Its own sentence is the form shown not to write.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WELL_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                f"Argus confirmed, {{T20.1 - {ALERT_RAISED_FIGURE}}} after the alert was "
+                f"raised, that the rollback had brought the service back",
+                f"not \"Argus confirmed the rollback had brought the service back from the "
+                f"incident's level {{T20.1 - {ALERT_RAISED_FIGURE}}} after the alert was raised\"")
+        )
+
+
+@pytest.mark.unit
 def test_what_went_well_names_what_code_fix_proposed_without_saying_what_it_does() -> None:
     # Squeezed into a line about how quickly a fix was proposed, a repair
     # script that reports by default and writes with --apply became "a
@@ -3640,6 +3659,22 @@ def test_luck_is_asked_for_as_what_the_record_shows_went_the_fortunate_way() -> 
         .then(
             _the_description_mentions("by chance", "Empty where", "what kind of fault",
                                       ASSUMPTIONS_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_luck_is_asked_not_to_say_how_the_service_did_where_its_metrics_did_not_reach() -> None:
+    # Told to say how the service did over the stretch nobody watched only
+    # where the document says it, a write-up's luck said it anyway: "Had it
+    # actually broken during that time, nothing would have shown it".
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [GOT_LUCKY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Not how the service did over a stretch its metrics did "
+                                      "not cover, nor what a failure there would have done")
         )
 
 
@@ -4108,6 +4143,21 @@ def test_the_symptom_is_asked_for_as_short_as_it_can_be_and_told_its_limit() -> 
             _the_description_mentions("as short as it can be",
                                       f"never over {SYMPTOM_WORDS_AT_MOST} words",
                                       "not how it was found")
+        )
+
+
+@pytest.mark.unit
+def test_the_symptom_is_asked_to_end_on_what_went_wrong() -> None:
+    # The title adds " while <the change>" after the symptom, and it binds to
+    # whatever the symptom ends on: "..., while requests kept succeeding while
+    # categoriser.model was v2" read as though they succeeded only while it was.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[SYMPTOM_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("after your sentence and a 'while', so end on what went "
+                                      "wrong, with no clause after it")
         )
 
 

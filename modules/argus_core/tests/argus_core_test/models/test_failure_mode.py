@@ -466,6 +466,18 @@ def test_no_meaning_says_a_rule_pages(cause: FailureMode) -> None:
             _never_says("paged")))
 
 
+@pytest.mark.unit
+def test_silent_data_corruption_is_told_apart_without_saying_how_it_is_repaired() -> None:
+    # Told "the repair is a rewrite nobody may do unasked", an Investigator
+    # wrote "The records already written are wrong and need a rewrite" in a
+    # summary asked never to say what to do. Which store is wrong tells the
+    # pair apart; how it would be put right is nobody's to say here.
+    Scenario() \
+        .given(the_corruption := FailureMode.SILENT_DATA_CORRUPTION) \
+        .when(lambda: the_corruption.meaning()) \
+        .then(_never_says("rewrite"))
+
+
 def _never_says(word: str) -> Assertion[str]:
     """That a meaning never puts one word in front of the model."""
     def assertion(meaning: str) -> bool:

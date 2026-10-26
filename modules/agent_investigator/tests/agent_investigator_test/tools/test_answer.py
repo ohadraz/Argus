@@ -156,13 +156,16 @@ def test_an_alternative_reading_of_a_change_still_names_the_change() -> None:
     # another way, the change seemed to name nothing specific. So nothing could
     # tell it was the same change - the postmortem listed it as a cause of its
     # own - though it was the one alternative whose action differed, a rollback
-    # where the first reading declines one.
+    # where the first reading declines one. And naming it some other way - a
+    # file the deploy changed, where the other named its revision - left the
+    # two apart all the same: they merge only where all three words agree.
     Scenario() \
         .when(
             lambda: answer_tool()
         ) \
         .then(
-            _the_field("subject").says("still names that change")
+            _the_field("subject").says("gives that change the same subject, from_state and "
+                                       "to_state as the other, word for word")
         )
 
 
