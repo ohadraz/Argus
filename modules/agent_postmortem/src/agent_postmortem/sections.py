@@ -318,7 +318,10 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
 
     A setting named with the file it lives in - `path:key` - is the key, and
     is looked for in that file's part of each diff alone: the same key in
-    another file is another setting.
+    another file is another setting. Named with no states, it is still the
+    key and not the file: what carried it is the deploy whose part of the
+    diff about that file removes or adds the key's own line
+    (`_it_changes_the_setting`).
     """
     subject, from_state, to_state = blamed.subject, blamed.from_state, blamed.to_state
     if subject is None:
@@ -327,7 +330,8 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
     path, _, key = subject.rpartition(_A_FILE_S_KEY)
     if from_state is None and to_state is None:
         moved = {looked_into.revision for looked_into in evidence.deployment_changes
-                 if _it_changes_the_file(looked_into.said, path or subject)}
+                 if (_it_changes_the_setting(_the_part_about(looked_into.said, path), key)
+                     if path else _it_changes_the_file(looked_into.said, subject))}
     elif from_state is None or to_state is None:
         return None
     else:
@@ -365,6 +369,19 @@ def _it_changes_the_file(said: list[str], path: str) -> bool:
     """Whether a deploy's diff, as the read tier said it, names `path` among
     the files it changed (`names_as_changed`)."""
     return any(names_as_changed(line, path) for line in said)
+
+
+def _it_changes_the_setting(said: list[str], subject: str) -> bool:
+    """Whether a deploy's diff, as the read tier said it, removes or adds a
+    line that is the setting `subject` itself - naming its last part or the
+    whole of it, by `_it_is_the_setting` - whatever states it went between."""
+    *parents, last = subject.split(".")
+
+    return any(line.startswith(("-", "+"))
+               and (_names(_own_text(line), last) or _names(_own_text(line), subject))
+               and _it_is_the_setting(hunk, at, subject, parents)
+               for hunk in _the_hunks(said)
+               for at, line in enumerate(hunk))
 
 
 def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> bool:

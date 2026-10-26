@@ -841,6 +841,68 @@ def test_a_setting_named_with_its_file_moving_in_another_file_carries_nothing() 
 
 
 @pytest.mark.unit
+def test_a_file_s_setting_with_no_states_is_carried_by_the_deploy_that_changed_it() -> None:
+    # The investigation names a key with its file and says no states: what
+    # carried it is the deploy whose part of the diff about that file changes
+    # the key itself.
+    the_deploy = "2026-09-02T11:58:00Z"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName")],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor="kuki")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,4 +1,4 @@",
+                    " ports:",
+                    "   metrics:",
+                    "-    portName: metrics",
+                    "+    portName: http-metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject="deploy/values-production.yaml:ports.metrics.portName",
+                                   from_state=None,
+                                   to_state=None,
+                                   changed_at=parse_iso(the_deploy),
+                                   actor="kuki",
+                                   suspected=True,
+                                   carried_by="P1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_s_setting_with_no_states_is_not_carried_by_another_change_to_it() -> None:
+    # The key is the setting, not the file it lives in: a deploy that changed
+    # the file and left the key alone did not carry it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care",
+                                        subject="deploy/values-production.yaml:"
+                                                "ports.metrics.portName")],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    "@@ -1,5 +1,5 @@",
+                    "-replicas: 2",
+                    "+replicas: 3",
+                    " ports:",
+                    "   metrics:",
+                    "     portName: metrics"])])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
 def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> None:
     # The investigation blames a file, not a setting in it, and says no states:
     # the file is what the diff names a deploy as changing. That deploy, made by
