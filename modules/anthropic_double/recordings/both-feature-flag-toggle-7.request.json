@@ -5,7 +5,149 @@
   "max_tokens": 16000,
   "messages": [
     {
-      "content": "Write the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-10-26T14:28:12Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires: that wait is part of the time from the onset to the alert - count it before calling detection slow. The alert came 1 minute 12 seconds {after_the_wait} after that wait ended. Its condition looks back over 1 minute {rule_looks_back}: up to that much of the time from the onset to the alert is that window filling - count it before calling detection slow.\nBroken from 2026-10-26T14:22:00Z {began} (the onset) to 2026-10-26T14:30:00Z {back_to_normal}, when the metrics show it back to normal.\nThat is 8 minutes {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes 28 seconds {held}, until 2026-10-26T14:31:01Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nError rate before it began: 1.2% {errors_before}.\nError rate while it was broken: 28.1% {errors_while_broken}, peaking at 36.5% {errors_at_worst}.\nRise above baseline: 26.8% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 1.25% {series_before} before it began, 28.0625% {series_while_broken} on average while it was broken, and 36.5% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: 4,942.30 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own.\n\nWhat Argus did, in order:\n  - [T1] 2026-10-26T14:28:32Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-10-26T14:28:39Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-10-26T14:28:42Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-10-26T14:28:56Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 14:28:12 {T4.2}\n  - [T5] 2026-10-26T14:29:03Z {T5.1} Investigator Agent: Read back 360 {T5.2} minutes of metrics\n  - [T6] 2026-10-26T14:29:04Z {T6.1} Investigator Agent: Placed the start of the incident at 14:22 {T6.2}\n  - [T7] 2026-10-26T14:29:04Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-10-26T14:29:06Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 {T8.2} day before Oct 26 14:22 {T8.3}\n  - [T9] 2026-10-26T14:29:07Z {T9.1} Investigator Agent: Read back 1 {T9.2} production change\n  - [T10] 2026-10-26T14:29:07Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T10.2} replicas run one revision, which the history does not name\n  - [T11] 2026-10-26T14:29:08Z {T11.1} Investigator Agent: Asked for the service's log lines, the 36 {T11.2} minutes 12 {T11.3} seconds before 14:28:12 {T11.4}\n  - [T12] 2026-10-26T14:29:08Z {T12.1} Investigator Agent: Read back 138 {T12.2} log lines\n  - [T13] 2026-10-26T14:29:09Z {T13.1} Investigator Agent: Read the service register - the service calls io-pricing (internal, owned by checkout-platform), io-summary-cache (internal, owned by checkout-platform), io-pay (third-party, owned by IO Payments Ltd)\n  - [T14] 2026-10-26T14:29:10Z {T14.1} Investigator Agent: Formed 1 {T14.2} candidate cause, best first: C1\n  - [T15] 2026-10-26T14:29:10Z {T15.1} Investigator Agent: Read every channel available\n  - [T16] 2026-10-26T14:29:11Z {T16.1} Argus: Read the flag provider's history - 1 {T16.2} flag change by anyone but Argus, the 1 {T16.3} hour before 14:29:11 {T16.4}\n  - [T17] 2026-10-26T14:29:15Z {T17.1} Argus: Moved the incident to MITIGATING to act on the leading candidate\n  - [T18] 2026-10-26T14:29:15Z {T18.1} Argus: Called in the Mitigation Agent\n  - [T19] 2026-10-26T14:29:15Z {T19.1} Mitigation Agent: Reverted the feature flag monthly-spend-feature, moved from ON to OFF\n  - [T20] 2026-10-26T14:29:53Z {T20.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 14:30 {T20.2} - up to 120s {T20.3}\n  - [T21] 2026-10-26T14:31:00Z {T21.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 14:30 {T21.2}\n  - [T22] 2026-10-26T14:31:00Z {T22.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T23] 2026-10-26T14:31:01Z {T23.1} Argus: Moved the incident to MITIGATED - set flag [monthly-spend-feature] OFF and the rule that fired stopped firing\n  - [T24] 2026-10-26T14:32:25Z {T24.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/361\n\nChanges to production it read:\n  - [P1] 2026-10-26T14:22:00Z {P1.1} flag-toggle monthly-spend-feature by admin: feature flag monthly-spend-feature was switched on\n  - Deploys read, none came back.\n\nLog lines it read, one per message:\n  - [G7e5d] INFO io-shop: monthly-spend-feature=off - 200 {G7e5d.1} evaluations - 30 {G7e5d.2} occurrences in 30 {G7e5d.3} minutes, 13:52\u201314:21 {G7e5d.4}\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 51 {G46bc.1} occurrences in 37 {G46bc.2} minutes, 13:52\u201314:28 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 35 {Gbac1.1} occurrences in 37 {Gbac1.2} minutes, 13:52\u201314:28 {Gbac1.3}; # was 0.50 {Gbac1.4} to 36.50 {Gbac1.5}, typically 1.50 {Gbac1.6}, highest at 14:25 {Gbac1.7}\n  - [Gad41] INFO io-shop: account pages rendered normally - 2 {Gad41.1} occurrences in 20 {Gad41.2} minutes, 13:57\u201314:16 {Gad41.3}\n  - [G971b] INFO io-shop: monthly-spend-feature=off 103 {G971b.1} / on 97 {G971b.2} - 200 {G971b.3} evaluations - 1 {G971b.4} occurrence in 1 {G971b.5} minute, 14:22 {G971b.6}\n  - [G5309] ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47 - 13 {G5309.1} occurrences in 7 {G5309.2} minutes, 14:22\u201314:28 {G5309.3}\n  - [Gce95] INFO io-shop: monthly-spend-feature=on - 200 {Gce95.1} evaluations - 6 {Gce95.2} occurrences in 6 {Gce95.3} minutes, 14:23\u201314:28 {Gce95.4}\n\nCandidates it considered, in the Investigator's words - cite them; what they claim is not what happened unless a row of the record shows it:\n  - [C1] The feature flag monthly-spend-feature was switched on at 2026-10-26T14:22:00Z {C1.1}. The newly enabled spend summary code path then raised ZeroDivisionError at src/io_shop/spend_summary.py:47, and the error rate rose from about 1% {C1.2} to 30-35% {C1.3}. No deployment was recorded, and the 3 {C1.4} replicas had converged. [feature-flag-toggle, confidence 0.93 {C1.5}, confirmed]\n\nActions it took:\n  - [M1] Reverted the feature flag monthly-spend-feature (can be put back) - confirmed, still in place\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] Fault: in src/io_shop/spend_summary.py, `average_spend_per_item_this_month` divides `account.total_this_month_cents` by `len(bought_this_month)`, and nothing checks whether that list is empty first. Any shopper who has bought before but not in the current month has an empty list. tests/io_shop/test_spend_summary.py calls this kind of shopper \"the ordinary case\", and for them the function raises ZeroDivisionError at line 47 {F1.1}. Turning on monthly-spend-feature sent about half of evaluations down this path (97 {F1.2} on / 103 {F1.3} off). Each of those shoppers got a failed account page, which matches the rise in error rate from about 1% {F1.4} to 30-35% {F1.5}.\n      \n      The flag only exposed the fault. The fault is the missing case in the arithmetic. The lifetime average's docstring says its divisor is empty only for an account that never bought anything, which no real shopper is. That reasoning does not carry over to a single month, where an empty divisor is common.\n      \n      Fix: if there are no purchases this month, the function returns 0 {F1.6}. A shopper who spent nothing this month averaged nothing this month. Every other path is untouched. The lifetime average still raises for an account with no history at all, so the existing test `test_the_page_lets_a_failure_reach_its_caller` still holds. `render_spend_summary` and `account_page._the_figure_for` call this function as before, and the return type is still int, so neither caller changes. Nothing is caught or silenced. The function now gives an answer for a case it used to crash on.\n      \n      Test: two new cases in tests/io_shop/test_spend_summary.py. One calls `average_spend_per_item_this_month` with an account that has earlier purchases but none this month, and asserts 0 {F1.7}. The other calls `render_spend_summary` with `use_monthly_summary=True` on the same account and asserts 0 {F1.8}. Against the current code, both are written to raise ZeroDivisionError.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'.\n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Reverted the feature flag monthly-spend-feature\n  - AI-2 (prevent, open): Review and merge the proposed fix\nPR #361 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P1].\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "content": "Write the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-10-26T16:34:00Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires: that wait is part of the time from the onset to the alert - count it before calling detection slow. The alert came 1 minute {after_the_wait} after that wait ended. Its condition looks back over 1 minute {rule_looks_back}: up to that much of the time from the onset to the alert is that window filling - count it before calling detection slow.\nBroken from 2026-10-26T16:28:00Z {began} (the onset) to 2026-10-26T16:35:00Z {back_to_normal}, when the metrics show it back to normal.\nThat is 7 minutes {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes {held}, until 2026-10-26T16:36:03Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nError rate before it began: 1.0% {errors_before}.\nError rate while it was broken: 26.8% {errors_while_broken}, peaking at 36.0% {errors_at_worst}.\nRise above baseline: 25.8% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 1.025% {series_before} before it began, 26.785714285714285% {series_while_broken} on average while it was broken, and 36% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: 4,234.52 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own.\n\nWhat Argus did, in order:\n  - [T1] 2026-10-26T16:34:02Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-10-26T16:34:04Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-10-26T16:34:04Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-10-26T16:34:05Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 16:34 {T4.2}\n  - [T5] 2026-10-26T16:34:05Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-10-26T16:34:05Z {T6.1} Investigator Agent: Placed the start of the incident at 16:28 {T6.2}\n  - [T7] 2026-10-26T16:34:05Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-10-26T16:34:09Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 {T8.2} day before Oct 26 16:28 {T8.3}\n  - [T9] 2026-10-26T16:34:09Z {T9.1} Investigator Agent: Read back 1 {T9.2} production change\n  - [T10] 2026-10-26T16:34:09Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T10.2} replicas run one revision, which the history does not name\n  - [T11] 2026-10-26T16:34:09Z {T11.1} Investigator Agent: Asked for the service's log lines, the 36 {T11.2} minutes before 16:34 {T11.3}\n  - [T12] 2026-10-26T16:34:09Z {T12.1} Investigator Agent: Read back 128 {T12.2} log lines\n  - [T13] 2026-10-26T16:34:14Z {T13.1} Investigator Agent: Formed 1 {T13.2} candidate cause, best first: C1\n  - [T14] 2026-10-26T16:34:14Z {T14.1} Investigator Agent: Read every channel available\n  - [T15] 2026-10-26T16:34:14Z {T15.1} Argus: Read the flag provider's history - 1 {T15.2} flag change by anyone but Argus, the 1 {T15.3} hour before 16:34:14 {T15.4}\n  - [T16] 2026-10-26T16:34:14Z {T16.1} Argus: Moved the incident to MITIGATING to act on the leading candidate\n  - [T17] 2026-10-26T16:34:15Z {T17.1} Argus: Called in the Mitigation Agent\n  - [T18] 2026-10-26T16:34:15Z {T18.1} Mitigation Agent: Reverted the feature flag monthly-spend-feature, moved from ON to OFF\n  - [T19] 2026-10-26T16:34:18Z {T19.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 16:35 {T19.2} - up to 120s {T19.3}\n  - [T20] 2026-10-26T16:36:03Z {T20.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 16:35 {T20.2}\n  - [T21] 2026-10-26T16:36:03Z {T21.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T22] 2026-10-26T16:36:03Z {T22.1} Argus: Moved the incident to MITIGATED - set flag [monthly-spend-feature] OFF and the rule that fired stopped firing\n  - [T23] 2026-10-26T16:36:47Z {T23.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/363\n\nChanges to production it read:\n  - [P1] 2026-10-26T16:28:00Z {P1.1} flag-toggle monthly-spend-feature by admin: feature flag monthly-spend-feature was switched on\n  - Deploys read, none came back.\n\nLog lines it read, one per message:\n  - [G7e5d] INFO io-shop: monthly-spend-feature=off - 200 {G7e5d.1} evaluations - 30 {G7e5d.2} occurrences in 30 {G7e5d.3} minutes, 15:58\u201316:27 {G7e5d.4}\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 40 {G46bc.1} occurrences in 30 {G46bc.2} minutes, 15:58\u201316:27 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 30 {Gbac1.1} occurrences in 37 {Gbac1.2} minutes, 15:58\u201316:34 {Gbac1.3}; # was 0.50 {Gbac1.4} to 36.00 {Gbac1.5}, typically 1.50 {Gbac1.6}, highest at 16:31 {Gbac1.7}\n  - [Gad41] INFO io-shop: account pages rendered normally - 7 {Gad41.1} occurrences in 21 {Gad41.2} minutes, 16:06\u201316:26 {Gad41.3}\n  - [G971b] INFO io-shop: monthly-spend-feature=off 66 {G971b.1} / on 134 {G971b.2} - 200 {G971b.3} evaluations - 1 {G971b.4} occurrence in 1 {G971b.5} minute, 16:28 {G971b.6}\n  - [G5309] ERROR io-shop: account page request failed - ZeroDivisionError: division by zero at src/io_shop/spend_summary.py:47 - 14 {G5309.1} occurrences in 7 {G5309.2} minutes, 16:28\u201316:34 {G5309.3}\n  - [Gce95] INFO io-shop: monthly-spend-feature=on - 200 {Gce95.1} evaluations - 6 {Gce95.2} occurrences in 6 {Gce95.3} minutes, 16:29\u201316:34 {Gce95.4}\n\nCandidates it considered, in the Investigator's words - cite them; what they claim is not what happened unless a row of the record shows it:\n  - [C1] The feature flag monthly-spend-feature was switched on at 2026-10-26T16:28:00Z {C1.1}. That enabled a code path that raises ZeroDivisionError at src/io_shop/spend_summary.py:47, and the account page error rate rose from about 1% {C1.2} to about 33% {C1.3}. No deployment landed, the rollout is converged, and latency and resources are flat. [feature-flag-toggle, confidence 0.93 {C1.4}, confirmed]\n\nActions it took:\n  - [M1] Reverted the feature flag monthly-spend-feature (can be put back) - confirmed, still in place\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] The fault: in src/io_shop/spend_summary.py, `average_spend_per_item_this_month` computes `account.total_this_month_cents // len(bought_this_month)`. `bought_this_month` keeps only the purchases with `in_current_month` set. For a shopper who has bought before but not this month, that list is empty, so the line raises ZeroDivisionError. That is line 47 {F1.1}, the line the investigation's error points to. `render_spend_summary` only calls this function when `use_monthly_summary` is true, which is why the errors started when monthly-spend-feature was switched on. Every page view by a shopper with no purchases this month then fails.\n      \n      The fix: when there are no purchases this month, the function returns 0 {F1.2}. That shopper has spent nothing this month, so the average per item this month is 0 {F1.3}. Otherwise the calculation is unchanged. I left the lifetime average and its behaviour for accounts with no history alone. The existing test `test_the_page_lets_a_failure_reach_its_caller` asserts that case still raises, and the docstring in spend_summary.py says failures are meant to reach the request boundary. This change doesn't catch any exception. It removes a division whose divisor is empty in a normal case.\n      \n      The tests: two new cases in tests/io_shop/test_spend_summary.py. The first calls `average_spend_per_item_this_month` on an account with past purchases but none this month and asserts 0 {F1.4}. The second calls `render_spend_summary` with `use_monthly_summary=True` on the same kind of account and asserts 0 {F1.5}. Against the current code, both are written to raise ZeroDivisionError.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'.\n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Reverted the feature flag monthly-spend-feature\n  - AI-2 (prevent, open): Review and merge the proposed fix\nPR #363 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P1].\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_016hH2waqKFkC3ELEBT1YEYg",
+          "input": {
+            "action_items": [
+              {
+                "answers": [
+                  "CF-1"
+                ],
+                "item": "Switch flags such as monthly-spend-feature on for a small share of traffic first, and widen it in steps rather than for all traffic at once.",
+                "type": "prevent"
+              },
+              {
+                "answers": [
+                  "CF-1"
+                ],
+                "item": "Hold or reverse a flag rollout automatically when the service's error rate rises after the flag changes.",
+                "type": "detect"
+              },
+              {
+                "answers": [],
+                "item": "Keep monthly-spend-feature off until the fix proposed in PR #363 is in production.",
+                "type": "process"
+              },
+              {
+                "answers": [],
+                "item": "Link the HighErrorRate alert on io-shop to on-call paging so that a person is told when it fires.",
+                "type": "process"
+              }
+            ],
+            "causal_chain": [
+              {
+                "cites": [
+                  "Gbac1",
+                  "G5309"
+                ],
+                "ruled_out": [],
+                "step": "Shoppers' account page requests failed. The share of requests that failed rose from {errors_before} to {errors_while_broken} on average, with a worst of {errors_at_worst}, and the service's own warnings showed the account page error rate at its highest at {Gbac1.7}."
+              },
+              {
+                "cites": [
+                  "G5309",
+                  "G46bc"
+                ],
+                "ruled_out": [],
+                "step": "Account page requests raised ZeroDivisionError at src/io_shop/spend_summary.py:47. This error first appeared at the onset and was logged {G5309.1} times from {G5309.3}. Before the onset, the only account page error logged was a shopper closing the connection."
+              },
+              {
+                "cites": [
+                  "P1",
+                  "G7e5d",
+                  "Gad41",
+                  "G971b",
+                  "Gce95",
+                  "T18",
+                  "T20",
+                  "T21"
+                ],
+                "ruled_out": [
+                  {
+                    "cites": [
+                      "T8",
+                      "T9"
+                    ],
+                    "what": "A deployment: no deploys came back for the day before the onset, and the flag toggle was the only production change read."
+                  },
+                  {
+                    "cites": [
+                      "T15"
+                    ],
+                    "what": "Any other flag change: the flag provider's history showed only the one flag change by anyone but Argus in the hour read."
+                  },
+                  {
+                    "cites": [
+                      "T10"
+                    ],
+                    "what": "A rollout still in progress: as of {T10.1}, all replicas were running one revision."
+                  }
+                ],
+                "step": "At {P1.1}, admin switched on the feature flag monthly-spend-feature. Before that, every evaluation came back off and account pages rendered normally. In the minute {G971b.6}, {G971b.2} of {G971b.3} evaluations came back on, and every evaluation after that came back on. Switching the flag back off brought the service back from the incident's level, and that action was judged confirmed."
+              },
+              {
+                "cites": [
+                  "F1",
+                  "G5309"
+                ],
+                "ruled_out": [],
+                "step": "Code-Fix read that, with the flag on, the account page's spend summary divides the shopper's spend this month by the number of items bought this month. For a shopper who has bought before but not this month, that list is empty, so the division fails at line {F1.1}, the line the logged error points to."
+              }
+            ],
+            "cause_in_plain_words": "Someone switched on a new monthly spending summary on account pages, and it likely tried to divide by the number of items the shopper had bought this month, which cannot work for shoppers who have bought nothing this month, so their account pages failed.",
+            "cause_rests_on_an_unrun_reading": true,
+            "contributing_factors": [
+              {
+                "addressed_by": [],
+                "factor": "The flag reached almost all account page traffic at once. In the first minute, {G971b.2} of {G971b.3} evaluations came back on, and after that every evaluation came back on. No staged rollout, and no automatic hold on a rise in errors, was seen.",
+                "had_it_been_otherwise": "Turning the flag on for a small share of traffic first would have limited the failures to that share, and the rise in errors could have been caught before it reached most shoppers.",
+                "label": "CF-1"
+              },
+              {
+                "addressed_by": [
+                  "AI-2"
+                ],
+                "factor": "No test was seen that runs the monthly spend summary for a shopper with past purchases but none this month. Code-Fix had to write new cases to cover it.",
+                "had_it_been_otherwise": "Such a test would have failed on the division before the flag was switched on in production.",
+                "label": "CF-2"
+              }
+            ],
+            "lessons": {
+              "got_lucky": [],
+              "went_well": [
+                "Argus traced the failures to the flag change and switched monthly-spend-feature off {T18.1 - alert_raised} after the alert was raised.",
+                "Argus confirmed, {T20.1 - alert_raised} after the alert was raised, that the service was no longer at the incident's level.",
+                "Code-Fix opened a draft fix, PR #363, {T23.1 - alert_raised} after the alert was raised."
+              ],
+              "went_wrong": [
+                "The alert paged nobody: no on-call incident was linked to it, so no person was told while the incident ran."
+              ]
+            },
+            "reaches_a_cause": true,
+            "root_cause": "The account page's monthly spend summary, which runs only when monthly-spend-feature is on, divides the shopper's spend this month by the number of items bought this month (line {F1.1} of src/io_shop/spend_summary.py). For a shopper who has bought before but not this month, that list of items is empty, so the division raises ZeroDivisionError and the account page request fails.",
+            "still_at_risk": "The failing code path was left unchanged when the flag was switched off, so turning monthly-spend-feature back on before a fix is in place would likely make account pages fail again for shoppers with no purchases this month.",
+            "symptom": "Account pages failed for shoppers"
+          },
+          "name": "submit_postmortem",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your postmortem was not accepted:\n  - your answer writes [from {G5309.3}] - [{G5309.3}] is a range and says its own: write it alone, or say over or during\n\nCall submit_postmortem again with the whole answer, corrected.",
+          "is_error": true,
+          "tool_use_id": "toolu_016hH2waqKFkC3ELEBT1YEYg",
+          "type": "tool_result"
+        }
+      ],
       "role": "user"
     }
   ],
