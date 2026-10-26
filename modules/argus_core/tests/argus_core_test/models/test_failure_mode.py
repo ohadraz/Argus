@@ -284,14 +284,6 @@ def test_drift_says_when_to_prefer_it_to_a_broken_configuration() -> None:
 
 
 @pytest.mark.unit
-def test_drift_says_what_is_owed_is_the_watching_rolled_forward() -> None:
-    Scenario() \
-        .given(drift := FailureMode.MONITORING_CONFIGURATION_DRIFT) \
-        .when(lambda: drift.meaning()) \
-        .then(_it_says_the_watching_is_rolled_forward())
-
-
-@pytest.mark.unit
 def test_the_mode_whose_cause_lands_after_its_own_onset_says_so() -> None:
     # The one mode whose change cannot be at the onset, and so the one where a
     # model reading the change channels correctly reaches the wrong conclusion.
@@ -466,16 +458,25 @@ def test_no_meaning_says_a_rule_pages(cause: FailureMode) -> None:
             _never_says("paged")))
 
 
+# Words that say what answers a mode rather than what happened in it.
+_WHAT_ANSWERS_IT = ("revert", "rollback", "roll back", "rolled forward", "restart",
+                    "returning", "putting", "mitigat", "answered by", "what answers",
+                    "put right", "discard", "fix", "rewrite", "repair", "undo", "restore")
+
+
 @pytest.mark.unit
-def test_silent_data_corruption_is_told_apart_without_saying_how_it_is_repaired() -> None:
-    # Told "the repair is a rewrite nobody may do unasked", an Investigator
-    # wrote "The records already written are wrong and need a rewrite" in a
-    # summary asked never to say what to do. Which store is wrong tells the
-    # pair apart; how it would be put right is nobody's to say here.
+@pytest.mark.parametrize("cause", list(FailureMode))
+def test_no_meaning_says_what_answers_it(cause: FailureMode) -> None:
+    # The meanings are read by an Investigator whose summary is asked never to
+    # say what to do, and it says what they say: told a corruption's repair is
+    # a rewrite, it wrote that the records "need a rewrite"; told returning a
+    # drift's revision would restore the sight, it wrote "Reverting would
+    # restore the metrics". What happened and what tells a mode apart from its
+    # neighbour is all a meaning carries; the action is chosen from the mode
+    # elsewhere.
     Scenario() \
-        .given(the_corruption := FailureMode.SILENT_DATA_CORRUPTION) \
-        .when(lambda: the_corruption.meaning()) \
-        .then(_never_says("rewrite"))
+        .when(lambda: cause.meaning()) \
+        .then(all_of(*(_never_says(word) for word in _WHAT_ANSWERS_IT)))
 
 
 def _never_says(word: str) -> Assertion[str]:
@@ -858,28 +859,6 @@ def _the_pair_is_told_apart_by_the_convention() -> Assertion[
                 f"without saying whether the change applied a convention - so "
                 f"the model is told there is a distinction and not that one of "
                 f"the pair is answered by keeping the change."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_says_the_watching_is_rolled_forward() -> Assertion[str]:
-    """The meaning has to say what is owed: the observer changed, the service kept.
-
-    The mode exists because the answer every other deploy-shaped mode gives -
-    return the revision - is the wrong one here, and a meaning that names the
-    cause without naming the remedy leaves the model to reach for the remedy it
-    knows.
-    """
-    def assertion(meaning: str) -> bool:
-        if "rolled forward" not in meaning:
-            raise AssertionError(
-                "The meaning of [monitoring-configuration-drift] never says the "
-                "monitoring's configuration is rolled forward to the change, so "
-                "a model that has named it still reaches for the rollback every "
-                "other deploy-shaped mode is answered by."
             )
 
         return True
