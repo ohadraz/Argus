@@ -1,0 +1,374 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "Write the postmortem for the incident below.\n\nAlert: HighLatency on io-shop\nWhat the alert said [AL1]: p50 latency above threshold for 5m {A1}\nAlert raised: 2026-10-26T17:46:00Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires: that wait is part of the time from the onset to the alert - count it before calling detection slow. The alert came 1 minute {after_the_wait} after that wait ended. Its condition looks back over 1 minute {rule_looks_back}: up to that much of the time from the onset to the alert is that window filling - count it before calling detection slow.\nBroken from 2026-10-26T17:40:00Z {began} (the onset) to 2026-10-26T17:46:19Z {back_to_normal}, when the metrics show it back to normal.\nThat is 6 minutes 19 seconds {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes 3 seconds {held}, until 2026-10-26T17:48:06Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nError rate before it began: 1.0% {errors_before}.\nError rate while it was broken: 1.4% {errors_while_broken}, peaking at 4.0% {errors_at_worst}.\nRise above baseline: none beyond its normal variation - stretches as long before it began averaged as high on their own.\nThe series behind the alert, `max(http_request_duration_seconds{quantile=\"0.5\"}) * 1000` - its alert said \"p50 latency above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 26.216666666666665 ms {series_before} before it began, 167.57142857142858 ms {series_while_broken} on average while it was broken, and 191 ms {series_at_worst} at its worst. Say what it measures in words, not by its query.\nNo rise in failed requests was measured, so the harm to report is what this series did: say what it meant for the people using the service, not that little or nothing failed.\nCustomer loss: none - the shop's takings over the incident fell short of the same hours whole weeks earlier by no more than those hours vary on their own, if at all.\n\nWhat Argus did, in order:\n  - [T1] 2026-10-26T17:46:02Z {T1.1} Argus: Received HighLatency on io-shop\n  - [T2] 2026-10-26T17:46:02Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-10-26T17:46:02Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-10-26T17:46:03Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 17:46 {T4.2}\n  - [T5] 2026-10-26T17:46:04Z {T5.1} Investigator Agent: Read back 361 {T5.2} minutes of metrics\n  - [T6] 2026-10-26T17:46:04Z {T6.1} Investigator Agent: Placed the start of the incident at 17:40 {T6.2}\n  - [T7] 2026-10-26T17:46:04Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-10-26T17:46:08Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 {T8.2} day before Oct 26 17:40 {T8.3}\n  - [T9] 2026-10-26T17:46:08Z {T9.1} Investigator Agent: Read back 2 {T9.2} production changes\n  - [T10] 2026-10-26T17:46:08Z {T10.1} Investigator Agent: Read the service register - the service calls io-pricing (internal, owned by checkout-platform), io-summary-cache (internal, owned by checkout-platform), io-pay (third-party, owned by IO Payments Ltd)\n  - [T11] 2026-10-26T17:46:08Z {T11.1} Investigator Agent: Read how far the deployment had rolled out - all 3 {T11.2} replicas run revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72, deployed at 17:39 {T11.3}\n  - [T12] 2026-10-26T17:46:12Z {T12.1} Investigator Agent: Read what the deployment of 0d8e826225f0de73958a8a8dd3d867b2ae249e72 changed\n  - [T13] 2026-10-26T17:46:12Z {T13.1} Investigator Agent: Asked for the service's log lines, the 8 {T13.2} minutes before 17:46 {T13.3}\n  - [T14] 2026-10-26T17:46:12Z {T14.1} Investigator Agent: Read back 34 {T14.2} log lines\n  - [T15] 2026-10-26T17:46:18Z {T15.1} Investigator Agent: Formed 1 {T15.2} candidate cause, best first: C1\n  - [T16] 2026-10-26T17:46:18Z {T16.1} Investigator Agent: Read every channel available\n  - [T17] 2026-10-26T17:46:18Z {T17.1} Argus: Read the flag provider's history - 0 {T17.2} flag changes by anyone but Argus, the 1 {T17.3} hour before 17:46:18 {T17.4}\n  - [T18] 2026-10-26T17:46:19Z {T18.1} Argus: Moved the incident to MITIGATING to act on the leading candidate\n  - [T19] 2026-10-26T17:46:19Z {T19.1} Argus: Called in the Mitigation Agent\n  - [T20] 2026-10-26T17:46:19Z {T20.1} Mitigation Agent: Rolled back the deployment of io-shop\n  - [T21] 2026-10-26T17:46:21Z {T21.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 17:47 {T21.2} - up to 120s {T21.3}\n  - [T22] 2026-10-26T17:48:06Z {T22.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 17:46 {T22.2}\n  - [T23] 2026-10-26T17:48:06Z {T23.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T24] 2026-10-26T17:48:06Z {T24.1} Argus: Moved the incident to MITIGATED - rolled [io-shop] back off revision [0d8e826225f0de73958a8a8dd3d867b2ae249e72] and the rule that fired stopped firing\n  - [T25] 2026-10-26T17:49:18Z {T25.1} Code-Fix Agent: Proposed a fix as a draft pull request - https://github.com/ohadraz/Argus-Demo-Target-App/pull/365\n\nChanges to production it read:\n  - [P1] 2026-10-26T13:39:00Z {P1.1} deploy 544cef36a8eaf45c5b030c3d5c21473d8176cef3 by kuki: deployed revision 544cef36a8eaf45c5b030c3d5c21473d8176cef3 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - [P2] 2026-10-26T17:39:00Z {P2.1} deploy 0d8e826225f0de73958a8a8dd3d867b2ae249e72 by kuki: deployed revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - Flags read, none came back.\n\nLog lines it read, one per message:\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 17 {G46bc.1} occurrences in 9 {G46bc.2} minutes, 17:38\u201317:46 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 9 {Gbac1.1} occurrences in 9 {Gbac1.2} minutes, 17:38\u201317:46 {Gbac1.3}; # was 0.50% {Gbac1.4} to 4.00% {Gbac1.5}, typically 1.00% {Gbac1.6}, highest at 17:46 {Gbac1.7}\n  - [Gd3f7] ERROR io-shop: summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (# of 200 {Gd3f7.1} requests) - 8 {Gd3f7.2} occurrences in 8 {Gd3f7.3} minutes, 17:39\u201317:46 {Gd3f7.4}; # was 35 {Gd3f7.5} to 200 {Gd3f7.6}, typically 200 {Gd3f7.7}, highest at 17:40 {Gd3f7.8}\n\nCandidates it considered, in the Investigator's words - cite them; what they claim is not what happened unless a row of the record shows it:\n  - [C1] The deployment of revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72 at 2026-10-26T17:39:00Z {C1.1} changed the summary cache port in deploy/values-production.yaml from 6379 {C1.2} to 6380 {C1.3}. Cache lookups are now refused on every request. The page falls back to the slow path, so p50 latency rose from about 26ms {C1.4} to about 190ms {C1.5} and cache_hit_ratio fell to 0 {C1.6}. The code is unchanged and the cache itself is healthy. [config-induced-failure, confidence 0.93 {C1.7}, confirmed]\n\nActions it took:\n  - [M1] Rolled back the deployment of io-shop (can be put back) - confirmed, still in place\n\nWhat each deployment it looked into changed:\n  - [D1] Deployment of revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72 to io-shop, compared against 544cef36a8eaf45c5b030c3d5c21473d8176cef3 - the revision deployed before it.\n      modified deploy/values-production.yaml\n        @@ -22,4 +22,4 @@ resources:\n         # address is right.\n         cache:\n           host: cache.io-shop.svc.cluster.local\n        -  port: 6379 {D1.1}\n        +  port: 6380 {D1.2}\n  - A file [D1] does not list is as it was at the revision [D1] compares against.\n\nWhat Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its test or its fix, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] The fault is in deploy/values-production.yaml. Revision 0d8e826 changed `cache.port` from 6379 {F1.1} to 6380 {F1.2}. The investigation's evidence shows every lookup being refused at redis://cache.io-shop.svc.cluster.local:6380, while the cache itself is healthy. That points to 6379 {F1.3} as the port the cache listens on.\n      \n      The change sets `cache.port` back to 6379 {F1.4} in deploy/values-production.yaml. Nothing else in that file changes.\n      \n      I added tests/io_shop/test_deploy_values.py. It reads deploy/values-production.yaml, pulls out the keys under the top-level `cache:` block, and checks that `port` is 6379 {F1.5} and `host` is cache.io-shop.svc.cluster.local. A wrong port doesn't make pages fail, only slow, so this test is what would catch the same edit in review before it ships. Against the file as it stands (6380 {F1.6}) the port check should fail; with this change it should pass. Nothing has run it yet.\n      \n      One caveat: if the cache is ever moved to 6380 {F1.7} on purpose, the test's `CACHE_PORT` constant has to be updated along with the cache itself.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'. [F1] names revision 0d8e826 and [D1] is that revision's own diff - say what it shows rather than ask for it to be checked.\n\nWhat ran, read at the revision running when the alert fired:\n  - [S1] deploy/values-production.yaml at 0d8e826\n      # Deployment configuration for the io-shop account service, production.\n      #\n      # Rendered into the cluster as a ConfigMap and mounted into the pod, which is\n      # why the service reads this file rather than being handed environment\n      # variables: the values here are the deployment's, not the code's, and changing\n      # one is a change to configuration that ships without the service being rebuilt.\n      #\n      # Owned by whoever runs the shop. Changes here go out the way any other change\n      # goes out - reviewed, merged, and synced by the platform - and land without a\n      # single line of io-shop's source being touched.\n      \n      replicas: 3 {S1.1}\n      \n      resources:\n        memoryLimitMiB: 2048 {S1.2}\n      \n      # Where the rendered-summary cache lives.\n      #\n      # The account page reads this cache before it works a shopper's spend figure\n      # out, and recomputes when the cache has nothing or cannot be reached. So the\n      # shop stays correct whatever is written here - it only stays *fast* while the\n      # address is right.\n      cache:\n        host: cache.io-shop.svc.cluster.local\n        port: 6380 {S1.3}\n      \n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Rolled back the deployment of io-shop\n  - AI-2 (prevent, open): Review and merge the proposed fix\n  - AI-3 (mitigate, open): Turn automatic sync of io-shop back on once its repository says what should run - until then nothing merged reaches it, and turned on sooner it puts back what the repository says, undoing what Argus changed by hand\nPR #365 is a draft Argus opened for a person to review and merge. The record holds nothing about it after that: do not say it was reviewed, approved or merged, or that it was not - nor that the record holds nothing, which the document says itself. Nothing ran its test or its fix: say what it proposes, not that it corrects anything.\nThe document already states what set it off, in a section of its own: the change [P2].\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01KCZMZuNQbHhenvnXpVJkzm",
+          "input": {
+            "action_items": [
+              {
+                "answers": [
+                  "CF-1"
+                ],
+                "item": "Add a deploy-time check that blocks an io-shop rollout unless the service can connect to the summary cache at the configured host and port.",
+                "type": "prevent"
+              },
+              {
+                "answers": [
+                  "CF-2"
+                ],
+                "item": "Add an alert on io-shop summary cache lookup failures, such as connection refused, so a broken cache address is flagged directly rather than only through latency.",
+                "type": "detect"
+              }
+            ],
+            "causal_chain": [
+              {
+                "cites": [
+                  "AL1",
+                  "T5",
+                  "T6"
+                ],
+                "ruled_out": [],
+                "step": "Shoppers' account pages loaded slowly. The median time to serve a request rose from {series_before} before the onset to {series_while_broken} on average while it was broken, and was {series_at_worst} at its worst. Failed requests did not rise beyond their normal variation."
+              },
+              {
+                "cites": [
+                  "Gd3f7",
+                  "S1"
+                ],
+                "ruled_out": [],
+                "step": "The account page was recomputing each shopper's summary instead of reading it from the summary cache, because every cache lookup was failing with connection refused. The running configuration says the page recomputes whenever the cache cannot be reached."
+              },
+              {
+                "cites": [
+                  "S1",
+                  "T11",
+                  "Gd3f7",
+                  "M1",
+                  "T22"
+                ],
+                "ruled_out": [],
+                "step": "Lookups were refused because the running configuration pointed the service at port {S1.3} on the cache host, and the cache refused connections there. As of {T11.1}, all {T11.2} replicas ran revision 0d8e826, whose deploy/values-production.yaml sets that port. With the port rolled back, the service returned to normal."
+              },
+              {
+                "cites": [
+                  "P2",
+                  "D1",
+                  "M1",
+                  "T23"
+                ],
+                "ruled_out": [
+                  {
+                    "cites": [
+                      "T5",
+                      "M1",
+                      "T22",
+                      "T23"
+                    ],
+                    "what": "The earlier deploy of revision 544cef36a8eaf45c5b030c3d5c21473d8176cef3 at {P1.1}. The metrics read back show the service at its normal latency between that deploy and the onset. The confirmed rollback put that revision back and the service recovered."
+                  },
+                  {
+                    "cites": [
+                      "T17"
+                    ],
+                    "what": "A feature flag change. The flag provider showed {T17.2} flag changes by anyone but Argus in the {T17.3} hour before {T17.4}."
+                  },
+                  {
+                    "cites": [
+                      "D1"
+                    ],
+                    "what": "A change to io-shop's code. The deployment's diff modifies only deploy/values-production.yaml, and every file it does not list is as it was at the previous revision."
+                  }
+                ],
+                "step": "The deploy at {P2.1} of revision 0d8e826 changed cache.port in deploy/values-production.yaml from {D1.1} to {D1.2}. It was the only change in that deployment's diff. Rolling that deployment back was confirmed to end the incident. The record does not show why the port was changed."
+              }
+            ],
+            "cause_in_plain_words": "A configuration change pointed the shop at the wrong door on its cache, so every cache lookup was refused and the account page had to work each shopper's figures out from scratch, which kept it correct but made it slow.",
+            "cause_rests_on_an_unrun_reading": false,
+            "contributing_factors": [
+              {
+                "addressed_by": [
+                  "AI-2"
+                ],
+                "factor": "No check was seen, in review or at deploy, that the cache address in deploy/values-production.yaml points to where the cache accepts connections. That file ships as configuration without the service being rebuilt, so a wrong port does not break any build.",
+                "had_it_been_otherwise": "The port edit would have been caught before revision 0d8e826 reached production, and account pages would not have slowed.",
+                "label": "CF-1"
+              },
+              {
+                "addressed_by": [],
+                "factor": "Because the page falls back to recomputing, refused cache lookups show up only as slowness, not as failed requests. No alert on cache lookup failures was seen. The fault was found only by the median latency alert, after its condition had held through the rule's wait.",
+                "had_it_been_otherwise": "An alert on refused cache lookups, which the logs show starting at the deploy, would have flagged the fault sooner and pointed straight at the cache address.",
+                "label": "CF-2"
+              }
+            ],
+            "lessons": {
+              "got_lucky": [],
+              "went_well": [
+                "Argus rolled back the deployment of io-shop {T20.1 - alert_raised} after the alert was raised.",
+                "The Mitigation Agent confirmed, {T23.1 - alert_raised} after the alert was raised, that the rollback had brought the service back from the incident's level.",
+                "The Investigator tied the slowdown to the port change by pairing the deployment's diff with the refused cache lookups in the logs, and checked the flag provider's history.",
+                "Code-Fix proposed a fix, with a test, as a draft pull request (T25)."
+              ],
+              "went_wrong": [
+                "Nobody was paged, so no person on call was told about the incident or the rollback while it ran."
+              ]
+            },
+            "reaches_a_cause": true,
+            "root_cause": "Revision 0d8e826 changed the summary cache port in deploy/values-production.yaml from {D1.1} to {D1.2}, and the cache refused connections on the new port. Every cache lookup failed, so the account page fell back to recomputing each shopper's summary on every request. The page stayed correct but became slow.",
+            "still_at_risk": "The repository's deploy/values-production.yaml still sets the cache port to {S1.3}, where lookups were refused, so syncing or deploying io-shop from the repository as it stands would put that port back and slow account pages again.",
+            "symptom": "Shoppers' account pages loaded slowly"
+          },
+          "name": "submit_postmortem",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "Your postmortem was not accepted:\n  - the root_cause names [0d8e826] by its revision - the document states which change set it off; say why that change broke the service\n\nCall submit_postmortem again with the whole answer, corrected.",
+          "is_error": true,
+          "tool_use_id": "toolu_01KCZMZuNQbHhenvnXpVJkzm",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label you cite (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_items": {
+            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answers": {
+                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "item": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mitigate",
+                    "prevent",
+                    "detect",
+                    "process"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "type",
+                "answers"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "assumptions": {
+            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "causal_chain": {
+            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cites": {
+                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ruled_out": {
+                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cites": {
+                        "description": "The labels of what ruled it out.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "what": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "what",
+                      "cites"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "step": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step",
+                "cites",
+                "ruled_out"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cause_in_plain_words": {
+            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
+            "type": "string"
+          },
+          "cause_rests_on_an_unrun_reading": {
+            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
+            "type": "boolean"
+          },
+          "contributing_factors": {
+            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "addressed_by": {
+                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "factor": {
+                  "type": "string"
+                },
+                "had_it_been_otherwise": {
+                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "factor",
+                "had_it_been_otherwise",
+                "addressed_by"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "lessons": {
+            "additionalProperties": false,
+            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
+            "properties": {
+              "got_lucky": {
+                "description": "Something the record shows went the fortunate way by chance, and would have made it worse had it not. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed. Not how the service did over a stretch its metrics did not cover, nor what a failure there would have done - the document says how it did.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "went_well": {
+                "description": "Where one says how quickly Argus did something, write the span as a working of two instants - a T or P row's instant is its first figure, as T3.1 is T3's: {T3.1 - alert_raised}, not in words (\"within seconds\"). Set the span beside what it times - the thing its later instant dates - not after something else in the same sentence: \"Argus confirmed, {T20.1 - alert_raised} after the alert was raised, that the rollback had brought the service back\", not \"Argus confirmed the rollback had brought the service back from the incident's level {T20.1 - alert_raised} after the alert was raised\". Set a purpose or a reason beside the action it belongs to, and say it once. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "went_wrong": {
+                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "went_well",
+              "went_wrong",
+              "got_lucky"
+            ],
+            "type": "object"
+          },
+          "reaches_a_cause": {
+            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
+            "type": "boolean"
+          },
+          "root_cause": {
+            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
+            "type": "string"
+          },
+          "still_at_risk": {
+            "description": "What was still at risk at the end of the time Argus held the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say only what the record says: nothing of the service after that was read.",
+            "type": "string"
+          },
+          "symptom": {
+            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself, after your sentence and a 'while', so end on what went wrong, with no clause after it - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_cause",
+          "cause_in_plain_words",
+          "still_at_risk",
+          "symptom",
+          "causal_chain",
+          "contributing_factors",
+          "action_items",
+          "lessons",
+          "reaches_a_cause",
+          "cause_rests_on_an_unrun_reading"
+        ],
+        "type": "object"
+      },
+      "name": "submit_postmortem",
+      "strict": true
+    }
+  ]
+}

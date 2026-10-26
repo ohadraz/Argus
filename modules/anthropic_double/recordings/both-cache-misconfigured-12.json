@@ -1,0 +1,156 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQSngUKEAgTGAI4AUIIdGhpbmtpbmcSDJb3L/86e7Zy1L/0cBoMzeUB16WYL83dDOkHIjA4V8/16qUgHW6S6t3ONvXqGhLn9leUD/kenxwQrZjQ8v12zdn8l3m1yIDS+8gJXCgquwRSVV7BqKPL7Vhherxoiev92GZumCokz/WeEUr/sy9SRF5aYycNK3T1BiQEmc+M0KjljfcRQJyWs7cBtyo8u4TWJDaF2AN4VcKiLdA0F59TPfkd0qlSZOdThp4r+R4dFu8qNZ7+oh7ndKahVnjneIk0tDNF3Hv/tIPqhM39b2N5WkoE1gSvvlBMWthVag2Hpqj5dz8H2m2HWDX+PSsk9Lprh8v/i75R1n2Udxn3REP/ndQd9eOEeI1mF3eqFYJ3lrAhIHHP86Y8AdG0DU+0iBGlCyHdWN53AC0BRwYjHlnumA+eDCrVvfgKsNeK8WpVg19HHs299Rkvmzxgi/Ad9vq642RYwICbCGtn9nK79Pbm/tzlz6dZnrAXTa0ERQtMWlTBU8FSp5D37o5Uanf7sqr6UwxqKmB2/kiaDw4hqiLlWdYUk87GXGb+W1atjPK4akfsmELB/y8g6H2+Dq2hoRNuXHzyEk8ItkBR/6QjN33Tyd0bKrUPNhvC3+8PDV4j1BYHnjEhHMwlGlqnABQoPsX3Nkb1yj3Y0Eoa4GFuNLY9pLE8/HNhk/3Fths6uJioI43GGKst4bciFZ1GPNHi/I67hoNcn47ladMmsuU1fIATp0SHSvHgEowq1B5ZntvsVXgAaNPtOshV7FtHYqAnAKO+q92r9rsn+2FZvOCPiJTd07Ux2ojt2SsYs7EhKLj+nveqiGxqKDXW5/drBM+2mXyazur+j4aYby8Sl/cVIbF9b1BW4YAZnRxI8JVAGAE=",
+      "thinking": "I should strip the revision name out of the root_cause field, though it's fine if the chain step still references the revision elsewhere.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01LBjNhof7QMnpHYZko9foM6",
+      "input": {
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a deploy-time check that blocks an io-shop rollout unless the service can connect to the summary cache at the configured host and port.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add an alert on io-shop summary cache lookup failures, such as connection refused, so a broken cache address is flagged directly rather than only through latency.",
+            "type": "detect"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T5",
+              "T6"
+            ],
+            "ruled_out": [],
+            "step": "Shoppers' account pages loaded slowly. The median time to serve a request rose from {series_before} before the onset to {series_while_broken} on average while it was broken, and was {series_at_worst} at its worst. Failed requests did not rise beyond their normal variation."
+          },
+          {
+            "cites": [
+              "Gd3f7",
+              "S1"
+            ],
+            "ruled_out": [],
+            "step": "The account page was recomputing each shopper's summary instead of reading it from the summary cache, because every cache lookup was failing with connection refused. The running configuration says the page recomputes whenever the cache cannot be reached."
+          },
+          {
+            "cites": [
+              "S1",
+              "T11",
+              "Gd3f7",
+              "M1",
+              "T22"
+            ],
+            "ruled_out": [],
+            "step": "Lookups were refused because the running configuration pointed the service at port {S1.3} on the cache host, and the cache refused connections there. As of {T11.1}, all {T11.2} replicas ran revision 0d8e826, whose deploy/values-production.yaml sets that port. With the port rolled back, the service returned to normal."
+          },
+          {
+            "cites": [
+              "P2",
+              "D1",
+              "M1",
+              "T23"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T5",
+                  "M1",
+                  "T22",
+                  "T23"
+                ],
+                "what": "The earlier deploy of revision 544cef36a8eaf45c5b030c3d5c21473d8176cef3 at {P1.1}. The metrics read back show the service at its normal latency between that deploy and the onset. The confirmed rollback put that revision back and the service recovered."
+              },
+              {
+                "cites": [
+                  "T17"
+                ],
+                "what": "A feature flag change. The flag provider showed {T17.2} flag changes by anyone but Argus in the {T17.3} hour before {T17.4}."
+              },
+              {
+                "cites": [
+                  "D1"
+                ],
+                "what": "A change to io-shop's code. The deployment's diff modifies only deploy/values-production.yaml, and every file it does not list is as it was at the previous revision."
+              }
+            ],
+            "step": "The deploy at {P2.1} of revision 0d8e826 changed cache.port in deploy/values-production.yaml from {D1.1} to {D1.2}. It was the only change in that deployment's diff. Rolling that deployment back was confirmed to end the incident. The record does not show why the port was changed."
+          }
+        ],
+        "cause_in_plain_words": "A configuration change pointed the shop at the wrong door on its cache, so every cache lookup was refused and the account page had to work each shopper's figures out from scratch, which kept it correct but made it slow.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "No check was seen, in review or at deploy, that the cache address in deploy/values-production.yaml points to where the cache accepts connections. That file ships as configuration without the service being rebuilt, so a wrong port does not break any build.",
+            "had_it_been_otherwise": "The port edit would have been caught before it reached production, and account pages would not have slowed.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "Because the page falls back to recomputing, refused cache lookups show up only as slowness, not as failed requests. No alert on cache lookup failures was seen. The fault was found only by the median latency alert, after its condition had held through the rule's wait.",
+            "had_it_been_otherwise": "An alert on refused cache lookups, which the logs show starting at the deploy, would have flagged the fault sooner and pointed straight at the cache address.",
+            "label": "CF-2"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            "Argus rolled back the deployment of io-shop {T20.1 - alert_raised} after the alert was raised.",
+            "The Mitigation Agent confirmed, {T23.1 - alert_raised} after the alert was raised, that the rollback had brought the service back from the incident's level.",
+            "The Investigator tied the slowdown to the port change by pairing the deployment's diff with the refused cache lookups in the logs, and checked the flag provider's history.",
+            "Code-Fix proposed a fix, with a test, as a draft pull request (T25)."
+          ],
+          "went_wrong": [
+            "Nobody was paged, so no person on call was told about the incident or the rollback while it ran."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The deployment changed the summary cache port in deploy/values-production.yaml from {D1.1} to {D1.2}, and the cache refused connections on the new port. Every cache lookup failed, so the account page fell back to recomputing each shopper's summary on every request. The page stayed correct but became slow.",
+        "still_at_risk": "The repository's deploy/values-production.yaml still sets the cache port to {S1.3}, where lookups were refused, so syncing or deploying io-shop from the repository as it stands would put that port back and slow account pages again.",
+        "symptom": "Shoppers' account pages loaded slowly"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgRGimKphZVvJB979aBdB",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 2098
+    },
+    "cache_creation_input_tokens": 2098,
+    "cache_read_input_tokens": 10127,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 2037,
+    "output_tokens_details": {
+      "thinking_tokens": 39
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}

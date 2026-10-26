@@ -5,7 +5,7 @@
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01W5WQSwh8NQv7FC7Pn96FEN",
+      "id": "toolu_01L3GPEQt3wcTR8S1F8afyCD",
       "input": {
         "hypotheses": [
           {
@@ -13,33 +13,27 @@
             "failure_mode": "config-induced-failure",
             "faulting_service": null,
             "from_state": "6379",
-            "subject": "deploy/values-production.yaml cache.port",
-            "summary": "Deploy 0d8e826 changed the cache port in deploy/values-production.yaml from 6379 to 6380. The summary cache (healthy, optional) now refuses connections, so every account-page request misses the cache and walks purchase history. p50 rose from about 26ms to about 190ms and cache_hit_ratio fell to 0.",
+            "subject": "cache.port",
+            "summary": "The deployment of revision 0d8e826225f0de73958a8a8dd3d867b2ae249e72 at 2026-10-26T17:39:00Z changed the summary cache port in deploy/values-production.yaml from 6379 to 6380. Cache lookups are now refused on every request. The page falls back to the slow path, so p50 latency rose from about 26ms to about 190ms and cache_hit_ratio fell to 0. The code is unchanged and the cache itself is healthy.",
             "supporting_evidence": [
               {
-                "at": "2026-10-18T15:46:00Z",
-                "claim": "modified deploy/values-production.yaml: -  port: 6379 / +  port: 6380 (cache.host cache.io-shop.svc.cluster.local)"
+                "at": "2026-10-26T17:39:00Z",
+                "claim": "modified deploy/values-production.yaml: cache.port 6379 -> 6380 (only change in the diff)"
               },
               {
-                "at": "2026-10-18T15:47:00Z",
+                "at": "2026-10-26T17:40:00Z",
                 "claim": "summary cache lookup failed - connection refused to redis://cache.io-shop.svc.cluster.local:6380 (200 of 200 requests)"
               },
               {
-                "at": "2026-10-18T15:47:00Z",
-                "claim": "p50_ms 190, cache_hit_ratio 0.0 from 15:47; the rollout converged with all 3 replicas on 0d8e826"
+                "at": "2026-10-26T17:40:00Z",
+                "claim": "p50_ms 190, cache_hit_ratio 0.0, rule_reading 190.0 (baseline p50 about 26, hit ratio about 0.9)"
+              },
+              {
+                "at": "2026-10-26T17:39:00Z",
+                "claim": "Deployment converged: all 3 replicas on 0d8e826225f0de73958a8a8dd3d867b2ae249e72"
               }
             ],
             "to_state": "6380"
-          },
-          {
-            "confidence": 0.04,
-            "failure_mode": "bad-deployment",
-            "faulting_service": null,
-            "from_state": null,
-            "subject": null,
-            "summary": "Alternative: the deployment shipped bad code. Weaker, because the diff touched only configuration.",
-            "supporting_evidence": [],
-            "to_state": null
           }
         ]
       },
@@ -48,7 +42,7 @@
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg9yEpjecyxQnSWgdeKgK",
+  "id": "msg_011CgRGQirjxSyLdqPgLqYuB",
   "model": "claude-sonnet-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -58,13 +52,13 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 421
+      "ephemeral_5m_input_tokens": 2194
     },
-    "cache_creation_input_tokens": 421,
-    "cache_read_input_tokens": 33947,
+    "cache_creation_input_tokens": 2194,
+    "cache_read_input_tokens": 32348,
     "inference_geo": "global",
     "input_tokens": 2,
-    "output_tokens": 579,
+    "output_tokens": 574,
     "output_tokens_details": {
       "thinking_tokens": 0
     },
