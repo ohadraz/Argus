@@ -480,9 +480,10 @@ def test_no_meaning_says_what_answers_it(cause: FailureMode) -> None:
 
 
 def _never_says(word: str) -> Assertion[str]:
-    """That a meaning never puts one word in front of the model."""
+    """That a meaning never puts one word in front of the model, whatever its
+    case - a sentence opening on it spells it with a capital."""
     def assertion(meaning: str) -> bool:
-        if word in meaning:
+        if word.lower() in meaning.lower():
             raise AssertionError(
                 f"Expected the meaning never to say [{word}], got [{meaning}]."
             )
@@ -769,7 +770,6 @@ def _the_pair_is_told_apart_by_what_stopped_reporting() -> Assertion[
 ]:
     """Each meaning has to say whether the service or its reporting is what broke.
 
-    Naming the other mode is not enough, for the reason it is not enough of any
     Naming the other mode is not enough, for the reason it is not enough of any
     pair above. What a model has in front of it is one change at the onset -
     a flag in one of the pairs this is asked of, a revision in the other - and
