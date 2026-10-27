@@ -34,6 +34,10 @@ SOME_ANSWER = "The checkout flag was switched on at 12:01, a minute before error
 # around them is free to be improved.
 WHAT_THE_MODEL_IS_HELD_TO = "only from"
 WHAT_IT_SAYS_OF_A_SILENT_RECORD = "does not say"
+# And that a line's measure is told in that line's words: "no longer at the
+# incident's level" retold as "back to normal" was an answer the record did not
+# give, since the two are different measures with different times.
+WHAT_A_MEASURE_IS_TOLD_IN = "in that line's own words"
 
 
 @pytest.mark.unit
@@ -154,6 +158,17 @@ def test_the_model_is_held_to_the_timeline() -> None:
         .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
         .then(all_of(_the_model_was_shown(asked, WHAT_THE_MODEL_IS_HELD_TO),
                      _the_model_was_shown(asked, WHAT_IT_SAYS_OF_A_SILENT_RECORD)))
+
+
+@pytest.mark.unit
+def test_the_model_is_held_to_each_lines_own_words_for_what_it_measured() -> None:
+    asked: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
+                                             recording_into=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model)) \
+        .then(_the_model_was_shown(asked, WHAT_A_MEASURE_IS_TOLD_IN))
 
 
 @pytest.mark.unit

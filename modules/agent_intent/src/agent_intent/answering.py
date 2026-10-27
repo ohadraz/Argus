@@ -82,6 +82,9 @@ def _the_opening(question: str, story: Sequence[NarrationLine]) -> Transcript:
         "Answer only from these lines. Where they do not hold the answer, say "
         "that the record does not say, rather than guessing. Do not say Argus "
         "will do anything; answer what happened.",
+        "Tell what a line says was measured or seen in that line's own words, "
+        "never as another measure: a service no longer at the incident's level "
+        "has left that level, which is not the same as being back to normal.",
         "",
         f"Call {ANSWER_TOOL_NAME} with your answer."
     ]))]
