@@ -524,6 +524,25 @@ def paid_contract(session: nox.Session) -> None:
 _CONTRACT_PROJECT: Final = ("-p", "argus-contract")
 
 
+def _by_default(*paths: str) -> list[str]:
+    """`paths` as what pytest collects when nothing after `--` names a path -
+    a file, or one test in it by node id - and set aside, by pytest, when
+    something does.
+
+    Pytest decides, because only pytest knows its own grammar: which argument
+    is an option's value (`--deselect x.py::y`, `--splits 2`, `-k fallback`)
+    and which a path. Passed as paths, the defaults ran beside the one case
+    asked for - the whole suite at its wall clock, and under `eval` at its
+    price. A guess here at which argument names a case read an option's value
+    as one, dropped the defaults, and left pytest collecting from the
+    repository root: every module's suite, and `tests/integration`, which
+    empties the stack's own database. A path named outright is never
+    `--ignore`d either, so an `--ignore` beside these leaves out only what the
+    defaults would have collected.
+    """
+    return ["-o", f"testpaths={' '.join(paths)}"]
+
+
 def _contract_against(session: nox.Session,
                       doubles: list[tuple[str, list[str], str]],
                       tests: list[str],
@@ -546,7 +565,7 @@ def _contract_against(session: nox.Session,
                 *compose_services, external=True
             )
         session.run(
-            "uv", "run", "python", "-m", "pytest", *tests, "-v",
+            "uv", "run", "python", "-m", "pytest", *_by_default(*tests), "-v",
             *session.posargs, external=True
         )
     finally:
@@ -662,7 +681,7 @@ def grade_fixes(session: nox.Session) -> None:
     overwriting files there and putting them back with git.
     """
     session.run(
-        "uv", "run", "python", "-m", "pytest", _THE_FREE_EVAL, "-v",
+        "uv", "run", "python", "-m", "pytest", *_by_default(_THE_FREE_EVAL), "-v",
         *session.posargs, external=True
     )
 
@@ -693,7 +712,7 @@ def eval_(session: nox.Session) -> None:
     # case that was asked for, which it did once, at five times the intended
     # price.
     session.run(
-        "uv", "run", "python", "-m", "pytest", "tests/eval",
+        "uv", "run", "python", "-m", "pytest", *_by_default("tests/eval"),
         f"--ignore={_THE_FREE_EVAL}", "-v", *session.posargs, external=True
     )
 
@@ -1882,17 +1901,6 @@ _HOLD: Final = "--hold"
 _THE_HOLD_VARIABLE: Final = "ARGUS_E2E_HOLD"
 
 
-def _names_a_case(given: str) -> bool:
-    """Whether an argument after `--` names a case - a file, or one test in it
-    by pytest's node id (`tests/e2e/test_x.py::test_y`).
-
-    The node id counts too: read as anything but a case, it left the suite's
-    own paths in place beside it, and the one case asked for ran as the whole
-    suite.
-    """
-    return given.partition("::")[0].endswith(".py")
-
-
 def _run_against_the_stack(
     session: nox.Session,
     test_paths: list[str],
@@ -2156,24 +2164,15 @@ def e2e(session: nox.Session) -> None:
     A subset of the suite is run against the real API by naming it -
     `nox -s e2e -- tests/e2e/<case>.py`.
     """
-    # Nothing at all when a case was named: `_run_against_the_stack` appends
-    # `session.posargs` to pytest itself, so naming the suite here as well would
-    # collect the whole of it beside the case somebody asked for by name.
     # Against the real repository, because this is the run that reaches the
     # real model. What Code-Fix proposes is decided by the source in front of
     # it, so a paid run reading a fixture is paying to watch the agent work on
     # a stand-in - and the pull request it opens, which is the deliverable a
     # person is handed (spec §13), would be one nobody can open. Cleaned up on
     # the way down by `_put_the_repository_back`.
-    # A named case is a path, as in `e2e_replay`: an option's own value is not
-    # one, and treating it as one would leave this run collecting the whole
-    # repository against the real model - the one session where that is also
-    # billed.
-    named_cases = [given for given in session.posargs if _names_a_case(given)]
-
     _run_against_the_stack(
         session,
-        [] if named_cases else ["tests/e2e"],
+        _by_default("tests/e2e"),
         # Both real, because both are the deliverable. This run exists to show
         # the whole thing working against the real world, and an incident that
         # reached a person is half of what it has to show - a message posted at
@@ -2282,30 +2281,10 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     # pytest process that seeds the double all have to agree about which mode
     # this run is, and only an inherited setting cannot disagree.
     os.environ["CODE_SEARCH"] = mode
-    # A case named after `--` has to mean *only* that case. What follows `--` is
-    # appended to pytest by `_run_against_the_stack`, so passing the whole
-    # directory as well collects the named file on top of everything else and
-    # runs the entire suite regardless - which is what a narrowed replay
-    # silently did, at a full suite's wall clock, while reporting itself as the
-    # cases that were asked for.
-    #
-    # Told apart by whether the argument names a file: `-- -k fallback` narrows
-    # the default selection and needs the directory left in place, where
-    # `-- tests/e2e/test_x.py` replaces it. `e2e` draws the same line, and both
-    # leave the mode's `--ignore`s behind with the default - somebody who named
-    # a case has already decided it is the one to run.
-    #
-    # A path, rather than anything without a leading dash. An option carries
-    # values of its own - `--splits 2 --group 1` from CI, `-k fallback` from a
-    # hand - and reading those as filenames drops the suite's own paths,
-    # leaving pytest to collect from the repository root:
-    # every module's tests and the contract suite, run against a stack none of
-    # them asked for.
-    named_cases = [given for given in session.posargs if _names_a_case(given)]
 
     _run_against_the_stack(
         session,
-        [] if named_cases else _the_cases_for(mode),
+        _the_cases_for(mode),
         service_env=_THE_MODEL_AT_ITS_DOUBLES,
         model_stands_in=True,
         # A recorded answer cites the world it was recorded in, so the shop
@@ -2419,7 +2398,7 @@ def _the_cases_for(mode: str) -> list[str]:
     if mode == _SEARCHING_BY_GREP_ALONE:
         left_out.append(f"--ignore={_CASES_ABOUT_THE_INDEX}")
 
-    return ["tests/e2e", *left_out]
+    return [*_by_default("tests/e2e"), *left_out]
 
 
 # The recorder's flag for a write-up captured over a walk already on disk.
