@@ -31,7 +31,7 @@ from agent_mitigation.tools import (
     ServiceRestarter,
 )
 from agent_mitigation.trying import UndoChange
-from argus_core import new_id
+from argus_core import RunLost, new_id
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
@@ -65,6 +65,8 @@ from argus_testkit import (
     Assertion,
     Scenario,
     all_of,
+    an_error_was_raised,
+    attempting,
     calling,
     dont_care_sleep,
     one_record_was_logged,
@@ -472,6 +474,32 @@ def test_an_attempt_that_ended_before_its_write_tells_of_no_change(
         ) \
         .then(
             _no_change_was_told(happened)
+        )
+
+
+@pytest.mark.unit
+def test_an_action_refused_because_the_run_was_lost_is_raised_rather_than_escalated() -> None:
+    # The run is another claim's walk now. An escalation said from here would be
+    # said for an incident somebody else is walking, and the walk that lost the
+    # run stops writing anything at all.
+    Scenario() \
+        .given(
+            set_state := _a_flag_setter_told_the_run_was_lost()
+        ) \
+        .when(attempting(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=True),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(set_state=set_state),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
         )
 
 
@@ -2816,6 +2844,14 @@ def _a_flag_setter_that_cannot_write(failure: str) -> MagicMock:
     """The provider refuses the write, so the flag never moved."""
     set_state: MagicMock = create_autospec(FlagSetter, instance=True)
     set_state.side_effect = RuntimeError(failure)
+
+    return set_state
+
+
+def _a_flag_setter_told_the_run_was_lost() -> MagicMock:
+    """The write tier refuses the write: the run is a newer claim's."""
+    set_state: MagicMock = create_autospec(FlagSetter, instance=True)
+    set_state.side_effect = RunLost("a newer claim holds this run")
 
     return set_state
 

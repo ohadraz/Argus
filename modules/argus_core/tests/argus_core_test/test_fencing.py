@@ -259,6 +259,45 @@ def test_a_run_is_held_only_for_as_long_as_it_is_walked() -> None:
         )
 
 
+@pytest.mark.unit
+def test_a_fence_is_heard_back_as_the_claim_it_was_spoken_for() -> None:
+    # Spoken by a worker onto its connections and into its calls to the write
+    # tier, and heard by the tier deciding whether to make a change - two
+    # processes, and one spelling between them.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+
+    Scenario() \
+        .given(
+            some_fence
+        ) \
+        .when(
+            lambda: Fence.heard(some_fence.spoken())
+        ) \
+        .then(
+            _heard_as(some_fence)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("spoken", ["", "6f1c1d2e-no-epoch", "6f1c1d2e:three", ":3",
+                                    "6f1c1d2e:²"],
+                         ids=["nothing", "no-epoch", "epoch-not-a-number", "no-run",
+                              "epoch-not-an-ascii-digit"])
+def test_what_is_not_a_fence_is_heard_as_none(spoken: str) -> None:
+    # Heard from whatever a caller sent, so a caller that sent something else
+    # is told it named no run rather than having a run made up for it.
+    Scenario() \
+        .given(
+            spoken
+        ) \
+        .when(
+            lambda: Fence.heard(spoken)
+        ) \
+        .then(
+            _heard_as(None)
+        )
+
+
 def _a_connection_named(application: str) -> psycopg.Connection:
     return psycopg.connect(get_settings().database_url, application_name=application)
 
@@ -501,6 +540,16 @@ def _the_answer_is(expected: bool) -> Assertion[Any]:
     def assertion(answer: Any) -> bool:
         if answer is not expected:
             raise AssertionError(f"Expected [{expected}], got [{answer}].")
+
+        return True
+
+    return assertion
+
+
+def _heard_as(expected: Fence | None) -> Assertion[Fence | None]:
+    def assertion(heard: Fence | None) -> bool:
+        if heard != expected:
+            raise AssertionError(f"Expected it heard as [{expected}], got [{heard}].")
 
         return True
 

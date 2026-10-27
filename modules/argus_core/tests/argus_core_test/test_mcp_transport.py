@@ -29,6 +29,7 @@ from unittest.mock import create_autospec
 
 import pytest
 import uvicorn
+from argus_core import Fence, Holding, RunLost
 from argus_core.mcp_transport import (
     ActionExhausted,
     McpClient,
@@ -72,6 +73,7 @@ LONG_ENOUGH_TO_HAVE_COME_BACK = 15.0
 
 SOMETHING = TypeAdapter(list[str])
 A_COUNT = TypeAdapter(int)
+A_FENCE_HEARD = TypeAdapter(dict[str, object])
 
 NOTHING_IS_LISTENING_HERE = "http://127.0.0.1:8199/mcp"
 DONT_CARE_TOOL = "say_something"
@@ -139,8 +141,8 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
                 _the_tools_listed_are([
                     "say_something", "refuse", "times_refused", "refuse_as_exhausted",
                     "refuse_as_unreachable_platform",
-                    "refuse_as_unreachable_platform_mid_action", "dawdle",
-                    "the_trace_i_am_in"
+                    "refuse_as_unreachable_platform_mid_action", "refuse_as_lost_run",
+                    "the_fence_i_was_sent", "dawdle", "the_trace_i_am_in"
                 ]),
                 _the_tool_listed_requires("dawdle", ["seconds"]),
                 _the_tool_listed_is_described("refuse_as_exhausted",
@@ -230,6 +232,115 @@ def test_an_ordinary_refusal_is_not_read_as_an_exhausted_action(
             _what_was_raised_was(McpToolError),
             _what_was_raised_was_not(ActionExhausted)
         ))
+
+
+@pytest.mark.component
+def test_a_call_made_while_a_run_is_held_says_which_claim_it_is_made_for(
+    running_double: RunningDouble
+) -> None:
+    # What the write tier decides a change by: a change made for a claim the run
+    # has moved past is a second walk acting on somebody else's incident. In
+    # each call's `_meta` rather than in a header, because the session is held
+    # and its headers were fixed before any run was claimed.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    holding = Holding()
+
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_while_holding(running_double, holding, some_fence, _the_fence_sent)
+        ) \
+        .then(
+            the_answer_was({"run_id": some_fence.run_id, "epoch": some_fence.epoch})
+        )
+
+
+@pytest.mark.component
+def test_each_call_says_the_claim_held_as_it_is_made(running_double: RunningDouble) -> None:
+    # A worker's write client is one session for the life of the process, and
+    # the process walks one run after another over it. A claim read once, when
+    # the session opened, would be the first run's claim said for every run
+    # after it.
+    some_first_run = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    some_next_run = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000002", epoch=1)
+    holding = Holding()
+
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_holding(running_double, holding, lambda client: [
+                _the_fence_sent_while_holding(holding, some_first_run, client),
+                _the_fence_sent_while_holding(holding, some_next_run, client)
+            ])
+        ) \
+        .then(
+            the_answer_was([
+                {"run_id": some_first_run.run_id, "epoch": some_first_run.epoch},
+                {"run_id": some_next_run.run_id, "epoch": some_next_run.epoch}
+            ])
+        )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("holding", [None, Holding()], ids=["no-holding", "nothing-held"])
+def test_a_call_made_while_no_run_is_held_names_none(
+    holding: Holding | None, running_double: RunningDouble
+) -> None:
+    # A web route's read, or a worker between runs. The tier answers a change
+    # that names no run as an ordinary refusal, so naming none here must not
+    # be naming some other run.
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking_holding(running_double, holding, _the_fence_sent)
+        ) \
+        .then(
+            the_answer_was({})
+        )
+
+
+@pytest.mark.component
+def test_a_refusal_the_server_marked_as_a_lost_run_says_so_and_is_not_asked_again(
+    running_double: RunningDouble
+) -> None:
+    # The walk stops on it, writing nothing more - so it arrives as the walk's
+    # own `RunLost` rather than as a tool that broke. And it is not asked again
+    # over a new session: the run is lost over every session there is.
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking(running_double, _refusing_as_a_lost_run_and_counting)
+        ) \
+        .then(all_of(
+            _what_was_raised_was(RunLost),
+            _the_tool_was_asked(times=1)
+        ))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_read_as_a_lost_run(
+    running_double: RunningDouble
+) -> None:
+    # A walk told its run was lost writes nothing more, so a broken tool read as
+    # one would end an incident in silence rather than at a human.
+    Scenario() \
+        .given(
+            running_double
+        ) \
+        .when(
+            _asking(running_double, _refusing_once_and_counting)
+        ) \
+        .then(
+            _what_was_raised_was_not(RunLost)
+        )
 
 
 @pytest.mark.component
@@ -855,6 +966,50 @@ def _refusing_once_and_counting(client: McpClient) -> _Attempt:
         )
 
     return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
+
+
+def _refusing_as_a_lost_run_and_counting(client: McpClient) -> _Attempt:
+    try:
+        client.call("refuse_as_lost_run", SOMETHING.validate_python)
+    except Exception as refusal:
+        return _Attempt(
+            raised=refusal,
+            asked=client.call("times_refused", A_COUNT.validate_python)
+        )
+
+    return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
+
+
+def _the_fence_sent(client: McpClient) -> object:
+    return client.call("the_fence_i_was_sent", A_FENCE_HEARD.validate_python)
+
+
+def _the_fence_sent_while_holding(holding: Holding, held: Fence, client: McpClient) -> object:
+    with holding.of(held):
+        return _the_fence_sent(client)
+
+
+def _asking_while_holding[T](double: RunningDouble,
+                             holding: Holding,
+                             held: Fence,
+                             ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """`_asking`, with `held` held by the process for the length of the call."""
+    def step() -> T:
+        with McpClient(double.url, holding=holding) as client, holding.of(held):
+            return ask(client)
+
+    return step
+
+
+def _asking_holding[T](double: RunningDouble,
+                       holding: Holding | None,
+                       ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """`_asking`, by a client handed `holding` - or handed none."""
+    def step() -> T:
+        with McpClient(double.url, holding=holding) as client:
+            return ask(client)
+
+    return step
 
 
 def _refusing_then_asking_something_else(client: McpClient) -> _Attempt:

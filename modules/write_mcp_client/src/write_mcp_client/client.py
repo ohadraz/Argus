@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from argus_core import WriteMcpEndpoint
+from argus_core import Holding, WriteMcpEndpoint
 from argus_core.mcp_transport import McpClient
 from argus_core.models import (
     AcceleratorPinRestored,
@@ -53,15 +53,19 @@ _A_BRANCH: Final = TypeAdapter(str)
 _MCP_PATH: Final = "/mcp"
 
 
-def write_mcp(endpoint: WriteMcpEndpoint) -> McpClient:
+def write_mcp(endpoint: WriteMcpEndpoint, holding: Holding | None = None) -> McpClient:
     """A client holding one session to `argus-write-mcp`.
 
     Built where a process starts, and separate from the read tier's client
     because the servers are separate - two sessions to two addresses. Holding
     one authorizes nothing: what makes the write tier the write tier is the
     credential that server holds and the tools it has (spec §12.1, §13).
+
+    A process that walks runs hands over what it is `holding`, and each call
+    says the claim held as it is made: the tier makes a change only for the
+    claim that holds its run. A process holding none can still read.
     """
-    return McpClient(f"{endpoint.write_mcp_url}{_MCP_PATH}")
+    return McpClient(f"{endpoint.write_mcp_url}{_MCP_PATH}", holding=holding)
 
 
 def set_feature_flag(flag: str,

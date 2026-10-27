@@ -10,6 +10,7 @@ import urllib.request
 from collections.abc import Generator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from tempfile import mkdtemp
 from threading import Thread
 from typing import Any
@@ -87,6 +88,8 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     answering evaluation, the event log and admin toggles) plus a real
     `write_mcp_server` subprocess pointed at it - so a test can prove
     `write_mcp_client` reaches a real server without Docker or a real provider.
+    The server holds one run, `THE_RUN_HELD`, in place of a database's
+    (`a_write_server_holding_one_run`).
 
     Yields the handler class, so a test can set `.enabled_flags` and `.events`
     before calling through the client, and read `.enabled_flags` back
@@ -110,7 +113,12 @@ def a_running_write_mcp() -> Generator[type[FakeUnleashHandler]]:
     env["UNLEASH_FRONTEND_TOKEN"] = DONT_CARE_FRONTEND_TOKEN
     env["WRITE_MCP_HOST"] = "127.0.0.1"
     env["WRITE_MCP_PORT"] = str(WRITE_MCP_TEST_PORT)
-    write_mcp_process = subprocess.Popen([sys.executable, "-m", "write_mcp_server.server"], env=env)
+    # The suite is a package tree rather than an installed distribution, so a
+    # subprocess told to run one of its modules is told where the tree is.
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+    write_mcp_process = subprocess.Popen(
+        [sys.executable, "-m", "write_mcp_client_test.a_write_server_holding_one_run"], env=env
+    )
 
     os.environ["WRITE_MCP_HOST"] = env["WRITE_MCP_HOST"]
     os.environ["WRITE_MCP_PORT"] = env["WRITE_MCP_PORT"]

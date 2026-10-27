@@ -504,7 +504,9 @@ def main() -> None:
         open_pool(database, holding=holding) as pool,
         open_pool(database, holding=holding, connection=CHECKPOINTER_CONNECTIONS) as checkpoints,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
-        write_mcp(WriteMcpEndpoint.of(settings)) as write,
+        # Only the write tier is told what is held: it makes changes, and a
+        # change is made only for the claim that holds its run.
+        write_mcp(WriteMcpEndpoint.of(settings), holding=holding) as write,
         the_store_for(IncidentMemorySettings.of(settings)) as store,
     ):
         connections = pool.connection

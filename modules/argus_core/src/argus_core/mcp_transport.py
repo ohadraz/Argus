@@ -66,6 +66,7 @@ from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
 
+from argus_core.fencing import Holding, RunLost
 from argus_core.models.undo_descriptor import UndoDescriptor, parse_undo_descriptor
 from argus_core.telemetry import (
     ERROR_TYPE,
@@ -131,6 +132,18 @@ UNREACHABLE_PLATFORM_MARKER: Final = "argus:platform-unreachable"
 # display it that way. Read where it is structured and the problem is not there
 # to be encoded around.
 LEFT_BEHIND_MARKER: Final = "argus:left-behind="
+
+# What a write tool puts at the front of a refusal of a change asked for by a
+# claim the run has moved past (`argus_core.fencing`). Its own token, because it
+# means something no other refusal does: the caller's walk is somebody else's
+# now, and the caller is to stop rather than try anything else.
+RUN_LOST_MARKER: Final = "argus:run-lost"
+
+# Where in a call's `_meta` the claim it is made for is said, as `Fence.spoken`
+# says it. In `_meta` rather than a header for the trace's reason: the session
+# is held, and its headers were fixed before any run was claimed. Prefixed with
+# the project's name, as MCP asks of a key that is not its own.
+FENCE_META_KEY: Final = "argus/fence"
 
 
 class McpToolError(RuntimeError):
@@ -280,6 +293,18 @@ def an_unreachable_platform(platform: str, said: str,
     )
 
 
+def a_lost_run(said: str) -> str:
+    """`said`, marked so a caller recognises a change refused for a lost run.
+
+    For a write tier to wrap the words of a refusal it raises *before changing
+    anything*, when the claim the call was made for is one the run has moved
+    past. Only then: a call that named no run, or one whose run could not be
+    asked after, is refused plainly - neither says the run was lost, and a walk
+    told it was would stop where it should have reached a human.
+    """
+    return f"{RUN_LOST_MARKER} {said}"
+
+
 def what_was_left_behind(spoken: str) -> UndoDescriptor | None:
     """The descriptor a failure carried, or `None` where it carried none.
 
@@ -355,14 +380,21 @@ class McpClient:
     client's loop: the loop's thread has no idea which agent asked, and a span
     opened there would start a trace of its own. `tracer` and `meter` default to
     the process's own, which are no-ops until `argus_telemetry` installs an SDK.
+
+    Each call also says which claim of a run it is made for, where the process
+    `holding` one holds it: the write tier makes a change only for the claim
+    that holds the run. Read as the call is made rather than when the client is
+    built, because one client serves every run its process walks.
     """
 
     def __init__(self,
                  url: str,
                  tracer: Tracer | None = None,
                  meter: Meter | None = None,
-                 clock: Clock = time.monotonic) -> None:
+                 clock: Clock = time.monotonic,
+                 holding: Holding | None = None) -> None:
         self._url = url
+        self._holding = holding
         self._tracer = tracer if tracer is not None else trace.get_tracer(_SCOPE)
         measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)
         self._duration = measured_by.create_histogram(
@@ -445,9 +477,9 @@ class McpClient:
         """One call's span and duration, and the `_meta` that carries it across.
 
         Yields the carrier the span's context was injected into, which is what
-        the call sends - so a server reading it answers inside this span. A
-        failure is said on the span and in the measurement, then raised on as
-        it was.
+        the call sends - so a server reading it answers inside this span - and
+        the claim held now, where one is. A failure is said on the span and in
+        the measurement, then raised on as it was.
         """
         measured: dict[str, str] = {
             MCP_METHOD_NAME: MCP_TOOLS_CALL_METHOD,
@@ -467,6 +499,11 @@ class McpClient:
         ) as span:
             carrier: dict[str, Any] = {}
             propagate.inject(carrier)
+            held = self._holding.current() if self._holding is not None else None
+
+            if held is not None:
+                carrier[FENCE_META_KEY] = held.spoken()
+
             started_at = self._clock()
 
             try:
@@ -643,14 +680,15 @@ class McpClient:
         """One tool call, and the one retry a held session needs.
 
         The retry is about the connection and nothing else. A tool that reported
-        an error was reached, so it is raised as it came; anything else means the
+        an error was reached, so it is raised as it came - a lost run among them,
+        which is lost over every session there is; anything else means the
         session this call was made over is no longer one - which is what a
         restarted server or an idle timeout looks like from here - and the answer
         is a new session rather than a failed incident.
         """
         try:
             return await self._ask(name, arguments, meta)
-        except McpToolError:
+        except (McpToolError, RunLost):
             raise
         except Exception:
             logger.warning("tool call asked again over a new session", exc_info=True,
@@ -762,6 +800,11 @@ def _answered(name: str, result: CallToolResult) -> object:
         # reason: one reading of one string, not one of each.
         spoken = _the_words_of(result)
 
+        # The walk's own exception rather than a kind of tool error, because
+        # what it means is not about the tool: the walk is to stop.
+        if RUN_LOST_MARKER in spoken:
+            raise RunLost(said)
+
         if EXHAUSTED_ACTION_MARKER in spoken:
             raise ActionExhausted(said)
 
@@ -848,7 +891,20 @@ class TracedFastMCP(FastMCP):
         meta = request.meta.model_dump() if request.meta is not None else None
 
         with serving_a_tool_call(name, meta):
-            return await super().call_tool(name, arguments)
+            return await self.answer(name, arguments, meta)
+
+    async def answer(self,
+                     name: str,
+                     arguments: dict[str, Any],
+                     meta: Mapping[str, Any] | None) -> Sequence[ContentBlock] | dict[str, Any]:
+        """What a call is answered with, inside its span: the tool's own answer.
+
+        The one place a server built from this decides more about a call than
+        FastMCP does, so that whatever it refuses is refused inside the caller's
+        trace - and said there, as any tool that raised is. `meta` is the
+        request's `_meta`, already read.
+        """
+        return await super().call_tool(name, arguments)
 
     def serve(self, run: Callable[..., None] = uvicorn.run) -> None:
         """Serves this server over streamable HTTP until the process is stopped.

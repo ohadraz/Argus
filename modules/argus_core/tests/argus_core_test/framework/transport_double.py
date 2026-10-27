@@ -30,14 +30,18 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
+from argus_core import Fence
 from argus_core.mcp_transport import (
+    FENCE_META_KEY,
     TracedFastMCP,
+    a_lost_run,
     an_exhausted_action,
     an_unreachable_platform,
 )
 from argus_core.models import DeploymentRollbackUndo
+from mcp.server.fastmcp import Context
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 
@@ -121,6 +125,28 @@ def build_double(port: int) -> TracedFastMCP:
             )
         ))
 
+    @server.tool()
+    def refuse_as_lost_run() -> list[str]:
+        """Refuses the way the write tier refuses a change for a claim the run
+        has moved past.
+
+        Counted with the other refusals, because what a client must not do with
+        this one either is ask again: a lost run is lost over a new session too.
+        """
+        global _times_refused
+        _times_refused += 1
+
+        raise RuntimeError(a_lost_run("a newer claim holds this run"))
+
+    @server.tool()
+    def the_fence_i_was_sent(ctx: Context[Any, Any, Any]) -> dict[str, object]:
+        """Which claim the call said it was made for, as the write tier hears it -
+        or nothing, where it said none."""
+        meta = ctx.request_context.meta
+        spoken = (meta.model_dump() if meta is not None else {}).get(FENCE_META_KEY)
+        heard = Fence.heard(spoken) if isinstance(spoken, str) else None
+
+        return {} if heard is None else {"run_id": heard.run_id, "epoch": heard.epoch}
 
     @server.tool()
     async def dawdle(seconds: float) -> list[str]:

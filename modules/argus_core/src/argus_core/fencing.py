@@ -39,10 +39,36 @@ class RunLost(Exception):
 
 @dataclass(frozen=True)
 class Fence:
-    """Which claim of which run a connection writes for."""
+    """Which claim of which run a connection writes for, or a call to the
+    write tier changes the world for."""
 
     run_id: str
     epoch: int
+
+    def spoken(self) -> str:
+        """This claim as it is said to another party: `<run id>:<epoch>`.
+
+        Said on a worker's connections and in its calls to the write tier, and
+        heard back by the database and by the tier - so one spelling, here.
+        """
+        return f"{self.run_id}:{self.epoch}"
+
+    @staticmethod
+    def heard(spoken: str) -> Fence | None:
+        """The claim `spoken` names, or `None` where it names none.
+
+        `None` rather than raised, because what is heard is whatever a caller
+        sent, and a caller that sent something else named no run - which is the
+        hearer's to refuse, not a run to be made up for it.
+        """
+        run_id, _, epoch = spoken.rpartition(":")
+
+        # ASCII digits alone: they are what `spoken` writes and the database
+        # reads, and `isdigit` alone passes a "²" that `int` then refuses.
+        if not run_id or not (epoch.isascii() and epoch.isdigit()):
+            return None
+
+        return Fence(run_id=run_id, epoch=int(epoch))
 
 
 class Holding:
@@ -83,7 +109,7 @@ def fence(conn: psycopg.Connection, held: Fence | None) -> None:
     made for no run at all.
     """
     conn.execute("SELECT set_config(%s, %s, false)",
-                  (_THE_FENCE, "" if held is None else f"{held.run_id}:{held.epoch}"))
+                  (_THE_FENCE, "" if held is None else held.spoken()))
     conn.commit()
 
 
@@ -145,7 +171,7 @@ class FencedPool(ConnectionPool):
 # write from when it names no run. The schema says the same word.
 _A_WORKER: Final = "argus-worker"
 
-# The setting a connection's fence is said in, as `<run id>:<epoch>`.
+# The setting a connection's fence is said in, as `Fence.spoken` says it.
 _THE_FENCE: Final = "argus.fence"
 
 # The SQLSTATE a write is refused with when the run it was made for is another

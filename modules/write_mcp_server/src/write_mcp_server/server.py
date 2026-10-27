@@ -23,8 +23,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import TelemetrySettings, WriteMcpEndpoint, get_settings
-from argus_core.mcp_transport import TracedFastMCP
+from argus_core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings
 from argus_core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -57,6 +56,12 @@ from write_mcp_server import (
     scaling,
 )
 from write_mcp_server.discarding import DiscardSettings
+from write_mcp_server.fencing import (
+    FencedFastMCP,
+    HoldForAChange,
+    OpensHolds,
+    holds_in_the_database,
+)
 from write_mcp_server.flag_state import FlagWriteSettings
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 
@@ -69,7 +74,8 @@ def build_server(endpoint: WriteMcpEndpoint,
                  flag_settings: FlagWriteSettings,
                  repository_settings: RepositoryWriteSettings,
                  platform: DeploymentPlatformWrites,
-                 discard_settings: DiscardSettings) -> TracedFastMCP:
+                 discard_settings: DiscardSettings,
+                 hold_for_a_change: HoldForAChange) -> FencedFastMCP:
     """Registers the write tools against one deployment's configuration.
 
     Three slices and a port. The flag tools speak to the provider, the code tool
@@ -85,9 +91,15 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     The tool bodies stay registration only; the behaviour, and the seams a
     decorated function cannot carry, live in a module per route beside this one.
+
+    Every tool that changes something is registered as a change, and made only
+    for the claim that holds the run it is for - asked of `hold_for_a_change`
+    (`fencing`). The one read is not: a stale walk reading the provider's
+    history gets nothing wrong.
     """
-    mcp = TracedFastMCP(
+    mcp = FencedFastMCP(
         "argus-write-mcp",
+        hold_for_a_change=hold_for_a_change,
         host=endpoint.write_mcp_host,
         port=endpoint.write_mcp_port,
     )
@@ -95,7 +107,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     def confirm_the_change_landed() -> list[str]:
         return flag_state.evaluated_flags(flag_settings)
 
-    @mcp.tool()
+    @mcp.change()
     def set_feature_flag(flag: str, enabled: bool) -> FlagUndo:
         """Sets a feature flag on or off in the configured environment.
 
@@ -119,7 +131,7 @@ def build_server(endpoint: WriteMcpEndpoint,
             flag, enabled, flag_settings, evaluate=confirm_the_change_landed
         )
 
-    @mcp.tool()
+    @mcp.change()
     def restart_service(service: str) -> RestartedService:
         """Restarts a service and returns the start time of the process now
         serving it.
@@ -137,7 +149,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         `restarting.restart_service`; this is registration only."""
         return restarting.restart_service(service, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def roll_back_deployment(application: str) -> DeploymentRollbackUndo:
         """Returns a deployment to the revision it ran before, and reports
         what that cost.
@@ -161,7 +173,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         registration only."""
         return rolling_back.roll_back_deployment(application, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def restore_deployment(
         descriptor: DeploymentRollbackUndo
     ) -> DeploymentRestored:
@@ -186,7 +198,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         `rolling_back.restore_deployment`; this is registration only."""
         return rolling_back.restore_deployment(descriptor, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def scale_out(application: str) -> ReplicaUndo:
         """Gives a deployment more replicas than it is running, and reports
         what that cost.
@@ -216,7 +228,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         `scaling.scale_out`; this is registration only."""
         return scaling.scale_out(application, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def restore_replica_count(descriptor: ReplicaUndo) -> CapacityRestored:
         """Puts back both of the things a scale-out changed, and reports which
         of them it managed.
@@ -237,7 +249,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         `scaling.restore_replica_count`; this is registration only."""
         return scaling.restore_replica_count(descriptor, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def pin_autoscaler(application: str) -> AutoscalerUndo:
         """Stops a deployment's autoscaler moving the replica count about, and
         reports the floor it had.
@@ -266,7 +278,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         lives in `pinning.pin_autoscaler`; this is registration only."""
         return pinning.pin_autoscaler(application, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def discard_cache_entries(keys: list[str]) -> CacheEntriesDiscarded:
         """Removes the named entries from the service's cache and reports how
         many of them were there.
@@ -299,7 +311,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         registration only."""
         return discarding.discard_cache_entries(keys, discard_settings)
 
-    @mcp.tool()
+    @mcp.change()
     def restore_autoscaler_floor(
         descriptor: AutoscalerUndo
     ) -> AutoscalingRestored:
@@ -322,7 +334,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         `pinning.restore_autoscaler_floor`; this is registration only."""
         return pinning.restore_autoscaler_floor(descriptor, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def pin_to_accelerator(application: str, accelerator: str) -> AcceleratorPinUndo:
         """Holds a deployment's pods to one accelerator card, and reports the
         card they were held to before.
@@ -344,7 +356,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         registration only."""
         return accelerators.pin_to_accelerator(application, accelerator, platform)
 
-    @mcp.tool()
+    @mcp.change()
     def restore_accelerator_pin(
         descriptor: AcceleratorPinUndo
     ) -> AcceleratorPinRestored:
@@ -379,7 +391,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         `flag_history.recent_flag_changes`; this is registration only."""
         return flag_history.recent_flag_changes(since, flag_settings)
 
-    @mcp.tool()
+    @mcp.change()
     def commit_to_new_branch(branch: str,
                              base_branch: str,
                              files: dict[str, str],
@@ -403,7 +415,7 @@ def build_server(endpoint: WriteMcpEndpoint,
             settings=repository_settings
         )
 
-    @mcp.tool()
+    @mcp.change()
     def open_pull_request(head_branch: str,
                           base_branch: str,
                           title: str,
@@ -433,16 +445,21 @@ def build_server(endpoint: WriteMcpEndpoint,
     return mcp
 
 
-def main() -> None:
+def main(holds: OpensHolds = holds_in_the_database) -> None:
     """The process: one read of the environment, then serve until killed.
 
     The only place in this server that calls `get_settings`, and the one that
     starts its telemetry - closed on the way out, so what it collected last is
-    on disk.
+    on disk. So are the holds a change is made under, which are the database's
+    own runs: `holds` defaults to them, and a suite that serves the real tools
+    over a run it stands in for hands its own.
     """
     settings = get_settings()
 
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
+    with (
+        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
+        holds(DatabaseSettings.of(settings)) as hold_for_a_change
+    ):
         build_server(
             WriteMcpEndpoint.of(settings),
             FlagWriteSettings.of(settings),
@@ -450,7 +467,8 @@ def main() -> None:
             # The adapter is built here and nowhere else in this tier, and handed
             # on as the writes port: no action below names a route.
             ArgoCd(ArgoCdSettings.of(settings)),
-            DiscardSettings.of(settings)
+            DiscardSettings.of(settings),
+            hold_for_a_change
         ).serve()
 
 

@@ -190,6 +190,29 @@ def is_held(conn: psycopg.Connection, held: Fence) -> bool:
         return cursor.fetchone() is not None
 
 
+def hold_for_a_change(conn: psycopg.Connection, held: Fence) -> bool:
+    """Whether the run is still at the claim `held` names, and still being
+    walked - and, where it is, the run kept so until `conn`'s transaction ends.
+
+    Asked by the write tier before it changes the world for a walk. Kept, not
+    only read, because a run taken back between the answer and the change would
+    have the change made for a claim that no longer holds it. The run's row is
+    share-locked, which a claim skips, and a renewal or a settling waits on, and
+    which the walk's own fenced writes share. So a long change can outlast the
+    lease: the run is still not taken back, and the renewal lands once the
+    change is done. Committing or rolling back is the caller's, once the change
+    is made.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM incident_run WHERE id = %s AND epoch = %s AND state = %s "
+            "FOR SHARE",
+            (held.run_id, held.epoch, RunState.RUNNING)
+        )
+
+        return cursor.fetchone() is not None
+
+
 def get(conn: psycopg.Connection, run_id: str) -> Run | None:
     """One run by its id."""
     with conn.cursor(row_factory=class_row(Run)) as cursor:

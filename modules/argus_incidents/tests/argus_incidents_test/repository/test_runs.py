@@ -22,6 +22,10 @@ A_GENEROUS_LEASE = timedelta(minutes=5)
 # stopped mid-walk leaves behind, and it is arranged rather than waited for.
 A_LEASE_ALREADY_OVER = timedelta(seconds=-1)
 
+# How long a write waits for a lock before it is refused rather than left
+# hanging: what tells a lock the write shares from one that shuts it out.
+A_MOMENT_TO_WAIT_FOR_A_LOCK = "500ms"
+
 
 @pytest.mark.integration
 def test_a_queued_run_is_claimed_by_one_worker_and_not_by_a_second() -> None:
@@ -382,6 +386,132 @@ def test_a_run_is_held_by_a_claim_only_while_the_run_is_still_at_it(since: str) 
             .then(
                 _it_says_held(since == "nothing")
             )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("since", ["nothing", "taken-back", "settled"])
+def test_a_change_is_held_for_a_claim_only_while_the_run_is_still_at_it(since: str) -> None:
+    # Asked by the write tier before it changes the world for a walk: a change
+    # made for a claim the run has moved past is a second walk acting on an
+    # incident somebody else is walking.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn, connect_from_env() as the_tiers_conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
+                calling(lambda: _and_since(conn, held, since))
+            ) \
+            .when(
+                lambda: runs.hold_for_a_change(the_tiers_conn,
+                                               Fence(run_id=held.id, epoch=held.epoch))
+            ) \
+            .then(
+                _it_says_held(since == "nothing")
+            )
+
+        the_tiers_conn.rollback()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("change", ["being-made", "done"])
+def test_a_run_held_for_a_change_is_not_taken_back_until_the_change_is_done(
+    change: str
+) -> None:
+    # Its lease is over, so any worker looking would take it - and a change
+    # half made for one claim while the next claim starts walking is the
+    # duplicate walk the epoch exists to stop. The run waits for the change.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn, connect_from_env() as the_tiers_conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
+                calling(lambda: runs.hold_for_a_change(the_tiers_conn,
+                                                       Fence(run_id=held.id, epoch=held.epoch))),
+                calling(the_tiers_conn.commit if change == "done" else lambda: None)
+            ) \
+            .when(
+                lambda: runs.claim(conn, "worker-that-came-after", A_GENEROUS_LEASE)
+            ) \
+            .then(
+                _taken_back(change == "done")
+            )
+
+        the_tiers_conn.rollback()
+
+
+@pytest.mark.integration
+def test_a_run_held_for_a_change_still_takes_the_writes_of_the_claim_holding_it() -> None:
+    # The walk writes on while the tier makes its change - a checkpoint saved in
+    # the background among them - so the change keeps the run from being taken
+    # back without keeping its own claim from writing for as long as a restart
+    # takes.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with (
+        connect_from_env() as conn,
+        connect_from_env() as the_tiers_conn,
+        connect_from_env() as the_holders_conn
+    ):
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-holding-it", A_GENEROUS_LEASE),
+                calling(lambda: runs.hold_for_a_change(the_tiers_conn,
+                                                       Fence(run_id=held.id, epoch=held.epoch))),
+                calling(lambda: _fenced_and_waiting_a_moment_at_most(the_holders_conn, held))
+            ) \
+            .when(attempting(
+                lambda: _a_write_committed_on(the_holders_conn, held)
+            )) \
+            .then(
+                _the_write_was_made()
+            )
+
+        the_tiers_conn.rollback()
+
+
+def _fenced_and_waiting_a_moment_at_most(conn: psycopg.Connection, held: runs.Run) -> None:
+    """The holder's connection, fenced for its claim, and refusing rather than
+    hanging on a lock it cannot have."""
+    fence(conn, Fence(run_id=held.id, epoch=held.epoch))
+    conn.execute(f"SET lock_timeout = '{A_MOMENT_TO_WAIT_FOR_A_LOCK}'")
+    conn.commit()
+
+
+def _a_write_committed_on(conn: psycopg.Connection, held: runs.Run) -> None:
+    _a_write_on(conn, held)
+    conn.commit()
+
+
+def _the_write_was_made() -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        if error is not None:
+            raise AssertionError(
+                f"Expected the holder's write made while its run was held for a change, "
+                f"and it was refused: [{type(error).__name__}: {error}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _taken_back(expected: bool) -> Assertion[Any]:
+    def assertion(claimed: Any) -> bool:
+        if (claimed is not None) is not expected:
+            raise AssertionError(
+                f"Expected the run {"taken back once the change was done" if expected
+                                    else "left alone while the change was being made"}, "
+                f"and it was claimed by [{claimed.claimed_by if claimed else None}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _and_since(conn: psycopg.Connection, held: runs.Run, since: str) -> None:

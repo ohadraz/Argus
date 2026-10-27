@@ -1059,6 +1059,7 @@ version = "0.1.0"
 source = { editable = "modules/write_mcp_server" }
 dependencies = [
     { name = "argus-argus-core" },
+    { name = "argus-argus-incidents" },
     { name = "argus-argus-telemetry" },
     { name = "argus-deployment-platform" },
     { name = "httpx2" },
@@ -1074,6 +1075,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
+    { name = "argus-argus-incidents", editable = "modules/argus_incidents" },
     { name = "argus-argus-telemetry", editable = "modules/argus_telemetry" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "httpx2" },

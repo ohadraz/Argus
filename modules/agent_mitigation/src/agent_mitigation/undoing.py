@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import assert_never
 
+from argus_core import was_lost
 from argus_core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
@@ -108,6 +109,11 @@ def _put_a_deployment_back(undo_descriptor: DeploymentRollbackUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
@@ -169,6 +175,11 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
@@ -238,6 +249,11 @@ def _put_a_floor_back(undo_descriptor: AutoscalerUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
@@ -299,6 +315,11 @@ def _put_a_card_pin_back(undo_descriptor: AcceleratorPinUndo,
     try:
         restored = restore(undo_descriptor)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": application})
 
         return UndoAttempt(
@@ -385,6 +406,11 @@ def _put_a_flag_back(undo_descriptor: FlagUndo,
     try:
         set_state(flag, was_enabled)
     except Exception as error:
+        # A lost run is no failure to put this back: the incident is another
+        # claim's walk, and the change is that walk's to put back or keep.
+        if was_lost(error):
+            raise
+
         logger.warning("restore failed", exc_info=True, extra={"subject": flag})
 
         return UndoAttempt(

@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "argus-argus_core",
+    # The run a change is made for, asked of its own row before the change is
+    # made (`fencing`).
+    "argus-argus_incidents",
     "argus-argus_telemetry",
     "argus-deployment_platform",
     "httpx2",
@@ -21,6 +24,7 @@ dev = [
 
 [tool.uv.sources]
 argus-argus_core = { workspace = true }
+argus-argus_incidents = { workspace = true }
 argus-argus_telemetry = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-argus_testkit = { workspace = true }

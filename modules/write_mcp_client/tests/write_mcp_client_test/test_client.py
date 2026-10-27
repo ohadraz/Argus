@@ -4,8 +4,8 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
-from argus_core import WriteMcpEndpoint, get_settings
-from argus_core.mcp_transport import McpClient, PlatformUnreachable
+from argus_core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings
+from argus_core.mcp_transport import McpClient, McpToolError, PlatformUnreachable
 from argus_core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -16,7 +16,7 @@ from argus_core.models import (
     RestartedService,
     UndoDescriptor,
 )
-from argus_testkit.assertions import Assertion, all_of
+from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
 from deployment_platform.argocd import AUTOMATED, ENABLED
 from write_mcp_client import (
@@ -30,6 +30,7 @@ from write_mcp_client import (
     write_mcp,
 )
 
+from write_mcp_client_test.a_write_server_holding_one_run import THE_RUN_HELD
 from write_mcp_client_test.fake_deployment_platform import (
     THE_HISTORY_BEFORE_IT,
     THE_HISTORY_RUNNING_NOW,
@@ -44,6 +45,9 @@ INSIDE_THE_WINDOW = "2026-08-20T11:04:38.033Z"
 DONT_CARE_ACTOR = "dont-care-actor"
 SOME_APPLICATION = "io-shop"
 SOME_CARD = "Tesla-V100-SXM2-16GB"
+
+# A claim of the server's run from before it was last taken back.
+A_CLAIM_THE_RUN_MOVED_PAST = Fence(run_id=THE_RUN_HELD.run_id, epoch=THE_RUN_HELD.epoch - 1)
 
 
 @pytest.fixture
@@ -119,6 +123,8 @@ def test_switching_a_flag_on_reaches_the_provider_through_the_real_write_server(
 def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server(
     running_write_mcp: type[FakeUnleashHandler]
 ) -> None:
+    # Asked holding no run, because a read changes nothing a stale walk could
+    # get wrong, and is answered without asking after any run.
     some_flag = "monthly-spend-feature"
 
     Scenario() \
@@ -129,8 +135,8 @@ def test_reading_flag_changes_reaches_the_provider_through_the_real_write_server
             ))
         ) \
         .when(
-            _asking_the_server(
-                lambda client: get_recent_flag_changes(SINCE, client=client)
+            _asking_the_server_as(
+                None, lambda client: get_recent_flag_changes(SINCE, client=client)
             )
         ) \
         .then(
@@ -345,6 +351,68 @@ def _it_came_back_as_an_unreachable_platform() -> Assertion[Exception | None]:
     return assertion
 
 
+@pytest.mark.integration
+def test_a_change_for_a_claim_the_run_moved_past_arrives_as_a_lost_run_and_changes_nothing(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # The walk that made it stops writing on `RunLost`, so the tier's refusal
+    # has to reach it as that and not as a tool that broke - and the flag has to
+    # be where it was, or a second walk changed the world for somebody else's
+    # incident.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            calling(the_provider_has_enabled(running_write_mcp, some_flag))
+        ) \
+        .when(attempting(
+            _asking_the_server_as(A_CLAIM_THE_RUN_MOVED_PAST, lambda client: set_feature_flag(
+                some_flag, enabled=False, client=client
+            ))
+        )) \
+        .then(all_of(
+            an_error_was_raised(RunLost),
+            the_provider_now_reports_enabled(running_write_mcp, [some_flag])
+        ))
+
+
+@pytest.mark.integration
+def test_a_change_made_while_no_run_is_held_is_refused_and_changes_nothing(
+    running_write_mcp: type[FakeUnleashHandler]
+) -> None:
+    # A caller that forgot to say which claim it acts for is a bug, not a walk
+    # that lost its run - so it is refused, and refused plainly.
+    some_flag = "monthly-spend-feature"
+
+    Scenario() \
+        .given(
+            calling(the_provider_has_enabled(running_write_mcp, some_flag))
+        ) \
+        .when(attempting(
+            _asking_the_server_as(None, lambda client: set_feature_flag(
+                some_flag, enabled=False, client=client
+            ))
+        )) \
+        .then(all_of(
+            an_error_was_raised(McpToolError),
+            _it_did_not_come_back_as(RunLost),
+            the_provider_now_reports_enabled(running_write_mcp, [some_flag])
+        ))
+
+
+def _it_did_not_come_back_as(excluded: type[Exception]) -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if isinstance(raised, excluded):
+            raise AssertionError(
+                f"Expected the call not to raise {excluded.__name__}, and it did: "
+                f"{raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _undoing(undo_descriptor: UndoDescriptor,
              flag: str,
              client: McpClient) -> UndoDescriptor:
@@ -356,7 +424,15 @@ def _undoing(undo_descriptor: UndoDescriptor,
 
 
 def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
-    """One client to the subprocess the fixture started, held for one `when`.
+    """`_asking_the_server_as` the claim that holds the server's run, as a
+    walk's worker asks it."""
+    return _asking_the_server_as(THE_RUN_HELD, ask)
+
+
+def _asking_the_server_as[T](held: Fence | None,
+                             ask: Callable[[McpClient], T]) -> Callable[[], T]:
+    """One client to the subprocess the fixture started, held for one `when`,
+    by a process holding `held` - or holding no run, for `None`.
 
     Where the subprocess is listening is read through `get_settings` rather than
     named here, because the fixture is what decides the port - it sets the
@@ -366,8 +442,14 @@ def _asking_the_server[T](ask: Callable[[McpClient], T]) -> Callable[[], T]:
     Closed on the way out, so a test leaves no session and no thread behind it.
     """
     def step() -> T:
-        with write_mcp(WriteMcpEndpoint.of(get_settings())) as client:
-            return ask(client)
+        holding = Holding()
+
+        with write_mcp(WriteMcpEndpoint.of(get_settings()), holding=holding) as client:
+            if held is None:
+                return ask(client)
+
+            with holding.of(held):
+                return ask(client)
 
     return step
 

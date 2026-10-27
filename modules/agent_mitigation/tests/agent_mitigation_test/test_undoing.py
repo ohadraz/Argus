@@ -30,6 +30,7 @@ from agent_mitigation.tools import (
     DeploymentRestorer,
     FlagSetter,
 )
+from argus_core import RunLost
 from argus_core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -42,7 +43,15 @@ from argus_core.models import (
     ReplicaUndo,
     UndoDescriptor,
 )
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 
 from agent_mitigation_test.framework.builders import (
     ACTION_TIME,
@@ -845,6 +854,31 @@ def test_a_restore_that_raised_is_logged_as_a_warning(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("descriptor", "collaborator", "spec", "dont_care_subject"),
+                         EVERY_KIND_OF_RESTORE)
+def test_a_restore_refused_because_the_run_was_lost_is_raised_rather_than_answered(
+    descriptor: Callable[[], UndoDescriptor], collaborator: str, spec: type,
+    dont_care_subject: str
+) -> None:
+    # Not established would have whoever asked escalate an incident another
+    # claim is walking - and a change put back from here would be put back
+    # under the walk that holds it now.
+    Scenario() \
+        .given(
+            the_run_was_lost := _a_collaborator_raising(
+                spec, RunLost("a newer claim holds this run"))
+        ) \
+        .when(attempting(
+            lambda: undo_change(
+                descriptor(), **_collaborators_with(**{collaborator: the_run_was_lost})
+            )
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("descriptor", "collaborator", "half_a_restore"),
                          EVERY_HALF_RESTORE)
 def test_a_change_only_partly_put_back_is_logged_as_a_warning(
@@ -1190,8 +1224,11 @@ def _collaborators_with(**chosen: Unpack[_Collaborators]) -> _Collaborators:
     return nobody_asked | chosen
 
 
-def _a_collaborator_raising(spec: type) -> MagicMock:
+def _a_collaborator_raising(spec: type, failure: Exception | None = None) -> MagicMock:
+    """`spec`, raising `failure` - a platform that would not answer, by default."""
     collaborator: MagicMock = create_autospec(spec, instance=True)
-    collaborator.side_effect = RuntimeError("the platform would not answer")
+    collaborator.side_effect = (
+        failure if failure is not None else RuntimeError("the platform would not answer")
+    )
 
     return collaborator

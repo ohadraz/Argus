@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import NamedTuple, Protocol, assert_never
 
-from argus_core import sleep_on_the_clock, to_iso_minute, utc_now
+from argus_core import sleep_on_the_clock, to_iso_minute, utc_now, was_lost
 from argus_core.anomaly import (
     AnomalyThresholds,
     find_recovery,
@@ -322,6 +322,11 @@ def take_action(action: Action,
             performed=False
         )
     except Exception as error:
+        # A lost run is not an action that failed: the incident is another
+        # claim's walk, and an escalation said here would be said for it.
+        if was_lost(error):
+            raise
+
         logger.warning("action could not be performed", exc_info=True,
                        extra={"action_type": action.action_type})
 

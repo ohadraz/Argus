@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
+from datetime import timedelta
 from functools import partial
 from typing import Any, Final
 
@@ -43,14 +44,23 @@ import pytest
 from agent_codefix import FixSettings, SubmittedFix, propose_fix
 from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
-from argus_core import WriteMcpEndpoint, get_settings
+from argus_core import (
+    Fence,
+    Holding,
+    WriteMcpEndpoint,
+    connect_from_env,
+    get_settings,
+    utc_now,
+)
 from argus_core.models import (
+    Alert,
     CodeOutsideThePatch,
     FailureMode,
     Hypothesis,
     ProposedFix,
     ToolDefinition,
 )
+from argus_incidents.repository import incidents, runs
 from argus_testkit import Assertion, Scenario, all_of, calling
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from write_mcp_client import commit_to_new_branch, open_pull_request, write_mcp
@@ -79,6 +89,9 @@ INPUT_FIELD: Final = "input"
 
 REQUEST_TIMEOUT_SECONDS: Final = 30.0
 
+# Outlasts the test, so the run is still the claim's when the fix is written.
+A_GENEROUS_LEASE: Final = timedelta(minutes=5)
+
 
 @pytest.fixture
 def anthropic_double() -> Iterator[httpx2.Client]:
@@ -103,9 +116,15 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
     anthropic_double: httpx2.Client, github_double: httpx2.Client
 ) -> None:
     settings = get_settings()
-    dont_care_incident_id = "6b1f2c4e-0d3a-4c6e-9f1a-2b7d8e5c4a10"
+    holding = Holding()
+    # Walked by a worker holding its run, as every fix is proposed: the write
+    # tier makes a change only for the claim that holds the run it is for.
+    claimed = _a_claimed_run()
 
-    with write_mcp(WriteMcpEndpoint.of(settings)) as write:
+    with (
+        write_mcp(WriteMcpEndpoint.of(settings), holding=holding) as write,
+        holding.of(Fence(run_id=claimed.id, epoch=claimed.epoch))
+    ):
         Scenario() \
             .given(
                 calling(lambda: _the_model_answers(anthropic_double,
@@ -114,8 +133,8 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
             ) \
             .when(
                 lambda: propose_fix(
-                    _a_hypothesis_about(dont_care_incident_id),
-                    dont_care_incident_id,
+                    _a_hypothesis_about(claimed.incident_id),
+                    claimed.incident_id,
                     settings=FixSettings.of(settings),
                     read_tier_tools=_nothing_served,
                     search=_nothing_found,
@@ -135,6 +154,19 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     _the_branch_holds_what_was_submitted(_the_patch_in(RECORDED_LARGE_FIX))
                 )
             )
+
+
+def _a_claimed_run() -> runs.Run:
+    """An incident whose run a worker has claimed, as the claim it holds."""
+    with connect_from_env() as conn:
+        incident_id = incidents.create(
+            conn, Alert(service="io-shop", alert_name="HighErrorRate"), at=utc_now()
+        )
+        runs.enqueue(conn, incident_id)
+        claimed = runs.claim(conn, "dont-care-worker", A_GENEROUS_LEASE)
+        assert claimed is not None
+
+    return claimed
 
 
 def _the_model_answers(double: httpx2.Client, *answers: str) -> None:
