@@ -395,6 +395,12 @@ CREATE TABLE IF NOT EXISTS incident_run (
     -- connection and leaves the row looking held by nobody.
     claimed_by TEXT,
     leased_until TIMESTAMPTZ,
+    -- Which claim of the run this is, moved on by every claim. A lease says
+    -- when a holder may be presumed gone; it cannot tell a holder that was only
+    -- paused from the one that took the run back. The epoch tells them apart:
+    -- whatever the old holder does after the run is taken back carries an
+    -- epoch the row no longer has.
+    epoch BIGINT NOT NULL DEFAULT 0,
     -- Why a run stopped, where it stopped badly. Recorded against the run
     -- rather than left in a log: an incident whose walk failed is then
     -- distinguishable from one still being worked by asking the database,

@@ -35,7 +35,6 @@ from argus_core import (
     WriteMcpEndpoint,
     connect_from_env,
     get_settings,
-    in_real_time,
     open_pool,
 )
 from argus_core.events import StatusChanged, publish
@@ -58,6 +57,7 @@ from read_mcp_client import read_mcp
 from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import graph_for, run_incident
+from orchestrator.renewing import between_renewals, keep_renewing
 from orchestrator.unwinding import taken_actions_from, unwind_incident
 from orchestrator.walk.assembling import IncidentMemorySettings, the_store_for
 
@@ -73,11 +73,6 @@ type Walk = Callable[[str], None]
 # a flag provider behind it.
 type Unwind = Callable[[str], None]
 
-# How often the claim is renewed, as a fraction of the lease. A third, so two
-# renewals may be missed - a slow query, a process the operating system paused -
-# before anything else is entitled to take the run for abandoned.
-_RENEWALS_PER_LEASE: Final = 3
-
 # What the span one claimed run is worked inside is called.
 RUN_SPAN: Final = "run"
 
@@ -87,15 +82,10 @@ _SERVICE: Final = "argus-worker"
 
 
 @contextmanager
-def _the_claim_kept_alive(run_id: str,
+def _the_claim_kept_alive(held: runs.Run,
                           lease: timedelta,
                           connections: Connections) -> Generator[None]:
     """Renews this run's claim for as long as the body is running.
-
-    A lease bounds how long a *stopped* worker's run waits before somebody takes
-    it back. It is not a budget for the walk, and must not be read as one: the
-    investigation is allowed 1,800 seconds and Code-Fix 1,100, either of which
-    outlasts the 720 the lease is set to.
 
     Without this the walk simply lost the run part-way through. `claim` takes
     back a run whose lease has expired and *resumes* it from its checkpoint, so
@@ -106,33 +96,12 @@ def _the_claim_kept_alive(run_id: str,
 
     On its own connection and in its own thread: the connection this worker
     claims with belongs to the caller, and a psycopg connection is not two
-    threads' to share.
-
-    A renewal that fails stops the renewing and nothing else. The walk is what
-    matters; a database that cannot be reached will fail the run's settling in a
-    moment anyway, and this thread taking a live investigation down with it would
-    be the more expensive of the two.
+    threads' to share. How it renews is `keep_renewing`'s.
     """
     stop = threading.Event()
-    # Postgres measures the lease on the stack's clock, and this thread waits
-    # on the real one - so the interval is converted, or a stack running faster
-    # than real time would see its lease lapse under a walk still in progress.
-    every = in_real_time(lease.total_seconds() / _RENEWALS_PER_LEASE)
-
-    def keep_renewing() -> None:
-        while not stop.wait(every):
-            try:
-                with connections() as renewing_conn:
-                    runs.renew(renewing_conn, run_id, lease)
-            except Exception:
-                # A thread of its own, outside the run's context, so the run is
-                # named here rather than stamped. Not lost work: the walk goes on.
-                logger.warning("claim could not be renewed", exc_info=True,
-                               extra={"run_id": run_id})
-                return
-
     renewing = threading.Thread(
-        target=keep_renewing, name=f"renew-{run_id}", daemon=True
+        target=keep_renewing, args=(held, lease, connections, stop.wait),
+        name=f"renew-{held.id}", daemon=True
     )
     renewing.start()
 
@@ -140,7 +109,7 @@ def _the_claim_kept_alive(run_id: str,
         yield
     finally:
         stop.set()
-        renewing.join(timeout=every)
+        renewing.join(timeout=between_renewals(lease))
 
 
 def take_one_run(conn: psycopg.Connection,
@@ -216,7 +185,7 @@ def take_one_run(conn: psycopg.Connection,
         logger.info("run claimed", extra={"worker": claimed_by})
 
         try:
-            with _the_claim_kept_alive(claimed.id, lease, connections):
+            with _the_claim_kept_alive(claimed, lease, connections):
                 walked = ended_by_a_person(claimed.incident_id) is not IncidentStatus.WITHDRAWN
 
                 if walked:

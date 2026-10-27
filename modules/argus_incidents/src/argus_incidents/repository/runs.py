@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import Final
 
 import psycopg
 from argus_core import UuidStr
@@ -45,6 +46,9 @@ class Run(BaseModel):
     the graph on, and reading the incident is the graph's own business. The
     alert is already on the incident row, so carrying a copy here would be a
     second version of it to keep in step.
+
+    `epoch` is which claim of the run this is: every claim moves it on, so a
+    holder whose run was taken back holds an epoch the row no longer has.
     """
 
     id: UuidStr
@@ -52,8 +56,14 @@ class Run(BaseModel):
     state: RunState
     claimed_by: str | None
     leased_until: datetime | None
+    epoch: int
     failure_reason: str | None
     created_at: datetime
+
+
+# Every column a `Run` is read from, in its order.
+_A_RUN: Final = ("id, incident_id, state, claimed_by, leased_until, epoch, failure_reason, "
+                 "created_at")
 
 
 def enqueue(conn: psycopg.Connection, incident_id: str) -> str:
@@ -90,11 +100,14 @@ def claim(conn: psycopg.Connection,
     expired lease means the holder stopped. It is resumed rather than restarted:
     the graph is invoked on the incident's own thread, and the checkpointer
     replays what was already done.
+
+    Every claim moves the run's epoch on, a taking-back included, so the claim
+    it replaced can tell it no longer holds the run.
     """
     with conn.cursor(row_factory=class_row(Run)) as cursor:
         cursor.execute(
             "UPDATE incident_run SET state = %s, claimed_by = %s, "
-            "leased_until = now() + %s "
+            "leased_until = now() + %s, epoch = epoch + 1 "
             "WHERE id = ("
             "    SELECT id FROM incident_run"
             "    WHERE state = %s OR (state = %s AND leased_until < now())"
@@ -102,8 +115,7 @@ def claim(conn: psycopg.Connection,
             "    LIMIT 1"
             "    FOR UPDATE SKIP LOCKED"
             ") "
-            "RETURNING id, incident_id, state, claimed_by, leased_until, "
-            "failure_reason, created_at",
+            f"RETURNING {_A_RUN}",
             (RunState.RUNNING, claimed_by, lease, RunState.QUEUED, RunState.RUNNING)
         )
         claimed = cursor.fetchone()
@@ -112,20 +124,30 @@ def claim(conn: psycopg.Connection,
     return claimed
 
 
-def renew(conn: psycopg.Connection, run_id: str, lease: timedelta) -> None:
-    """Says the worker holding this run is still walking it.
+def renew(conn: psycopg.Connection, held: Run, lease: timedelta) -> bool:
+    """Says the worker holding this run is still walking it, and answers
+    whether it still holds it.
 
     An investigation legitimately takes minutes, so a lease set once at claim
     time would either be long enough to make a dead worker's run unreclaimable
     for as long, or short enough to let a live worker's run be taken from it.
     Renewing is what lets it be short.
+
+    Only the claim that holds the run renews it: one whose run was taken back,
+    or settled, extends nothing and is told so - a lease extended by the holder
+    it was taken from would keep the new holder's run from being taken back
+    when that holder stops.
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE incident_run SET leased_until = now() + %s WHERE id = %s",
-            (lease, run_id)
+            "UPDATE incident_run SET leased_until = now() + %s "
+            "WHERE id = %s AND epoch = %s AND state = %s RETURNING id",
+            (lease, held.id, held.epoch, RunState.RUNNING)
         )
+        still_held = cursor.fetchone() is not None
     conn.commit()
+
+    return still_held
 
 
 def finish(conn: psycopg.Connection, run_id: str) -> None:
@@ -152,8 +174,7 @@ def get(conn: psycopg.Connection, run_id: str) -> Run | None:
     """One run by its id."""
     with conn.cursor(row_factory=class_row(Run)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, state, claimed_by, leased_until, "
-            "failure_reason, created_at FROM incident_run WHERE id = %s",
+            f"SELECT {_A_RUN} FROM incident_run WHERE id = %s",
             (run_id,)
         )
 
@@ -169,8 +190,7 @@ def get_run_for_incident(conn: psycopg.Connection, incident_id: str) -> Run | No
     """
     with conn.cursor(row_factory=class_row(Run)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, state, claimed_by, leased_until, "
-            "failure_reason, created_at FROM incident_run "
+            f"SELECT {_A_RUN} FROM incident_run "
             "WHERE incident_id = %s ORDER BY created_at DESC LIMIT 1",
             (incident_id,)
         )
@@ -187,8 +207,7 @@ def get_unsettled_runs(conn: psycopg.Connection) -> list[Run]:
     """
     with conn.cursor(row_factory=class_row(Run)) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, state, claimed_by, leased_until, "
-            "failure_reason, created_at FROM incident_run "
+            f"SELECT {_A_RUN} FROM incident_run "
             "WHERE state IN (%s, %s) ORDER BY created_at",
             (RunState.QUEUED, RunState.RUNNING)
         )

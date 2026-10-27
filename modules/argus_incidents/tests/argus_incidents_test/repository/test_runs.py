@@ -135,6 +135,186 @@ def test_only_runs_waiting_or_being_walked_are_unsettled() -> None:
             )
 
 
+@pytest.mark.integration
+def test_a_run_taken_back_is_held_under_a_later_epoch_than_the_claim_it_replaced() -> None:
+    # A lease says when a holder may be presumed gone, and cannot stop one that
+    # was only paused from carrying on once it wakes. The epoch is what tells
+    # that holder the run is no longer its own.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                the_paused_claim := _a_claim_by(conn, "worker-that-was-paused",
+                                                A_LEASE_ALREADY_OVER)
+            ) \
+            .when(
+                lambda: runs.claim(conn, "worker-that-came-after", A_GENEROUS_LEASE)
+            ) \
+            .then(
+                _a_later_epoch_than(the_paused_claim)
+            )
+
+
+@pytest.mark.integration
+def test_a_renewal_by_the_claim_holding_the_run_keeps_it_and_says_so() -> None:
+    # Claimed with a lease already over, so only the renewal stands between the
+    # run and the next worker looking for something to do.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-still-walking-it", A_LEASE_ALREADY_OVER)
+            ) \
+            .when(
+                lambda: (runs.renew(conn, held, A_GENEROUS_LEASE),
+                         runs.claim(conn, "worker-looking-for-something-to-do",
+                                    A_GENEROUS_LEASE))
+            ) \
+            .then(all_of(
+                _the_renewal_said_the_run_is_still_held(),
+                _nobody_else_took_it()
+            ))
+
+
+@pytest.mark.integration
+def test_a_renewal_by_a_claim_since_taken_back_extends_nothing_and_says_so() -> None:
+    # The holder that was paused wakes and renews. Extending the lease there
+    # would keep the new holder's run from being taken back when that holder
+    # stops - and the old one has nothing left to keep alive.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                the_lost_claim := _a_claim_by(conn, "worker-that-was-paused",
+                                              A_LEASE_ALREADY_OVER),
+                the_new_claim := _a_claim_by(conn, "worker-that-came-after",
+                                             A_GENEROUS_LEASE)
+            ) \
+            .when(
+                lambda: runs.renew(conn, the_lost_claim, A_GENEROUS_LEASE)
+            ) \
+            .then(all_of(
+                _it_says_the_run_is_no_longer_held(),
+                _the_lease_is_as_its_holder_left_it(conn, the_new_claim)
+            ))
+
+
+@pytest.mark.integration
+def test_a_renewal_of_a_settled_run_extends_nothing_and_says_so() -> None:
+    # A settled run is nobody's; a lease put back on it would read as a walk
+    # still in progress.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                settled := _a_claimed_run_for(conn, dont_care_alert),
+                calling(lambda: runs.finish(conn, settled.id))
+            ) \
+            .when(
+                lambda: runs.renew(conn, settled, A_GENEROUS_LEASE)
+            ) \
+            .then(all_of(
+                _it_says_the_run_is_no_longer_held(),
+                _the_run_has_no_lease(conn, settled.id)
+            ))
+
+
+def _a_later_epoch_than(replaced: runs.Run) -> Assertion[Any]:
+    def assertion(claimed: Any) -> bool:
+        if claimed is None or claimed.epoch <= replaced.epoch:
+            raise AssertionError(
+                f"Expected the run taken back to be held under a later epoch than "
+                f"[{replaced.epoch}], got "
+                f"[{None if claimed is None else claimed.epoch}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_renewal_said_the_run_is_still_held() -> Assertion[Any]:
+    def assertion(renewed_then_claimed: Any) -> bool:
+        still_held, _ = renewed_then_claimed
+
+        if still_held is not True:
+            raise AssertionError(
+                f"Expected the renewal to say the run is still held, and it said "
+                f"[{still_held}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nobody_else_took_it() -> Assertion[Any]:
+    def assertion(renewed_then_claimed: Any) -> bool:
+        _, claimed = renewed_then_claimed
+
+        if claimed is not None:
+            raise AssertionError(
+                f"Expected the renewed run to stay its holder's, and [{claimed.claimed_by}] "
+                f"took it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_run_is_no_longer_held() -> Assertion[Any]:
+    def assertion(still_held: Any) -> bool:
+        if still_held is not False:
+            raise AssertionError(
+                f"Expected the renewal to say the run is no longer held, and it said "
+                f"[{still_held}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_lease_is_as_its_holder_left_it(conn: psycopg.Connection,
+                                        holder: runs.Run) -> Assertion[Any]:
+    def assertion(_still_held: Any) -> bool:
+        run = runs.get(conn, holder.id)
+        found = None if run is None else run.leased_until
+
+        if found != holder.leased_until:
+            raise AssertionError(
+                f"Expected the lease to stay as its holder left it, "
+                f"[{holder.leased_until}], got [{found}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_run_has_no_lease(conn: psycopg.Connection, run_id: str) -> Assertion[Any]:
+    def assertion(_still_held: Any) -> bool:
+        run = runs.get(conn, run_id)
+        found = None if run is None else run.leased_until
+
+        if found is not None:
+            raise AssertionError(
+                f"Expected the settled run to have no lease, got [{found}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_runs_are_for(incident_ids: set[str]) -> Assertion[Any]:
     def assertion(unsettled: Any) -> bool:
         found = {run.incident_id for run in unsettled}
@@ -269,6 +449,14 @@ def _a_claimed_run_for(conn: psycopg.Connection, alert: Alert) -> runs.Run:
     """An incident whose run a worker has taken and is walking."""
     _an_enqueued_run_for(conn, alert)
     claimed = runs.claim(conn, "worker-that-took-it", A_GENEROUS_LEASE)
+    assert claimed is not None
+
+    return claimed
+
+
+def _a_claim_by(conn: psycopg.Connection, worker: str, lease: timedelta) -> runs.Run:
+    """The oldest run waiting, claimed by `worker` for `lease`."""
+    claimed = runs.claim(conn, worker, lease)
     assert claimed is not None
 
     return claimed
