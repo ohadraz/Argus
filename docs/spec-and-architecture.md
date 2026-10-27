@@ -135,6 +135,8 @@ No HTTP surface of its own. `argus_web` (§7.9) calls its intake in-process afte
 
 A run is claimed with a lease. One worker walks a given incident, a second finds nothing to take, and a run whose holder stopped renewing becomes claimable again. A walk that fails is recorded against its run with the reason, so an incident nobody is working on is distinguishable from one still being investigated.
 
+Every claim moves the run's epoch on, and a worker writes only for the claim it holds. Each connection it opens carries that claim as its fence, and every table but the queue refuses a write whose claim the run has since moved past. While the write is open the run's row is share-locked, so the run is not taken back under it. A worker paused past its lease therefore wakes to find its next write refused, and it stops: nothing settled, escalated or put back. A worker's connection that names no claim is refused as well. Processes that walk no run (the web application, the relay, the schema job) write freely. LangGraph's checkpoint tables are part of the schema the job applies, and are fenced like the rest.
+
 Responsibilities:
 - Create the `Incident` row and queue its run, called by `argus_web`.
 - Walk a claimed run's graph, in the worker, and record how the run ended.
@@ -493,6 +495,7 @@ erDiagram
         enum state
         text claimed_by
         timestamp leased_until
+        bigint epoch
         text failure_reason
         timestamp created_at
     }

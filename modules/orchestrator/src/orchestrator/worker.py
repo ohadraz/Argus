@@ -30,13 +30,16 @@ from agent_mitigation import (
 from argus_core import (
     Connections,
     DatabaseSettings,
+    Fence,
+    Holding,
     ReadMcpEndpoint,
-    RunLost,
     TelemetrySettings,
     WriteMcpEndpoint,
     connect_from_env,
+    fence,
     get_settings,
     open_pool,
+    was_lost,
 )
 from argus_core.events import StatusChanged, publish
 from argus_core.models import IncidentStatus
@@ -57,7 +60,7 @@ from opentelemetry.trace import Tracer
 from read_mcp_client import read_mcp
 from write_mcp_client import write_mcp
 
-from orchestrator.entrypoint import graph_for, run_incident
+from orchestrator.entrypoint import CHECKPOINTER_CONNECTIONS, graph_for, run_incident
 from orchestrator.renewing import between_renewals, keep_renewing
 from orchestrator.unwinding import taken_actions_from, unwind_incident
 from orchestrator.walk.assembling import IncidentMemorySettings, the_store_for
@@ -120,7 +123,8 @@ def take_one_run(conn: psycopg.Connection,
                  unwind: Unwind,
                  ended_by_a_person: EndedByAPerson,
                  connections: Connections = connect_from_env,
-                 tracer: Tracer | None = None) -> bool:
+                 tracer: Tracer | None = None,
+                 holding: Holding | None = None) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
@@ -163,16 +167,26 @@ def take_one_run(conn: psycopg.Connection,
     many runs it takes. The run's id is in the baggage beside the incident's,
     for every log line written anywhere inside it. `tracer` defaults to the
     process's own.
+
+    And all of it is written for this claim of the run (`argus_core.fencing`):
+    the run is what the process is `holding` while it is worked, which fences
+    every connection the walk is handed as it is handed out, and this worker's
+    own connection is fenced with it until the run is settled. A store that
+    refuses a write because the run was taken back meanwhile has said the run
+    is lost, wherever it said it, and is answered as `RunLost` is - with
+    nothing written after it. `holding` is the process's own where the walk's
+    connections are fenced by it, and nobody's otherwise.
     """
     claimed = runs.claim(conn, claimed_by, lease)
 
     if claimed is None:
         return False
 
-    # Read on a connection of its own rather than on `conn`, which is held for
-    # the whole run: a read left uncommitted there is a transaction open across
-    # the walk, and the walk can begin with DDL that waits for every open
-    # transaction to end.
+    held = Fence(run_id=claimed.id, epoch=claimed.epoch)
+    held_by = holding if holding is not None else Holding()
+
+    # Read on a connection of its own, so that `conn` is the claim's, the
+    # fence's and the settling's alone.
     with connections() as reading:
         incident = incidents.get(reading, claimed.incident_id)
 
@@ -180,7 +194,9 @@ def take_one_run(conn: psycopg.Connection,
 
     with (
         inside_the_incidents_trace(claimed.incident_id, kept, RUN_SPAN, tracer=tracer) as span,
-        _the_run_in_the_baggage(claimed.id)
+        _the_run_in_the_baggage(claimed.id),
+        held_by.of(held),
+        _fenced(conn, held)
     ):
         span.set_attribute(ARGUS_RUN_ID, claimed.id)
         logger.info("run claimed", extra={"worker": claimed_by})
@@ -195,18 +211,12 @@ def take_one_run(conn: psycopg.Connection,
                 if ended_by_a_person(claimed.incident_id) is IncidentStatus.WITHDRAWN:
                     logger.info("incident withdrawn, unwinding", extra={"walked": walked})
                     unwind(claimed.incident_id)
-        except RunLost:
-            _the_run_was_lost()
         except Exception as failure:
-            logger.exception("run failed")
-
-            try:
-                _put_back_what_it_changed(unwind, ended_by_a_person, claimed.incident_id)
-            except RunLost:
+            if was_lost(failure):
                 _the_run_was_lost()
             else:
-                if not _settled_as_failed(conn, claimed, failure):
-                    _the_run_was_lost()
+                logger.exception("run failed")
+                _settle_the_failure(conn, claimed, failure, unwind, ended_by_a_person)
         else:
             if _settled_as_finished(conn, claimed):
                 logger.info("run finished")
@@ -214,6 +224,38 @@ def take_one_run(conn: psycopg.Connection,
                 _the_run_was_lost()
 
     return True
+
+
+@contextmanager
+def _fenced(conn: psycopg.Connection, held: Fence) -> Generator[None]:
+    """`conn` writes for `held` while the run is worked, and for nothing after -
+    however the run ended, its being lost included."""
+    fence(conn, held)
+
+    try:
+        yield
+    finally:
+        fence(conn, None)
+
+
+def _settle_the_failure(conn: psycopg.Connection,
+                        held: runs.Run,
+                        failure: Exception,
+                        unwind: Unwind,
+                        ended_by_a_person: EndedByAPerson) -> None:
+    """Puts back what a failed walk changed and settles its run as failed - or,
+    where either finds the run taken back, does neither and says so."""
+    try:
+        _put_back_what_it_changed(unwind, ended_by_a_person, held.incident_id)
+    except Exception as error:
+        if not was_lost(error):
+            raise
+
+        _the_run_was_lost()
+        return
+
+    if not _settled_as_failed(conn, held, failure):
+        _the_run_was_lost()
 
 
 def _settled_as_failed(conn: psycopg.Connection,
@@ -231,15 +273,23 @@ def _settled_as_failed(conn: psycopg.Connection,
 
     Where the run was taken back, none of it is written: the incident is
     another walk's now, and failing it, escalating it or settling its claims
-    from here would end that walk part-way through.
+    from here would end that walk part-way through. The fence on `conn` is
+    what says so, refusing the first write; the run's failure is written only
+    for the claim that holds it, as a second guard.
     """
-    with conn.transaction() as settling:
-        taken_actions.settle_claims(conn, held.incident_id)
-        _the_incident_needs_a_person(conn, held.incident_id, failure)
-        settled = runs.fail(conn, held, f"{type(failure).__name__}: {failure}")
+    try:
+        with conn.transaction() as settling:
+            taken_actions.settle_claims(conn, held.incident_id)
+            _the_incident_needs_a_person(conn, held.incident_id, failure)
+            settled = runs.fail(conn, held, f"{type(failure).__name__}: {failure}")
 
-        if not settled:
-            raise psycopg.Rollback(settling)
+            if not settled:
+                raise psycopg.Rollback(settling)
+    except psycopg.Error as refused:
+        if not was_lost(refused):
+            raise
+
+        return False
 
     return settled
 
@@ -252,12 +302,18 @@ def _settled_as_finished(conn: psycopg.Connection, held: runs.Run) -> bool:
     has not is the run taken back from a dead worker and found withdrawn -
     unwound, never walked, and finished with the dead worker's claim still open.
     """
-    with conn.transaction() as settling:
-        taken_actions.settle_claims(conn, held.incident_id)
-        settled = runs.finish(conn, held)
+    try:
+        with conn.transaction() as settling:
+            taken_actions.settle_claims(conn, held.incident_id)
+            settled = runs.finish(conn, held)
 
-        if not settled:
-            raise psycopg.Rollback(settling)
+            if not settled:
+                raise psycopg.Rollback(settling)
+    except psycopg.Error as refused:
+        if not was_lost(refused):
+            raise
+
+        return False
 
     return settled
 
@@ -363,7 +419,7 @@ def _put_back_what_it_changed(unwind: Unwind,
     to go and look - but it is not the reason the run failed, and it does not
     belong in the queue in place of it.
 
-    All but `RunLost`, which is not a failure to put anything back: the run is
+    All but a lost run, which is not a failure to put anything back: the run is
     another claim's, and the caller's answer to that is to write nothing more.
     """
     try:
@@ -379,16 +435,18 @@ def _put_back_what_it_changed(unwind: Unwind,
 
     try:
         unwind(incident_id)
-    except RunLost:
-        raise
-    except Exception:
+    except Exception as error:
+        if was_lost(error):
+            raise
+
         logger.exception("changes could not be put back after a failed run")
 
 
 def work_forever(connections: Connections,
                  walk: Walk,
                  unwind: Unwind,
-                 ended_by_a_person: EndedByAPerson) -> None:
+                 ended_by_a_person: EndedByAPerson,
+                 holding: Holding) -> None:
     """Takes runs for as long as the process lives.
 
     Looks again immediately after taking work and waits only when it found
@@ -408,7 +466,7 @@ def work_forever(connections: Connections,
     with connections() as conn:
         while True:
             if not take_one_run(conn, me, lease, walk, unwind, ended_by_a_person,
-                                connections):
+                                connections, holding=holding):
                 time.sleep(idle_wait)
 
 
@@ -429,15 +487,22 @@ def main() -> None:
     The store is held on the same terms, and by the same owner: one client for
     both ends of long-term memory, opened here and closed here, or none at all
     where this deployment remembers nothing.
+
+    Both pools are fenced by what the process is holding, so every connection
+    this process opens writes for the run it is walking or for none - the
+    checkpointer's as much as a node's. Nothing here opens one any other way.
     """
     settings = get_settings()
     mitigation = MitigationSettings.of(settings)
+    database = DatabaseSettings.of(settings)
+    holding = Holding()
 
     with (
         # First in and last out, so that closing it - which flushes what is
         # still batched - comes after everything that could have reported.
         start_telemetry(TelemetrySettings.of(settings), _SERVICE),
-        open_pool(DatabaseSettings.of(settings)) as pool,
+        open_pool(database, holding=holding) as pool,
+        open_pool(database, holding=holding, connection=CHECKPOINTER_CONNECTIONS) as checkpoints,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
         write_mcp(WriteMcpEndpoint.of(settings)) as write,
         the_store_for(IncidentMemorySettings.of(settings)) as store,
@@ -450,7 +515,7 @@ def main() -> None:
         with pool.connection() as conn:
             require_schema(conn)
 
-        graph_of = graph_for(connections, read, write, store)
+        graph_of = graph_for(connections, checkpoints, read, write, store)
 
         work_forever(
             connections,
@@ -466,6 +531,7 @@ def main() -> None:
                            taken_actions_of=taken_actions_from(connections),
                            publisher=events_into(connections)),
             ended_by_a_person=ended_by_a_person_via(connections),
+            holding=holding
         )
 
 

@@ -16,6 +16,7 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
+from argus_core import RunLost
 from argus_core.events import (
     PATCH_LINE_INDENT,
     ActionRefused,
@@ -78,6 +79,7 @@ from argus_testkit import (
     Assertion,
     Scenario,
     all_of,
+    an_error_was_raised,
     attempting,
     one_record_was_logged,
     the_answer_was,
@@ -758,6 +760,30 @@ def test_a_publisher_that_fails_is_logged_as_a_warning(caplog: pytest.LogCapture
                                           ARGUS_INCIDENT_ID: some_incident},
                                   failure=RuntimeError)
         )
+
+
+@pytest.mark.unit
+def test_a_publisher_told_the_run_was_lost_is_not_swallowed() -> None:
+    # Not a subscriber having a bad day: the run the event is about is another
+    # claim's now, and a walk that published past it would go on writing an
+    # account nobody will settle - so the walk is told, as every other write
+    # would tell it.
+    Scenario() \
+        .when(attempting(lambda: publish(
+            AgentInvoked(incident_id=new_id(), agent=Actor.INVESTIGATOR),
+            publisher=_a_publisher_told_the_run_was_lost()
+        ))) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
+
+
+def _a_publisher_told_the_run_was_lost() -> Publisher:
+    """A subscriber whose store refused the write for a lost run."""
+    def refused(dont_care_event: IncidentEvent) -> None:
+        raise RunLost("a newer claim holds this run")
+
+    return refused
 
 
 def _a_publisher_having_a_bad_day() -> Publisher:

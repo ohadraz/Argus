@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Final
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, Final, cast
 
+import psycopg
 from argus_core import Connections, get_settings
 from argus_core.events import StatusChanged
 from argus_core.mcp_transport import McpClient
@@ -35,6 +36,8 @@ from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import metrics, trace
 from opentelemetry.metrics import Counter, Histogram, Meter
 from opentelemetry.trace import Status, StatusCode, Tracer
+from psycopg.rows import DictRow, dict_row
+from psycopg_pool import ConnectionPool
 
 from orchestrator.walk.assembling import against
 from orchestrator.walk.graph import build_graph, recursion_limit
@@ -58,6 +61,14 @@ type Clock = Callable[[], float]
 # What one walk is called in a trace: the root every step of it hangs from.
 WALK_SPAN: Final = "walk"
 
+# What the checkpointer's connections must be, which is LangGraph's to say: the
+# settings its own `PostgresSaver.from_conn_string` opens a connection with.
+CHECKPOINTER_CONNECTIONS: Final[Mapping[str, Any]] = {
+    "autocommit": True,
+    "prepare_threshold": 0,
+    "row_factory": dict_row
+}
+
 # How a walk ended when it did not end at all - it raised, and the worker marks
 # the run failed. Not an incident status: the incident is wherever the walk left
 # it, and what the measurement is about is the walk.
@@ -68,39 +79,37 @@ _SCOPE = __name__
 
 
 def graph_for(connections: Connections,
+              checkpoints: ConnectionPool,
               read: McpClient,
               write: McpClient,
               store: QdrantClient | None) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 
-    Built lazily and held, because compiling it sets up a checkpointer and the
-    whole node wiring, and a walk should not pay for that on every run. Held by
-    the closure rather than at module level, so two processes - or a suite and
-    the application inside it - are two graphs against two sets of connections
-    rather than one that whichever ran first got to decide.
+    Built lazily and held, because compiling it wires every node, and a walk
+    should not pay for that on every run. Held by the closure rather than at
+    module level, so two processes - or a suite and the application inside it -
+    are two graphs against two sets of connections rather than one that
+    whichever ran first got to decide.
 
     The three clients are passed through rather than built here, for the same
-    reason `connections` is: what this function owns is when the graph is
-    compiled, not what the process it belongs to has opened.
+    reason `connections` and `checkpoints` are: what this function owns is when
+    the graph is compiled, not what the process it belongs to has opened.
 
-    The checkpointer's context manager is kept alongside the graph deliberately:
-    it owns the connection the checkpointer writes on, and letting it be
-    collected would close that out from under the compiled graph.
+    The checkpointer writes on `checkpoints`, a pool whose connections are as
+    `CHECKPOINTER_CONNECTIONS` says, and never sets up its tables: the schema
+    job made them, and a process that walks runs applies no DDL.
     """
     graph: CompiledStateGraph[IncidentState] | None = None
-    checkpointer_cm: object | None = None
 
     def compiled() -> CompiledStateGraph[IncidentState]:
-        nonlocal graph, checkpointer_cm
+        nonlocal graph
 
         if graph is None:
-            checkpointer_cm = PostgresSaver.from_conn_string(
-                get_settings().database_url
-            )
-            checkpointer = checkpointer_cm.__enter__()
-            checkpointer.setup()
+            # Rows of dicts, because the connections were opened to read them so
+            # - which is a setting the pool's type cannot see.
+            reading_dicts = cast(ConnectionPool[psycopg.Connection[DictRow]], checkpoints)
             graph = build_graph(
-                checkpointer, against(connections, read, write, store)
+                PostgresSaver(reading_dicts), against(connections, read, write, store)
             )
 
         return graph

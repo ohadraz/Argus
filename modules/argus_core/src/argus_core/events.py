@@ -20,6 +20,7 @@ from typing import Annotated, Any, Final, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
+from argus_core.fencing import was_lost
 from argus_core.ids import UuidStr, new_id
 from argus_core.models.action import (
     ActionIdentity,
@@ -1142,7 +1143,7 @@ def nobody(event: IncidentEvent) -> None:
 
 
 def publish(event: IncidentEvent, publisher: Publisher = nobody) -> None:
-    """Hands one event to a publisher, and cannot fail.
+    """Hands one event to a publisher, and fails only for a lost run.
 
     One of the few places in this codebase where an exception is caught and
     not raised again, each with a reason of its own written beside it. This
@@ -1154,10 +1155,17 @@ def publish(event: IncidentEvent, publisher: Publisher = nobody) -> None:
 
     Logged at warning rather than silently, so a stream that has stopped
     recording is discoverable without reading the page and noticing a gap.
+
+    All but a store refusing the write because the run was lost
+    (`argus_core.fencing`), which is no bad day: the walk publishing no longer
+    holds its run, and is told so here as every other write would tell it.
     """
     try:
         publisher(event)
-    except Exception:
+    except Exception as error:
+        if was_lost(error):
+            raise
+
         # The incident named here as well as stamped: a publish before any work
         # on the incident has begun - its alert acknowledged - has no baggage to
         # stamp it from.

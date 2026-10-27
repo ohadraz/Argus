@@ -6,10 +6,10 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
+from argus_core import Fence, connect_from_env, fence, utc_now, was_lost
 from argus_core.models import Alert
 from argus_incidents.repository import incidents, runs
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, attempting, calling
 
 from argus_incidents_test.framework import no_column_is_empty
 
@@ -304,6 +304,115 @@ def test_settling_a_run_leaves_committing_it_to_the_caller(settling: str) -> Non
             .then(
                 _the_run_is_still_running()
             )
+
+
+@pytest.mark.integration
+def test_a_run_is_not_taken_back_while_a_write_for_its_claim_is_still_open() -> None:
+    # The holder's lease is over, but a write it made for the run has not ended.
+    # Taking the run back now would let that write land under the new holder's
+    # walk, so the claim passes the run over rather than waiting on it.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with (
+        connect_from_env() as conn,
+        connect_from_env() as the_holders_conn
+    ):
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
+                calling(lambda: _a_write_left_open_for(the_holders_conn, held))
+            ) \
+            .when(
+                lambda: runs.claim(conn, "worker-looking-for-something-to-do", A_GENEROUS_LEASE)
+            ) \
+            .then(
+                _nothing_was_taken_back()
+            )
+
+        the_holders_conn.rollback()
+
+
+@pytest.mark.integration
+def test_a_run_taken_back_once_its_claims_write_ended_refuses_that_claims_next_one() -> None:
+    # The write ended, the run was taken back, and the paused holder writes
+    # again: refused, and told as the lost run it is.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with (
+        connect_from_env() as conn,
+        connect_from_env() as the_holders_conn
+    ):
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
+                calling(lambda: _a_write_left_open_for(the_holders_conn, held)),
+                calling(the_holders_conn.commit)
+            ) \
+            .when(
+                lambda: (runs.claim(conn, "worker-that-came-after", A_GENEROUS_LEASE),
+                         attempting(lambda: _a_write_on(the_holders_conn, held))())
+            ) \
+            .then(all_of(
+                _it_was_taken_back_by("worker-that-came-after"),
+                _the_next_write_was_refused_as_a_lost_run()
+            ))
+
+        the_holders_conn.rollback()
+
+
+def _a_write_left_open_for(conn: psycopg.Connection, held: runs.Run) -> None:
+    """A write the holder makes for its claim, its transaction not yet ended."""
+    fence(conn, Fence(run_id=held.id, epoch=held.epoch))
+    _a_write_on(conn, held)
+
+
+def _a_write_on(conn: psycopg.Connection, held: runs.Run) -> None:
+    conn.execute("UPDATE incident SET status = status WHERE id = %s", (held.incident_id,))
+
+
+def _nothing_was_taken_back() -> Assertion[Any]:
+    def assertion(claimed: Any) -> bool:
+        if claimed is not None:
+            raise AssertionError(
+                f"Expected the run passed over while a write for its claim was open, and "
+                f"[{claimed.claimed_by}] took it."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_taken_back_by(worker: str) -> Assertion[Any]:
+    def assertion(claimed_then_refused: Any) -> bool:
+        claimed, _ = claimed_then_refused
+
+        if claimed is None or claimed.claimed_by != worker:
+            raise AssertionError(
+                f"Expected the run taken back by [{worker}] once the write had ended, got "
+                f"[{None if claimed is None else claimed.claimed_by}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_next_write_was_refused_as_a_lost_run() -> Assertion[Any]:
+    def assertion(claimed_then_refused: Any) -> bool:
+        _, refused = claimed_then_refused
+
+        if refused is None or not was_lost(refused):
+            raise AssertionError(
+                f"Expected the paused holder's next write refused as a lost run, got "
+                f"[{None if refused is None else f'{type(refused).__name__}: {refused}'}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_says_the_run_was_settled() -> Assertion[Any]:

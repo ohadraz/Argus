@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, create_autospec
 
 import pytest
 from agent_mitigation import ChangeMade
+from argus_core import RunLost
 from argus_core.events import (
     ActionTaken,
     IncidentEvent,
@@ -58,7 +59,15 @@ from argus_core.models import (
     the_subject_of,
 )
 from argus_incidents import IsStillWanted
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
@@ -1617,6 +1626,45 @@ def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
 
 
 @pytest.mark.unit
+def test_a_change_that_could_not_be_put_on_the_claim_of_a_lost_run_stops_the_attempt(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The one write before the wait that is not an early copy of anything: it
+    # says the run is another claim's now. Waiting on the change from here
+    # would be a walk nobody holds measuring production for minutes, and the
+    # completion after it would be refused for the same reason.
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_claim_is_refused_for_a_lost_run(advance_action)),
+            take := _an_agent_that_tells_of_the_change(
+                FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True), Verdict.CONFIRMED
+            ),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(attempting(lambda: mitigation_node(an_action_taking_incident,
+                                                 take=take,
+                                                 change_landed=_nothing_landed(),
+                                                 advance_action=advance_action,
+                                                 record_action=record_action,
+                                                 complete_action=complete_action,
+                                                 record_outcome=record_outcome,
+                                                 already_taken=already_taken,
+                                                 still_wanted=still_wanted))) \
+        .then(all_of(
+            an_error_was_raised(RunLost),
+            _no_action_row_was_completed(complete_action)
+        ))
+
+
+@pytest.mark.unit
 def test_an_action_that_stopped_the_symptom_goes_on_to_look_for_a_fix() -> None:
     # The path that did not exist before. A mitigation that worked used to end
     # the incident at the postmortem, which meant the fault it exposed was
@@ -2453,6 +2501,23 @@ def _an_advance_nobody_checks() -> MagicMock:
 
 def _the_claim_cannot_be_written(advance_action: MagicMock) -> None:
     advance_action.side_effect = RuntimeError("the database went away")
+
+
+def _the_claim_is_refused_for_a_lost_run(advance_action: MagicMock) -> None:
+    advance_action.side_effect = RunLost("a newer claim holds this run")
+
+
+def _no_action_row_was_completed(complete_action: MagicMock) -> Assertion[Exception | None]:
+    def assertion(dont_care_error: Exception | None) -> bool:
+        if complete_action.called:
+            raise AssertionError(
+                f"Expected no action row completed for a lost run, one was completed with "
+                f"{complete_action.call_args}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_agent_that_tells_of_the_change(undo_descriptor: UndoDescriptor,

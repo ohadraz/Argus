@@ -23,6 +23,11 @@ There is no exemption list, and no such thing as a construction this skips. A
 statement whose columns cannot be determined fails, naming the file - the hole
 `subject` came through was something nobody was looking at, and a guard that
 quietly passes what it cannot read builds the same hole on purpose.
+
+The rule is about the columns Argus owns. A table a dependency owns - the
+checkpointer's - is written by that dependency's code, so the revision declaring
+it says so, in `_OWNED_BY_A_DEPENDENCY`, and this does not look for its writers
+in Argus. That is a fact the schema states about itself, not a list kept here.
 """
 
 from __future__ import annotations
@@ -35,6 +40,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _COLUMN_LIST_SEPARATOR = ", "
+
+# What a revision calls the constants holding tables a dependency owns, keyed by
+# the dependency.
+_OWNED_BY_A_DEPENDENCY = "_OWNED_BY_A_DEPENDENCY"
 
 # A `CREATE TABLE` body holds these as well as columns, and none of them names
 # one. Matched on the first word of an entry.
@@ -167,12 +176,21 @@ def _the_ddl_in(revision: Path) -> str | None:
     and the house style for a constant is `_DDL: Final = "..."`, so reading
     only one of the two makes the next revision written properly the revision
     this cannot read.
+
+    Every constant that declares a table is read, but the ones the revision
+    itself names as a dependency's, in `_OWNED_BY_A_DEPENDENCY`. Those tables
+    are written by the dependency's code, which is not Argus's to have a
+    writer in, and are held to the dependency's own shape by a test of their
+    own. Which tables are whose is said where they are declared, and nowhere
+    here: a constant not named there is Argus's, and read.
     """
     tree = ast.parse(revision.read_text(encoding="utf-8"), filename=str(revision))
+    owned_elsewhere = _the_constants_owned_by_a_dependency(tree)
     statements = [
         bound.value
         for node in tree.body
         if isinstance(node, ast.Assign | ast.AnnAssign)
+        and not (_the_names_bound_by(node) & owned_elsewhere)
         and isinstance(bound := node.value, ast.Constant)
         and isinstance(bound.value, str)
         and ("CREATE TABLE" in bound.value.upper()
@@ -180,6 +198,25 @@ def _the_ddl_in(revision: Path) -> str | None:
     ]
 
     return "\n".join(statements) if statements else None
+
+
+def _the_constants_owned_by_a_dependency(tree: ast.Module) -> set[str]:
+    """The names `_OWNED_BY_A_DEPENDENCY` maps a dependency to, in one revision."""
+    return {
+        owned.id
+        for node in tree.body
+        if isinstance(node, ast.Assign | ast.AnnAssign)
+        and _OWNED_BY_A_DEPENDENCY in _the_names_bound_by(node)
+        and isinstance(node.value, ast.Dict)
+        for owned in node.value.values
+        if isinstance(owned, ast.Name)
+    }
+
+
+def _the_names_bound_by(node: ast.Assign | ast.AnnAssign) -> set[str]:
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+
+    return {target.id for target in targets if isinstance(target, ast.Name)}
 
 
 def _apply(ddl: str, to: dict[str, Table], named_by: str) -> list[str]:

@@ -5,10 +5,12 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import psycopg
+import psycopg.sql
 import pytest
-from argus_core import connect_from_env, utc_now
+from argus_core import connect_from_env, get_settings, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import Alert, IncidentStatus
+from argus_core.schema import reset_schema
 from argus_core.telemetry import (
     ARGUS_INCIDENT_ID,
     ARGUS_INCIDENT_OUTCOME,
@@ -19,11 +21,20 @@ from argus_incidents.repository import events, incidents
 from argus_testkit import one_record_was_logged
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario, calling
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import trace
 from orchestrator import entrypoint
+from psycopg.rows import dict_row
 
 from orchestrator_test.framework.observing import Observed, attributes_of, observing
+
+# Where the schema job puts every table, LangGraph's among them.
+THE_SCHEMA = "public"
+
+# Where LangGraph's own setup is run to be compared against it, and dropped
+# after.
+A_SCRATCH_SCHEMA = "langgraph_setup"
 
 
 @pytest.mark.component
@@ -211,6 +222,93 @@ def test_a_walk_is_logged_as_it_starts_and_as_it_ends(
                                       values={"outcome": "escalated",
                                               "duration_s": some_seconds_walked})
             ))
+
+
+@pytest.mark.component
+def test_the_schema_holds_the_checkpointers_tables_as_its_own_setup_would_leave_them(
+    postgres: None
+) -> None:
+    # The graph is compiled against tables the schema job made, and never sets
+    # them up itself: a worker applying DDL would be a service doing the job's
+    # work, and an unfenced one. So the job's copy has to be what LangGraph's
+    # own setup makes - and the day an upgrade adds a step, this says so before
+    # a walk finds out.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                calling(lambda: reset_schema(conn))
+            ) \
+            .when(
+                lambda: (_the_checkpoint_tables_in(conn, THE_SCHEMA),
+                         _the_checkpoint_tables_as_its_own_setup_leaves_them())
+            ) \
+            .then(
+                _the_same_tables()
+            )
+
+
+def _the_checkpoint_tables_as_its_own_setup_leaves_them() -> dict[str, list[Any]]:
+    """LangGraph's own setup, run in a schema of its own and described, and the
+    schema dropped after."""
+    with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA IF EXISTS {A_SCRATCH_SCHEMA} CASCADE")
+        conn.execute(f"CREATE SCHEMA {A_SCRATCH_SCHEMA}")
+
+        try:
+            with psycopg.connect(get_settings().database_url, autocommit=True,
+                                 prepare_threshold=0, row_factory=dict_row,
+                                 options=f"-c search_path={A_SCRATCH_SCHEMA}") as its_own:
+                PostgresSaver(its_own).setup()
+
+            return _the_checkpoint_tables_in(conn, A_SCRATCH_SCHEMA)
+        finally:
+            conn.execute(f"DROP SCHEMA {A_SCRATCH_SCHEMA} CASCADE")
+
+
+def _the_checkpoint_tables_in(conn: psycopg.Connection, schema: str) -> dict[str, list[Any]]:
+    """Every column, key and index of the checkpointer's tables in `schema`, and
+    the steps of LangGraph's setup the schema says were applied - each spelt
+    without the schema's name, so two schemas can be compared."""
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT table_name, column_name, data_type, is_nullable, column_default "
+            "FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name LIKE 'checkpoint%%' "
+            "ORDER BY table_name, column_name", (schema,)
+        )
+        columns = cursor.fetchall()
+        cursor.execute(
+            "SELECT tablename, indexname, replace(indexdef, %s, '') FROM pg_indexes "
+            "WHERE schemaname = %s AND tablename LIKE 'checkpoint%%' "
+            "ORDER BY tablename, indexname", (f"{schema}.", schema)
+        )
+        indexes = cursor.fetchall()
+        cursor.execute(
+            psycopg.sql.SQL("SELECT v FROM {}.checkpoint_migrations ORDER BY v").format(
+                psycopg.sql.Identifier(schema)
+            )
+        )
+        applied = cursor.fetchall()
+
+    return {"columns": columns, "indexes": indexes, "applied": applied}
+
+
+def _the_same_tables() -> Assertion[Any]:
+    def assertion(ours_then_theirs: Any) -> bool:
+        ours, theirs = ours_then_theirs
+        differing = [part for part in theirs if ours[part] != theirs[part]]
+
+        if differing:
+            raise AssertionError(
+                f"Expected the schema's checkpoint tables as LangGraph's own setup leaves "
+                f"them; they differ in {differing}. Ours: "
+                f"{ {part: ours[part] for part in differing} }; LangGraph's: "
+                f"{ {part: theirs[part] for part in differing} }."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_state_it_started_from_is_the_incidents(a_graph: Any,

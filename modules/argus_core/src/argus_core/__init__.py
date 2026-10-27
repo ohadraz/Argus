@@ -35,7 +35,7 @@ from argus_core.config import (
 )
 from argus_core.days import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
 from argus_core.db import Connections, connect, connect_from_env, open_pool
-from argus_core.fencing import RunLost
+from argus_core.fencing import Fence, Holding, RunLost, fence, was_lost
 from argus_core.ids import UuidStr, new_id
 from argus_core.levels import level_given_in, level_said_in, said_as_a_level, said_as_a_share
 from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
@@ -55,6 +55,8 @@ __all__ = [
     "Clock",
     "Connections",
     "DatabaseSettings",
+    "Fence",
+    "Holding",
     "LLMSettings",
     "ReadMcpEndpoint",
     "RunLost",
@@ -65,6 +67,7 @@ __all__ = [
     "WriteMcpEndpoint",
     "connect",
     "connect_from_env",
+    "fence",
     "get_settings",
     "in_real_time",
     "level_given_in",
@@ -85,5 +88,6 @@ __all__ = [
     "the_revision_named",
     "to_iso",
     "to_iso_minute",
-    "utc_now"
+    "utc_now",
+    "was_lost"
 ]

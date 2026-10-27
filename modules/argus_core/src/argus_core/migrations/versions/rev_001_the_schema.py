@@ -562,14 +562,147 @@ CREATE TABLE IF NOT EXISTS repository_index (
 );
 """
 
-def upgrade() -> None:
-    """Every table, as one statement, in one transaction.
+# Where a walk is kept between its steps, so a run taken up after its worker
+# stopped resumes rather than starts again. LangGraph's own tables, as its
+# `PostgresSaver.setup()` leaves them after its ten steps: made here rather than
+# by the worker, because no service applies DDL - and a worker that did would be
+# a process writing outside any run, which the fence refuses.
+#
+# A constant of its own because the tables are LangGraph's rather than Argus's:
+# their columns are written by LangGraph's code, and the orchestrator holds the
+# copy to the original, so an upgrade that adds a step fails a test rather than
+# a walk. Named as a dependency's in `_OWNED_BY_A_DEPENDENCY` below, which is
+# where `guard_written_columns` learns not to look for their writers in Argus.
+#
+# The indexes are LangGraph's, made plainly where its setup makes them
+# concurrently: this runs in a transaction, which a concurrent build cannot, and
+# on tables nobody has written to yet it would buy nothing.
+_LANGGRAPH_DDL = """
+CREATE TABLE IF NOT EXISTS checkpoint_migrations (
+    v INTEGER PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    checkpoint_id TEXT NOT NULL,
+    parent_checkpoint_id TEXT,
+    type TEXT,
+    checkpoint JSONB NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+);
+CREATE TABLE IF NOT EXISTS checkpoint_blobs (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL,
+    version TEXT NOT NULL,
+    type TEXT NOT NULL,
+    blob BYTEA,
+    PRIMARY KEY (thread_id, checkpoint_ns, channel, version)
+);
+CREATE TABLE IF NOT EXISTS checkpoint_writes (
+    thread_id TEXT NOT NULL,
+    checkpoint_ns TEXT NOT NULL DEFAULT '',
+    checkpoint_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    type TEXT,
+    blob BYTEA NOT NULL,
+    task_path TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+);
+CREATE INDEX IF NOT EXISTS checkpoints_thread_id_idx ON checkpoints (thread_id);
+CREATE INDEX IF NOT EXISTS checkpoint_blobs_thread_id_idx ON checkpoint_blobs (thread_id);
+CREATE INDEX IF NOT EXISTS checkpoint_writes_thread_id_idx ON checkpoint_writes (thread_id);
+-- Every step of its setup, recorded as applied - which is what its setup reads
+-- to know there is nothing left to do.
+INSERT INTO checkpoint_migrations (v) SELECT generate_series(0, 9);
+"""
 
-    One `op.execute` of the SQL rather than a run of `op.create_table` calls:
-    the comments are the argument for half the columns in this system, and
+# The tables in this revision that a dependency owns, by the dependency. Stated
+# here, where the tables are declared, rather than in whatever checks them.
+_OWNED_BY_A_DEPENDENCY = {"langgraph-checkpoint-postgres": _LANGGRAPH_DDL}
+
+# What keeps a walk whose run was taken back from writing as though it still
+# held it (`argus_core.fencing`). A worker's connection says which claim it
+# writes for in `argus.fence`, as `<run id>:<epoch>`; a write is made only while
+# that claim still holds the run, and the run's row is share-locked for the rest
+# of the transaction, so a claim passes it over rather than taking it back under
+# a write still being made. A worker's connection naming no claim is refused as
+# well - a walk writing for no run is a worker that forgot - and anything that
+# is not a worker walks no run and writes freely.
+#
+# A constant of its own because it declares no table, and applied last because
+# it fences every table the two before it made.
+#
+# Our own SQLSTATEs, in a class Postgres leaves unused: AR001 is the run lost,
+# AR002 the worker that named none. The messages are joined rather than
+# formatted, because the migration's SQL passes through a driver that reads a
+# percent sign as a parameter.
+_FENCING_DDL = """
+CREATE OR REPLACE FUNCTION argus_fence() RETURNS trigger LANGUAGE plpgsql AS $fence$
+DECLARE
+    -- Null where this session never set it, empty where it was taken down: the
+    -- same answer either way.
+    held TEXT := coalesce(current_setting('argus.fence', true), '');
+BEGIN
+    IF held = '' THEN
+        IF current_setting('application_name') = 'argus-worker' THEN
+            RAISE EXCEPTION USING ERRCODE = 'AR002',
+                MESSAGE = 'a worker wrote to ' || TG_TABLE_NAME || ' for no run';
+        END IF;
+
+        RETURN NULL;
+    END IF;
+
+    PERFORM 1 FROM incident_run
+        WHERE id = split_part(held, ':', 1)::uuid
+          AND epoch = split_part(held, ':', 2)::bigint
+          AND state = 'running'
+        FOR SHARE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING ERRCODE = 'AR001',
+            MESSAGE = 'run ' || held || ' is no longer held by this claim';
+    END IF;
+
+    RETURN NULL;
+END
+$fence$;
+
+-- On every table but the queue - which says who holds what, and which a worker
+-- that lost its run must still be able to lose a renewal on - and Alembic's
+-- record of the chain. Once per statement and before it, for every kind of
+-- write: a fence a DELETE or a TRUNCATE got round would be no fence.
+DO $fencing$
+DECLARE
+    fenced TEXT;
+BEGIN
+    FOR fenced IN
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = current_schema()
+          AND tablename NOT IN ('incident_run', 'alembic_version')
+    LOOP
+        EXECUTE 'CREATE TRIGGER argus_fence BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE '
+                'ON ' || quote_ident(fenced) || ' FOR EACH STATEMENT '
+                'EXECUTE FUNCTION argus_fence()';
+    END LOOP;
+END
+$fencing$;
+"""
+
+def upgrade() -> None:
+    """Every table, in one transaction: Argus's, LangGraph's, then the fence
+    over all of them.
+
+    `op.execute` of the SQL rather than a run of `op.create_table` calls: the
+    comments are the argument for half the columns in this system, and
     Alembic's builders have nowhere to put them.
     """
     op.execute(_DDL)
+    op.execute(_LANGGRAPH_DDL)
+    op.execute(_FENCING_DDL)
 
 
 def downgrade() -> None:

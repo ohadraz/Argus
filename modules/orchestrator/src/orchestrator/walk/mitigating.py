@@ -8,7 +8,7 @@ from datetime import datetime
 from functools import partial
 
 from agent_mitigation import Verdict
-from argus_core import utc_now
+from argus_core import utc_now, was_lost
 from argus_core.events import (
     ActionTaken,
     AgentInvoked,
@@ -340,7 +340,9 @@ def _the_change_was_made(advance_action: AdvanceAction,
     record would leave the world changed and unmeasured, where carrying on
     loses only an early copy - the completion writes the same facts again once
     the wait has a verdict. The early copy only ever mattered to a worker that
-    dies during the wait, and this one is alive.
+    dies during the wait, and this one is alive. All but a write refused for a
+    lost run, which is no early copy: the walk no longer holds its run, and a
+    wait from here would be nobody's walk watching production for minutes.
 
     Announced here and nowhere earlier: before the write, an attempt the
     platform refused was told as done. Published from the walk rather than
@@ -351,7 +353,10 @@ def _the_change_was_made(advance_action: AdvanceAction,
     try:
         advance_action(incident_id, hypothesis_id=hypothesis_id,
                        to=ActionProgress.PERFORMED, undo_descriptor=undo_descriptor)
-    except Exception:
+    except Exception as error:
+        if was_lost(error):
+            raise
+
         logger.warning("the change could not be recorded as made before the wait",
                        exc_info=True,
                        extra={"incident_id": incident_id, "hypothesis_id": hypothesis_id})

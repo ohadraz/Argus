@@ -4,16 +4,24 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 import psycopg
 import pytest
-from argus_core import RunLost, connect_from_env, utc_now
+from argus_core import Fence, Holding, RunLost, connect_from_env, fence, get_settings, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import REVERT_FEATURE_FLAG, ActionProgress, Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
 from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
 from argus_incidents.repository import events, hypotheses, incidents, runs, taken_actions
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from opentelemetry import baggage
 from orchestrator import worker
 from psycopg.pq import TransactionStatus
@@ -28,6 +36,14 @@ THE_WORKER_THAT_TOOK_IT_BACK = "worker-that-took-it-back"
 
 # Where the worker's own lines are logged from.
 THE_WORKER = "orchestrator.worker"
+
+# What a worker's connections are called, and so what the database refuses a
+# write from when it names no run. Stated rather than imported: it is the one
+# word the worker and the schema agree on.
+THE_WORKERS_CONNECTIONS = "argus-worker"
+
+# Refused because a worker wrote without saying which run it writes for.
+NO_RUN_HELD = "AR002"
 
 # A lease already over by the time it is written: the state a worker that was
 # killed mid-walk leaves behind, arranged rather than waited for.
@@ -1110,10 +1126,10 @@ def test_a_withdrawn_incident_is_logged_as_it_is_unwound(
 def test_a_walk_runs_with_no_transaction_left_open_on_the_workers_connection(
     a_clean_database: None
 ) -> None:
-    # The walk can begin with DDL that waits for every open transaction to end -
-    # the checkpointer builds its indexes concurrently on first use - so anything
-    # the worker reads and leaves uncommitted before walking is a walk waiting on
-    # itself, for ever.
+    # Anything the worker reads and leaves uncommitted before walking is a
+    # transaction open for the whole walk, and DDL waits for every open
+    # transaction to end - the schema job's drop among it, hung behind a walk
+    # that could take half an hour.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"
     seen: list[TransactionStatus] = []
@@ -1269,7 +1285,8 @@ def test_a_walk_told_its_run_was_lost_is_neither_put_back_nor_settled(
                 _the_incident_is(conn, incident_id, IncidentStatus.MITIGATING),
                 _its_actions_are_seen_as(incident_id, [ActionProgress.CLAIMED]),
                 one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
-                                      "run lost, leaving it to whoever holds it now")
+                                      "run lost, leaving it to whoever holds it now"),
+                _it_was_never_logged(caplog, "run failed")
             ))
 
 
@@ -1316,6 +1333,197 @@ def test_an_unwind_told_its_run_was_lost_settles_nothing_and_says_so_once(
                                       "run lost, leaving it to whoever holds it now"),
                 _it_was_never_logged(caplog, "changes could not be put back after a failed run")
             ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("ended", ["walked", "withdrawn", "failed"])
+def test_a_run_is_held_by_the_process_for_as_long_as_it_is_worked_and_no_longer(
+    ended: str, a_clean_database: None
+) -> None:
+    # What every connection the walk and the unwind are handed is fenced with:
+    # the run as this claim holds it, and between runs none. The unwind writes
+    # through the same pool as the walk, after a withdrawal and in the put-back
+    # after a failed walk alike.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    holding = Holding()
+    held_during: list[Fence | None] = []
+
+    def walk_seeing_what_is_held(dont_care_incident_id: str) -> None:
+        held_during.append(holding.current())
+
+        if ended == "failed":
+            raise RuntimeError("dont care")
+
+    def unwind_seeing_what_is_held(dont_care_incident_id: str) -> None:
+        held_during.append(holding.current())
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        if ended == "withdrawn":
+            incidents.withdraw(conn, incident_id, at=utc_now())
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_seeing_what_is_held,
+                    unwind=unwind_seeing_what_is_held,
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    holding=holding
+                )
+            ) \
+            .then(
+                _held_while_worked_and_not_after(conn, incident_id, held_during, holding,
+                                                 times_asked=2 if ended == "failed" else 1)
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("lost", [False, True], ids=["settled", "lost"])
+def test_the_workers_own_connection_writes_for_no_run_once_its_run_is_over(
+    lost: bool, a_clean_database: None
+) -> None:
+    # The fence came down whether the run was settled under it or lost from
+    # under it: a write on the connection between runs is a worker's write for
+    # nothing, and refused.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk(incident_id: str) -> None:
+        if lost:
+            _the_run_taken_from_under_it(incident_id)
+
+    with (
+        connect_from_env() as setting_up,
+        _a_connection_named(THE_WORKERS_CONNECTIONS) as conn
+    ):
+        incident_id = incidents.create(setting_up, dont_care_alert, at=utc_now())
+        runs.enqueue(setting_up, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: (worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                ), attempting(lambda: _a_write_on(conn, incident_id))())
+            ) \
+            .then(all_of(
+                (_the_run_is_held_by(setting_up, incident_id, THE_WORKER_THAT_TOOK_IT_BACK)
+                 if lost else _the_run_is_done(setting_up, incident_id)),
+                _the_write_after_it_was_refused_as(NO_RUN_HELD)
+            ))
+
+
+@pytest.mark.component
+def test_a_walk_whose_write_was_refused_for_a_lost_run_is_neither_put_back_nor_settled(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The database refused it rather than anything in the walk noticing: what
+    # reaches the worker is the store's own error, and it means what `RunLost`
+    # means.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_worker = "worker-that-was-paused"
+    holding = Holding()
+    unwound: list[str] = []
+
+    def walk_that_writes_after_its_run_was_taken(incident_id: str) -> None:
+        with connect_from_env() as walking:
+            fence(walking, holding.current())
+            _the_run_taken_from_under_it(incident_id)
+            _a_write_on(walking, incident_id)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    some_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_writes_after_its_run_was_taken,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    holding=holding
+                )
+            ) \
+            .then(all_of(
+                _nothing_was_put_back(unwound),
+                _the_run_is_held_by(conn, incident_id, THE_WORKER_THAT_TOOK_IT_BACK),
+                _the_incident_is(conn, incident_id, IncidentStatus.MITIGATING),
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run lost, leaving it to whoever holds it now"),
+                _it_was_never_logged(caplog, "run failed")
+            ))
+
+
+def _a_connection_named(application: str) -> psycopg.Connection:
+    return psycopg.connect(get_settings().database_url, application_name=application)
+
+
+def _a_write_on(conn: psycopg.Connection, incident_id: str) -> None:
+    conn.execute("UPDATE incident SET status = status WHERE id = %s", (incident_id,))
+    conn.commit()
+
+
+def _held_while_worked_and_not_after(conn: psycopg.Connection,
+                                     incident_id: str,
+                                     held_during: list[Fence | None],
+                                     holding: Holding,
+                                     times_asked: int) -> Assertion[bool]:
+    """The run as its claim holds it, each time the walk or the unwind looked,
+    and nothing once the run was over."""
+    def assertion(_took_work: bool) -> bool:
+        run = runs.get_run_for_incident(conn, incident_id)
+        expected = [None if run is None else Fence(run_id=run.id, epoch=run.epoch)] * times_asked
+        held_after = holding.current()
+
+        if held_during != expected or held_after is not None:
+            raise AssertionError(
+                f"Expected the run held as {expected} while it was worked and nothing "
+                f"after; held {held_during} during and [{held_after}] after."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_write_after_it_was_refused_as(sqlstate: str) -> Assertion[Any]:
+    def assertion(took_work_then_refused: Any) -> bool:
+        _, refused = took_work_then_refused
+        found = refused.sqlstate if isinstance(refused, psycopg.Error) else None
+
+        if found != sqlstate:
+            raise AssertionError(
+                f"Expected a write on the worker's connection after its run refused as "
+                f"[{sqlstate}], got [{found}] from "
+                f"[{None if refused is None else f'{type(refused).__name__}: {refused}'}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_action_claimed_on_its_own_connection(incident_id: str) -> None:

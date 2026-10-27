@@ -15,13 +15,15 @@ to write a row.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
+from typing import Any
 
 import psycopg
 from psycopg_pool import ConnectionPool
 
 from argus_core.config import DatabaseSettings, get_settings
+from argus_core.fencing import FencedPool, Holding
 
 # How anything gets a connection: ask, use it for a block, and let go. The
 # narrowest thing a caller can depend on, and deliberately not `ConnectionPool` -
@@ -37,7 +39,9 @@ _MIN_CONNECTIONS = 1
 _MAX_CONNECTIONS = 10
 
 
-def open_pool(settings: DatabaseSettings) -> ConnectionPool:
+def open_pool(settings: DatabaseSettings,
+              holding: Holding | None = None,
+              connection: Mapping[str, Any] | None = None) -> ConnectionPool:
     """A pool, open and ready, for a process that will own it.
 
     Returned open rather than left to the caller, so that a process holding one
@@ -48,12 +52,22 @@ def open_pool(settings: DatabaseSettings) -> ConnectionPool:
     to be: a pooled connection outlives the server restarting, and the one thing
     worse than paying for a handshake is handing out a socket to a Postgres that
     is no longer on the other end of it.
+
+    A process that walks runs hands over what it is `holding`, and every
+    connection is fenced with it as it goes out (`argus_core.fencing`). What a
+    `connection` must be like - the checkpointer's commit as they go - is the
+    caller's to say, and applies to every one.
     """
-    return ConnectionPool(settings.database_url,
-                          min_size=_MIN_CONNECTIONS,
-                          max_size=_MAX_CONNECTIONS,
-                          check=ConnectionPool.check_connection,
-                          open=True)
+    pool: dict[str, Any] = {"min_size": _MIN_CONNECTIONS,
+                            "max_size": _MAX_CONNECTIONS,
+                            "check": ConnectionPool.check_connection,
+                            "kwargs": dict(connection or {}),
+                            "open": True}
+
+    if holding is None:
+        return ConnectionPool(settings.database_url, **pool)
+
+    return FencedPool(settings.database_url, holding, **pool)
 
 
 def connect(settings: DatabaseSettings) -> psycopg.Connection:
