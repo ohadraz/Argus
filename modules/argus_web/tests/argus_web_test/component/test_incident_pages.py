@@ -44,6 +44,7 @@ from argus_core.models import (
     Detection,
     Evidence,
     FailureMode,
+    FirstTold,
     FlagUndo,
     Hypothesis,
     HypothesisConsidered,
@@ -1198,6 +1199,32 @@ def test_the_postmortem_header_answers_its_five_questions_in_order() -> None:
         .then(
             the_page_shows("head", "incident", "date", "status", "written-by", "ended-by")
         )
+
+
+@pytest.mark.component
+def test_the_postmortem_header_says_when_argus_first_posted_before_who_ended_it() -> None:
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 11, 14, 5, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(detection=Detection(
+            alerted_at=some_moment, rule=None, onset_at=None, gap=None,
+            first_told=FirstTold(channel=ReportChannel.SLACK, at=some_moment)
+        )), at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_shows("head", "incident", "date", "status", "written-by", "first-told",
+                           "ended-by"),
+            _the_page_reads("First told Argus posted in Slack")
+        ))
 
 
 @pytest.mark.component
@@ -2964,7 +2991,8 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
                      resolution: list[ResolutionStep] | None = None,
                      symptom: str | None = None,
                      trigger: Trigger | None = None,
-                     impact: Impact | None = None) -> PostmortemDocument:
+                     impact: Impact | None = None,
+                     detection: Detection | None = None) -> PostmortemDocument:
     """A document with nothing in any section but the ones it is given."""
     return PostmortemDocument(
         root_cause=None,
@@ -2981,7 +3009,8 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
         resolution=resolution or [],
         symptom=symptom,
         trigger=trigger,
-        impact=impact
+        impact=impact,
+        detection=detection
     )
 
 

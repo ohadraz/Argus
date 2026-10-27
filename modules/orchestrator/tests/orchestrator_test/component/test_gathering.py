@@ -58,6 +58,7 @@ from argus_core.events import (
 )
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
+    CHAT_THREAD,
     DISCARD_CACHE_ENTRIES,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
@@ -71,6 +72,7 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     FailureMode,
     FileAsItRan,
+    FirstTold,
     FixOutcome,
     FlagChange,
     FlagUndo,
@@ -95,6 +97,7 @@ from argus_core.models import (
     Verdict,
     Weighing,
     a_chat_message,
+    a_chat_thread,
     as_a_change,
 )
 from argus_core.replay import CallType, Replay
@@ -104,6 +107,7 @@ from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
+    references,
     replay,
     taken_actions,
 )
@@ -917,6 +921,45 @@ def test_a_lead_the_investigation_weighed_is_on_the_timeline(standing: Standing,
                                     "Wrote in the incident's thread: the cache was flushed"),
                 _says_people_wrote(True)
             ))
+
+
+@pytest.mark.component
+def test_the_evidence_says_when_argus_first_posted_where_people_could_read_it(
+        a_clean_database: None) -> None:
+    # Told only that nobody was paged, a write-up said nobody was told at all,
+    # of an incident Argus had announced in its thread. The thread is written
+    # down once the chat platform accepted the line that opened it, and is the
+    # only record a line was said.
+    some_thread = a_chat_thread(ReportChannel.SLACK, "C-some-channel", "1.000100")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, incident_id, [some_thread]))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).first_told
+            ) \
+            .then(
+                _told_in_its_thread(conn, incident_id, ReportChannel.SLACK)
+            )
+
+
+@pytest.mark.component
+def test_an_incident_argus_never_posted_about_was_told_nowhere(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).first_told
+            ) \
+            .then(
+                the_answer_was(None)
+            )
 
 
 @pytest.mark.component
@@ -2802,6 +2845,26 @@ def _no_line_of_the_timeline_says(words: str) -> Assertion[IncidentEvidence]:
         if saying:
             raise AssertionError(f"Expected no line of the timeline saying [{words}], "
                                  f"got {saying}.")
+
+        return True
+
+    return assertion
+
+
+def _told_in_its_thread(conn: psycopg.Connection,
+                        incident_id: str,
+                        channel: ReportChannel) -> Assertion[FirstTold | None]:
+    """Told on that platform, at the moment the thread's own row says it was
+    written down."""
+    def assertion(told: FirstTold | None) -> bool:
+        row = conn.execute(
+            "SELECT recorded_at FROM incident_reference WHERE incident_id = %s AND kind = %s",
+            (incident_id, CHAT_THREAD)
+        ).fetchone()
+        expected = FirstTold(channel=channel, at=row[0]) if row else None
+
+        if told != expected:
+            raise AssertionError(f"Expected the incident first told as {expected}, got {told}.")
 
         return True
 

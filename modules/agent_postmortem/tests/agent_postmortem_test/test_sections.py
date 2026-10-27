@@ -37,12 +37,14 @@ from argus_core.models import (
     CitedEvidence,
     Detection,
     ErrorRateLevels,
+    FirstTold,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
     LogsInTheGap,
     OpenedPullRequest,
     Refusal,
+    ReportChannel,
     ResolutionStep,
     RuleSeriesHarm,
     TimelineEntry,
@@ -148,6 +150,25 @@ def test_detection_carries_what_the_alert_said_under_the_label_it_is_cited_by() 
         ) \
         .then(
             the_answer_was(CitedEvidence(label="AL1", text=some_finding))
+        )
+
+
+@pytest.mark.unit
+def test_detection_carries_when_argus_first_posted_about_the_incident() -> None:
+    # Written by code rather than left to the model: a write-up told only that
+    # nobody was paged said nobody was told at all, of an incident Argus had
+    # announced in its thread.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": some_post})
+        ) \
+        .when(
+            lambda: detection_of(evidence).first_told
+        ) \
+        .then(
+            the_answer_was(some_post)
         )
 
 

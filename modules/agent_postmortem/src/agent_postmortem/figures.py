@@ -45,11 +45,12 @@ from argus_core import (
     to_iso,
 )
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
-from argus_core.models import CitedEvidence, said_as_money
+from argus_core.models import CitedEvidence, FirstTold, said_as_money
 from pydantic import BaseModel
 
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
+from agent_postmortem.sources import NotPaged
 from agent_postmortem.stamps import the_last_minute_logged_inside
 
 if TYPE_CHECKING:
@@ -75,6 +76,7 @@ AFTER_THE_WAIT_FIGURE: Final = "after_the_wait"
 ALERTED_AFTER_THE_ONSET_FIGURE: Final = "alerted_after_the_onset"
 ARGUS_STOPPED_FIGURE: Final = "argus_stopped"
 ACTED_FIGURE: Final = "acted"
+FIRST_TOLD_FIGURE: Final = "first_told"
 ERRORS_BEFORE_FIGURE: Final = "errors_before"
 ERRORS_WHILE_BROKEN_FIGURE: Final = "errors_while_broken"
 ERRORS_AT_WORST_FIGURE: Final = "errors_at_worst"
@@ -156,6 +158,7 @@ _KINDS: Final = {
     LOG_READING_ENDED_FIGURE: _Kind.INSTANT,
     ARGUS_STOPPED_FIGURE: _Kind.INSTANT,
     ACTED_FIGURE: _Kind.INSTANT,
+    FIRST_TOLD_FIGURE: _Kind.INSTANT,
     DURATION_FIGURE: _Kind.SPAN,
     HELD_FIGURE: _Kind.SPAN,
     RULE_WAITS_FIGURE: _Kind.SPAN,
@@ -341,6 +344,11 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     if measured.back_before_the_action and credited is not None:
         figures[ACTED_FIGURE] = _an_instant(credited.taken_at, day)
 
+    # Only where it is said, as the action's time is.
+    told = the_post_beside_nobody_paged(evidence, measured)
+    if told is not None:
+        figures[FIRST_TOLD_FIGURE] = _an_instant(told.at, day)
+
     rates = measured.error_rates
     if rates is not None:
         figures[ERRORS_BEFORE_FIGURE] = _a_share(rates.baseline)
@@ -369,6 +377,22 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         figures.update(the_alerts_figures(evidence.alert_finding, day))
 
     return figures
+
+
+def the_post_beside_nobody_paged(evidence: IncidentEvidence,
+                                 measured: Measurements) -> FirstTold | None:
+    """When and where Argus first posted about the incident, where nobody was
+    paged - the one incident the brief says it of, because the one a write-up
+    said nobody was told about. `None` anywhere else.
+
+    Asked once, here, for the figure and the sentence naming it alike: a figure
+    named with no sentence to name it in, or the reverse, is the model handed a
+    name for nothing.
+    """
+    if not isinstance(measured.engaged, NotPaged):
+        return None
+
+    return evidence.first_told
 
 
 def with_every_day_said(figures: Mapping[str, Figure], day: date) -> dict[str, Figure]:

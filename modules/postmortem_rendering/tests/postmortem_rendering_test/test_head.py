@@ -2,9 +2,10 @@
 asks about before reading any of it.
 
 Which incident, when it was broken, how finished the document is, who wrote it
-and when, and who ended the incident. Each case is one postmortem and the words
-one of these comes out as - read as said, since the words are what the page and
-the PDF must agree on, and the parts each plays only how each shows them.
+and when, when Argus first posted about it, and who ended the incident. Each
+case is one postmortem and the words one of these comes out as - read as said,
+since the words are what the page and the PDF must agree on, and the parts each
+plays only how each shows them.
 """
 
 from __future__ import annotations
@@ -18,17 +19,19 @@ from argus_core.models import (
     ActionItemType,
     ChangeKind,
     Detection,
+    FirstTold,
     Impact,
     ImpactExtent,
     OpenedPullRequest,
     Refusal,
+    ReportChannel,
     ResolutionStep,
     ReviewCriterion,
     TimelineMarker,
     Trigger,
 )
 from argus_testkit import Assertion, Scenario, the_answer_was
-from postmortem_rendering.head import a_head, a_title, the_day_it_is_dated_by
+from postmortem_rendering.head import Head, a_head, a_title, the_day_it_is_dated_by
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import Escalation, ReportedResolution
 
@@ -151,6 +154,49 @@ def test_the_head_s_rows_are_labelled_in_the_order_a_reader_asks() -> None:
         ) \
         .then(
             the_answer_was(("Incident", "Date", "Status", "Written by", "Ended by")))
+
+
+@pytest.mark.unit
+def test_a_post_argus_made_about_the_incident_is_read_before_who_ended_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=_detected_and_posted_at(SOME_ONSET))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).labels
+        ) \
+        .then(
+            the_answer_was(("Incident", "Date", "Status", "Written by", "First told",
+                            "Ended by")))
+
+
+@pytest.mark.unit
+def test_the_head_says_where_and_when_argus_first_posted_about_the_incident() -> None:
+    # Said as the post, never as who read it: the record shows the platform
+    # took the line, not that anybody saw it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=_detected_and_posted_at(datetime(2026, 10, 11, 14, 5, 2, tzinfo=UTC)))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).first_told
+        ) \
+        .then(
+            _it_reads("Argus posted in Slack, Oct 11, 2026, 14:05:02 UTC"))
+
+
+@pytest.mark.unit
+def test_an_incident_argus_never_posted_about_has_no_row_for_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection=None)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None)
+        ) \
+        .then(
+            _has_no_first_told_row())
 
 
 @pytest.mark.unit
@@ -634,6 +680,22 @@ def test_an_escalation_after_a_recommendation_ended_the_incident() -> None:
 def _an_action_item(number: str, status: ActionItemStatus) -> ActionItem:
     return ActionItem(number=number, text="dont care", type=ActionItemType.MITIGATE,
                       owner=None, tracking=None, status=status)
+
+
+def _detected_and_posted_at(at: datetime) -> Detection:
+    return Detection(alerted_at=at, rule=None, onset_at=None, gap=None,
+                     first_told=FirstTold(channel=ReportChannel.SLACK, at=at))
+
+
+def _has_no_first_told_row() -> Assertion[Head]:
+    def assertion(head: Head) -> bool:
+        if head.first_told is not None or "First told" in head.labels:
+            raise AssertionError(f"Expected no row saying who was first told, got "
+                                 f"{head.labels} with [{head.first_told}].")
+
+        return True
+
+    return assertion
 
 
 def _it_reads(expected: str) -> Assertion[Line]:

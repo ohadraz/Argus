@@ -96,7 +96,9 @@
    when the service was broken, and when this was written about it - are
    marked as which. #}
 {% set rows = [("incident", head.incident), ("date", head.date), ("status", head.status),
-               ("written-by", head.written_by), ("ended-by", head.ended_by)] %}
+               ("written-by", head.written_by)]
+              + ([("first-told", head.first_told)] if head.first_told else [])
+              + [("ended-by", head.ended_by)] %}
 {# The same document as a file to keep, forward and attach - offered only here,
    where there is a document to make one of. #}
 {% set the_pdf = "/incidents/%s/postmortem.pdf" | format(incident.id) %}

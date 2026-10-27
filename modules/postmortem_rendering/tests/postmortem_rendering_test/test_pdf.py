@@ -28,6 +28,7 @@ from argus_core.models import (
     CitedEvidence,
     ContributingFactor,
     Detection,
+    FirstTold,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
@@ -35,6 +36,7 @@ from argus_core.models import (
     OpenedPullRequest,
     Postmortem,
     PostmortemLead,
+    ReportChannel,
     ResolutionStep,
     ReviewCriterion,
     RuledOut,
@@ -137,6 +139,28 @@ def test_a_person_s_resolution_is_carried_into_the_head_and_the_resolution() -> 
         .then(
             _it_reads_in_order("Ended by Kuki Buki", "Turned it off by hand.",
                                "Resolved by Kuki Buki", "Turned it off by hand."))
+
+
+@pytest.mark.unit
+def test_the_head_says_when_argus_first_posted_below_the_rule_before_who_ended_it() -> None:
+    # Under the title sit the two times a reader most easily takes for each
+    # other; the post is neither, so it sits below the rule.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=SOME_ONSET + timedelta(minutes=2))
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(detection=Detection(alerted_at=SOME_ONSET, rule=None,
+                                                 onset_at=None, gap=None,
+                                                 first_told=some_post)),
+                an_alert(), [], SOME_ADDRESS)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order("Written by", "Status", "First told",
+                               "Argus posted in Slack, Oct 11, 2026, 14:05 UTC", "Ended by"))
 
 
 @pytest.mark.unit

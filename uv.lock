@@ -272,10 +272,14 @@ version = "0.1.0"
 source = { editable = "modules/agent_postmortem" }
 dependencies = [
     { name = "argus-argus-core", extra = ["llm"] },
+    { name = "argus-argus-narration" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" }]
+requires-dist = [
+    { name = "argus-argus-core", extras = ["llm"], editable = "modules/argus_core" },
+    { name = "argus-argus-narration", editable = "modules/argus_narration" },
+]
 
 [[package]]
 name = "argus-anthropic-double"

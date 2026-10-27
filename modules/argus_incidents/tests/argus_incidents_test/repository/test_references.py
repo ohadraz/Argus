@@ -28,11 +28,12 @@ from argus_core.models import (
     Alert,
     Incident,
     IncidentStatus,
+    RecordedReference,
     Reference,
     a_chat_thread,
 )
 from argus_incidents.repository import incidents, references
-from argus_testkit import Assertion, Scenario, calling
+from argus_testkit import Assertion, Scenario, calling, the_answer_was
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import an_incident_created_for
@@ -243,6 +244,62 @@ def test_an_incident_is_told_in_a_thread_of_its_own_in_each_channel() -> None:
             .given(calling(lambda: references.add(conn, some_incident, some_threads))) \
             .when(lambda: references.get_values_for(conn, some_incident, CHAT_THREAD)) \
             .then(_the_values_are([thread.value for thread in some_threads]))
+
+
+@pytest.mark.integration
+def test_the_first_name_of_a_kind_an_incident_was_given_is_read_back_with_when() -> None:
+    # For a thread the giving is the fact: it is written down once the chat
+    # platform accepted the line that opened it, and nothing else records that
+    # a line was said. First by when, not by spelling - the later thread here
+    # sorts first.
+    the_first_thread = a_chat_thread("some-chat", "C-z-channel", "9.000900")
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: references.add(conn, some_incident, [the_first_thread])),
+                calling(conn.commit),
+                calling(lambda: references.add(conn, some_incident, [
+                    a_chat_thread("some-chat", "C-a-channel", "1.000100")
+                ]))
+            ) \
+            .when(lambda: references.get_first_by_kind(conn, some_incident, CHAT_THREAD)) \
+            .then(_it_is_as_recorded(conn, some_incident, the_first_thread))
+
+
+@pytest.mark.integration
+def test_an_incident_holding_no_name_of_a_kind_has_no_first_one() -> None:
+    with connect_from_env() as conn:
+        some_incident = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(calling(lambda: references.add(conn, some_incident, [
+                _a_reference("some-other-kind", "k-1")
+            ]))) \
+            .when(lambda: references.get_first_by_kind(conn, some_incident, SOME_KIND)) \
+            .then(the_answer_was(None))
+
+
+def _it_is_as_recorded(conn: psycopg.Connection,
+                       incident_id: str,
+                       expected: Reference) -> Assertion[RecordedReference | None]:
+    """The name, and the moment its own row says it was given."""
+    def assertion(found: RecordedReference | None) -> bool:
+        row = conn.execute(
+            "SELECT recorded_at FROM incident_reference "
+            " WHERE incident_id = %s AND kind = %s AND value = %s",
+            (incident_id, expected.kind, expected.value)
+        ).fetchone()
+        recorded = RecordedReference(reference=expected, recorded_at=row[0]) if row else None
+
+        if found != recorded:
+            raise AssertionError(f"Expected the first name to be {recorded}, got {found}.")
+
+        return True
+
+    return assertion
 
 
 def _the_values_are(expected: list[str]) -> Assertion[list[str]]:

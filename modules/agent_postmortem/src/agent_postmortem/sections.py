@@ -121,7 +121,8 @@ def detection_of(evidence: IncidentEvidence,
     (`rule_waits`, `rule_wait_unread`): what a reader weighs the gap against.
     And whether the series bore out what an alert sooner than that claims
     (`held_before_the_onset`), which only the writer, holding the series, can
-    say.
+    say. And when Argus first posted about it where people could read it, as
+    recorded.
     """
     return Detection(
         alerted_at=evidence.alerted_at,
@@ -132,7 +133,8 @@ def detection_of(evidence: IncidentEvidence,
         said=next(iter(the_alert_labelled(evidence)), None),
         rule_waits=rule_waits,
         rule_wait_unread=rule_wait_unread,
-        held_before_the_onset=held_before_the_onset
+        held_before_the_onset=held_before_the_onset,
+        first_told=evidence.first_told
     )
 
 

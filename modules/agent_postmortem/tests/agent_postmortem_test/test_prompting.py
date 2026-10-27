@@ -116,9 +116,11 @@ from argus_core.models import (
     CodeUse,
     DeploymentComparison,
     FileAsItRan,
+    FirstTold,
     Lessons,
     LogsInTheGap,
     OpenedPullRequest,
+    ReportChannel,
     Standing,
     ToolCall,
     ToolDefinition,
@@ -1975,6 +1977,52 @@ def test_the_model_is_told_whether_anybody_was_paged(
         ) \
         .then(
             _says(told, "An alert rule fires; a person is paged.")
+        )
+
+
+@pytest.mark.unit
+def test_a_post_where_nobody_was_paged_is_told_with_the_one_claim_it_refutes_refused() -> None:
+    # Told only that nobody was paged, a write-up said no person was told at all,
+    # of an incident Argus had announced in its thread. Told to say nothing of
+    # who was told, the next dropped that nobody was paged as well - so the one
+    # claim is refused by name, and the finding kept open beside it.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": some_post}),
+            some_incident := a_measured_incident().model_copy(update={"engaged": NotPaged()})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, some_incident)
+        ) \
+        .then(
+            _says("Nobody was paged: no on-call incident was linked to this one. An alert rule "
+                  "fires; a person is paged. Argus first posted about the incident in Slack at "
+                  f"{to_iso(some_post.at)} {{first_told}}, and the document says so already: "
+                  "leave that post out, and do not say that no person was told. That nobody was "
+                  "paged is a finding of its own.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("engaged", [EngagementAnswer(minutes=0, responders=0), None],
+                         ids=["somebody-paged", "unread"])
+def test_a_post_is_not_told_where_nobody_is_known_unpaged(
+        engaged: EngagementAnswer | None) -> None:
+    # The claim it refutes is made only of an incident nobody was paged for.
+    dont_care_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": dont_care_post}),
+            some_incident := a_measured_incident().model_copy(update={"engaged": engaged})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, some_incident)
+        ) \
+        .then(
+            _does_not_say("first posted")
         )
 
 

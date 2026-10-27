@@ -22,6 +22,7 @@ from pydantic import BaseModel, model_validator
 from argus_core.models.change_event import ChangeEvent, ChangeKind
 from argus_core.models.metrics import WorseWhen
 from argus_core.models.refusal import Refusal
+from argus_core.models.report import ReportChannel
 
 
 class CitedEvidence(BaseModel):
@@ -308,6 +309,21 @@ def shorter_than_the_rules_wait(waits_said: str, held_before_the_onset: bool | N
     return shorter
 
 
+class FirstTold(BaseModel):
+    """When Argus first posted about the incident where people could read it,
+    and on which chat platform.
+
+    `at` is when the platform accepted that post - the moment the thread it
+    opened was written down - and not when the alert came: an opening post the
+    platform refused leaves the first line said after it to open the thread.
+    `channel` names the platform as a thread's reference does, by its report
+    channel. Nothing says anybody read it.
+    """
+
+    channel: ReportChannel
+    at: datetime
+
+
 class Detection(BaseModel):
     """How the incident came to be known about.
 
@@ -331,6 +347,11 @@ class Detection(BaseModel):
     an alert sooner after the onset than the wait claims, and what only the
     writer, holding the series, can check. `None` where no minute there was
     read, or the line, the wait or the onset was not.
+
+    `first_told` is when Argus first posted about the incident where people
+    could read it - written by code, because a write-up whose model was told
+    only that nobody was paged said nobody was told at all. `None` where no
+    post was accepted, and in a document written before it was carried.
     """
 
     alerted_at: datetime
@@ -341,6 +362,7 @@ class Detection(BaseModel):
     rule_waits: timedelta | None = None
     rule_wait_unread: bool = False
     held_before_the_onset: bool | None = None
+    first_told: FirstTold | None = None
 
     @model_validator(mode="after")
     def _a_wait_read_is_not_unread(self) -> Detection:

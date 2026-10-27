@@ -21,6 +21,7 @@ from argus_core.models import (
     CodeUse,
     DeploymentComparison,
     FileAsItRan,
+    FirstTold,
     OpenedPullRequest,
     Refusal,
     ThreadMessage,
@@ -177,6 +178,11 @@ class IncidentEvidence(BaseModel):
     # keeps. A message never stops a step already running, and a model not told
     # so reads the steps after a message as Argus pressing on regardless of it.
     people_wrote: bool = False
+    # When Argus first posted about the incident where people could read it, and
+    # where. Told only that nobody was paged, a write-up said nobody was told at
+    # all, of an incident Argus had announced in its thread. `None` where no post
+    # was accepted.
+    first_told: FirstTold | None = None
     # That Mitigation watched for the service to come back and never saw it -
     # every look it recorded found it still broken. An answer rather than the
     # absence of one, so the measurement takes it as it takes a recorded minute:

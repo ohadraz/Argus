@@ -8,6 +8,7 @@ of those parties is one the others read by comparing spellings.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Final
 
 from pydantic import BaseModel
@@ -72,6 +73,14 @@ class Reference(BaseModel):
     source: str
     kind: str
     value: str
+
+
+class RecordedReference(BaseModel):
+    """A name an incident holds, and when it was given it - on the stack's
+    clock, which is the only clock the incident's other times are on."""
+
+    reference: Reference
+    recorded_at: datetime
 
 
 def a_chat_thread(platform: str, channel: str, message: str) -> Reference:

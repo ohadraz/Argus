@@ -21,6 +21,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from agent_postmortem import EngagementAnswer, NotPaged
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.figures import (
     ACTED_FIGURE,
@@ -36,6 +37,7 @@ from agent_postmortem.figures import (
     ERRORS_BEFORE_FIGURE,
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
+    FIRST_TOLD_FIGURE,
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
@@ -66,7 +68,14 @@ from agent_postmortem.prompting import (
     SubmittedStep,
 )
 from argus_core import said_as_a_day, to_iso
-from argus_core.models import ActionItemType, CitedEvidence, Lessons, Verdict
+from argus_core.models import (
+    ActionItemType,
+    CitedEvidence,
+    FirstTold,
+    Lessons,
+    ReportChannel,
+    Verdict,
+)
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -1216,6 +1225,63 @@ def test_a_service_back_after_the_action_credited_with_it_names_no_time_it_was_t
         ) \
         .then(
             _the_figures_leave_out(ACTED_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_a_post_where_nobody_was_paged_is_named_when_the_platform_accepted_it() -> None:
+    # The write-up is told Argus posted, by this name, where nobody was paged -
+    # the incident a write-up said nobody was told about.
+    some_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT + timedelta(seconds=2))
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": some_post}),
+            measured := a_measured_incident().model_copy(update={"engaged": NotPaged()})
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                FIRST_TOLD_FIGURE: Figure(given=to_iso(some_post.at), written="12:10:02 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("engaged", [EngagementAnswer(minutes=0, responders=0), None],
+                         ids=["somebody-paged", "unread"])
+def test_a_post_where_nobody_is_known_unpaged_is_not_named(
+        engaged: EngagementAnswer | None) -> None:
+    # Only where it is said, and it is said only beside nobody paged.
+    dont_care_post = FirstTold(channel=ReportChannel.SLACK, at=STARTED_AT)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle().model_copy(update={"first_told": dont_care_post}),
+            measured := a_measured_incident().model_copy(update={"engaged": engaged})
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(FIRST_TOLD_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_argus_never_posted_about_names_no_post() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident().model_copy(update={"engaged": NotPaged()})
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(FIRST_TOLD_FIGURE)
         )
 
 

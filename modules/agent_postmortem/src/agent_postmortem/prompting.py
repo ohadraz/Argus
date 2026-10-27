@@ -35,6 +35,7 @@ from argus_core.models import (
     CitedEvidence,
     DeploymentComparison,
     FailureMode,
+    FirstTold,
     Lessons,
     LogsInTheGap,
     OpenedPullRequest,
@@ -51,6 +52,7 @@ from argus_core.models import (
     shorter_than_the_rules_wait,
     whether_it_can_be_put_back,
 )
+from argus_narration import where_a_report_came_from
 from pydantic import BaseModel, field_validator
 
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
@@ -70,6 +72,7 @@ from agent_postmortem.figures import (
     ERRORS_BEFORE_FIGURE,
     ERRORS_RISE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
+    FIRST_TOLD_FIGURE,
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
@@ -88,6 +91,7 @@ from agent_postmortem.figures import (
     the_finding_named,
     the_log_group_figures,
     the_narration_figures,
+    the_post_beside_nobody_paged,
     what_came_after_the_wait,
 )
 from agent_postmortem.log_groups import grouped, labels_reaching_into, the_groups_of
@@ -1022,7 +1026,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *([f"What the alert said [{cited.label}]: {the_finding_named(cited.text)}"
            for cited in the_alert_labelled(evidence)]),
         f"Alert raised: {_shown(ALERT_RAISED_FIGURE, figures)}",
-        _whether_anybody_was_paged(measured.engaged),
+        _whether_anybody_was_paged(measured.engaged,
+                                   the_post_beside_nobody_paged(evidence, measured), figures),
         *_how_long_the_rule_waits(evidence, measured, figures),
         *_how_long_it_was_broken(measured, evidence, figures),
         # Said as nothing but how long it was held: not the end of the response,
@@ -2075,13 +2080,22 @@ def _what_customers_lost(measured: Measurements, figures: Mapping[str, Figure]) 
             f"those hours vary on their own{bound}.")
 
 
-def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None) -> str:
+def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None,
+                               posted: FirstTold | None,
+                               figures: Mapping[str, Figure]) -> str:
     """Whether a person was paged for the incident, and the word for each act.
 
     Never told it, a model fills the gap from habit - an alert pages somebody -
     and a write-up said "the alert paged" in its chain of an incident its own
     assumptions said nobody was paged for. Told the fact, it has no gap to fill;
     told that a rule fires and a person is paged, it has one word for each.
+
+    And, where nobody was paged and Argus `posted` about the incident, that it
+    did. Told only that nobody was paged, a write-up said no person was told at
+    all, of an incident Argus had announced in its thread. Told to say nothing
+    of who was told, the same write-up dropped that nobody was paged too - so
+    the one claim is refused by name and the finding kept open beside it. The
+    document says the post itself, which is why the answer leaves it out.
     """
     if isinstance(engaged, NotPaged):
         paged = "Nobody was paged: no on-call incident was linked to this one."
@@ -2090,7 +2104,15 @@ def _whether_anybody_was_paged(engaged: EngagementAnswer | NotPaged | None) -> s
     else:
         paged = "Somebody was paged: an on-call incident was linked to this one."
 
-    return f"{paged} An alert rule fires; a person is paged."
+    told = ""
+    if posted is not None:
+        told = (f" Argus first posted about the incident in "
+                f"{where_a_report_came_from(posted.channel)} at "
+                f"{_shown(FIRST_TOLD_FIGURE, figures)}, and the document says so already: "
+                f"leave that post out, and do not say that no person was told. That nobody "
+                f"was paged is a finding of its own.")
+
+    return f"{paged} An alert rule fires; a person is paged.{told}"
 
 
 def _how_long_the_rule_waits(evidence: IncidentEvidence,

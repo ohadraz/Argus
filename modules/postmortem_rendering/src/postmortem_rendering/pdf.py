@@ -231,11 +231,12 @@ def _the_masthead(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
                    new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4.5)
     # The two times a reader most easily takes for each other sit together under
-    # the title, each labelled; how finished it is and who ended it go below
-    # the rule.
+    # the title, each labelled; how finished it is, when people were first told
+    # and who ended it go below the rule.
+    told = (head.first_told,) if head.first_told is not None else ()
     rows = dict(zip(head.labels, (head.incident, head.date, head.status, head.written_by,
-                                  head.ended_by), strict=True))
-    incident, date, status, written_by, ended_by = head.labels
+                                  *told, head.ended_by), strict=True))
+    incident, date, status, written_by, *after = head.labels
     for label in (incident, date, written_by):
         _a_term(pdf, label, rows[label])
     pdf.set_right_margin(_SIDE)
@@ -245,7 +246,7 @@ def _the_masthead(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     pdf.set_line_width(0.4)
     pdf.line(_SIDE, rule_y, _SIDE + _WIDTH, rule_y)
     pdf.set_y(rule_y + 8)
-    for label in (status, ended_by):
+    for label in (status, *after):
         _a_term(pdf, label, rows[label])
 
 

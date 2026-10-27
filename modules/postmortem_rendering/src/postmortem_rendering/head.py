@@ -2,9 +2,10 @@
 asks about before reading any of it.
 
 Which incident, when it was broken, how finished the document is, who wrote it
-and when, and who ended the incident. The two times a reader most easily takes
-for each other - when the service was broken, and when this was written about
-it - are separate rows, each saying which it is.
+and when, when Argus first posted about it, and who ended the incident. The
+two times a reader most easily takes for each other - when the service was
+broken, and when this was written about it - are separate rows, each saying
+which it is.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from argus_core.models import (
     PostmortemDocument,
     TimelineMarker,
 )
+from argus_narration import where_a_report_came_from
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision, on_the_day_and_clock
@@ -41,19 +43,28 @@ class Head(BaseModel):
     """The rows above the first section, each a line of the document, and
     `labels` - what each row is called, in the order the rows are read.
 
+    `first_told` is when Argus first posted about the incident where people
+    could read it; `None`, and no row, where no post was accepted.
+
     `ended_by_whom` is whoever `ended_by` names, on its own, for a destination
     that marks the row with them; `None` where nobody is recorded.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    labels: tuple[str, ...] = ("Incident", "Date", "Status", "Written by", "Ended by")
     incident: Line
     date: Line
     status: Line
     written_by: Line
+    first_told: Line | None = None
     ended_by: Line
     ended_by_whom: str | None
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """What each row is called, in the order the rows are read."""
+        return ("Incident", "Date", "Status", "Written by",
+                *(("First told",) if self.first_told is not None else ()), "Ended by")
 
 
 def a_title(postmortem: PostmortemDocument | None, alert: Alert) -> Line:
@@ -108,6 +119,7 @@ def a_head(postmortem: Postmortem,
                 date=_the_incident_s_window(postmortem),
                 status=_how_finished(postmortem),
                 written_by=_who_wrote_it(postmortem),
+                first_told=_who_was_first_told(postmortem),
                 ended_by=ended_by,
                 ended_by_whom=ended_by_whom)
 
@@ -208,6 +220,19 @@ def _who_wrote_it(postmortem: Postmortem) -> Line:
                       Run.a_moment(postmortem.created_at),
                       Run(text=". Reviewed." if _reviewed(postmortem) else ". Not reviewed yet."),
                       Run(text=f" {_AS_OF}")))
+
+
+def _who_was_first_told(postmortem: Postmortem) -> Line | None:
+    """Where and when Argus first posted about the incident, as recorded - or
+    nothing, where no post was accepted. Said as the post, never as who read
+    it: the record shows the platform took the line, not that anybody saw it."""
+    detection = postmortem.detection
+    told = detection.first_told if detection is not None else None
+    if told is None:
+        return None
+
+    return Line(runs=(Run(text=f"{_ARGUS} posted in {where_a_report_came_from(told.channel)}, "),
+                      Run.a_moment(told.at)))
 
 
 def _who_ended_it(postmortem: Postmortem,

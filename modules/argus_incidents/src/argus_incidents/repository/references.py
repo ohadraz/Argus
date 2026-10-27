@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import psycopg
-from argus_core.models import Incident, Reference
+from argus_core.models import Incident, RecordedReference, Reference
 from psycopg.rows import class_row
 
 _GIVE_A_NAME = (
@@ -67,6 +67,35 @@ def get_values_for(conn: psycopg.Connection, incident_id: str, kind: str) -> lis
         )
 
         return [str(value) for (value,) in cursor.fetchall()]
+
+
+def get_first_by_kind(conn: psycopg.Connection,
+                      incident_id: str,
+                      kind: str) -> RecordedReference | None:
+    """The first name of this kind the incident was given, and when - `None`
+    where it holds none.
+
+    When rather than only what, because for some kinds the giving is the fact:
+    a thread is written down once the chat platform accepted the line that
+    opened it, and nothing else records that a line was said.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT source, value, recorded_at FROM incident_reference "
+            " WHERE incident_id = %s AND kind = %s "
+            " ORDER BY recorded_at, value "
+            " LIMIT 1",
+            (incident_id, kind)
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    source, value, recorded_at = row
+
+    return RecordedReference(reference=Reference(source=source, kind=kind, value=value),
+                             recorded_at=recorded_at)
 
 
 def get_incidents_by_values(conn: psycopg.Connection,

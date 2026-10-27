@@ -58,6 +58,7 @@ from argus_core.events import (
 )
 from argus_core.llm import ClientFor
 from argus_core.models import (
+    CHAT_THREAD,
     AcceleratorPinUndo,
     ActionType,
     Alert,
@@ -65,6 +66,7 @@ from argus_core.models import (
     ChangeEvent,
     ChannelReading,
     DeploymentRollbackUndo,
+    FirstTold,
     Hypothesis,
     IncidentStatus,
     Meaning,
@@ -72,6 +74,7 @@ from argus_core.models import (
     PostmortemDocument,
     Reference,
     ReplicaUndo,
+    ReportChannel,
     RetrievalChannel,
     TakenAction,
     TimelineEntry,
@@ -86,6 +89,7 @@ from argus_incidents.repository import (
     events,
     hypotheses,
     incidents,
+    references,
     replay,
     taken_actions,
 )
@@ -196,6 +200,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
         resolution=_the_resolution(account, told),
         people_wrote=any(line.kind == _PERSON_WROTE for line in told),
+        first_told=_when_people_were_first_told(conn, incident_id),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
         escalated=_it_was_handed_to_a_person(account),
         rule=_the_rule_that_paged(incident.alert_payload),
@@ -226,6 +231,23 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         logs_reading=_how_the_investigation_read(account, RetrievalChannel.LOGS,
                                                  LogsRetrieved)
     )
+
+
+def _when_people_were_first_told(conn: psycopg.Connection,
+                                 incident_id: str) -> FirstTold | None:
+    """When the chat platform accepted Argus's first post about the incident,
+    and which platform it was - `None` where none was accepted.
+
+    Off the incident's thread rather than the account: the thread is written
+    down once the platform accepted the line that opened it, and is the only
+    record a line was said - the account records only a line that never will
+    be (`CommunicationFailed`).
+    """
+    thread = references.get_first_by_kind(conn, incident_id, CHAT_THREAD)
+    if thread is None:
+        return None
+
+    return FirstTold(channel=ReportChannel(thread.reference.source), at=thread.recorded_at)
 
 
 def _what_was_refused(account: list[IncidentEvent],
