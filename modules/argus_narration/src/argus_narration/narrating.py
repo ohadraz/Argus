@@ -542,7 +542,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             elif not event.performed:
                 text = f"{_what_was_reached_for_and_not_done(event)} - {emphasis}"
             # Done, and never read: every look at the service went unanswered.
-            elif not event.measured:
+            elif not event.judged:
                 text = f"Could not judge the action - {emphasis}"
         case FixAttempted():
             who = _CODEFIX

@@ -535,10 +535,11 @@ class VerdictReached(_Event):
     action_type: ActionType | None = None
     subject: str | None = None
     performed: bool = True
-    # Whether the service was read at all after the change. A wait whose every
-    # look went unanswered escalates with the word a refutation whose undo
-    # failed escalates with, and only the second judged anything.
-    measured: bool = True
+    # Whether this attempt judged the action: false where the wait never read
+    # the service, and for a stop whatever it read before it. A wait whose
+    # every look went unanswered escalates with the word a refutation whose
+    # undo failed escalates with, and only the second judged anything.
+    judged: bool = True
 
 
 class CandidateSelected(_Event):

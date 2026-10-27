@@ -1024,7 +1024,7 @@ def test_a_verdict_on_a_change_nothing_could_read_says_it_could_not_be_judged() 
     # word stands for a refutation whose undo failed - which was judged.
     a_verdict_on_an_unread_wait = VerdictReached(
         incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
-        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, measured=False
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, judged=False
     )
 
     Scenario() \

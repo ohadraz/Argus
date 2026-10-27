@@ -23,7 +23,7 @@ class Verdict(StrEnum):
     then left unjudged, because a person ended the incident - resolved it or took
     it back - while the service was still being watched. Not named for either
     ending, because it is both: the record says the judging stopped, and the
-    incident's own status says why. It is not `REFUTED` - nothing was measured, and
+    incident's own status says why. It is not `REFUTED` - nothing was judged, and
     recording evidence against a hypothesis nobody finished testing is the one
     thing a stopped experiment must not leave behind. The change it made is
     still out there, which is why the outcome carries its undo descriptor.
@@ -907,13 +907,16 @@ class Outcome(BaseModel):
     tier returned, which is the record of what was actually changed rather than
     what was intended; it is absent when nothing was changed at all.
 
-    `measured` is the second fact the verdict cannot carry, and it exists
-    because `ESCALATED` arrives from two opposite places. One is a refutation
-    whose undo could not be established: the service was watched, it did not
-    recover, and only putting the change back went wrong. The other is an action
-    whose window ran out without the service being read once. Both escalate,
-    both end the walk, and only the first tested anything - so the candidate's
-    row is decided on this rather than on a word that means both.
+    `judged` is the second fact the verdict cannot carry: whether this attempt
+    judged the action. False where the wait never read the service, and for a
+    stop whatever the wait read before it - a reading is not a judgement until
+    the wait reaches one. It exists because `ESCALATED` arrives from two
+    opposite places. One is a refutation whose undo could not be established:
+    the service was watched, it did not recover, and only putting the change
+    back went wrong. The other is an action whose window ran out without the
+    service being read once. Both escalate, both end the walk, and only the
+    first judged anything - so the candidate's row is decided on this rather
+    than on a word that means both.
 
     A field rather than a seventh `Verdict` member because nothing routes on it.
     The status derived from either is the same, the walk ends either way, and
@@ -922,17 +925,17 @@ class Outcome(BaseModel):
     `incident_memory` a value to order by, for a difference nobody branches on.
 
     It defaults to true, which is the ordinary case: an action was taken and the
-    service was watched afterwards. Only the paths that know they watched
-    nothing say so.
+    service was watched to a verdict afterwards. Only the paths that know they
+    judged nothing say so.
     """
 
     verdict: Verdict
     detail: str
     undo_descriptor: UndoDescriptor | None = None
-    measured: bool = True
+    judged: bool = True
     # Whether the action was performed at all - false where the attempt ended
     # before the action itself was done, though it may have changed something
-    # on the way. What says a candidate was tried where nothing was measured:
+    # on the way. What says a candidate was tried where nothing was judged:
     # a person's ending stops a test before the write and during the wait
     # alike, and only the second tried the candidate.
     performed: bool = True

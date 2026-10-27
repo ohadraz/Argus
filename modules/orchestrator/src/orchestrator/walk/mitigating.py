@@ -206,33 +206,33 @@ def mitigation_node(
             action_type=state.proposed_action.action_type,
             subject=the_subject_of(state.proposed_action),
             performed=result.performed,
-            measured=result.measured
+            judged=result.judged
         )
     )
     # This candidate was genuinely tested: an action was taken and the service
-    # was measured afterwards. The verdict is the answer it was tested for, so
-    # it belongs on the candidate's own row and not only on the timeline - a
-    # list of explanations with no sign of which one the walk was on is a list
-    # nobody can read the incident from.
+    # was watched to a verdict afterwards. The verdict is the answer it was
+    # tested for, so it belongs on the candidate's own row and not only on the
+    # timeline - a list of explanations with no sign of which one the walk was
+    # on is a list nobody can read the incident from.
     #
-    # Unless nothing was measured, in which case the candidate learns nothing.
+    # Unless nothing was judged, in which case the candidate learns nothing.
     # Marking it tested would leave the incident claiming an explanation was
-    # ruled out by an experiment that took no reading - an abandoned attempt, or
-    # a wait whose every look at the service went unanswered. The action row
-    # above still carries the change and its undo, because the flag really was
-    # set and something has to put it back.
+    # ruled out by an experiment that reached no verdict - an abandoned
+    # attempt, or a wait whose every look at the service went unanswered. The
+    # action row above still carries the change and its undo, because the flag
+    # really was set and something has to put it back.
     #
-    # Two clauses, and they answer different questions. A stop is unmeasured
+    # Two clauses, and they answer different questions. A stop judges nothing
     # by definition - a person ended the incident, whatever the outcome says
     # about itself - so the verdict settles it here and an outcome that forgot
     # to say cannot talk the walk out of it. Everything else has to be asked,
     # because the verdict does not tell: `ESCALATED` is the word for a wait that
     # never saw the service *and* for a refutation whose change could not be put
-    # back, and the second of those measured it.
+    # back, and the second of those judged it.
     if (
         state.hypothesis is not None
         and result.verdict is not Verdict.STOPPED
-        and result.measured
+        and result.judged
     ):
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
 

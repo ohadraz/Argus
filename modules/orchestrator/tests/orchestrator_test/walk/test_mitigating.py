@@ -627,12 +627,12 @@ def test_the_action_row_records_whether_the_action_was_performed(
     already_taken: MagicMock,
     still_wanted: MagicMock
 ) -> None:
-    # What says the candidate was tried where nothing was measured: a person's
+    # What says the candidate was tried where nothing was judged: a person's
     # ending stops a test before the write and during the wait alike, and only
     # the second tried the candidate.
     Scenario() \
         .given(
-            calling(lambda: _the_action_came_back(take, Verdict.STOPPED, measured=False,
+            calling(lambda: _the_action_came_back(take, Verdict.STOPPED, judged=False,
                                                   performed=performed)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
@@ -699,14 +699,14 @@ def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
     # which watched the service and found it still bad. One verdict, two
     # opposite experiments, and only the second tested anything.
     #
-    # So the row is decided on what the outcome says was measured rather than on
+    # So the row is decided on what the outcome says was judged rather than on
     # the verdict. Marked tested, this candidate would be an explanation the
     # incident claims to have ruled out on no reading at all - and what reads it
     # afterwards is the memory that orders a later incident's candidates.
     Scenario() \
         .given(
             calling(lambda: _the_action_came_back(
-                take, Verdict.ESCALATED, measured=False
+                take, Verdict.ESCALATED, judged=False
             )),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
@@ -858,7 +858,7 @@ def test_an_attempt_that_ended_before_its_write_announces_no_action(
     Scenario() \
         .given(
             calling(lambda: _this_walk_holds_the_claim(record_action)),
-            calling(lambda: _the_action_came_back(take, verdict, measured=False,
+            calling(lambda: _the_action_came_back(take, verdict, judged=False,
                                                   performed=False)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_a_rollback_action()
@@ -915,9 +915,9 @@ def test_the_verdict_on_a_change_made_says_it_was_made(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("measured", [True, False], ids=["read", "never-read"])
-def test_the_verdict_says_whether_the_service_was_read_after_the_change(
-    measured: bool,
+@pytest.mark.parametrize("judged", [True, False], ids=["read", "never-read"])
+def test_the_verdict_says_whether_the_action_was_judged(
+    judged: bool,
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -931,7 +931,7 @@ def test_the_verdict_says_whether_the_service_was_read_after_the_change(
     Scenario() \
         .given(
             calling(lambda: _this_walk_holds_the_claim(record_action)),
-            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED, measured=measured)),
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED, judged=judged)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor()
             )
@@ -946,7 +946,7 @@ def test_the_verdict_says_whether_the_service_was_read_after_the_change(
                                       already_taken=already_taken,
                                       still_wanted=still_wanted)) \
         .then(
-            _the_verdict_says_it_was_measured(measured, complete_action)
+            _the_verdict_says_it_was_judged(judged, complete_action)
         )
 
 
@@ -2218,7 +2218,7 @@ def _an_action_with_an_undo_descriptor() -> RevertFeatureFlag:
 def _the_action_came_back(take: MagicMock,
                           verdict: Verdict,
                           undo_descriptor: UndoDescriptor | None = None,
-                          measured: bool = True,
+                          judged: bool = True,
                           because: str | None = None,
                           performed: bool = True) -> None:
     """The agent answers with `verdict` - telling of the change as it makes it,
@@ -2226,7 +2226,7 @@ def _the_action_came_back(take: MagicMock,
     outcome = Outcome(verdict=verdict,
                       detail="dont care",
                       undo_descriptor=undo_descriptor,
-                      measured=measured,
+                      judged=judged,
                       because=because,
                       performed=performed)
 
@@ -2392,12 +2392,12 @@ def _the_verdict_names(state: IncidentState,
     return assertion
 
 
-def _the_verdict_says_it_was_measured(expected: bool,
+def _the_verdict_says_it_was_judged(expected: bool,
                                       complete_action: MagicMock) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        said = complete_action.call_args.kwargs["narrating"].measured
+        said = complete_action.call_args.kwargs["narrating"].judged
         if said is not expected:
-            raise AssertionError(f"Expected the verdict to say measured is {expected}, "
+            raise AssertionError(f"Expected the verdict to say judged is {expected}, "
                                  f"it said {said}.")
 
         return True

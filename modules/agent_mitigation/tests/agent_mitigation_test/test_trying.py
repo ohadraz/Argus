@@ -1101,7 +1101,7 @@ def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _it_says_it_was_performed(True),
             _nothing_was_put_back_through(undo),
             _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
@@ -1153,7 +1153,7 @@ def test_a_change_the_platform_stopped_applying_reaches_no_verdict() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _the_detail_mentions("never applied"),
             _nothing_was_put_back_through(undo),
             _the_undo_carried_is(an_undo_descriptor_for(some_flag, was_enabled=some_old_state))
@@ -2067,7 +2067,7 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
         ) \
         .then(all_of(
             the_verdict_is(Verdict.NOT_ATTEMPTED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
             _the_detail_mentions(
                 f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
@@ -2111,7 +2111,7 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
         ) \
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
             _the_detail_mentions(
                 f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
@@ -2155,7 +2155,7 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
         ) \
         .then(all_of(
             the_verdict_is(Verdict.PLATFORM_UNREACHABLE),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
             _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
@@ -2432,7 +2432,7 @@ def test_a_deployment_already_held_to_the_card_is_not_attempted_rather_than_esca
         ) \
         .then(all_of(
             the_verdict_is(Verdict.NOT_ATTEMPTED),
-            _it_says_nothing_was_measured(),
+            _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
             _the_detail_mentions(
                 f"hold [{SOME_APPLICATION}]'s pods to [{THE_FLEETS_CARD}]"
@@ -4071,7 +4071,7 @@ def _nothing_was_put_back_through(undo: MagicMock) -> Assertion[Outcome]:
 
 def _it_says_it_was_performed(expected: bool) -> Assertion[Outcome]:
     """Whether the action was performed - what says a candidate was tried where
-    nothing was measured. A person's ending stops a test before the write and
+    nothing was judged. A person's ending stops a test before the write and
     during the wait alike, and only the second tried the candidate."""
     def assertion(outcome: Outcome) -> bool:
         if outcome.performed != expected:
@@ -4135,7 +4135,7 @@ def _no_change_was_told(happened: list[tuple[str, UndoDescriptor | None]]
     return assertion
 
 
-def _it_says_nothing_was_measured() -> Assertion[Outcome]:
+def _it_says_nothing_was_judged() -> Assertion[Outcome]:
     """The outcome carrying the one fact its verdict cannot.
 
     `ESCALATED` arrives from two opposite places. One is a refutation whose undo
@@ -4146,11 +4146,11 @@ def _it_says_nothing_was_measured() -> Assertion[Outcome]:
     rather than read out of it.
     """
     def assertion(outcome: Outcome) -> bool:
-        if outcome.measured:
+        if outcome.judged:
             raise AssertionError(
-                "Expected the outcome to say nothing was measured, and it "
-                "claims the service was watched - so the candidate will be "
-                "marked tested by an experiment that took no reading."
+                "Expected the outcome to say nothing was judged, and it "
+                "claims the action was - so the candidate will be marked "
+                "tested by an experiment that reached no verdict."
             )
 
         return True

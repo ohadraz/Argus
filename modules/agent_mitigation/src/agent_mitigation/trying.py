@@ -246,7 +246,7 @@ def take_action(action: Action,
             verdict=Verdict.STOPPED,
             detail="a person ended the incident before the action was taken",
             undo_descriptor=None,
-            measured=False,
+            judged=False,
             performed=False
         )
 
@@ -278,7 +278,7 @@ def take_action(action: Action,
             # The same thing the paragraph above says in words, said where the
             # candidate's row can read it: nothing was tested, so nothing about
             # this explanation may be recorded as having been.
-            measured=False,
+            judged=False,
             performed=False
         )
     except PlatformUnreachable as unreachable:
@@ -318,7 +318,7 @@ def take_action(action: Action,
             # The candidate is passed over on this walk and the platform is what
             # explains why - and it must be a candidate still worth trying when
             # the platform comes back, not one the record says was ruled out.
-            measured=False,
+            judged=False,
             performed=False
         )
     except Exception as error:
@@ -332,7 +332,7 @@ def take_action(action: Action,
             # broadest of the three and the one most likely to be reached by
             # something nobody foresaw, which is the best reason for it to say
             # what it knows rather than let the verdict be read for it.
-            measured=False,
+            judged=False,
             performed=False
         )
 
@@ -385,7 +385,7 @@ def take_action(action: Action,
             # as it is for a refutation whose undo failed. What reads this is
             # the candidate's row: a hypothesis marked tested by a wait that
             # took no reading is one a later incident is taught to try last.
-            measured=False,
+            judged=False,
         )
 
     # Left where it is, carrying what would put it back. Undoing it here would
@@ -397,11 +397,11 @@ def take_action(action: Action,
             verdict=Verdict.STOPPED,
             detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
-            # Nothing was measured here either, and saying so rather than
-            # leaving the walk to recognise the word is what lets one fact
-            # decide the candidate's row instead of a list of verdicts that has
-            # to be kept in step with this one.
-            measured=False,
+            # Nothing was judged here either, whatever the wait read before the
+            # stop, and saying so rather than leaving the walk to recognise the
+            # word is what lets one fact decide the candidate's row instead of a
+            # list of verdicts that has to be kept in step with this one.
+            judged=False,
         )
 
     return _undone(performed, undo, action.action_type, settled.because)
