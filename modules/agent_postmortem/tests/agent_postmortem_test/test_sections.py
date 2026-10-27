@@ -1302,6 +1302,47 @@ def test_an_action_a_person_s_ending_stopped_was_not_judged() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_before_it_was_done_was_not_taken() -> None:
+    # A person ended the incident between the walk choosing the action and
+    # taking it. Nothing was judged because nothing was done - "not judged"
+    # would say a test was begun.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.STOPPED,
+                          standing="nothing was changed").model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED})
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["not taken, nothing was changed"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_never_performed_keeps_the_verdict_it_came_back_with() -> None:
+    # Why it was not done is the verdict's to say - a platform that did not
+    # answer is a different finding from a person's ending.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.PLATFORM_UNREACHABLE,
+                          standing="nothing was changed").model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED})
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["platform-unreachable, nothing was changed"])
+        )
+
+
+@pytest.mark.unit
 def test_an_action_that_left_automatic_sync_off_is_marked_as_having_done_so() -> None:
     # Argus stops the platform syncing an application from its repository to
     # act on it, and leaves it stopped while the change stands - so nothing

@@ -107,6 +107,7 @@ from agent_postmortem.prompting import (
 from argus_core import to_iso
 from argus_core.models import (
     ActionItemType,
+    ActionProgress,
     Ask,
     ChangeEvent,
     ChangeKind,
@@ -2701,6 +2702,135 @@ def test_an_action_with_no_way_back_is_told_so_once_by_its_standing() -> None:
             _says(f"{some_action} - "),
             _does_not_say("(nothing to put back)"),
             _does_not_say("irreversible")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("progress", "came_to"),
+                         [(ActionProgress.PERFORMED, "not judged"),
+                          (ActionProgress.NOT_PERFORMED, "not taken")],
+                         ids=["stopped-while-watched", "stopped-before-the-write"])
+def test_an_action_a_person_s_ending_stopped_is_told_in_the_page_s_words(
+        progress: ActionProgress, came_to: str) -> None:
+    # The Resolution says "not judged", or "not taken" where nothing was done;
+    # the brief said the raw "stopped", and the write-up was written from
+    # different words than the page it sits on.
+    some_action = "dont care"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(some_action, verdict=Verdict.STOPPED,
+                          standing="dont care standing").model_copy(
+                    update={"progress": progress})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says(f"- {came_to}, dont care standing"),
+            _does_not_say("- stopped,")))
+
+
+@pytest.mark.unit
+def test_an_action_never_performed_is_listed_apart_from_the_actions_taken() -> None:
+    # "Actions it took:" heading a line that says "Did not" is the brief saying
+    # both. Listed under its own heading, under the label the page gives it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.PLATFORM_UNREACHABLE,
+                          standing="nothing was changed",
+                          has_a_way_back=False).model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED}),
+                an_action("Reverted the feature flag some-flag", verdict=Verdict.CONFIRMED)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("Actions it took:\n  - [M2] Reverted the feature flag some-flag"),
+            _says("Actions it reached for and did not take:\n  - [M1] Did not roll back the "
+                  "deployment of io-shop - platform-unreachable, nothing was changed")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_an_action_nobody_can_account_for_is_listed_apart_from_both(
+        progress: ActionProgress) -> None:
+    # A claim nobody answered under "Actions it took:" is the brief saying it
+    # was done, and under "did not take" that it was not. Nobody knows either.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Reverted the feature flag some-flag", verdict=Verdict.CONFIRMED),
+                an_action("Putting other-flag back",
+                          standing="not known whether it was made").model_copy(
+                    update={"progress": progress})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("Actions it took:\n  - [M1] Reverted the feature flag some-flag"),
+            _says("Actions it reached for that nobody can say were taken:\n"
+                  "  - [M2] Putting other-flag back (can be put back) - no verdict recorded, "
+                  "not known whether it was made"),
+            _does_not_say("did not take")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_an_incident_whose_only_action_nobody_can_account_for_is_not_said_to_have_taken_none(
+        progress: ActionProgress) -> None:
+    # "Actions it took: - none" above it says nothing was done, which nobody
+    # knows. The heading goes rather than say it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Putting other-flag back").model_copy(update={"progress": progress})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _does_not_say("Actions it took:"),
+            _says("Actions it reached for that nobody can say were taken:\n"
+                  "  - [M1] Putting other-flag back")))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_every_action_was_not_performed_took_none() -> None:
+    # Where every action ended before its write, "none" is true and is said.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop").model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Actions it took:\n  - none")
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_every_action_was_performed_has_no_list_of_actions_not_taken() -> None:
+    # A heading with nothing under it reads as a section the model must fill.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _does_not_say("did not take"),
+            _does_not_say("nobody can say")))
 
 
 @pytest.mark.unit

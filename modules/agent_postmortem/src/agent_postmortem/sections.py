@@ -64,7 +64,8 @@ TRIED_NO_VERDICT_RECORDED = "tried, no verdict recorded"
 # What became of a cause whose action was claimed and never said more: nobody
 # can tell whether the change was made.
 NOT_KNOWN_WHETHER_TRIED = "not known whether tried"
-# What a refusal to act came to, in the resolution's outcome column.
+# What a refusal to act came to, in the resolution's outcome column - and an
+# action a person's ending stopped before it was done.
 NOT_TAKEN = "not taken"
 
 # How an action item is named in conversation: `AI-1`, `AI-2`.
@@ -629,13 +630,21 @@ def _names(line: str, word: str) -> bool:
     return re.search(rf"(?<![\w.-]){re.escape(word)}(?![\w.-])", line) is not None
 
 
-def _what_it_came_to(verdict: str | None) -> str:
-    """An action's verdict as the resolution says it - a stopped one as not
-    judged, which is what it was."""
+def what_it_came_to(verdict: str | None, progress: ActionProgress) -> str:
+    """An action's verdict as the resolution and the brief both say it - a
+    stopped one as not judged, which is what it was, or as not taken where a
+    person ended the incident before the action was done. One spelling, so the
+    model writes from the words the page shows.
+
+    Not taken only where the row says the action ended before its write: a
+    claim nobody answered may have been made, so its stop is not judged."""
     if verdict is None:
         return NO_VERDICT_RECORDED
 
-    return NOT_JUDGED if verdict == Verdict.STOPPED else verdict
+    if verdict == Verdict.STOPPED:
+        return NOT_TAKEN if progress is ActionProgress.NOT_PERFORMED else NOT_JUDGED
+
+    return verdict
 
 
 def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
@@ -656,7 +665,8 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        action=action.action,
                        by=TAKEN_BY,
                        has_a_way_back=action.has_a_way_back,
-                       outcome=f"{_what_it_came_to(action.verdict)}, {action.standing}",
+                       outcome=(f"{what_it_came_to(action.verdict, action.progress)}, "
+                                f"{action.standing}"),
                        label=label_of(ACTION_PREFIX, position),
                        sync_left_off=action.paused_sync_of is not None)
         for position, action in enumerate(evidence.actions, start=1)

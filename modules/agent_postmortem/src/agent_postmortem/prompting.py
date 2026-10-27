@@ -29,6 +29,7 @@ from argus_core import A_REVISION, parse_iso, short_form, the_revision_named, to
 from argus_core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
+    ActionProgress,
     Ask,
     ChangeEvent,
     CitedChange,
@@ -102,7 +103,6 @@ from agent_postmortem.sections import (
     AS_IT_RAN_PREFIX,
     CODE_READING_PREFIX,
     DEPLOYMENT_CHANGES_PREFIX,
-    NO_VERDICT_RECORDED,
     PRODUCTION_CHANGE_PREFIX,
     USES_OUTSIDE_PREFIX,
     OneCause,
@@ -115,6 +115,7 @@ from agent_postmortem.sections import (
     said_of_a_line,
     the_alert_labelled,
     trigger_of,
+    what_it_came_to,
 )
 from agent_postmortem.sources import EngagementAnswer, NotPaged
 
@@ -1171,8 +1172,20 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     log_lines = grouped(evidence.log_lines, measured.unobserved_from,
                         the_day_it_began(evidence, measured))
     candidates = the_candidates_labelled(evidence)
-    actions = _numbered(ACTION_PREFIX,
-                        [_an_action_as_a_line(action) for action in evidence.actions])
+    # Numbered over every action, and listed under a heading for how far each
+    # got: one never performed under "Actions it took" is a line saying "Did
+    # not" beneath a heading saying it did, and one nobody answered is a claim
+    # beneath it. The labels stay the resolution's.
+    every_action = list(zip(_numbered(ACTION_PREFIX,
+                                      [_an_action_as_a_line(action)
+                                       for action in evidence.actions]),
+                            evidence.actions, strict=True))
+    actions = [line for line, action in every_action
+               if action.progress is ActionProgress.PERFORMED]
+    not_taken = [line for line, action in every_action
+                 if action.progress is ActionProgress.NOT_PERFORMED]
+    unanswered = [line for line, action in every_action
+                  if action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN)]
     looked_into = the_deployment_changes_labelled(evidence)
     read_in_the_source = the_code_reading_labelled(evidence)
     as_it_ran = the_files_as_they_ran_labelled(evidence)
@@ -1189,7 +1202,14 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
          None if log_lines else no_logs_listed(evidence.logs_reading)),
         (f"Candidates it considered, in the Investigator's words - cite them; what they "
          f"claim {_NOT_WHAT_HAPPENED}:", candidates, None if candidates else NOTHING),
-        ("Actions it took:", actions, None if actions else NOTHING),
+        # "none" only where it is true: above an action nobody can say was
+        # taken it says nothing was done, which nobody knows either.
+        *([("Actions it took:", actions, None if actions else NOTHING)]
+          if actions or not unanswered else []),
+        *([("Actions it reached for and did not take:", not_taken, None)]
+          if not_taken else []),
+        *([("Actions it reached for that nobody can say were taken:", unanswered, None)]
+          if unanswered else []),
         *([("What each deployment it looked into changed:", looked_into,
             _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
@@ -1647,7 +1667,7 @@ def _an_action_as_a_line(action: ActionRecord) -> str:
     way_back = (f" ({whether_it_can_be_put_back(action.has_a_way_back)})"
                 if action.has_a_way_back else "")
     return (f"{action.action}{way_back} - "
-            f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}")
+            f"{what_it_came_to(action.verdict, action.progress)}, {action.standing}")
 
 
 def _what_people_told_it(leads: Sequence[ThreadMessage]) -> list[str]:

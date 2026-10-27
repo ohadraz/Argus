@@ -32,8 +32,10 @@ from argus_narration.narrating import (
     each_wait_told_once,
     said_as_meant,
     said_in_full,
+    what_the_action_does,
     what_to_do,
     what_was_done,
+    what_was_not_done,
     where_a_report_came_from,
 )
 from argus_narration.prose import InstantInProse, said_plainly, the_instants_in
@@ -81,7 +83,9 @@ __all__ = [
     "the_minutes_logged",
     "the_pull_requests",
     "the_revisions",
+    "what_the_action_does",
     "what_to_do",
     "what_was_done",
+    "what_was_not_done",
     "where_a_report_came_from"
 ]

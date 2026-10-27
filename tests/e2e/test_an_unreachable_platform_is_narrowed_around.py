@@ -190,44 +190,41 @@ def _the_rollback_was_reached_for_and_nothing_answered() -> Assertion[httpx2.Res
     and the shop well, and satisfy every other assertion in this case while
     demonstrating nothing it exists for.
 
-    Read as the verdict that came back from *that* action rather than as a
-    verdict the incident reached at some point. A later action failing the same
-    way would be a second fact, and a case matching on the set would accept it
-    as this one.
+    Read off the verdict on *that* action - the only line an attempt that ended
+    before its write has, since nothing is announced until a change is made -
+    rather than off a verdict the incident reached at some point. A later
+    action failing the same way would be a second fact, and a case matching on
+    the set would accept it as this one.
     """
     def assertion(response: httpx2.Response) -> bool:
         recorded = the_incidents_events(incident_id_from(response))
         reached_for = [
-            position for position, event in enumerate(recorded)
-            if isinstance(event, ActionTaken)
+            event for event in recorded
+            if isinstance(event, VerdictReached)
             and event.action_type == ROLL_BACK_DEPLOYMENT
         ]
 
         if not reached_for:
             raise AssertionError(
                 f"Expected the walk to reach for a rollback of the deployment "
-                f"that moved in the window, and the actions it took were "
-                f"{_what_was_taken(recorded)} - so the platform was never asked "
-                f"to do the one thing it cannot do."
+                f"that moved in the window, and the actions it reached a verdict "
+                f"on were {_what_was_reached_for(recorded)} - so the platform was "
+                f"never asked to do the one thing it cannot do."
             )
 
-        answered = [
-            event for event in recorded[reached_for[0] + 1:]
-            if isinstance(event, VerdictReached)
-        ]
-
-        if not answered:
-            raise AssertionError(
-                "The rollback was taken and no verdict was ever reached about "
-                "it, so nothing in the record says what the platform answered."
-            )
-
-        if answered[0].outcome is not Verdict.PLATFORM_UNREACHABLE:
+        if reached_for[0].outcome is not Verdict.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the rollback to come back as an unreachable platform, "
-                f"and it came back [{answered[0].outcome}] - which is a verdict "
+                f"and it came back [{reached_for[0].outcome}] - which is a verdict "
                 f"about the explanation it was taken for rather than about the "
                 f"platform it was taken through."
+            )
+
+        if reached_for[0].performed:
+            raise AssertionError(
+                "Expected the rollback to be recorded as never performed - the "
+                "platform did not answer - and it is recorded as done, so every "
+                "page and write-up tells a reader the deployment was rolled back."
             )
 
         return True
@@ -303,7 +300,8 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Res
         recorded = the_incidents_events(incident_id_from(response))
         through_it = [
             event for event in recorded
-            if isinstance(event, ActionTaken)
+            if isinstance(event, VerdictReached)
+            and event.action_type is not None
             and the_platform_of(event.action_type) == DEPLOYMENT_PLATFORM
         ]
 
@@ -315,6 +313,19 @@ def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Res
                 f"{[(event.action_type, event.subject) for event in through_it]}. "
                 f"So the walk went on reaching for actions it had already been "
                 f"told were unavailable."
+            )
+
+        done = [
+            event for event in recorded
+            if isinstance(event, ActionTaken)
+            and the_platform_of(event.action_type) == DEPLOYMENT_PLATFORM
+        ]
+
+        if done:
+            raise AssertionError(
+                f"Expected nothing to be announced as done through a platform that "
+                f"never answered, and {[(e.action_type, e.subject) for e in done]} "
+                f"was - so the record says the deployment was changed."
             )
 
         return True
@@ -368,4 +379,13 @@ def _what_was_taken(recorded: list[object]) -> list[tuple[str, str | None]]:
     return [
         (event.action_type, event.subject)
         for event in recorded if isinstance(event, ActionTaken)
+    ]
+
+
+def _what_was_reached_for(recorded: list[object]) -> list[tuple[str | None, str | None]]:
+    """Every action an incident reached a verdict on, done or not, as a failure
+    message can print it."""
+    return [
+        (event.action_type, event.subject)
+        for event in recorded if isinstance(event, VerdictReached)
     ]

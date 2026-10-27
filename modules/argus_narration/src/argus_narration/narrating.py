@@ -534,8 +534,16 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # Nothing was judged: a person ended the incident while the service
             # was watched, and a verdict in capitals would read as one reached.
             if event.outcome is Verdict.STOPPED:
-                emphasis = "Stopped before judging the action"
+                emphasis = ("Stopped before judging the action" if event.performed
+                            else "Stopped before taking the action")
                 text = f"{emphasis} - a person ended the incident"
+            # Nothing was done either: the attempt ended before its write, so
+            # no line above announced it, and "judged" would claim a test.
+            elif not event.performed:
+                text = f"{_what_was_reached_for_and_not_done(event)} - {emphasis}"
+            # Done, and never read: every look at the service went unanswered.
+            elif not event.measured:
+                text = f"Could not judge the action - {emphasis}"
         case FixAttempted():
             who = _CODEFIX
             emphasis, text = _what_came_of_looking_at_the_code(event)
@@ -914,6 +922,18 @@ def what_was_done(action_type: ActionType, subject: str) -> str:
     return f"{_an_action_said(action_type)} {subject}"
 
 
+def what_was_not_done(action_type: ActionType, subject: str) -> str:
+    """An action Argus reached for and never performed, said as not done.
+
+    The words `what_was_done` uses, negated, so the attempt and the change it
+    would have been read as one action. Never the past tense on its own: an
+    attempt that ended before its write - a platform that did not answer, an
+    action with nowhere left to go - said as "Rolled back" tells a reader the
+    service was changed when nothing was.
+    """
+    return f"{_an_action_not_said(action_type)} {subject}"
+
+
 def what_to_do(action_type: ActionType, subject: str) -> str:
     """An action left for a person, said as the instruction an action item is.
 
@@ -1285,6 +1305,28 @@ def _an_action_said(action_type: ActionType) -> str:
     assert_never(action_type)
 
 
+def _an_action_not_said(action_type: ActionType) -> str:
+    """An action type as a sentence opens that says it was not done - the
+    verbs `_an_action_said` uses, and exhaustive on the tag for its reason."""
+    match action_type:
+        case "revert-feature-flag":
+            return "Did not revert the feature flag"
+        case "restart-service":
+            return "Did not restart"
+        case "roll-back-deployment":
+            return "Did not roll back the deployment of"
+        case "scale-out":
+            return "Did not scale out the deployment of"
+        case "pin-autoscaler":
+            return "Did not raise the autoscaler floor of"
+        case "discard-cache-entries":
+            return "Did not discard the stale cached figures of"
+        case "pin-to-accelerator":
+            return "Did not hold the pods of"
+
+    assert_never(action_type)
+
+
 def _and_then_some(action_types: Sequence[ActionType]) -> str:
     """The actions a platform carries, said as a list a person reads.
 
@@ -1354,6 +1396,17 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
             return f"holding {subject}'s pods to one accelerator card"
 
     assert_never(action_type)
+
+
+def _what_was_reached_for_and_not_done(event: VerdictReached) -> str:
+    """The action an attempt that ended before its write was for, said as not
+    done - or that an action was not taken, where an older event named none."""
+    if event.action_type is None:
+        return "Did not take the action"
+
+    subject = f" {event.subject}" if event.subject else ""
+
+    return f"{_an_action_not_said(event.action_type)}{subject}"
 
 
 def _an_action_taken(event: ActionTaken) -> str:

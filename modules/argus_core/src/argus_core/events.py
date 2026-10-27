@@ -412,7 +412,12 @@ class PlacementRecorded(_Event):
 
 
 class ActionTaken(_Event):
-    """A change Argus made to the service, for a candidate."""
+    """A change Argus made to the service, for a candidate.
+
+    Published once the change is made and never before: said ahead of the write,
+    an attempt the platform refused was told as done. An attempt that ended
+    before its write has no such line; its verdict says what was not done.
+    """
 
     kind: Literal["action-taken"] = "action-taken"
     hypothesis_id: UuidStr | None
@@ -516,11 +521,24 @@ class VerdictReached(_Event):
     answers already have a name in this system, and an event typed `str` is
     one every reader downstream has to recognise a word in - which is how a
     page and a policy end up matching on different sets of four.
+
+    Which action it was, and whether it was performed at all. An attempt that
+    ended before its write is announced by nothing else - the announcement is
+    made only once a change is - so this is the one line that says what was
+    reached for and not done. Defaulted for an event written before they were
+    carried: what it named then was a performed action's verdict.
     """
 
     kind: Literal["verdict-reached"] = "verdict-reached"
     hypothesis_id: UuidStr | None
     outcome: Verdict
+    action_type: ActionType | None = None
+    subject: str | None = None
+    performed: bool = True
+    # Whether the service was read at all after the change. A wait whose every
+    # look went unanswered escalates with the word a refutation whose undo
+    # failed escalates with, and only the second judged anything.
+    measured: bool = True
 
 
 class CandidateSelected(_Event):

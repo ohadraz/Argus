@@ -76,6 +76,11 @@ class ActionRecord(BaseModel):
     was taken sits - the line `taken_at` and `action` are read off - so the
     document can mark that line rather than say the action again beside it.
     `None` where the account holds no such line.
+
+    `progress` is how far the action got, as its row knows it - not performed
+    for an attempt that ended before its write, which `action` already says as
+    not done and whose stop, where a person ended it first, was no test to
+    judge; claimed or unknown for one nobody can say was done.
     """
 
     taken_at: datetime
@@ -85,6 +90,7 @@ class ActionRecord(BaseModel):
     standing: str
     paused_sync_of: str | None = None
     line: int | None = None
+    progress: ActionProgress = ActionProgress.PERFORMED
 
 
 class DeploymentChangesRecord(BaseModel):

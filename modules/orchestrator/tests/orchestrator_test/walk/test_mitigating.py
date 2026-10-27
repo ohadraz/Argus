@@ -55,6 +55,7 @@ from argus_core.models import (
     UnreadVerdict,
     Verdict,
     the_actions_through,
+    the_subject_of,
 )
 from argus_incidents import IsStillWanted
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
@@ -836,6 +837,120 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("verdict", [Verdict.PLATFORM_UNREACHABLE, Verdict.NOT_ATTEMPTED,
+                                     Verdict.ESCALATED, Verdict.STOPPED],
+                         ids=lambda verdict: verdict.value)
+def test_an_attempt_that_ended_before_its_write_announces_no_action(
+    verdict: Verdict,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Announced ahead of the write, a rollback the platform never answered was
+    # told as "Rolled back" on every page and in every write-up. Its verdict is
+    # what says it was reached for and not done - and with nothing changed,
+    # there is no moment of change for a later round to be told about.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, verdict, measured=False,
+                                                  performed=False)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_a_rollback_action()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(all_of(
+            _no_action_was_announced(published),
+            _the_walk_carries_no_moment_of_change(),
+            _the_verdict_names_the_action_not_done(an_action_taking_incident, complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_the_verdict_on_a_change_made_says_it_was_made(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The same line, for the action that was performed: the verdict names it,
+    # and says it was done.
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _the_verdict_names_the_action_done(an_action_taking_incident, complete_action)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("measured", [True, False], ids=["read", "never-read"])
+def test_the_verdict_says_whether_the_service_was_read_after_the_change(
+    measured: bool,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # An escalation is a wait nobody could read and a refutation whose undo
+    # failed alike; only the second judged anything, and the line has to say
+    # which it was.
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED, measured=measured)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _the_verdict_says_it_was_measured(measured, complete_action)
+        )
+
+
+@pytest.mark.unit
 def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
     take: MagicMock,
     record_action: MagicMock,
@@ -1089,7 +1204,11 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
                      _the_verdict_reported_is(Verdict.CONFIRMED),
-                     _the_claim_was_not_advanced(advance_action)))
+                     # Once, by this walk's change being made - the resume
+                     # itself writes nothing on a claim whose change never
+                     # landed.
+                     _the_claim_was_advanced_to(ActionProgress.PERFORMED,
+                                                an_action_taking_incident, advance_action)))
 
 
 @pytest.mark.unit
@@ -2102,12 +2221,23 @@ def _the_action_came_back(take: MagicMock,
                           measured: bool = True,
                           because: str | None = None,
                           performed: bool = True) -> None:
-    take.return_value = Outcome(verdict=verdict,
-                                detail="dont care",
-                                undo_descriptor=undo_descriptor,
-                                measured=measured,
-                                because=because,
-                                performed=performed)
+    """The agent answers with `verdict` - telling of the change as it makes it,
+    as the real one does, wherever the action was performed."""
+    outcome = Outcome(verdict=verdict,
+                      detail="dont care",
+                      undo_descriptor=undo_descriptor,
+                      measured=measured,
+                      because=because,
+                      performed=performed)
+
+    def taking(dont_care_action: Action, /, **keywords: object) -> Outcome:
+        change_made = cast(ChangeMade, keywords["change_made"])
+        if performed:
+            change_made(undo_descriptor)
+
+        return outcome
+
+    take.side_effect = taking
 
 
 def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
@@ -2198,6 +2328,77 @@ def _the_walk_carries_the_moment_the_action_was_announced(
             raise AssertionError(
                 f"Expected the walk to carry the moment its one action was announced, "
                 f"{announced}, got [{updates.acted_at}].")
+
+        return True
+
+    return assertion
+
+
+def _no_action_was_announced(published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        announced = [event for event in published if isinstance(event, ActionTaken)]
+        if announced:
+            raise AssertionError(f"Expected no action announced for an attempt that ended "
+                                 f"before its write, got {announced}.")
+
+        return True
+
+    return assertion
+
+
+def _the_walk_carries_no_moment_of_change() -> Assertion[StateDelta]:
+    """Told outright, rather than left unset: a field a node leaves unset keeps
+    whatever an earlier round put there, and a later round would be told this
+    attempt was made at the moment the last one was."""
+    def assertion(updates: StateDelta) -> bool:
+        told = updates.as_updates()
+        if "acted_at" not in told or told["acted_at"] is not None:
+            raise AssertionError(f"Expected the walk told no change was made, it was told "
+                                 f"[{told.get('acted_at', 'nothing at all')}].")
+
+        return True
+
+    return assertion
+
+
+def _the_verdict_names_the_action_not_done(state: IncidentState,
+                                           complete_action: MagicMock
+                                           ) -> Assertion[StateDelta]:
+    return _the_verdict_names(state, complete_action, performed=False)
+
+
+def _the_verdict_names_the_action_done(state: IncidentState,
+                                       complete_action: MagicMock) -> Assertion[StateDelta]:
+    return _the_verdict_names(state, complete_action, performed=True)
+
+
+def _the_verdict_names(state: IncidentState,
+                       complete_action: MagicMock,
+                       performed: bool) -> Assertion[StateDelta]:
+    """The verdict's line names the action it was reached about, and whether it
+    was done - for an attempt that ended before its write, the only line that
+    says what was reached for."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        assert state.proposed_action is not None
+        narrating = complete_action.call_args.kwargs["narrating"]
+        said = (narrating.action_type, narrating.subject, narrating.performed)
+        wanted = (state.proposed_action.action_type,
+                  the_subject_of(state.proposed_action), performed)
+        if said != wanted:
+            raise AssertionError(f"Expected the verdict to name {wanted}, it named {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_verdict_says_it_was_measured(expected: bool,
+                                      complete_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = complete_action.call_args.kwargs["narrating"].measured
+        if said is not expected:
+            raise AssertionError(f"Expected the verdict to say measured is {expected}, "
+                                 f"it said {said}.")
 
         return True
 

@@ -100,11 +100,21 @@ from argus_narration import (
     each_wait_told_once,
     said_as_meant,
     said_in_full,
+    what_the_action_does,
     what_to_do,
     what_was_done,
+    what_was_not_done,
 )
 
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
+
+# The verdicts an attempt never performed comes back with only where nothing
+# was written: the platform gone before the first write, nowhere left for the
+# action to go, a person's ending before it. Any other refusal can follow a
+# write, so it says nothing about what production holds.
+_ENDINGS_BEFORE_ANY_WRITE: Final = frozenset(
+    {Verdict.PLATFORM_UNREACHABLE, Verdict.NOT_ATTEMPTED, Verdict.STOPPED}
+)
 
 # The kind a line telling an announcement carries: the event's own, read off
 # its type rather than spelled a second time.
@@ -687,11 +697,12 @@ def _what_was_done(conn: psycopg.Connection,
     return [
         ActionRecord(taken_at=when_it_was_taken(taken_action, announced),
                      action=_what_it_did(taken_action, said),
-                     has_a_way_back=taken_action.has_a_way_back,
+                     has_a_way_back=_whether_it_left_a_way_back(taken_action),
                      verdict=taken_action.outcome,
                      standing=_what_became_of(taken_action),
                      paused_sync_of=_whose_sync_it_left_stopped(taken_action),
-                     line=where.get(taken_action.hypothesis_id or ""))
+                     line=where.get(taken_action.hypothesis_id or ""),
+                     progress=taken_action.progress)
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
 
@@ -711,6 +722,17 @@ def _where_each_is_said(announced: list[ActionTaken],
     return {event.hypothesis_id: position
             for event, position in zip(announced, lines, strict=True)
             if event.hypothesis_id is not None}
+
+
+def _whether_it_left_a_way_back(taken_action: TakenAction) -> bool:
+    """Whether there is anything of the action's to put back - what its kind
+    leaves, for an action performed, and what it left on the way, for one that
+    never was: a rollback the platform refused has nothing to put back, unless
+    it suspended the sync first."""
+    if taken_action.progress is ActionProgress.NOT_PERFORMED:
+        return taken_action.undo_descriptor is not None
+
+    return taken_action.has_a_way_back
 
 
 def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
@@ -734,12 +756,26 @@ def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
 def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> str:
     """The action in the account's words, read off its line where there is one
     and off the row's tag where the tag is one Argus still knows. A row written
-    under a tag since renamed keeps its tag: history is not rewritten."""
+    under a tag since renamed keeps its tag: history is not rewritten.
+
+    An action never performed is said as not done. It has no line - nothing is
+    announced until a change is made - and said off its tag in the past tense,
+    it would tell a reader the service was changed when nothing was."""
     line = said.get(taken_action.hypothesis_id or "")
     if line is not None:
         return what_was_done(line.action_type, line.subject or "")
 
     known = next((tag for tag in get_args(ActionType.__value__) if tag == taken_action.type), None)
+    if known is not None and taken_action.progress is ActionProgress.NOT_PERFORMED:
+        return what_was_not_done(known, taken_action.subject or "")
+
+    # A claim that never said more: nobody knows whether it was done, so it is
+    # named as the thing it does rather than said in either tense.
+    if known is not None and taken_action.progress in (ActionProgress.CLAIMED,
+                                                       ActionProgress.UNKNOWN):
+        named = what_the_action_does(known, taken_action.subject or "")
+        return named[:1].upper() + named[1:]
+
     if known is not None:
         return what_was_done(known, taken_action.subject or "")
 
@@ -893,7 +929,23 @@ def _what_became_of(taken_action: TakenAction) -> str:
     is put back before its verdict is written, so a worker that died in between
     left it put back and recorded nothing. And a claim that never said more may
     never have been made at all.
+
+    An action never performed changed nothing where that is known - a platform
+    that went before the first write, an action with nowhere left to go, a
+    person's ending before the write - unless it left something on the way,
+    which its undo says: a platform lost after the sync was suspended. A tier
+    that refused for any other reason may have changed something first, and
+    nobody can say what.
     """
+    if taken_action.progress is ActionProgress.NOT_PERFORMED:
+        if taken_action.undo_descriptor is not None:
+            return "not made; what it changed on the way is still in place"
+
+        if taken_action.outcome in _ENDINGS_BEFORE_ANY_WRITE:
+            return "nothing was changed"
+
+        return "not known whether anything was changed"
+
     if not taken_action.has_a_way_back:
         return "nothing to put back"
 

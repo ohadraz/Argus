@@ -114,6 +114,7 @@ from argus_narration.narrating import (
     said_in_full,
     what_to_do,
     what_was_done,
+    what_was_not_done,
 )
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
@@ -952,6 +953,120 @@ def test_an_action_left_to_do_is_said_as_an_instruction(action_type: ActionType,
         .given(some_subject) \
         .when(lambda: what_to_do(action_type, some_subject)) \
         .then(the_answer_was(said))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("action_type", "said"), [
+    (REVERT_FEATURE_FLAG, "Did not revert the feature flag some-subject"),
+    (RESTART_SERVICE, "Did not restart some-subject"),
+    (ROLL_BACK_DEPLOYMENT, "Did not roll back the deployment of some-subject"),
+    (SCALE_OUT, "Did not scale out the deployment of some-subject"),
+    (PIN_AUTOSCALER, "Did not raise the autoscaler floor of some-subject"),
+    (DISCARD_CACHE_ENTRIES, "Did not discard the stale cached figures of some-subject"),
+    (PIN_TO_ACCELERATOR, "Did not hold the pods of some-subject")
+])
+def test_an_action_never_performed_is_said_as_not_done(action_type: ActionType,
+                                                       said: str) -> None:
+    # An attempt that ended before its write - a platform that did not answer,
+    # an action with nowhere left to go. Said in the past tense, it tells a
+    # reader the service was changed when nothing was.
+    some_subject = "some-subject"
+
+    Scenario() \
+        .given(some_subject) \
+        .when(lambda: what_was_not_done(action_type, some_subject)) \
+        .then(the_answer_was(said))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_an_action_never_performed_says_what_was_not_done() -> None:
+    # Nothing announced the action - the announcement is made once a change is
+    # - so this is the one line saying what was reached for. "Judged the action"
+    # would claim a test that never ran.
+    some_application = "io-shop"
+    a_verdict_on_nothing_done = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.PLATFORM_UNREACHABLE,
+        action_type=ROLL_BACK_DEPLOYMENT, subject=some_application, performed=False
+    )
+
+    Scenario() \
+        .given(a_verdict_on_nothing_done) \
+        .when(lambda: build_narration([a_verdict_on_nothing_done])) \
+        .then(all_of(
+            _the_only_line_reads(f"Did not roll back the deployment of {some_application} "
+                                 f"- PLATFORM-UNREACHABLE"),
+            _the_only_line_marks("PLATFORM-UNREACHABLE")
+        ))
+
+
+@pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_before_it_was_done_is_said_as_never_taken() -> None:
+    # A person ended the incident between the walk choosing the action and
+    # taking it. Nothing was judged, and nothing was done either.
+    a_stop_before_the_write = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.STOPPED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, performed=False
+    )
+
+    Scenario() \
+        .given(a_stop_before_the_write) \
+        .when(lambda: build_narration([a_stop_before_the_write])) \
+        .then(all_of(
+            _the_only_line_reads("Stopped before taking the action - a person ended the incident"),
+            _the_only_line_marks("Stopped before taking the action")
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_a_change_nothing_could_read_says_it_could_not_be_judged() -> None:
+    # The change was made and every look at the service went unanswered.
+    # "Judged the action ESCALATED" says a judgement was reached, and the same
+    # word stands for a refutation whose undo failed - which was judged.
+    a_verdict_on_an_unread_wait = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, measured=False
+    )
+
+    Scenario() \
+        .given(a_verdict_on_an_unread_wait) \
+        .when(lambda: build_narration([a_verdict_on_an_unread_wait])) \
+        .then(all_of(
+            _the_only_line_reads("Could not judge the action - ESCALATED"),
+            _the_only_line_marks("ESCALATED")
+        ))
+
+
+@pytest.mark.unit
+def test_a_verdict_on_a_change_that_was_read_says_it_was_judged() -> None:
+    # A refutation whose undo failed escalates too, and it was judged.
+    a_judged_escalation = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG
+    )
+
+    Scenario() \
+        .given(a_judged_escalation) \
+        .when(lambda: build_narration([a_judged_escalation])) \
+        .then(
+            _the_only_line_reads("Judged the action ESCALATED")
+        )
+
+
+@pytest.mark.unit
+def test_a_verdict_an_older_version_wrote_on_an_action_never_performed_names_no_action() -> None:
+    # An event that says nothing was done and names no action: there is no
+    # action to name, and the line still says nothing was done.
+    an_older_verdict = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.NOT_ATTEMPTED,
+        performed=False
+    )
+
+    Scenario() \
+        .given(an_older_verdict) \
+        .when(lambda: build_narration([an_older_verdict])) \
+        .then(
+            _the_only_line_reads("Did not take the action - NOT-ATTEMPTED")
+        )
 
 
 @pytest.mark.unit

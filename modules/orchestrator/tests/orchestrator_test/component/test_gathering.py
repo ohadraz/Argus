@@ -1537,6 +1537,106 @@ def test_an_action_with_no_verdict_on_file_is_not_said_to_be_still_in_place(
 
 
 @pytest.mark.component
+def test_an_action_never_performed_is_said_as_not_done_and_as_changing_nothing(
+        a_clean_database: None) -> None:
+    # A platform that never answered: nothing was rolled back and nothing is in
+    # place, and the write-up said both the other way round.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.PLATFORM_UNREACHABLE, None,
+                                                 performed=False))
+            ) \
+            .when(
+                lambda: [(action.action, action.standing, action.progress,
+                          action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                # Nothing to put back either: a rollback's kind leaves a way
+                # back, and one never made left nothing.
+                the_answer_was([(f"Did not roll back the deployment of {SOME_FLAG}",
+                                 "nothing was changed", ActionProgress.NOT_PERFORMED, False)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_a_tier_refused_is_not_said_to_have_changed_nothing(
+        a_clean_database: None) -> None:
+    # A refusal that is neither a platform gone nor an action with nowhere to
+    # go can follow a write, and nobody can say what production holds.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.ESCALATED, None, performed=False))
+            ) \
+            .when(
+                lambda: [action.standing
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was(["not known whether anything was changed"])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_an_action_nobody_can_account_for_is_named_in_no_tense(
+        progress: ActionProgress, a_clean_database: None) -> None:
+    # Nothing announced it and nothing says it ran, so "Reverted the feature
+    # flag" would claim it was done and "Did not" that it was not. How far it
+    # got travels with it, so the brief lists it under neither heading.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_left_at(conn, incident_id, progress))
+            ) \
+            .when(
+                lambda: [(action.action, action.progress)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([(f"Putting {SOME_FLAG} back", progress)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_never_performed_that_left_something_on_the_way_says_it_is_in_place(
+        a_clean_database: None) -> None:
+    # The platform went after the sync was suspended: the rollback was not
+    # made, and the suspension it left is still there for somebody to undo.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.PLATFORM_UNREACHABLE,
+                    DeploymentRollbackUndo(application=SOME_FLAG, was_on_history_id=41,
+                                           was_on_revision="0f1e2d3",
+                                           was_syncing_itself=True),
+                    performed=False))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("not made; what it changed on the way is still in place",
+                                 True)])
+            )
+
+
+@pytest.mark.component
 def test_an_action_with_no_way_back_is_said_to_leave_nothing_to_put_back(
         a_clean_database: None) -> None:
     # A discard of stale cached figures changed something real and owes nothing

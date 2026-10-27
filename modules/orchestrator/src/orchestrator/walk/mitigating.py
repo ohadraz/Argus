@@ -129,23 +129,9 @@ def mitigation_node(
             return resumed
 
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION), publisher)
-    # Published from here rather than from inside Mitigation, which is not
-    # incident-scoped: neither `take_action` nor `Action` carries an incident,
-    # and threading one through an agent purely so it can narrate would put a
-    # field in the domain for the account's benefit.
-    announced = ActionTaken(
-        incident_id=state.incident_id,
-        hypothesis_id=state.hypothesis.id,
-        action_type=state.proposed_action.action_type,
-        subject=the_subject_of(state.proposed_action),
-        enabled=the_direction_of(state.proposed_action),
-        a_dependency_of=_whose_dependency_was_acted_on(
-            state.proposed_action, state.alert.service
-        ),
-        accelerator=the_accelerator_of(state.proposed_action),
-        at=now()
-    )
-    publish(announced, publisher)
+    # The announcement, once the agent says the change was made - and none for
+    # an attempt that ended before its write, which its verdict says instead.
+    announced: list[ActionTaken] = []
 
     # The incident and the publisher travel with the action, so the
     # verification wait - the longest silence in an incident - is narrated
@@ -175,9 +161,21 @@ def mitigation_node(
             else None
         ),
         change_made=partial(
-            _the_change_was_made, advance_action, state.incident_id, state.hypothesis.id
+            _the_change_was_made,
+            advance_action,
+            announced,
+            publisher,
+            now,
+            incident_id=state.incident_id,
+            hypothesis_id=state.hypothesis.id,
+            action=state.proposed_action,
+            alerting_service=state.alert.service
         )
     )
+    # When the change was made, for the round that remembers the attempt - and
+    # nothing where none was: an action never performed is no attempt a later
+    # round may be told was refuted.
+    acted_at = announced[0].at if announced else None
     outcome = result.verdict
     logger.info("verdict reached", extra={
         "verdict": outcome,
@@ -202,7 +200,13 @@ def mitigation_node(
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
-            outcome=result.verdict
+            outcome=result.verdict,
+            # What was reached for, and whether it was done: for an attempt
+            # that ended before its write, this is the only line saying so.
+            action_type=state.proposed_action.action_type,
+            subject=the_subject_of(state.proposed_action),
+            performed=result.performed,
+            measured=result.measured
         )
     )
     # This candidate was genuinely tested: an action was taken and the service
@@ -268,7 +272,7 @@ def mitigation_node(
         return StateDelta(
             action_outcome=outcome,
             action_because=result.because,
-            acted_at=announced.at,
+            acted_at=acted_at,
             unreachable_platforms=[*state.unreachable_platforms, platform],
             narration=Narration(action="mitigation attempted", detail=result.detail)
         )
@@ -278,7 +282,7 @@ def mitigation_node(
         # Carried for the round that reads this attempt, which is told how it
         # did not help and nothing else about it.
         action_because=result.because,
-        acted_at=announced.at,
+        acted_at=acted_at,
         narration=Narration(action="mitigation attempted", detail=result.detail)
     )
 
@@ -319,10 +323,17 @@ def _whose_dependency_was_acted_on(action: Action,
 
 
 def _the_change_was_made(advance_action: AdvanceAction,
+                         announced: list[ActionTaken],
+                         publisher: Publisher,
+                         now: Callable[[], datetime],
+                         undo_descriptor: UndoDescriptor | None,
+                         *,
                          incident_id: str,
                          hypothesis_id: str,
-                         undo_descriptor: UndoDescriptor | None) -> None:
-    """Puts on the claim that its change was made, and what would put it back.
+                         action: Action,
+                         alerting_service: str) -> None:
+    """Puts on the claim that its change was made, and what would put it back
+    - then says so, dated now, into `announced`.
 
     A write that fails is logged and the attempt goes on. The change is made
     by now, and the wait that follows is what judges it: abandoning it over a
@@ -330,6 +341,12 @@ def _the_change_was_made(advance_action: AdvanceAction,
     loses only an early copy - the completion writes the same facts again once
     the wait has a verdict. The early copy only ever mattered to a worker that
     dies during the wait, and this one is alive.
+
+    Announced here and nowhere earlier: before the write, an attempt the
+    platform refused was told as done. Published from the walk rather than
+    from inside Mitigation, which is not incident-scoped: neither `take_action`
+    nor `Action` carries an incident, and threading one through an agent purely
+    so it can narrate would put a field in the domain for the account's benefit.
     """
     try:
         advance_action(incident_id, hypothesis_id=hypothesis_id,
@@ -338,6 +355,19 @@ def _the_change_was_made(advance_action: AdvanceAction,
         logger.warning("the change could not be recorded as made before the wait",
                        exc_info=True,
                        extra={"incident_id": incident_id, "hypothesis_id": hypothesis_id})
+
+    announcement = ActionTaken(
+        incident_id=incident_id,
+        hypothesis_id=hypothesis_id,
+        action_type=action.action_type,
+        subject=the_subject_of(action),
+        enabled=the_direction_of(action),
+        a_dependency_of=_whose_dependency_was_acted_on(action, alerting_service),
+        accelerator=the_accelerator_of(action),
+        at=now()
+    )
+    publish(announcement, publisher)
+    announced.append(announcement)
 
 
 def _what_the_earlier_attempt_left(state: IncidentState,
