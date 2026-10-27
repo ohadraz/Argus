@@ -60,6 +60,7 @@ from argus_core.llm import ClientFor
 from argus_core.models import (
     CHAT_THREAD,
     AcceleratorPinUndo,
+    ActionProgress,
     ActionType,
     Alert,
     AutoscalerUndo,
@@ -209,8 +210,9 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         timeline=_what_happened(told, [hypothesis.id for hypothesis in considered]),
         candidates=_what_was_considered(
             considered,
-            {taken.hypothesis_id for taken in taken_actions.get_by_incident(conn, incident_id)
-             if taken.performed}),
+            {taken.hypothesis_id: taken
+             for taken in taken_actions.get_by_incident(conn, incident_id)
+             if taken.hypothesis_id is not None}),
         actions=_what_was_done(conn, incident_id, account, told),
         log_lines=_what_was_read(conn, incident_id),
         logs_read_until=_how_far_the_logs_were_read(account),
@@ -625,28 +627,32 @@ def _a_message_as_meant(line: NarrationLine,
 
 
 def _what_was_considered(considered: list[Hypothesis],
-                         acted_on: set[str | None]) -> list[CandidateRecord]:
-    """Every candidate ranked, tried or not - and whether Argus acted on each,
-    `acted_on` being the candidates its performed actions name: a row is also
-    written for an attempt that ended before the action itself was done.
+                         actions: Mapping[str, TakenAction]) -> list[CandidateRecord]:
+    """Every candidate ranked, tried or not - and how far Argus's action on
+    each got, `actions` being the action rows by the candidate they name: a row
+    is also written for an attempt that ended before the action itself was
+    done, and for one nobody can say the end of.
 
     The untried ones are half of what a walk has to say: an investigation that
     was confident and right and one that ran out of options are told apart by
     what was left on the list. An action is what tells a test a person's ending
     stopped from one never started: neither measured anything.
     """
-    return [
-        CandidateRecord(summary=hypothesis.summary,
-                        failure_mode=hypothesis.failure_mode,
-                        confidence=hypothesis.confidence,
-                        subject=hypothesis.subject,
-                        from_state=hypothesis.from_state,
-                        to_state=hypothesis.to_state,
-                        tested=hypothesis.tested,
-                        result=hypothesis.result,
-                        acted_on=hypothesis.id in acted_on)
-        for hypothesis in considered
-    ]
+    return [_a_candidate(hypothesis, actions.get(hypothesis.id)) for hypothesis in considered]
+
+
+def _a_candidate(hypothesis: Hypothesis, action: TakenAction | None) -> CandidateRecord:
+    """One candidate as recorded, with how far its action got - where it had one."""
+    return CandidateRecord(summary=hypothesis.summary,
+                           failure_mode=hypothesis.failure_mode,
+                           confidence=hypothesis.confidence,
+                           subject=hypothesis.subject,
+                           from_state=hypothesis.from_state,
+                           to_state=hypothesis.to_state,
+                           tested=hypothesis.tested,
+                           result=hypothesis.result,
+                           progress=action.progress if action is not None else None,
+                           verdict_recorded=action is not None and action.outcome is not None)
 
 
 def _what_was_done(conn: psycopg.Connection,
@@ -882,12 +888,24 @@ def _what_became_of(taken_action: TakenAction) -> str:
     one Mitigation undid itself, having found it did not help. A change with no
     way back - a discard of cached figures - owes nothing, and calling it still
     in place would send somebody looking for something to undo.
+
+    A change made with no verdict on file may already be back: a refuted change
+    is put back before its verdict is written, so a worker that died in between
+    left it put back and recorded nothing. And a claim that never said more may
+    never have been made at all.
     """
     if not taken_action.has_a_way_back:
         return "nothing to put back"
 
     if taken_action.outcome is Verdict.REFUTED:
         return "put back when it did not help"
+
+    if taken_action.outcome is None:
+        if taken_action.progress is ActionProgress.PERFORMED:
+            return "may still be in place"
+
+        if taken_action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+            return "not known whether it was made"
 
     return "still in place"
 

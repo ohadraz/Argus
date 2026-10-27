@@ -7,7 +7,15 @@ from typing import Any, cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
-from agent_mitigation import Outcome, UndoAttempt, Undone, Verdict, take_action
+from agent_mitigation import (
+    Action,
+    ChangeMade,
+    Outcome,
+    UndoAttempt,
+    Undone,
+    Verdict,
+    take_action,
+)
 from agent_mitigation.tools import (
     AcceleratorPinner,
     Arrival,
@@ -18,12 +26,14 @@ from agent_mitigation.tools import (
     FlagSetter,
     MetricsFetcher,
     MitigationSettings,
+    PerformingWrites,
     RuleReader,
     ServiceRestarter,
 )
 from agent_mitigation.trying import UndoChange
 from argus_core import new_id
 from argus_core.anomaly import AnomalyThresholds
+from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
@@ -198,6 +208,10 @@ A_SHORT_WAIT_IN_SECONDS = 180.0
 # metrics are read only to date the recovery.
 SOME_RULE = "some-rule"
 
+# What a case putting a change and the looks after it in order keeps of each.
+_MADE = "made"
+_LOOKED = "looked"
+
 
 @pytest.mark.unit
 def test_taking_an_action_sets_the_flag_to_the_state_it_names() -> None:
@@ -363,6 +377,102 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
             _the_detail_mentions("a person ended the incident"),
             _the_detail_does_not_mention("withdrawn")
         ))
+
+
+@pytest.mark.unit
+def test_the_change_is_told_as_made_before_the_service_is_first_looked_at() -> None:
+    # Told the moment the tier answers, with what the tier said would put it
+    # back - not with the verdict. The wait is where a worker dies, and a
+    # change told only once it was judged is one a dead worker made and
+    # nobody can find, or put back.
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            what_the_tier_said_puts_it_back := an_undo_descriptor_for(
+                DONT_CARE_FLAG, was_enabled=some_old_state
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=_each_look_kept_in(happened,
+                                                 metrics_reading(a_recovered_window())),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                change_made=_each_change_kept_in(happened)
+            )
+        ) \
+        .then(
+            _it_was_told_once_before_the_first_look(happened,
+                                                    what_the_tier_said_puts_it_back)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "an_attempt_ending_before_the_write",
+    [
+        pytest.param(lambda: (an_action_setting(DONT_CARE_FLAG, enabled=True),
+                              the_writes(set_state=_a_flag_setter_changing_from(
+                                  DONT_CARE_FLAG, was_enabled=False)),
+                              nobody_wanted_it_before_it_was_taken()),
+                     id="stopped-before-the-write"),
+        pytest.param(lambda: (_a_pin_of(SOME_APPLICATION),
+                              the_writes(pin=_a_pinner_with_no_room_left(
+                                  THE_AUTOSCALER_HAS_NO_ROOM_LEFT)),
+                              wanted_throughout),
+                     id="nowhere-left-to-go"),
+        pytest.param(lambda: (_a_rollback_of(SOME_APPLICATION),
+                              the_writes(roll_back=_a_roller_that_cannot_reach_the_platform(
+                                  THE_PLATFORM_DID_NOT_ANSWER)),
+                              wanted_throughout),
+                     id="platform-unreachable"),
+        pytest.param(lambda: (an_action_setting(DONT_CARE_FLAG, enabled=True),
+                              the_writes(set_state=_a_flag_setter_that_cannot_write(
+                                  "dont care")),
+                              wanted_throughout),
+                     id="write-refused")
+    ]
+)
+def test_an_attempt_that_ended_before_its_write_tells_of_no_change(
+        an_attempt_ending_before_the_write: Callable[
+            [], tuple[Action, PerformingWrites, StillWanted]]) -> None:
+    # The four ways an attempt ends before the action itself is done. Told as
+    # made, the row would say a candidate was tried that never was - and a
+    # withdrawal would go looking for a change that is not there.
+    happened: list[tuple[str, UndoDescriptor | None]] = []
+
+    Scenario() \
+        .given(
+            the_attempt := an_attempt_ending_before_the_write()
+        ) \
+        .when(
+            lambda: take_action(
+                the_attempt[0],
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_attempt[1],
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                still_wanted=the_attempt[2],
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls(),
+                change_made=_each_change_kept_in(happened)
+            )
+        ) \
+        .then(
+            _no_change_was_told(happened)
+        )
 
 
 @pytest.mark.unit
@@ -3969,6 +4079,56 @@ def _it_says_it_was_performed(expected: bool) -> Assertion[Outcome]:
                 f"Expected the outcome to say the action was "
                 f"{'performed' if expected else 'never performed'}, and it says "
                 f"[{outcome.performed}].")
+
+        return True
+
+    return assertion
+
+
+def _each_change_kept_in(happened: list[tuple[str, UndoDescriptor | None]]) -> ChangeMade:
+    """Keeps each change told as made, with what would put it back, in the
+    order it was told among everything else kept beside it."""
+    def change_made(undo_descriptor: UndoDescriptor | None) -> None:
+        happened.append((_MADE, undo_descriptor))
+
+    return change_made
+
+
+def _each_look_kept_in(happened: list[tuple[str, UndoDescriptor | None]],
+                       read: MetricsFetcher) -> MetricsFetcher:
+    """A read of the service that keeps each look it is asked for beside the
+    changes told, so the two can be put in order."""
+    def looked(rule: str | None, /) -> list[MetricBucket]:
+        happened.append((_LOOKED, None))
+
+        return read(rule)
+
+    return looked
+
+
+def _it_was_told_once_before_the_first_look(
+        happened: list[tuple[str, UndoDescriptor | None]],
+        undo_descriptor: UndoDescriptor) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        told = [entry for entry in happened if entry[0] == _MADE]
+        if told != [(_MADE, undo_descriptor)]:
+            raise AssertionError(f"Expected the change told as made once, with "
+                                 f"[{undo_descriptor}], got {told}.")
+
+        if happened[0] != (_MADE, undo_descriptor):
+            raise AssertionError(f"Expected the change told as made before the service "
+                                 f"was first looked at, got {[kind for kind, _ in happened]}.")
+
+        return True
+
+    return assertion
+
+
+def _no_change_was_told(happened: list[tuple[str, UndoDescriptor | None]]
+                        ) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        if happened:
+            raise AssertionError(f"Expected no change told as made, got {happened}.")
 
         return True
 

@@ -20,6 +20,7 @@ from agent_postmortem import said_off_the_page
 from argus_core import Connections
 from argus_core.events import IncidentEvent, LeadWeighed, PostmortemWritten
 from argus_core.models import (
+    ActionProgress,
     ActionType,
     Hypothesis,
     IncidentStatus,
@@ -156,6 +157,28 @@ class Records:
             )
             publish_beside(conn, narrating, self._publisher_for(conn))
 
+    def advance_action(
+        self,
+        incident_id: str,
+        hypothesis_id: str,
+        to: ActionProgress,
+        undo_descriptor: UndoDescriptor | None
+    ) -> None:
+        """Moves a claimed action on, and says nothing about it.
+
+        Nothing said, unlike a completion: the change being made is announced
+        before it is taken, and a resumed walk's answer is narrated by the walk
+        that reached it. This is the row catching up.
+        """
+        with self._connections() as conn:
+            taken_actions.advance(
+                conn,
+                incident_id,
+                hypothesis_id=hypothesis_id,
+                to=to,
+                undo_descriptor=undo_descriptor
+            )
+
     def claimed_action(self,
                        incident_id: str,
                        hypothesis_id: str) -> ClaimedAction | None:
@@ -181,7 +204,8 @@ class Records:
 
         return ClaimedAction(
             outcome=taken_action.outcome,
-            claimed_at=taken_action.taken_at
+            claimed_at=taken_action.taken_at,
+            progress=taken_action.progress
         )
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /) -> None:

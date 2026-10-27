@@ -75,6 +75,7 @@ from orchestrator.walk.ports import (
     ActionAlreadyTaken,
     ActionsTaken,
     Admitted,
+    AdvanceAction,
     ChangeLanded,
     CompleteAction,
     FetchDependencies,
@@ -127,6 +128,7 @@ class Collaborators:
     record_action: RecordAction
     complete_action: CompleteAction
     already_taken: ActionAlreadyTaken
+    advance_action: AdvanceAction
     change_landed: ChangeLanded
     propose_fix: ProposeFix
     actions_taken: ActionsTaken
@@ -352,6 +354,7 @@ def against(connections: Connections,
         record_action=records.claim_action,
         complete_action=records.complete_action,
         already_taken=records.claimed_action,
+        advance_action=records.advance_action,
         change_landed=partial(
             argus_changed_flag_since, settings=mitigation, fetch=flag_history
         ),

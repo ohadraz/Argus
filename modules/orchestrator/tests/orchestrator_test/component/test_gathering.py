@@ -62,6 +62,7 @@ from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    ActionProgress,
     ActionType,
     Alert,
     ChangeEvent,
@@ -948,12 +949,13 @@ def test_the_evidence_says_when_argus_first_posted_where_people_could_read_it(
 
 
 @pytest.mark.component
-def test_a_candidate_an_action_tested_is_known_as_acted_on(a_clean_database: None) -> None:
+def test_a_candidate_says_how_far_the_action_testing_it_got(a_clean_database: None) -> None:
     # A person's ending can stop the test before anything is measured, which
     # leaves the candidate's row untested - and without the action, a write-up
     # reads it as never tried. Only an action performed tried it: a row is also
     # written for an attempt that changed nothing, a platform that never
-    # answered among them.
+    # answered among them, and for one a dead worker left with the change made
+    # and no verdict, or with nobody able to say whether it was made at all.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
@@ -966,18 +968,30 @@ def test_a_candidate_an_action_tested_is_known_as_acted_on(a_clean_database: Non
                                                  Verdict.PLATFORM_UNREACHABLE, None,
                                                  summary="a rollback that never ran",
                                                  performed=False)),
+                calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.PERFORMED,
+                                                   summary="a change a dead worker made")),
+                calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.UNKNOWN,
+                                                   summary="a change nobody can account for")),
+                calling(lambda: _an_action_left_at(conn, incident_id, ActionProgress.CLAIMED,
+                                                   summary="a claim never answered")),
                 calling(lambda: hypotheses.record(conn, Hypothesis(
                     incident_id=incident_id, summary="an untried cause",
                     failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.1,
                     supporting_evidence=[])))
             ) \
             .when(
-                lambda: {candidate.summary: candidate.acted_on
+                lambda: {candidate.summary: (candidate.progress, candidate.verdict_recorded)
                          for candidate in gather_evidence(conn, incident_id).candidates}
             ) \
             .then(
-                the_answer_was({"dont care": True, "a rollback that never ran": False,
-                                "an untried cause": False})
+                the_answer_was({
+                    "dont care": (ActionProgress.PERFORMED, True),
+                    "a rollback that never ran": (ActionProgress.NOT_PERFORMED, True),
+                    "a change a dead worker made": (ActionProgress.PERFORMED, False),
+                    "a change nobody can account for": (ActionProgress.UNKNOWN, False),
+                    "a claim never answered": (ActionProgress.CLAIMED, False),
+                    "an untried cause": (None, False)
+                })
             )
 
 
@@ -1491,6 +1505,34 @@ def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: No
                     lambda evidence: [action.standing for action in evidence.actions],
                     "put back"
                 )
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("progress", "standing"), [
+    pytest.param(ActionProgress.PERFORMED, "may still be in place", id="made-and-never-judged"),
+    pytest.param(ActionProgress.UNKNOWN, "not known whether it was made", id="unaccounted-for"),
+    pytest.param(ActionProgress.CLAIMED, "not known whether it was made", id="never-answered")
+])
+def test_an_action_with_no_verdict_on_file_is_not_said_to_be_still_in_place(
+        progress: ActionProgress, standing: str, a_clean_database: None) -> None:
+    # A refuted change is put back before its verdict is written, so a worker
+    # that died in between left it put back with nothing on file - and a claim
+    # that never said more may never have been made. "Still in place" would
+    # send a responder to undo what may not be there.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_left_at(conn, incident_id, progress))
+            ) \
+            .when(
+                lambda: [action.standing
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([standing])
             )
 
 
@@ -2310,6 +2352,32 @@ def _an_action_taken(conn: psycopg.Connection,
                          undo_descriptor=undo_descriptor,
                          at=DONT_CARE_TAKEN_AT,
                          performed=performed)
+
+
+def _an_action_left_at(conn: psycopg.Connection,
+                       incident_id: str,
+                       progress: ActionProgress,
+                       summary: str = "dont care") -> None:
+    """One flag revert whose row got as far as `progress` and recorded no
+    verdict - what a worker that died mid-attempt leaves, on a candidate of its
+    own."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary=summary,
+                           failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.claim(conn, incident_id,
+                        hypothesis_id=candidate.id,
+                        action_type=REVERT_FEATURE_FLAG,
+                        subject=SOME_FLAG,
+                        at=DONT_CARE_TAKEN_AT)
+
+    if progress is not ActionProgress.CLAIMED:
+        taken_actions.advance(conn, incident_id,
+                              hypothesis_id=candidate.id,
+                              to=progress,
+                              undo_descriptor=None)
 
 
 def _an_action_claimed_then_taken(conn: psycopg.Connection,

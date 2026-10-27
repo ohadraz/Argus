@@ -110,15 +110,18 @@ CREATE TABLE IF NOT EXISTS action (
     has_a_way_back BOOLEAN NOT NULL,
     undo_descriptor JSONB,
     outcome TEXT,
-    -- Whether the action was performed - the change made, whatever came of it
-    -- after - or the attempt ended before the action itself was done: a
-    -- platform that did not answer, an action with nowhere left to go, an
-    -- incident a person ended first. Such an attempt may still have changed
-    -- something on the way, which `undo_descriptor` carries; it did not do the
-    -- action. NULL until the outcome is written. The candidate the row
-    -- names was tried only where this is true, and no verdict says it: a stop
-    -- is the word for an ending before the write and for one during the wait.
-    performed BOOLEAN,
+    -- How far the action got (`ActionProgress`): `claimed` from the claim on;
+    -- `performed` the moment the change is made, before the wait and so
+    -- before any verdict, with `undo_descriptor` written beside it;
+    -- `not-performed` where the attempt ended before the action itself was
+    -- done - a platform that did not answer, an action with nowhere left to
+    -- go, an incident a person ended first, a write that raised - though it
+    -- may have changed something on the way, which `undo_descriptor` carries
+    -- where Argus knows what was left; `unknown` for a claim no walk will ever
+    -- answer. The candidate the row names was tried only where this is
+    -- `performed`, and no verdict says it: a stop is the word for an ending
+    -- before the write and for one during the wait.
+    progress TEXT NOT NULL,
     -- When the claim was written, on the walk's clock: no default, because the
     -- database's is a clock nothing else in the incident is dated by. Before
     -- the action, not at it - a reader dating the action reads its

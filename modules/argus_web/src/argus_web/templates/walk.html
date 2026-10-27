@@ -99,9 +99,12 @@
             data-undone="{{ 'true' if attempt.undone else 'false' }}">
           <span class="action">{{ attempt.action_type }}</span>
           {# An action taken a moment ago has no answer yet. That is a state to
-             show, not an absence to hide. #}
-          {% if attempt.outcome is none %}
+             show, not an absence to hide. On an incident that is over, no
+             answer is coming. #}
+          {% if attempt.awaiting_a_verdict %}
             <span class="verdict undecided">no verdict yet</span>
+          {% elif attempt.outcome is none %}
+            <span class="verdict unrecorded">no verdict recorded</span>
           {% else %}
             <span class="verdict {{ attempt.outcome }}">{{ attempt.outcome }}</span>
           {% endif %}

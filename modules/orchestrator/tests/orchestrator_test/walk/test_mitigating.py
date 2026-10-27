@@ -22,6 +22,7 @@ from typing import cast
 from unittest.mock import MagicMock, create_autospec
 
 import pytest
+from agent_mitigation import ChangeMade
 from argus_core.events import (
     ActionTaken,
     IncidentEvent,
@@ -35,6 +36,7 @@ from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     FLAG_PROVIDER,
     Action,
+    ActionProgress,
     AlarmClaim,
     Alert,
     EstablishedOnset,
@@ -76,6 +78,12 @@ SOME_ONSET_THE_ALERT_STATED = datetime(2026, 9, 4, 21, 48, tzinfo=UTC)
 SOME_ACCELERATOR = "Tesla-V100-SXM2-16GB"
 DONT_CARE_MOMENT_IT_WAS_TAKEN = datetime(2026, 9, 4, 22, 16, tzinfo=UTC)
 
+# The two ways a resumed walk hands an incident over, in the words a person reads.
+A_CHANGE_MADE_AND_NEVER_RECORDED = ("an earlier attempt carried out this action and "
+                                    "stopped before recording what came of it")
+A_CHANGE_NOBODY_CAN_ACCOUNT_FOR = ("an earlier attempt claimed this action and nothing "
+                                   "can say whether it was carried out")
+
 
 @pytest.fixture
 def record_action() -> MagicMock:
@@ -110,6 +118,11 @@ def change_landed() -> MagicMock:
     return cast(MagicMock, create_autospec(ports.ChangeLanded, instance=True))
 
 
+@pytest.fixture
+def advance_action() -> MagicMock:
+    return cast(MagicMock, create_autospec(ports.AdvanceAction, instance=True))
+
+
 @pytest.mark.unit
 def test_a_confirmed_action_reports_the_verdict_it_measured(
     take: MagicMock,
@@ -129,6 +142,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -163,6 +177,7 @@ def test_the_verdict_an_action_reached_is_logged(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -205,6 +220,7 @@ def test_what_is_recorded_is_what_the_action_acted_on_not_what_the_candidate_cal
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -245,6 +261,7 @@ def test_the_claim_is_dated_on_the_walks_clock_before_the_action_is_announced(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -282,6 +299,7 @@ def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -309,6 +327,7 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -336,6 +355,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -376,6 +396,7 @@ def test_an_unavailable_platform_is_published_where_the_walk_learnt_it(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -412,6 +433,7 @@ def test_an_escalated_action_publishes_nothing_about_a_platform(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -446,6 +468,7 @@ def test_an_unreachable_platform_is_recorded_against_the_walk(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -483,6 +506,7 @@ def test_the_platform_recorded_is_the_one_the_action_acted_through(
         .when(lambda: mitigation_node(a_flag_reverting_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -513,6 +537,7 @@ def test_an_escalated_action_says_nothing_about_any_platform(
         .when(lambda: mitigation_node(a_rollback_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -543,6 +568,7 @@ def test_the_node_that_takes_the_action_decides_no_status(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -579,6 +605,7 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -614,6 +641,7 @@ def test_the_action_row_records_whether_the_action_was_performed(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -646,6 +674,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -686,6 +715,7 @@ def test_a_candidate_nothing_was_measured_for_is_not_recorded_as_tested(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -721,6 +751,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -756,6 +787,7 @@ def test_the_candidate_that_was_acted_on_records_what_the_attempt_settled(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       complete_action=complete_action,
                                       record_action=record_action,
                                       record_outcome=record_outcome,
@@ -793,6 +825,7 @@ def test_the_moment_an_action_was_taken_travels_with_the_walk(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -828,6 +861,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -864,6 +898,7 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
         .when(lambda: mitigation_node(an_incident_past_a_refuted_round,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -896,6 +931,7 @@ def test_a_walk_resumed_after_the_action_carries_the_moment_it_was_claimed(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -932,6 +968,7 @@ def test_a_resumed_walk_says_it_caught_up_rather_than_acting(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -964,6 +1001,7 @@ def test_a_walk_that_claimed_the_action_takes_it(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       already_taken=already_taken,
@@ -980,12 +1018,15 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
-    # The worst state to find: the flag was changed and nobody measured what
+    # The worst state to find: the flag was changed and nobody recorded what
     # happened next. Argus cannot invent that measurement, and acting again
-    # would not produce it either - so it says so and stops.
+    # would not produce it either - so it says so and stops. The answer is
+    # kept on the claim, so the walk resumed after this one reads it rather
+    # than asking again.
     Scenario() \
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
@@ -1002,10 +1043,14 @@ def test_a_claim_with_no_outcome_whose_change_landed_escalates(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated()))
+                     _the_incident_was_escalated(),
+                     _the_walk_says(A_CHANGE_MADE_AND_NEVER_RECORDED),
+                     _the_claim_was_advanced_to(ActionProgress.PERFORMED,
+                                                an_action_taking_incident, advance_action)))
 
 
 @pytest.mark.unit
@@ -1015,6 +1060,7 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1038,10 +1084,12 @@ def test_a_claim_whose_change_never_landed_is_acted_on(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_taken(take),
-                     _the_verdict_reported_is(Verdict.CONFIRMED)))
+                     _the_verdict_reported_is(Verdict.CONFIRMED),
+                     _the_claim_was_not_advanced(advance_action)))
 
 
 @pytest.mark.unit
@@ -1051,12 +1099,14 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
     # Unreachable, or a deployment where Argus and its operators share a
     # credential. Either way nobody can say whether the change was made, and
-    # acting on a guess is the one thing that is worse than stopping.
+    # acting on a guess is the one thing that is worse than stopping. That
+    # nobody can say is kept on the claim, and is final.
     Scenario() \
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
@@ -1073,10 +1123,14 @@ def test_a_claim_the_provider_cannot_answer_for_escalates(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
-                     _the_incident_was_escalated()))
+                     _the_incident_was_escalated(),
+                     _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
+                     _the_claim_was_advanced_to(ActionProgress.UNKNOWN,
+                                                an_action_taking_incident, advance_action)))
 
 
 @pytest.mark.unit
@@ -1086,6 +1140,7 @@ def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1118,6 +1173,7 @@ def test_a_resumed_claim_is_asked_after_under_the_flag_the_action_names(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(_the_provider_was_asked_about(
@@ -1132,6 +1188,7 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1157,11 +1214,14 @@ def test_a_resumed_restart_escalates_without_asking_a_flag_provider_about_it(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _the_incident_was_escalated(),
-                     _the_provider_was_never_asked(change_landed)))
+                     _the_provider_was_never_asked(change_landed),
+                     _the_claim_was_advanced_to(ActionProgress.UNKNOWN,
+                                                an_action_taking_incident, advance_action)))
 
 
 @pytest.mark.unit
@@ -1182,6 +1242,7 @@ def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_ab
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1208,11 +1269,14 @@ def test_a_resumed_deployment_action_escalates_without_asking_a_flag_provider_ab
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _the_incident_was_escalated(),
-                     _the_provider_was_never_asked(change_landed)))
+                     _the_provider_was_never_asked(change_landed),
+                     _the_claim_was_advanced_to(ActionProgress.UNKNOWN,
+                                                an_action_taking_incident, advance_action)))
 
 
 @pytest.mark.unit
@@ -1222,6 +1286,7 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
     complete_action: MagicMock,
     already_taken: MagicMock,
     change_landed: MagicMock,
+    advance_action: MagicMock,
     record_outcome: MagicMock,
     still_wanted: MagicMock
 ) -> None:
@@ -1252,11 +1317,184 @@ def test_a_claim_whose_verdict_this_version_cannot_read_escalates(
                                       complete_action=complete_action,
                                       already_taken=already_taken,
                                       change_landed=change_landed,
+                                      advance_action=advance_action,
                                       record_outcome=record_outcome,
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _the_incident_was_escalated(),
-                     _the_provider_was_never_asked(change_landed)))
+                     _the_provider_was_never_asked(change_landed),
+                     _the_claim_was_not_advanced(advance_action)))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "some_action",
+    [
+        RevertFeatureFlag(flag=DONT_CARE_FLAG, enabled=False,
+                          undo_descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)),
+        RollBackDeployment(application="kuki-service")
+    ],
+    ids=["flag-revert", "rollback"]
+)
+def test_a_claim_already_told_as_made_escalates_without_asking_anybody(
+    some_action: Action,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The dead worker said the change was made before its wait, and recorded
+    # nothing after. Made is made whoever the provider would credit with it -
+    # and a rollback has no provider to ask at all - so nobody is asked and
+    # nothing is written: the claim already says what there is to say.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.PERFORMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=some_action,
+                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      change_landed=change_landed,
+                                      advance_action=advance_action,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_action_was_not_taken(take),
+                     _the_incident_was_escalated(),
+                     _the_walk_says(A_CHANGE_MADE_AND_NEVER_RECORDED),
+                     _the_provider_was_never_asked(change_landed),
+                     _the_claim_was_not_advanced(advance_action)))
+
+
+@pytest.mark.unit
+def test_a_claim_nobody_could_account_for_escalates_without_asking_again(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    change_landed: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # An earlier resume asked and nobody could say. Asking again could only
+    # come back with a "no" - and a "no" here would have this walk act a
+    # second time on a flag somebody may already have set.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                progress=ActionProgress.UNKNOWN)),
+            calling(lambda: _the_change_never_reached_the_provider(change_landed)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=_a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      already_taken=already_taken,
+                                      change_landed=change_landed,
+                                      advance_action=advance_action,
+                                      record_outcome=record_outcome,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(_the_action_was_not_taken(take),
+                     _the_incident_was_escalated(),
+                     _the_walk_says(A_CHANGE_NOBODY_CAN_ACCOUNT_FOR),
+                     _the_provider_was_never_asked(change_landed),
+                     _the_claim_was_not_advanced(advance_action)))
+
+
+@pytest.mark.unit
+def test_the_change_is_put_on_the_claim_the_moment_the_agent_says_it_was_made(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Before the wait, with what the tier said would put it back, on the row
+    # this walk claimed - so a worker that dies while the service is watched
+    # leaves a change a withdrawal can undo and a write-up can call tried.
+    some_way_back = FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True)
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            take := _an_agent_that_tells_of_the_change(some_way_back, Verdict.CONFIRMED),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=advance_action,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _the_claim_was_advanced_to(ActionProgress.PERFORMED, an_action_taking_incident,
+                                       advance_action, undo_descriptor=some_way_back)
+        )
+
+
+@pytest.mark.unit
+def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    advance_action: MagicMock,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The change is made by now, and the wait is what judges it. Abandoning
+    # the attempt over an early copy of the record would leave the world
+    # changed and unmeasured - and the completion writes the same facts again.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.WARNING)),
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_claim_cannot_be_written(advance_action)),
+            take := _an_agent_that_tells_of_the_change(
+                FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True), Verdict.CONFIRMED
+            ),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=advance_action,
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(
+            _the_verdict_reported_is(Verdict.CONFIRMED),
+            _the_action_row_records_the_outcome(Verdict.CONFIRMED, complete_action),
+            one_record_was_logged(caplog, "orchestrator.walk.mitigating", logging.WARNING,
+                                  "the change could not be recorded as made before the wait")
+        ))
 
 
 @pytest.mark.unit
@@ -1314,6 +1552,7 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1346,6 +1585,7 @@ def test_the_graph_says_which_way_it_moved_the_flag(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1381,6 +1621,7 @@ def test_the_graph_says_which_card_it_held_the_deployment_to(
         .when(lambda: mitigation_node(a_pinning_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1412,6 +1653,7 @@ def test_the_graph_says_what_verdict_came_back(
         .when(lambda: mitigation_node(an_action_taking_incident,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1436,6 +1678,7 @@ def test_a_node_nobody_is_listening_to_does_the_same_thing(
             _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor()),
             take=take,
             change_landed=_nothing_landed(),
+            advance_action=_an_advance_nobody_checks(),
             record_action=record_action,
             complete_action=complete_action,
             record_outcome=record_outcome,
@@ -1484,6 +1727,7 @@ def test_an_action_aimed_at_a_dependency_is_announced_as_one(
         .when(lambda: mitigation_node(an_incident_acting_elsewhere,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1517,6 +1761,7 @@ def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependenc
         .when(lambda: mitigation_node(an_incident_acting_on_the_alerting_service,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1552,6 +1797,7 @@ def test_a_flag_put_back_is_announced_as_nobodys_dependency(
         .when(lambda: mitigation_node(an_incident_putting_a_flag_back,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1586,6 +1832,7 @@ def test_the_minute_the_alert_dated_the_incident_to_reaches_the_agent(
         .when(lambda: mitigation_node(an_incident_its_alert_dated,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1617,6 +1864,7 @@ def test_an_incident_no_alert_dated_hands_over_no_minute(
         .when(lambda: mitigation_node(an_incident_nothing_dated,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1689,6 +1937,7 @@ def test_the_minute_the_investigation_dated_the_incident_from_reaches_the_agent(
         .when(lambda: mitigation_node(an_incident_the_investigation_dated,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1748,6 +1997,7 @@ def test_the_rule_a_series_alert_names_is_handed_to_the_agent(
         .when(lambda: mitigation_node(an_incident_paged_by_a_rule,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1778,6 +2028,7 @@ def test_a_finding_hands_the_agent_no_rule_to_wait_on(
         .when(lambda: mitigation_node(an_incident_a_check_found,
                                       take=take,
                                       change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
                                       record_action=record_action,
                                       complete_action=complete_action,
                                       record_outcome=record_outcome,
@@ -1867,17 +2118,20 @@ def _an_earlier_attempt_holds_the_claim(
         record_action: MagicMock,
         already_taken: MagicMock,
         nothing_recorded: Verdict | UnreadVerdict | None,
-        written_at: datetime = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN) -> None:
+        written_at: datetime = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN,
+        progress: ActionProgress = ActionProgress.CLAIMED) -> None:
     """The claim was written by a worker that is gone.
 
     `nothing_recorded` is what it left against it - an outcome, or `None` where
     it stopped between taking the action and saying what happened. The moment
     comes back on the same value because it is the same row: the branch with no
     outcome to read is the one that asks the provider what happened after it.
+    `progress` is how far the row says it got - a claim and nothing more,
+    unless a case says otherwise.
     """
     record_action.return_value = False
     already_taken.return_value = ports.ClaimedAction(
-        outcome=nothing_recorded, claimed_at=written_at)
+        outcome=nothing_recorded, claimed_at=written_at, progress=progress)
 
 
 def _the_change_reached_the_provider(change_landed: MagicMock) -> None:
@@ -1985,6 +2239,73 @@ def _the_incident_was_escalated() -> Assertion[StateDelta]:
                 f"Expected the incident to be escalated, the node returned "
                 f"[{updates.status}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _an_advance_nobody_checks() -> MagicMock:
+    """Somewhere for the claim to be moved on, in a case about something else."""
+    return cast(MagicMock, create_autospec(ports.AdvanceAction, instance=True))
+
+
+def _the_claim_cannot_be_written(advance_action: MagicMock) -> None:
+    advance_action.side_effect = RuntimeError("the database went away")
+
+
+def _an_agent_that_tells_of_the_change(undo_descriptor: UndoDescriptor,
+                                       verdict: Verdict) -> ports.TakeAction:
+    """An agent that makes the change, says so with what would put it back,
+    and then reaches `verdict` - as the real one does, in that order."""
+    def take(dont_care_action: Action, /, *, change_made: ChangeMade = lambda _: None,
+             **dont_care_keywords: object) -> Outcome:
+        change_made(undo_descriptor)
+
+        return Outcome(verdict=verdict, detail="dont care", undo_descriptor=undo_descriptor)
+
+    return cast(ports.TakeAction, take)
+
+
+def _the_walk_says(expected: str) -> Assertion[StateDelta]:
+    """What a person reading the incident is told about the attempt."""
+    def assertion(updates: StateDelta) -> bool:
+        said = updates.narration.detail if updates.narration is not None else None
+        if said != expected:
+            raise AssertionError(f"Expected the walk to say [{expected}], it said [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_claim_was_advanced_to(expected: ActionProgress,
+                               state: IncidentState,
+                               advance_action: MagicMock,
+                               undo_descriptor: UndoDescriptor | None = None
+                               ) -> Assertion[StateDelta]:
+    """The claim on this incident's candidate moved on once, to `expected`,
+    carrying `undo_descriptor`."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        assert state.hypothesis is not None
+        made = [(call.args, call.kwargs) for call in advance_action.call_args_list]
+        wanted = [((state.incident_id,), {"hypothesis_id": state.hypothesis.id,
+                                           "to": expected,
+                                           "undo_descriptor": undo_descriptor})]
+        if made != wanted:
+            raise AssertionError(f"Expected the claim moved on once, to [{expected}] "
+                                 f"carrying [{undo_descriptor}], got {made}.")
+
+        return True
+
+    return assertion
+
+
+def _the_claim_was_not_advanced(advance_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if advance_action.called:
+            raise AssertionError(f"Expected the claim left as it was, it was moved on: "
+                                 f"{advance_action.call_args_list}.")
 
         return True
 

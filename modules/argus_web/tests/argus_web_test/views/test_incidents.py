@@ -170,7 +170,36 @@ def test_an_attempt_with_no_verdict_yet_is_shown_as_undecided_rather_than_undone
             account=NOTHING_WAS_SAID
         )) \
         .then(all_of(_the_attempts_shown_per_candidate_are([("in flight", [None])]),
-                     _the_attempts_were_undone([False])))
+                     _the_attempts_were_undone([False]),
+                     _the_attempts_await_a_verdict([True])))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [IncidentStatus.ESCALATED, IncidentStatus.WITHDRAWN,
+                                    IncidentStatus.RESOLVED],
+                         ids=lambda status: status.value)
+def test_an_attempt_with_no_verdict_on_an_incident_that_is_over_awaits_none(
+        status: IncidentStatus) -> None:
+    # The worker taking it stopped, and nothing is coming to answer it - so it
+    # is shown as a verdict never recorded rather than one still to come.
+    an_incident = _an_incident().model_copy(update={"status": status})
+    a_candidate_acted_on = _a_candidate(an_incident.id, subject="dont care", rank=1)
+
+    Scenario() \
+        .given(
+            an_attempt_nobody_will_answer := [
+                _an_attempt(an_incident.id, a_candidate_acted_on.id, outcome=None)
+            ]
+        ) \
+        .when(lambda: build_incident_detail(
+            an_incident,
+            candidates=[a_candidate_acted_on],
+            attempts=an_attempt_nobody_will_answer,
+            account=NOTHING_WAS_SAID
+        )) \
+        .then(
+            _the_attempts_await_a_verdict([False])
+        )
 
 
 @pytest.mark.unit
@@ -491,6 +520,20 @@ def _the_attempts_shown_per_candidate_are(
 
         if shown != expected:
             raise AssertionError(f"Expected {expected}, got {shown}.")
+
+        return True
+
+    return assertion
+
+
+def _the_attempts_await_a_verdict(expected: list[bool]) -> Assertion[IncidentDetail]:
+    def assertion(detail: IncidentDetail) -> bool:
+        awaiting = [attempt.awaiting_a_verdict
+                    for candidate in detail.candidates
+                    for attempt in candidate.attempts]
+
+        if awaiting != expected:
+            raise AssertionError(f"Expected {expected} awaiting a verdict, got {awaiting}.")
 
         return True
 

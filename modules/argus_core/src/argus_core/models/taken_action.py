@@ -1,12 +1,42 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, field_validator
 
 from argus_core.ids import UuidStr
 from argus_core.models.action import UnreadVerdict, Verdict
 from argus_core.models.undo_descriptor import UndoDescriptor
+
+
+class ActionProgress(StrEnum):
+    """How far an action got, as its row knows it.
+
+    A fact of its own beside the verdict, because the verdict comes after the
+    wait and the change comes before it - and the wait is where a worker dies.
+    A row that learnt only at the end whether its change was made said nothing
+    about the one attempt nobody else can account for.
+
+    `claimed` is the row from its claim until anything more is known: the action
+    about to be taken, or taken by a worker that stopped before it could say.
+    `performed` is the change made, whatever came of it after. `not-performed`
+    is an attempt that ended before the action itself was done - a platform that
+    did not answer, an action with nowhere left to go, an incident a person
+    ended first, a write that raised - though it may have changed something on
+    the way, which the undo descriptor carries where Argus knows what was left.
+    `unknown` is a claim no walk will ever answer: the
+    resumed walk could not tell whether the change was made, or the run ended
+    with the claim still open. It is final, so nothing later reads it as a claim
+    still waiting on its walk.
+
+    Spelt as a verdict is, hyphenated, since both are stored.
+    """
+
+    CLAIMED = "claimed"
+    PERFORMED = "performed"
+    NOT_PERFORMED = "not-performed"
+    UNKNOWN = "unknown"
 
 
 class TakenAction(BaseModel):
@@ -19,8 +49,9 @@ class TakenAction(BaseModel):
     undo_descriptor: UndoDescriptor | None
     outcome: Verdict | UnreadVerdict | None
     taken_at: datetime
-    # Whether the action was performed - `None` until its outcome is written.
-    performed: bool | None = None
+    # How far it got. A claim until anything more is written, which is every
+    # row's state from the moment it exists.
+    progress: ActionProgress = ActionProgress.CLAIMED
 
     @field_validator("outcome", mode="before")
     @classmethod

@@ -445,6 +445,41 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("status", "said", "never_said"), [
+    pytest.param(IncidentStatus.MITIGATING, "no verdict yet", "no verdict recorded",
+                 id="still-worked"),
+    pytest.param(IncidentStatus.ESCALATED, "no verdict recorded", "no verdict yet",
+                 id="over")
+])
+def test_an_attempt_with_no_verdict_says_whether_one_is_still_coming(
+        status: IncidentStatus, said: str, never_said: str) -> None:
+    # While the incident is worked, an action with no verdict is one the
+    # service has not answered yet. Once it is over, no answer is coming - the
+    # worker taking it stopped - and "yet" would promise one.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        candidate = _a_candidate_recorded_for(conn, incident_id, subject="dont-care", rank=1)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate,
+                            action_type="revert-feature-flag", subject="dont-care",
+                            at=utc_now())
+        incidents.transition(conn, incident_id, status, at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(said),
+            _the_page_never_says(never_said)
+        ))
+
+
+@pytest.mark.component
 def test_a_running_incident_keeps_asking_for_more() -> None:
     # The point of watching it beside the shop's console: the walk moves on
     # this screen without anybody pressing refresh.
@@ -3224,6 +3259,16 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
     hypotheses.record(conn, hypothesis)
 
     return hypothesis.id
+
+
+def _the_page_never_says(text: str) -> Assertion[str]:
+    def assertion(page: str) -> bool:
+        if text in page:
+            raise AssertionError(f"Expected the page never to say [{text}], it did.")
+
+        return True
+
+    return assertion
 
 
 def _an_attempt_taken_for(conn: psycopg.Connection,

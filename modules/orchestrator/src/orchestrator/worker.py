@@ -49,7 +49,7 @@ from argus_incidents import (
     events_into_connection,
     inside_the_incidents_trace,
 )
-from argus_incidents.repository import incidents, runs
+from argus_incidents.repository import incidents, runs, taken_actions
 from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
 from argus_telemetry import start_telemetry
 from opentelemetry import baggage, context
@@ -228,9 +228,18 @@ def take_one_run(conn: psycopg.Connection,
         except Exception as failure:
             logger.exception("run failed")
             _put_back_what_it_changed(unwind, ended_by_a_person, claimed.incident_id)
+            # On the run's own connection, so the claims settle in the commit
+            # that settles the run: a failed run is never taken again, so a
+            # claim it left open would read as an action in flight for good.
+            taken_actions.settle_claims(conn, claimed.incident_id)
             runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
             _the_incident_needs_a_person(conn, claimed.incident_id, failure)
         else:
+            # A run that finished has normally answered every claim it made.
+            # The one it has not is the run taken back from a dead worker and
+            # found withdrawn - unwound, never walked, and finished with the
+            # dead worker's claim still open.
+            taken_actions.settle_claims(conn, claimed.incident_id)
             runs.finish(conn, claimed.id)
             logger.info("run finished")
 

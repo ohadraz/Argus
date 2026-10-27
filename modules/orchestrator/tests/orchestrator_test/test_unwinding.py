@@ -30,6 +30,7 @@ from agent_mitigation import UndoAttempt
 from argus_core import new_id
 from argus_core.events import ChangeUndone, IncidentEvent
 from argus_core.models import (
+    ActionProgress,
     FlagUndo,
     TakenAction,
     UndoDescriptor,
@@ -42,6 +43,7 @@ from orchestrator.unwinding import unwind_incident
 
 _DONT_CARE_INCIDENT_ID = "buki-123"
 _DONT_CARE_VERDICT = Verdict.CONFIRMED
+_DONT_CARE_FLAG = "dont-care-flag"
 
 # Where the unwind's own lines are logged from.
 _THE_UNWIND = "orchestrator.unwinding"
@@ -107,6 +109,54 @@ def test_an_action_that_changed_nothing_has_nothing_to_put_back(
         .then(all_of(
             _nothing_was_undone(undo),
             _nothing_was_reported(published)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("progress", "said"),
+    [
+        (ActionProgress.PERFORMED, "was changed, and nothing was kept to put it back"),
+        (ActionProgress.CLAIMED, "may have been changed, and nothing was kept to put it back"),
+        (ActionProgress.UNKNOWN, "may have been changed, and nothing was kept to put it back")
+    ],
+    ids=["performed", "claimed", "unknown"]
+)
+def test_a_change_made_or_maybe_made_with_nothing_kept_to_undo_it_is_said(
+    progress: ActionProgress,
+    said: str,
+    undo: MagicMock,
+    published: list[IncidentEvent],
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # A resumed walk that found a dead worker's change landed knows it was
+    # made and not what it replaced; a claim nobody answered may have been
+    # made. Either is a change perhaps out there with nothing kept to put it
+    # back - and passed over in silence, the withdrawal would read as tidy to
+    # a person who has to go and look. Said as not established, the answer an
+    # undo gives where it cannot say what the subject holds, and logged as one.
+    Scenario() \
+        .given(
+            calling(lambda: caplog.set_level(logging.INFO)),
+            an_incident_that_kept_nothing := [_a_taken_action_carrying(None, progress=progress)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident_that_kept_nothing),
+                undo=undo,
+                publisher=published.append,
+            )
+        ) \
+        .then(all_of(
+            _nothing_was_undone(undo),
+            _one_change_was_reported(published),
+            _the_report_names(published, Undone.NOT_ESTABLISHED),
+            _the_report_is_about(published, _DONT_CARE_FLAG),
+            _the_report_says(published, detail=said),
+            one_record_was_logged(caplog, _THE_UNWIND, logging.ERROR,
+                                  "change could not be put back",
+                                  values={"subject": _DONT_CARE_FLAG, "detail": said})
         ))
 
 
@@ -462,7 +512,8 @@ def _an_incident_that_changed(*descriptors: UndoDescriptor) -> list[TakenAction]
 
 
 def _an_incident_whose_taken_action_carries_no_descriptor() -> list[TakenAction]:
-    return [_a_taken_action_carrying(None)]
+    """An attempt that ended before its action was done - so nothing to keep."""
+    return [_a_taken_action_carrying(None, progress=ActionProgress.NOT_PERFORMED)]
 
 
 def _an_incident_that_discarded_cached_figures(service: str) -> list[TakenAction]:
@@ -498,15 +549,18 @@ def _reading(recorded: list[TakenAction]) -> Callable[[str], list[TakenAction]]:
     return taken_actions_of
 
 
-def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None) -> TakenAction:
+def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None,
+                             progress: ActionProgress = ActionProgress.PERFORMED
+                             ) -> TakenAction:
     return TakenAction(
         id=new_id(),
         incident_id=_DONT_CARE_INCIDENT_ID,
         hypothesis_id=new_id(),
         type="revert-feature-flag",
-        subject="dont-care-flag",
+        subject=_DONT_CARE_FLAG,
         has_a_way_back=True,
         undo_descriptor=undo_descriptor,
         outcome=_DONT_CARE_VERDICT,
-        taken_at=datetime.now(UTC)
+        taken_at=datetime.now(UTC),
+        progress=progress
     )

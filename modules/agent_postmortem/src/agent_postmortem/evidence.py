@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from argus_core.models import (
+    ActionProgress,
     ChangeEvent,
     ChannelReading,
     CodeUse,
@@ -48,10 +49,14 @@ class CandidateRecord(BaseModel):
     to_state: str | None
     tested: bool
     result: str | None
-    # That Argus took an action to test it - whatever came of that. A test a
-    # person's ending stopped leaves `tested` false, since nothing was
+    # How far Argus's action to test it got - `None` where none was claimed. A
+    # test a person's ending stopped leaves `tested` false, since nothing was
     # measured, and without this the candidate reads as never tried.
-    acted_on: bool = False
+    progress: ActionProgress | None = None
+    # Whether that action's row recorded a verdict. A change made with no
+    # verdict on file was never judged, or was judged by a worker that died
+    # before writing it down, and the row cannot tell which.
+    verdict_recorded: bool = False
 
 
 class ActionRecord(BaseModel):

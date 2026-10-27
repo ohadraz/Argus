@@ -284,6 +284,27 @@ def test_a_candidate_never_tried_for_a_reason_is_still_one_nobody_tried() -> Non
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("result", ["not known whether tried", "tried, no verdict recorded"])
+def test_a_candidate_whose_change_may_have_been_made_is_not_one_nobody_tried(
+        result: str) -> None:
+    # Its change was made, or nobody can say it was not - so "none was tried"
+    # would tell a reader the service was left alone.
+    Scenario() \
+        .given(
+            a_document_trying_something := _a_document(hypotheses=[
+                HypothesisConsidered(summary="dont care", confidence=None,
+                                     result=result, label="C1")
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_trying_something, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False, because="no candidate was confirmed")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("refusal", [
     Refusal.WOULD_UNDO_A_MEANT_CHANGE,
     Refusal.NOT_A_GENERIC_MITIGATION,

@@ -8,6 +8,7 @@ import psycopg
 import pytest
 from argus_core import connect_from_env
 from argus_core.models import (
+    ActionProgress,
     Alert,
     FailureMode,
     FlagUndo,
@@ -142,8 +143,12 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("performed", [True, False], ids=["performed", "never-performed"])
-def test_an_action_says_whether_it_was_performed(performed: bool) -> None:
+@pytest.mark.parametrize(("performed", "progress"),
+                         [(True, ActionProgress.PERFORMED),
+                          (False, ActionProgress.NOT_PERFORMED)],
+                         ids=["performed", "never-performed"])
+def test_a_completed_action_says_whether_it_was_performed(performed: bool,
+                                                          progress: ActionProgress) -> None:
     # What says the candidate was tried where nothing was measured: a person's
     # ending stops a test before the write and during the wait alike, and no
     # verdict tells the two apart.
@@ -173,14 +178,17 @@ def test_an_action_says_whether_it_was_performed(performed: bool) -> None:
                 )
             ) \
             .then(
-                _the_action_read_back_was_performed(conn, incident_id, performed)
+                _the_progress_read_back_is(conn, incident_id, [progress])
             )
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("performed", [True, False], ids=["performed", "never-performed"])
-def test_the_action_claimed_for_a_candidate_says_whether_it_was_performed(
-        performed: bool) -> None:
+@pytest.mark.parametrize(("performed", "progress"),
+                         [(True, ActionProgress.PERFORMED),
+                          (False, ActionProgress.NOT_PERFORMED)],
+                         ids=["performed", "never-performed"])
+def test_the_action_claimed_for_a_candidate_says_how_far_it_got(
+        performed: bool, progress: ActionProgress) -> None:
     # The other read of the row - the one a resumed walk makes - maps the column
     # back too.
     some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
@@ -213,8 +221,216 @@ def test_the_action_claimed_for_a_candidate_says_whether_it_was_performed(
                                                                 some_hypothesis_id)
             ) \
             .then(
-                _it_was_performed(performed)
+                _it_progressed_to(progress)
             )
+
+
+@pytest.mark.integration
+def test_an_action_only_claimed_is_known_as_claimed() -> None:
+    # The state a row is in from the claim until anything else is known about
+    # it - the action about to be taken, or taken by a worker that stopped
+    # before saying so.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="dont-care-flag",
+                    at=DONT_CARE_INSTANT
+                )
+            ) \
+            .then(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.CLAIMED])
+            )
+
+
+@pytest.mark.integration
+def test_a_change_made_is_recorded_with_what_puts_it_back_before_any_verdict() -> None:
+    # Written the moment the change is made, before the wait. A worker that
+    # dies during the wait leaves a row saying the change was made and how to
+    # put it back - which is what a withdrawal, or a failed run's unwinding,
+    # reads through this same read.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    some_undo_descriptor = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="monthly-spend-feature",
+                    at=DONT_CARE_INSTANT
+                )
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.PERFORMED,
+                    undo_descriptor=some_undo_descriptor
+                )
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.PERFORMED]),
+                _the_undo_read_back_is(conn, incident_id, some_undo_descriptor),
+                _the_outcome_read_back_is_absent(conn, incident_id)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("performed", "progress"),
+                         [(True, ActionProgress.PERFORMED),
+                          (False, ActionProgress.NOT_PERFORMED)],
+                         ids=["performed", "never-performed"])
+def test_an_action_already_completed_is_not_moved_back(performed: bool,
+                                                       progress: ActionProgress) -> None:
+    # Only a claim moves on. A completion is the whole account of the
+    # attempt, and a later write about a claim - a resumed walk that could
+    # not tell what happened - must not overwrite what the attempt itself
+    # recorded.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="dont-care-flag",
+                    outcome=Verdict.STOPPED,
+                    undo_descriptor=None,
+                    at=DONT_CARE_INSTANT,
+                    performed=performed
+                ))
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.UNKNOWN,
+                    undo_descriptor=None
+                )
+            ) \
+            .then(
+                _the_progress_read_back_is(conn, incident_id, [progress])
+            )
+
+
+@pytest.mark.integration
+def test_an_action_nobody_can_account_for_stays_unaccounted_for() -> None:
+    # Unknown is final. A resumed walk that finds it escalates without asking
+    # again, so nothing may later turn it into a claim's answer it never got.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+        taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
+                            action_type="revert-feature-flag", subject="dont-care-flag",
+                            at=DONT_CARE_INSTANT)
+
+        Scenario() \
+            .given(
+                calling(lambda: taken_actions.advance(conn, incident_id,
+                                                      hypothesis_id=hypothesis_id,
+                                                      to=ActionProgress.UNKNOWN,
+                                                      undo_descriptor=None))
+            ) \
+            .when(
+                lambda: taken_actions.advance(
+                    conn,
+                    incident_id,
+                    hypothesis_id=hypothesis_id,
+                    to=ActionProgress.PERFORMED,
+                    undo_descriptor=FlagUndo(flag="dont-care-flag", was_enabled=True)
+                )
+            ) \
+            .then(
+                _the_progress_read_back_is(conn, incident_id, [ActionProgress.UNKNOWN])
+            )
+
+
+@pytest.mark.integration
+def test_settling_an_incidents_claims_leaves_every_row_that_moved_on_alone() -> None:
+    # Where no walk will write the incident's rows again. A claim still open
+    # there will never be answered, so it becomes unknown; every row that
+    # already says more keeps what it says - and another incident's claim is
+    # that incident's.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        incident_id = an_incident_created_for(conn, some_alert)
+        another_incident_id = an_incident_created_for(conn, some_alert)
+        still_claimed = a_hypothesis_recorded_for(incident_id, subject="first", rank=1)
+        performed = a_hypothesis_recorded_for(incident_id, subject="second", rank=2)
+        never_performed = a_hypothesis_recorded_for(incident_id, subject="third", rank=3)
+        anothers = a_hypothesis_recorded_for(another_incident_id)
+
+        def four_actions_got_as_far_as_they_did() -> None:
+            for candidate, at in ((still_claimed, SOME_INSTANT),
+                                  (performed, SOME_INSTANT + timedelta(minutes=1))):
+                taken_actions.claim(conn, incident_id, hypothesis_id=candidate,
+                                    action_type="revert-feature-flag",
+                                    subject="dont-care-flag", at=at)
+            taken_actions.advance(conn, incident_id, hypothesis_id=performed,
+                                  to=ActionProgress.PERFORMED, undo_descriptor=None)
+            taken_actions.record(conn, incident_id, hypothesis_id=never_performed,
+                                 action_type="revert-feature-flag", subject="dont-care-flag",
+                                 outcome=Verdict.PLATFORM_UNREACHABLE, undo_descriptor=None,
+                                 at=SOME_INSTANT + timedelta(minutes=2), performed=False)
+            taken_actions.claim(conn, another_incident_id, hypothesis_id=anothers,
+                                action_type="revert-feature-flag", subject="dont-care-flag",
+                                at=DONT_CARE_INSTANT)
+
+        Scenario() \
+            .given(
+                calling(four_actions_got_as_far_as_they_did)
+            ) \
+            .when(
+                lambda: taken_actions.settle_claims(conn, incident_id)
+            ) \
+            .then(all_of(
+                _the_progress_read_back_is(conn, incident_id,
+                                           [ActionProgress.UNKNOWN,
+                                            ActionProgress.PERFORMED,
+                                            ActionProgress.NOT_PERFORMED]),
+                _the_progress_read_back_is(conn, another_incident_id,
+                                           [ActionProgress.CLAIMED])
+            ))
 
 
 @pytest.mark.integration
@@ -633,27 +849,58 @@ def _the_action_read_back_changed(conn: psycopg.Connection,
     return assertion
 
 
-def _the_action_read_back_was_performed(conn: psycopg.Connection,
-                                        incident_id: str,
-                                        expected: bool) -> Assertion[object]:
+def _the_progress_read_back_is(conn: psycopg.Connection,
+                               incident_id: str,
+                               expected: list[ActionProgress]) -> Assertion[object]:
+    """How far each of the incident's actions got, in the order they were taken."""
     def assertion(_result: object) -> bool:
-        read_back = taken_actions.get_by_incident(conn, incident_id)
+        found = [action.progress for action in taken_actions.get_by_incident(conn, incident_id)]
 
-        if [action.performed for action in read_back] != [expected]:
-            raise AssertionError(f"Expected one action read back as performed "
-                                 f"{expected}, got {[a.performed for a in read_back]}.")
+        if found != expected:
+            raise AssertionError(f"Expected the actions read back as {expected}, got {found}.")
 
         return True
 
     return assertion
 
 
-def _it_was_performed(expected: bool) -> Assertion[TakenAction | None]:
+def _it_progressed_to(expected: ActionProgress) -> Assertion[TakenAction | None]:
     def assertion(action: TakenAction | None) -> bool:
-        found = action.performed if action is not None else None
+        found = action.progress if action is not None else None
         if found is not expected:
-            raise AssertionError(f"Expected the action read back as performed {expected}, "
+            raise AssertionError(f"Expected the action read back as [{expected}], "
+                                 f"got [{found}].")
+
+        return True
+
+    return assertion
+
+
+def _the_undo_read_back_is(conn: psycopg.Connection,
+                           incident_id: str,
+                           expected: UndoDescriptor) -> Assertion[object]:
+    """What would put the change back, through the read an unwinding makes."""
+    def assertion(_result: object) -> bool:
+        found = [action.undo_descriptor
+                 for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != [expected]:
+            raise AssertionError(f"Expected one action read back carrying [{expected}], "
                                  f"got {found}.")
+
+        return True
+
+    return assertion
+
+
+def _the_outcome_read_back_is_absent(conn: psycopg.Connection,
+                                     incident_id: str) -> Assertion[object]:
+    """No verdict yet: the change being made is not what came of it."""
+    def assertion(_result: object) -> bool:
+        found = [action.outcome for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if found != [None]:
+            raise AssertionError(f"Expected one action read back with no outcome, got {found}.")
 
         return True
 

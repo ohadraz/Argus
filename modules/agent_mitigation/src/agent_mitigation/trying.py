@@ -80,7 +80,15 @@ from agent_mitigation.tools import (
     nothing_to_wait_for,
 )
 
-__all__ = ["UndoChange", "take_action"]
+__all__ = ["ChangeMade", "UndoChange", "take_action"]
+
+# Told that the action's change was made, with what the tier said would put it
+# back - `None` for a change that leaves nothing to restore. Called once, the
+# moment the tier answers and before the wait, so a caller can record the
+# change while the worker that made it is still alive to say so: the wait is
+# the longest stretch of an attempt, and the one a worker is likeliest to die
+# in.
+type ChangeMade = Callable[[UndoDescriptor | None], None]
 
 # How often the service is re-read while waiting for it to answer an action.
 # Metrics are aggregated per minute, so a tighter interval only re-reads the
@@ -134,6 +142,10 @@ class UndoChange(Protocol):
     # two different things again.
 
 
+def _nobody_told(undo_descriptor: UndoDescriptor | None) -> None:
+    """A change made with nobody to tell, for a caller recording nothing."""
+
+
 def take_action(action: Action,
                 settings: MitigationSettings,
                 thresholds: AnomalyThresholds,
@@ -150,7 +162,8 @@ def take_action(action: Action,
                 rule: str | None = None,
                 read_rule: RuleReader | None = None,
                 writes: PerformingWrites,
-                undo: UndoChange) -> Outcome:
+                undo: UndoChange,
+                change_made: ChangeMade = _nobody_told) -> Outcome:
     """Performs `action` and answers with what the service then did (spec §7.3).
 
     `rule` is the alert rule that paged, where the alert is about a series and
@@ -218,6 +231,13 @@ def take_action(action: Action,
     a claim, two publishes and on a resumed run a provider read - long enough
     for a person to have said stop. Applying it anyway would change the world
     after they did, and leave behind something for the withdrawal to put back.
+
+    `change_made` is told once the write has landed, before the wait, with the
+    descriptor the tier returned. Never on any of the four ways an attempt ends
+    before its write: nothing was made, and told otherwise a caller records a
+    candidate as tried that never was. What a caller does with it is the
+    caller's - this does not guard it, since whether a failure to record may
+    be survived is the recorder's judgement and not the agent's.
     """
     if not still_wanted():
         logger.info("action not taken, incident no longer wanted")
@@ -315,6 +335,10 @@ def take_action(action: Action,
             measured=False,
             performed=False
         )
+
+    # Outside the `try` above, so a caller's failure to record is never read as
+    # the action's failure to happen - the change is made by now.
+    change_made(performed.undo_descriptor)
 
     settled = _what_watching_the_service_settled(
         # Read for the rule that paged, so the recovery is dated on its series.

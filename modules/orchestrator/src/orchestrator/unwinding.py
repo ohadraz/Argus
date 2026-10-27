@@ -22,6 +22,7 @@ from agent_mitigation import UndoAttempt
 from argus_core import Connections
 from argus_core.events import ChangeUndone, Publisher, nobody, publish
 from argus_core.models import (
+    ActionProgress,
     TakenAction,
     UndoDescriptor,
     Undone,
@@ -73,6 +74,27 @@ def _changed_something_and_owed_nothing_back(taken_action: TakenAction) -> bool:
             and changes_something_persistent(recorded.action_type))
 
 
+def _a_change_nothing_was_kept_to_undo(taken_action: TakenAction) -> UndoAttempt | None:
+    """What a change of a kind that leaves something behind came to, where it
+    was or may have been made and nothing was kept to put it back - `None`
+    for every other row."""
+    if not taken_action.has_a_way_back or taken_action.undo_descriptor is not None:
+        return None
+
+    subject = taken_action.subject or ""
+
+    if taken_action.progress is ActionProgress.PERFORMED:
+        return UndoAttempt(subject=subject, outcome=Undone.NOT_ESTABLISHED,
+                           detail="was changed, and nothing was kept to put it back")
+
+    if taken_action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+        return UndoAttempt(subject=subject, outcome=Undone.NOT_ESTABLISHED,
+                           detail="may have been changed, and nothing was kept to put "
+                                  "it back")
+
+    return None
+
+
 def taken_actions_from(connections: Connections) -> TakenActionsOf:
     """The incident's own changes, read through the connections given."""
 
@@ -100,9 +122,18 @@ def unwind_incident(incident_id: str,
     same thing. One leaves nothing to put back at all - a restart changes no
     persistent state, so there is no change out there and nothing an undo could
     address. One is of a kind that does leave something, and recorded no
-    descriptor: the gate refused it, or it never reached the provider. Neither
-    is reported as an undo that failed, because asking the provider about a
-    flag nobody set would be inventing a change to undo.
+    descriptor because it was never performed: the gate refused it, or it never
+    reached the provider. Neither is reported as an undo that failed, because
+    asking the provider about a flag nobody set would be inventing a change to
+    undo.
+
+    Unless the row says the change was made, or cannot say it was not. A
+    resumed walk that found a dead worker's change landed knows it was made and
+    not what it replaced; a claim nobody answered may have been made. Either is
+    a change out there, perhaps, with nothing kept to put it back - and silence
+    would tell a person the incident is tidy when somebody has to go and look.
+    Said as not established, the answer an undo gives where it cannot say what
+    the subject holds.
 
     The third changed something and owes nothing back. A discard of stale
     cached figures removed a copy of records it never touched, so there is no
@@ -118,6 +149,21 @@ def unwind_incident(incident_id: str,
     with it would leave more behind rather than less.
     """
     for taken_action in taken_actions_of(incident_id):
+        unaccounted = _a_change_nothing_was_kept_to_undo(taken_action)
+        if unaccounted is not None:
+            _said_in_the_log(unaccounted)
+            publish(
+                ChangeUndone(
+                    incident_id=incident_id,
+                    subject=unaccounted.subject,
+                    outcome=unaccounted.outcome,
+                    detail=unaccounted.detail
+                ),
+                publisher
+            )
+
+            continue
+
         if not taken_action.has_a_way_back or taken_action.undo_descriptor is None:
             if _changed_something_and_owed_nothing_back(taken_action):
                 publish(

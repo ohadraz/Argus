@@ -1125,9 +1125,10 @@ def nobody(event: IncidentEvent) -> None:
 def publish(event: IncidentEvent, publisher: Publisher = nobody) -> None:
     """Hands one event to a publisher, and cannot fail.
 
-    The single place in this codebase where an exception is caught and
-    discarded, and it is correct here for one reason: the account of the work
-    is never part of the work. An incident that would have resolved must
+    One of the few places in this codebase where an exception is caught and
+    not raised again, each with a reason of its own written beside it. This
+    one's is that the account of the work is never part of the work. An
+    incident that would have resolved must
     resolve even when nobody could write down that it was resolving, so a
     subscriber having a bad day costs the story a line and costs the
     investigation nothing.

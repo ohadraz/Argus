@@ -23,11 +23,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from agent_investigator import Findings
-from agent_mitigation import Action, Outcome, Verdict
+from agent_mitigation import Action, ChangeMade, Outcome, Verdict
 from argus_core import get_settings
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.models import (
+    ActionProgress,
     Alert,
     Attempt,
     EstablishedOnset,
@@ -35,6 +36,7 @@ from argus_core.models import (
     FailureMode,
     FlagChange,
     FlagHistory,
+    FlagUndo,
     Hypothesis,
     IncidentStatus,
     Leads,
@@ -45,6 +47,7 @@ from argus_core.models import (
     RollBackDeployment,
     Standing,
     ThreadMessage,
+    UndoDescriptor,
     Weighing,
     no_leads,
 )
@@ -113,6 +116,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         record_action=lambda *dont_care_args, **dont_care_keywords: True,
         complete_action=lambda *dont_care_args, **dont_care_keywords: None,
         already_taken=lambda incident_id, hypothesis_id: None,
+        advance_action=lambda *dont_care_args, **dont_care_keywords: None,
         change_landed=_a_change_that_never_landed(),
         propose_fix=lambda dont_care_hypothesis, dont_care_incident_id, **dont_care_keywords: (
             ProposedFix(pull_request=None, explanation=None)),
@@ -151,6 +155,30 @@ def test_an_action_that_helps_ends_the_incident_in_a_postmortem(
                            REMEMBERING_NODE,
                            POSTMORTEM_NODE),
             _the_incident_ended(IncidentStatus.MITIGATED)))
+
+
+@pytest.mark.component
+def test_the_change_the_agent_tells_of_is_put_on_the_claim_the_walk_holds(
+    collaborators: Collaborators
+) -> None:
+    # The wiring, whole: the graph hands its mitigation node the collaborator
+    # the deployment supplied, so the change reaches the row before the wait
+    # rather than a stand-in nobody reads.
+    advanced: list[tuple[ActionProgress, UndoDescriptor | None]] = []
+
+    def advance_action(incident_id: str, hypothesis_id: str, to: ActionProgress,
+                       undo_descriptor: UndoDescriptor | None) -> None:
+        advanced.append((to, undo_descriptor))
+
+    Scenario() \
+        .given(
+            a_walk_recording_its_claims := replace(collaborators,
+                                                   advance_action=advance_action)
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_recording_its_claims)) \
+        .then(
+            _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(advanced, SOME_FLAG)
+        )
 
 
 @pytest.mark.component
@@ -723,18 +751,36 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              publisher: Publisher = nobody,
              onset: datetime | None = None,
              incident_began: str | None = None,
-             rule: str | None = None) -> Outcome:
+             rule: str | None = None,
+             change_made: ChangeMade = lambda dont_care_undo_descriptor: None) -> Outcome:
         # Only one kind of action leaves anything behind, and the stand-in
-        # hands back exactly what the real one would.
+        # hands back exactly what the real one would - and tells of it as the
+        # change is made, as the real one does.
         the_way_back = (
             action.undo_descriptor if isinstance(action, RevertFeatureFlag) else None
         )
+        change_made(the_way_back)
 
         return Outcome(verdict=next(answers, last),
                        detail="dont care",
                        undo_descriptor=the_way_back)
 
     return take
+
+
+def _one_claim_was_moved_on_to_performed_carrying_a_way_back_for(
+        advanced: list[tuple[ActionProgress, UndoDescriptor | None]],
+        flag: str) -> Assertion[Walked]:
+    def assertion(_walked: Walked) -> bool:
+        found = [(to, undo.flag if isinstance(undo, FlagUndo) else undo)
+                 for to, undo in advanced]
+        if found != [(ActionProgress.PERFORMED, flag)]:
+            raise AssertionError(f"Expected one claim moved on to [performed], carrying "
+                                 f"the way back for [{flag}], got {advanced}.")
+
+        return True
+
+    return assertion
 
 
 def _a_change_that_never_landed() -> ports.ChangeLanded:

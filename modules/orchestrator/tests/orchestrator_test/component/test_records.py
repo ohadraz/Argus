@@ -29,6 +29,7 @@ from argus_core.events import (
 )
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
+    ActionProgress,
     Actor,
     Alert,
     FlagUndo,
@@ -37,6 +38,7 @@ from argus_core.models import (
     PostmortemDocument,
     Standing,
     ThreadMessage,
+    UndoDescriptor,
     Verdict,
     Weighing,
 )
@@ -50,6 +52,7 @@ from argus_incidents.repository import (
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from orchestrator.records import Records
+from orchestrator.walk.ports import ClaimedAction
 
 from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead
 
@@ -296,6 +299,73 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
             _the_action_records_the_outcome(incident_id, candidate.id, some_outcome),
             _nothing_was_narrated(incident_id)
         ))
+
+
+@pytest.mark.component
+def test_a_change_made_is_on_the_claim_for_anybody_who_reads_it_next(
+    a_clean_database: None
+) -> None:
+    # Written before the wait so that a worker dying during it leaves the change
+    # on record - which is only so if it is committed by the time the wait
+    # begins, and so seen from another connection.
+    some_alert = Alert(service="muki-service", alert_name="HighErrorRate")
+    some_way_back = FlagUndo(flag="monthly-spend-feature", was_enabled=True)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                            action_type=DONT_CARE_ACTION, subject="monthly-spend-feature",
+                            at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            candidate.id
+        ) \
+        .when(
+            lambda: records.advance_action(incident_id, hypothesis_id=candidate.id,
+                                           to=ActionProgress.PERFORMED,
+                                           undo_descriptor=some_way_back)
+        ) \
+        .then(all_of(
+            _the_action_is_seen_as(incident_id, ActionProgress.PERFORMED, some_way_back),
+            _nothing_was_narrated(incident_id)
+        ))
+
+
+@pytest.mark.component
+def test_a_claim_found_by_a_resumed_walk_says_how_far_it_got(
+    a_clean_database: None
+) -> None:
+    # What the resumed walk decides on: a change already told as made needs
+    # nobody asked about it.
+    some_alert = Alert(service="tuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                            action_type=DONT_CARE_ACTION, subject="dont-care-flag",
+                            at=utc_now())
+        taken_actions.advance(conn, incident_id, hypothesis_id=candidate.id,
+                              to=ActionProgress.PERFORMED, undo_descriptor=None)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            candidate.id
+        ) \
+        .when(
+            lambda: records.claimed_action(incident_id, hypothesis_id=candidate.id)
+        ) \
+        .then(
+            _it_got_as_far_as(ActionProgress.PERFORMED)
+        )
 
 
 @pytest.mark.component
@@ -683,6 +753,36 @@ def _the_action_records_the_outcome(incident_id: str,
             raise AssertionError(
                 f"Expected the action to record [{outcome}], got [{taken.outcome}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_action_is_seen_as(incident_id: str,
+                          progress: ActionProgress,
+                          undo_descriptor: UndoDescriptor) -> Assertion[None]:
+    """The incident's one action as a connection of its own reads it."""
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            seen = [(taken.progress, taken.undo_descriptor)
+                    for taken in taken_actions.get_by_incident(conn, incident_id)]
+
+        if seen != [(progress, undo_descriptor)]:
+            raise AssertionError(f"Expected one action seen as [{progress}] carrying "
+                                 f"[{undo_descriptor}], got {seen}.")
+
+        return True
+
+    return assertion
+
+
+def _it_got_as_far_as(expected: ActionProgress) -> Assertion[ClaimedAction | None]:
+    def assertion(claimed: ClaimedAction | None) -> bool:
+        found = claimed.progress if claimed is not None else None
+        if found is not expected:
+            raise AssertionError(f"Expected the claim read back as [{expected}], "
+                                 f"got [{found}].")
 
         return True
 

@@ -4,6 +4,7 @@ from datetime import datetime
 
 import psycopg
 from argus_core.models import (
+    ActionProgress,
     ActionType,
     TakenAction,
     UndoDescriptor,
@@ -82,8 +83,8 @@ def claim(
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO action (incident_id, hypothesis_id, type, subject, "
-            "                    has_a_way_back, taken_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s) "
+            "                    has_a_way_back, taken_at, progress) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING",
             (
@@ -93,6 +94,7 @@ def claim(
                 subject,
                 leaves_something_to_put_back(action_type),
                 at,
+                ActionProgress.CLAIMED,
             ),
         )
         claimed = cursor.rowcount == 1
@@ -125,22 +127,78 @@ def complete(
     The descriptor recorded is the one the write tier returned rather than the
     one proposed, since that is the account of what actually changed.
 
+    Whether it was performed is written again here, over whatever `advance`
+    wrote when the change was made: this is the attempt's own whole account, and
+    a change put back after a refutation is a change that was still made.
+
     Committing is the caller's. The event reporting this verdict is written on
     the same connection, and a commit here would put the verdict beyond reach
     of the account before the account existed.
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET outcome = %s, undo_descriptor = %s, performed = %s "
+            "UPDATE action SET outcome = %s, undo_descriptor = %s, progress = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (
                 outcome,
-                Jsonb(undo_descriptor.model_dump(mode="json"))
-                if undo_descriptor is not None else None,
-                performed,
+                _as_column(undo_descriptor),
+                ActionProgress.PERFORMED if performed else ActionProgress.NOT_PERFORMED,
                 incident_id,
                 hypothesis_id,
             ),
+        )
+
+
+def advance(
+    conn: psycopg.Connection,
+    incident_id: str,
+    hypothesis_id: str,
+    to: ActionProgress,
+    undo_descriptor: UndoDescriptor | None,
+) -> None:
+    """Moves a claim on to what has since been learnt about it, and leaves any
+    row that already says more alone.
+
+    Two moments write it. The change being made, before the wait: a worker that
+    dies during the wait leaves a row saying so, with what puts it back - the
+    one thing a withdrawal or a failed run's unwinding has to go on. And a
+    resumed walk that asked whether a dead worker's change landed: the answer,
+    or that there is none to be had.
+
+    Only from `claimed`. A completed row is the attempt's own account, and
+    `unknown` is final - a later write about a claim must not overwrite either
+    with less than they say.
+
+    Committing is the caller's, as `complete`'s is.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE action SET progress = %s, undo_descriptor = %s "
+            " WHERE incident_id = %s AND hypothesis_id = %s AND progress = %s",
+            (
+                to,
+                _as_column(undo_descriptor),
+                incident_id,
+                hypothesis_id,
+                ActionProgress.CLAIMED,
+            ),
+        )
+
+
+def settle_claims(conn: psycopg.Connection, incident_id: str) -> None:
+    """Every claim of the incident's still open becomes `unknown`.
+
+    For the moment no walk will write the incident's rows again - its run
+    settled, failed or finished - so a claim still open there will never be
+    answered, and left as it is it reads as an action still in flight.
+
+    Committing is the caller's: it is written beside the run's settling, and
+    the two are one moment.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE action SET progress = %s WHERE incident_id = %s AND progress = %s",
+            (ActionProgress.UNKNOWN, incident_id, ActionProgress.CLAIMED),
         )
 
 
@@ -180,7 +238,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, performed "
+            "       undo_descriptor, outcome, taken_at, progress "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -200,10 +258,16 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, performed "
+            "       undo_descriptor, outcome, taken_at, progress "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",
             (incident_id,),
         )
         return cursor.fetchall()
+
+
+def _as_column(undo_descriptor: UndoDescriptor | None) -> Jsonb | None:
+    """A descriptor as the column stores it, NULL where there is none."""
+    return (Jsonb(undo_descriptor.model_dump(mode="json"))
+            if undo_descriptor is not None else None)

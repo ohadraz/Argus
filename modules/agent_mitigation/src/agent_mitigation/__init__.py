@@ -72,7 +72,7 @@ from agent_mitigation.tools import (
     recent_metrics_over,
     rules_read_over,
 )
-from agent_mitigation.trying import UndoChange, take_action
+from agent_mitigation.trying import ChangeMade, UndoChange, take_action
 from agent_mitigation.undoing import undo_change
 
 __all__ = [
@@ -80,6 +80,7 @@ __all__ = [
     "REVERT_FEATURE_FLAG",
     "Action",
     "AdmittedMitigations",
+    "ChangeMade",
     "DeploymentsBetween",
     "FlagChangesSince",
     "MitigationSettings",

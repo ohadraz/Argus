@@ -9,15 +9,16 @@ import psycopg
 import pytest
 from argus_core import connect_from_env, utc_now
 from argus_core.events import StatusChanged
-from argus_core.models import Alert, IncidentStatus
+from argus_core.models import REVERT_FEATURE_FLAG, ActionProgress, Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
 from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
-from argus_incidents.repository import events, incidents, runs
+from argus_incidents.repository import events, hypotheses, incidents, runs, taken_actions
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from opentelemetry import baggage
 from orchestrator import worker
 from psycopg.pq import TransactionStatus
 
+from orchestrator_test.framework.builders import a_determined_hypothesis
 from orchestrator_test.framework.observing import Observed, observing
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
@@ -644,6 +645,75 @@ def test_a_failed_run_whose_ending_cannot_be_read_is_not_unwound(
 
 
 @pytest.mark.component
+def test_a_claim_a_failed_walk_left_open_is_settled_as_unknown(a_clean_database: None) -> None:
+    # A failed run is never taken again, so no walk will answer a claim it left
+    # open - and left as a claim, it reads as an action still in flight for
+    # good. Settled with the run, so a connection of its own sees it.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_claims_an_action_and_fails(),
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                _its_actions_are_seen_as(incident_id, [ActionProgress.UNKNOWN])
+            )
+
+
+@pytest.mark.component
+def test_a_dead_workers_claim_on_an_incident_withdrawn_meanwhile_is_settled_as_unknown(
+    a_clean_database: None
+) -> None:
+    # The run taken back from a dead worker, and found withdrawn: unwound,
+    # never walked, and finished - so nothing will ever answer the claim the
+    # dead worker left open.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    the_worker_that_stopped = "worker-that-was-killed-mid-walk"
+    the_worker_that_came_after = "worker-that-started-next"
+    unwound: list[str] = []
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+        runs.claim(conn, the_worker_that_stopped, A_LEASE_ALREADY_OVER)
+        _an_action_claimed_on(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incidents.withdraw(conn, incident_id, at=utc_now())
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    the_worker_that_came_after,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_must_not_be_called(),
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_incident_unwound_was(unwound, incident_id),
+                _its_actions_are_seen_as(incident_id, [ActionProgress.UNKNOWN])
+            ))
+
+
+@pytest.mark.component
 def test_a_run_abandoned_mid_walk_is_taken_up_for_the_same_incident(a_clean_database: None) -> None:
     # The failure this exists to prevent is not "the run is lost" but "the run
     # is done twice": an incident picked up as a new one would investigate a
@@ -1233,6 +1303,45 @@ def _a_walk_that_must_not_be_called() -> Callable[[str], None]:
         )
 
     return walk
+
+
+def _an_action_claimed_on(conn: psycopg.Connection, incident_id: str) -> None:
+    """A claim on a candidate of the incident's, written by the real writer and
+    answered by nothing - what a walk leaves when it stops mid-action."""
+    candidate = a_determined_hypothesis(incident_id)
+    hypotheses.record(conn, candidate)
+    taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                        action_type=REVERT_FEATURE_FLAG, subject="dont-care-flag",
+                        at=utc_now())
+
+
+def _a_walk_that_claims_an_action_and_fails() -> Callable[[str], None]:
+    """A walk that stopped mid-action the way an unforeseen failure stops one:
+    its claim written, and nothing after it."""
+    def walk(incident_id: str) -> None:
+        with connect_from_env() as conn:
+            _an_action_claimed_on(conn, incident_id)
+
+        raise RuntimeError("dont care")
+
+    return walk
+
+
+def _its_actions_are_seen_as(incident_id: str,
+                             expected: list[ActionProgress]) -> Assertion[bool]:
+    """How far each of the incident's actions got, as a connection of its own
+    reads them - which only a committed settling shows."""
+    def assertion(_took_work: bool) -> bool:
+        with connect_from_env() as conn:
+            seen = [taken.progress for taken in taken_actions.get_by_incident(conn, incident_id)]
+
+        if seen != expected:
+            raise AssertionError(f"Expected the incident's actions seen as {expected}, "
+                                 f"got {seen}.")
+
+        return True
+
+    return assertion
 
 
 def _an_unwind_recording_what_it_was_given(unwound: list[str]) -> Callable[[str], None]:

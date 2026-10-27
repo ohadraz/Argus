@@ -31,6 +31,7 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    ActionProgress,
     CandidateConsidered,
     ChangeEvent,
     ChangeKind,
@@ -1399,13 +1400,71 @@ def test_a_candidate_acted_on_and_never_judged_was_tried_not_judged() -> None:
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
-                a_candidate("dont care").model_copy(update={"acted_on": True})])
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.PERFORMED, "verdict_recorded": True})])
         ) \
         .when(
             lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
         ) \
         .then(
             the_answer_was(["tried, not judged"])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_acted_on_with_no_verdict_on_file_was_tried_with_none_recorded() -> None:
+    # The worker died with the change made: before the wait judged it, or
+    # before it wrote down what the wait judged - and the row cannot say which.
+    # "Not judged" would claim the first.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.PERFORMED, "verdict_recorded": False})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["tried, no verdict recorded"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
+                         ids=["claimed", "unknown"])
+def test_a_candidate_whose_action_nobody_can_account_for_is_not_known_to_be_tried(
+        progress: ActionProgress) -> None:
+    # The claim never said more. The change may have been made, so "never
+    # tried" would tell a reader the service was left alone when nobody knows.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={"progress": progress})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["not known whether tried"])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_whose_attempt_ended_before_its_action_was_never_tried() -> None:
+    # A platform that never answered, an action with nowhere left to go: a row
+    # is written, and nothing was done.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={
+                    "progress": ActionProgress.NOT_PERFORMED, "verdict_recorded": True})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["never tried"])
         )
 
 

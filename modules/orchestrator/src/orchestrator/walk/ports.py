@@ -12,10 +12,11 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from agent_mitigation import Action, Outcome, Verdict
+from agent_mitigation import Action, ChangeMade, Outcome, Verdict
 from argus_core.budget import StillWanted
 from argus_core.events import IncidentEvent, Publisher, nobody
 from argus_core.models import (
+    ActionProgress,
     ActionType,
     Alert,
     Attempt,
@@ -185,6 +186,10 @@ class TakeAction(Protocol):
     # judgement it has without a rule - the levels, the readings returning, or
     # the action's own receipt - which is what a finding and an alert naming no
     # rule get.
+    #
+    # `change_made` is told the moment the change is made, before the wait,
+    # with what would put it back - the walk binds the row it claimed into it,
+    # so a worker that dies during the wait leaves the change on record.
     def __call__(
         self,
         action: Action,
@@ -195,7 +200,8 @@ class TakeAction(Protocol):
         publisher: Publisher = nobody,
         onset: datetime | None = None,
         incident_began: str | None = None,
-        rule: str | None = None
+        rule: str | None = None,
+        change_made: ChangeMade = ...
     ) -> Outcome: ...
 
 
@@ -246,6 +252,24 @@ class CompleteAction(Protocol):
         undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent,
         performed: bool = True
+    ) -> None: ...
+
+
+class AdvanceAction(Protocol):
+    """Moves a claimed action on to what has since been learnt about it.
+
+    Two moments write it: the change being made, before the wait, with what
+    would put it back; and a resumed walk's answer about a dead worker's claim.
+    Only a claim moves - a completed row, or one nobody can account for, is
+    left saying what it says.
+    """
+
+    def __call__(
+        self,
+        incident_id: str,
+        hypothesis_id: str,
+        to: ActionProgress,
+        undo_descriptor: UndoDescriptor | None
     ) -> None: ...
 
 
@@ -306,10 +330,15 @@ class ClaimedAction(BaseModel):
     downstream that reads a verdict; read as absent, it sends this walk to ask
     the provider whether a change it already has a verdict for ever landed.
     Carried as itself, the node stops on it and says what it could not read.
+
+    `progress` is how far the attempt got, which is what a claim with no
+    outcome is decided on: a change already told as made needs no provider to
+    say so, and one nobody could account for stays that way.
     """
 
     outcome: Verdict | UnreadVerdict | None
     claimed_at: datetime
+    progress: ActionProgress = ActionProgress.CLAIMED
 
 
 class ActionAlreadyTaken(Protocol):

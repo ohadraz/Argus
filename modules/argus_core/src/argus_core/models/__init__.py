@@ -158,7 +158,7 @@ from argus_core.models.refusal import Refusal, why_it_was_refused
 from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutAccount, RolloutProgress
 from argus_core.models.service_dependency import Ownership, ServiceDependency
-from argus_core.models.taken_action import TakenAction
+from argus_core.models.taken_action import ActionProgress, TakenAction
 from argus_core.models.thread_message import (
     Leads,
     Offer,
@@ -227,6 +227,7 @@ __all__ = [
     "SET_FEATURE_FLAG_TOOL",
     "Action",
     "ActionIdentity",
+    "ActionProgress",
     "ActionType",
     "Actor",
     "AlarmClaim",

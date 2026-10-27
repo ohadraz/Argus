@@ -21,6 +21,7 @@ from argus_core.models import (
     ActionItem,
     ActionItemStatus,
     ActionItemType,
+    ActionProgress,
     CandidateConsidered,
     ChangeEvent,
     ChangeKind,
@@ -56,6 +57,13 @@ NO_VERDICT_RECORDED = "no verdict recorded"
 # cause was tried all the same.
 NOT_JUDGED = "not judged"
 TRIED_NOT_JUDGED = "tried, not judged"
+# What became of a cause whose action was performed and carries no verdict:
+# the worker died with the change made, before the wait judged it or before it
+# wrote down what the wait judged - and the row cannot say which.
+TRIED_NO_VERDICT_RECORDED = "tried, no verdict recorded"
+# What became of a cause whose action was claimed and never said more: nobody
+# can tell whether the change was made.
+NOT_KNOWN_WHETHER_TRIED = "not known whether tried"
 # What a refusal to act came to, in the resolution's outcome column.
 NOT_TAKEN = "not taken"
 
@@ -735,17 +743,30 @@ class OneCause:
     def became(self) -> str:
         """What became of the cause, in the words its row and the brief both
         say it in: its verdict, or that it was never tried - and why, where its
-        row recorded it - or tried and never judged.
+        row recorded it - or tried and never judged, or tried with no verdict
+        on file, or not known whether tried at all.
 
         The why because the gate writes on the row why it held the test back,
         and "never tried" alone left a reader to guess whether the
         investigation ran out or Argus declined."""
         if not self.decided.tested:
+            progress = self.decided.progress
+
             # Acted on and never measured - a person ended the incident while
             # the service was watched, or no look at it was answered. Tried,
-            # so never "never tried".
-            if self.decided.acted_on:
-                return TRIED_NOT_JUDGED
+            # so never "never tried". With no verdict on file at all, the
+            # worker died with the change made, and nobody knows whether a
+            # verdict was reached.
+            if progress is ActionProgress.PERFORMED:
+                return (TRIED_NOT_JUDGED if self.decided.verdict_recorded
+                        else TRIED_NO_VERDICT_RECORDED)
+
+            # Claimed, and nothing said since - the walk should never leave a
+            # claim at that before a write-up is written, and a claim nobody
+            # could answer reads the same. Either may have changed the service,
+            # so never "never tried" either.
+            if progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
+                return NOT_KNOWN_WHETHER_TRIED
 
             why = self.decided.result
             return f"{NEVER_TRIED}: {why}" if why else NEVER_TRIED

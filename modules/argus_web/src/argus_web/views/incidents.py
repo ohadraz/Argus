@@ -50,6 +50,10 @@ class Attempt(BaseModel):
     outcome: str | None
     undone: bool
     taken_at: datetime
+    # Whether a verdict may still come: none is recorded and the incident is
+    # still being worked. With the incident over, a missing verdict is one that
+    # never will be.
+    awaiting_a_verdict: bool = False
 
 
 class Candidate(BaseModel):
@@ -158,7 +162,8 @@ def build_incident_detail(
     unattributed: list[Attempt] = []
 
     for taken_action in attempts:
-        shown = _an_attempt(taken_action, account)
+        shown = _an_attempt(taken_action, account,
+                            still_worked=not incident.status.is_terminal())
         if taken_action.hypothesis_id is None:
             unattributed.append(shown)
         else:
@@ -178,13 +183,17 @@ def build_incident_detail(
     )
 
 
-def _an_attempt(taken_action: TakenAction, account: Sequence[IncidentEvent]) -> Attempt:
+def _an_attempt(taken_action: TakenAction,
+                account: Sequence[IncidentEvent],
+                still_worked: bool) -> Attempt:
     """One action row, as a reader sees it.
 
-    An action with no outcome yet is undecided rather than undone: it was taken
-    a moment ago and the service has not answered. That is a state to show, not
-    an absence to hide - the same way the shop's console shows a minute still
-    in progress.
+    An action with no outcome on an incident still being worked is undecided
+    rather than undone: it was taken a moment ago and the service has not
+    answered. That is a state to show, not an absence to hide - the same way the
+    shop's console shows a minute still in progress. On an incident that is
+    over it is the opposite: no verdict is coming, because the worker taking it
+    stopped - and "yet" would promise one.
 
     Undone is the verdict an action gets when the service did not recover and
     the action left something to put back: the walk puts such an action back
@@ -204,7 +213,8 @@ def _an_attempt(taken_action: TakenAction, account: Sequence[IncidentEvent]) -> 
         action_type=taken_action.type,
         outcome=taken_action.outcome,
         undone=taken_action.outcome is Verdict.REFUTED,
-        taken_at=when_it_was_taken(taken_action, account)
+        taken_at=when_it_was_taken(taken_action, account),
+        awaiting_a_verdict=taken_action.outcome is None and still_worked
     )
 
 
