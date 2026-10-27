@@ -276,11 +276,12 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
     crashed - would be a sixth thing every reader has to learn in order to
     discover that it means what `escalated` already means.
 
-    On the connection the run was failed on, so the queue's record and the
-    incident's account commit together or neither does. And the transition and
-    the sentence explaining it are one write for the reason `transition` gives:
-    the column says where the incident is, and the event is the only thing that
-    says what put it there.
+    After the run's failure is committed, and not with it: the failure is the
+    record that must survive, and a transition that could not be written must
+    not take it down. So a failed run whose incident could not be moved is
+    possible, and logged. The transition and the sentence explaining it are one
+    write, for the reason `transition` gives: the column says where the
+    incident is, and the event is the only thing that says what put it there.
 
     The exception's type and message are the whole of the detail. A stack trace
     is what the log is for; what a person reading the incident needs is which
