@@ -66,10 +66,12 @@
         {% endif %}
         {# Reached and held back is not never reached: the gate writes on the
            row why it declined the test, and without it a refusal reads as a
-           candidate nobody got to - in the words the one after it carries. #}
+           candidate nobody got to - in the words the one after it carries.
+           Nor is an attempt the walk stopped before its verdict: untested and
+           with no result, it was still reached, and its attempt is beneath. #}
         {% if not candidate.tested and candidate.result %}
           <span class="untried">test held back: {{ candidate.result }}</span>
-        {% elif not candidate.tested %}
+        {% elif not candidate.tested and not candidate.attempts %}
           <span class="untried">never reached</span>
         {% endif %}
       </p>

@@ -274,6 +274,31 @@ def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_bac
 
 
 @pytest.mark.component
+def test_an_incident_page_does_not_say_a_candidate_with_an_attempt_was_never_reached() -> None:
+    # A walk stopped while its action was out - a person reported the incident
+    # over - leaves the candidate untested and without a result, its attempt
+    # shown beneath it. Said "never reached", the line denied the attempt
+    # printed right under it.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        stopped = _a_candidate_recorded_for(conn, incident_id, subject="stopped", rank=1)
+        _an_attempt_taken_for(conn, incident_id, stopped, outcome=Verdict.STOPPED)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            _the_page_does_not_say("never reached")
+        )
+
+
+@pytest.mark.component
 def test_an_incident_page_shows_a_candidates_evidence_with_the_candidate() -> None:
     # Evidence in a dump of its own makes a reader match claims to timestamps,
     # which is the reader investigating the incident again. In words: the page
