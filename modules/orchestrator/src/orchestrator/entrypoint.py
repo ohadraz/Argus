@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import psycopg
-from argus_core import Connections, get_settings
+from argus_core import Connections, Holding, get_settings
 from argus_core.events import StatusChanged
 from argus_core.mcp_transport import McpClient
 from argus_core.models import Alert, IncidentStatus
@@ -82,7 +82,8 @@ def graph_for(connections: Connections,
               checkpoints: ConnectionPool,
               read: McpClient,
               write: McpClient,
-              store: QdrantClient | None) -> GraphOf:
+              store: QdrantClient | None,
+              holding: Holding) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 
     Built lazily and held, because compiling it wires every node, and a walk
@@ -93,7 +94,8 @@ def graph_for(connections: Connections,
 
     The three clients are passed through rather than built here, for the same
     reason `connections` and `checkpoints` are: what this function owns is when
-    the graph is compiled, not what the process it belongs to has opened.
+    the graph is compiled, not what the process it belongs to has opened. So is
+    `holding`, the run the process is walking, which the pools are fenced with.
 
     The checkpointer writes on `checkpoints`, a pool whose connections are as
     `CHECKPOINTER_CONNECTIONS` says, and never sets up its tables: the schema
@@ -109,7 +111,8 @@ def graph_for(connections: Connections,
             # - which is a setting the pool's type cannot see.
             reading_dicts = cast(ConnectionPool[psycopg.Connection[DictRow]], checkpoints)
             graph = build_graph(
-                PostgresSaver(reading_dicts), against(connections, read, write, store)
+                PostgresSaver(reading_dicts),
+                against(connections, read, write, store, holding)
             )
 
         return graph

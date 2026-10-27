@@ -31,7 +31,9 @@ from argus_incidents.dating import when_it_was_taken
 from argus_incidents.ending import (
     EndedByAPerson,
     IsStillWanted,
+    StillHeld,
     ended_by_a_person_via,
+    still_held_via,
     wanted_until_a_person_ends_it,
 )
 from argus_incidents.following import Backlog, Place, events_since, place_for
@@ -57,6 +59,7 @@ __all__ = [
     "Place",
     "WaitForPeople",
     "PublisherFor",
+    "StillHeld",
     "acknowledge_alert",
     "calls_into",
     "ended_by_a_person_via",
@@ -69,6 +72,7 @@ __all__ = [
     "publish_beside",
     "resolve_incident",
     "start_incident",
+    "still_held_via",
     "waiting_for_people_via",
     "wanted_until_a_person_ends_it",
     "when_it_was_taken",

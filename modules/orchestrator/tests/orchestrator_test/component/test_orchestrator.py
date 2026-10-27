@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 from agent_investigator import Findings
 from agent_mitigation import Action, ChangeMade, Outcome, Verdict
-from argus_core import get_settings
+from argus_core import RunLost, get_settings
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.models import (
@@ -54,7 +54,7 @@ from argus_core.models import (
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from argus_incidents import EndedByAPerson, WaitForPeople
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from langgraph.checkpoint.memory import MemorySaver
 from orchestrator.walk import ports
 from orchestrator.walk.assembling import Collaborators
@@ -129,6 +129,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         publisher=nobody,
         recorder=records_nothing,
         ended_by_a_person=nobody_ended_the_incident(),
+        still_held=lambda: True,
         wait_for_people=lambda dont_care_incident_id, /: False,
         leads_of=lambda dont_care_incident_id, /: [],
         record_weighing=lambda dont_care_lead, /: None
@@ -309,6 +310,30 @@ def test_the_investigation_is_handed_the_walks_own_question(
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_traced_walk)) \
         .then(_the_question_reached_the_walk(reached))
+
+
+@pytest.mark.component
+def test_an_investigation_whose_run_was_taken_back_stops_at_its_next_turn(
+    collaborators: Collaborators
+) -> None:
+    # Between two turns of a model, a walk paused past its lease wakes and asks
+    # whether to go on. The answer is not the incident's: the run is another
+    # claim's now, and the walk is stopped there rather than after every turn
+    # left in its budget has been paid for.
+    Scenario() \
+        .given(
+            a_walk_whose_run_was_taken_back := replace(
+                collaborators,
+                investigate=_an_investigation_asking_between_its_turns(),
+                still_held=lambda: False
+            )
+        ) \
+        .when(attempting(
+            lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_whose_run_was_taken_back)
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
 
 
 @pytest.mark.component
@@ -690,6 +715,26 @@ def _a_candidate_naming_no_cause() -> Hypothesis:
 
 def _an_enabling_of(flag: str) -> FlagChange:
     return FlagChange(flag=flag, enabled=True, occurred_at="2026-08-20T11:05:00Z")
+
+
+def _an_investigation_asking_between_its_turns() -> ports.Investigate:
+    """An investigation that asks the walk's question before its first turn,
+    as the real one does, and finds nothing if it is let go on."""
+    def investigate(alert: Alert,
+                    incident_id: str,
+                    *,
+                    already_read: Sequence[Reading] | None = None,
+                    already_refuted: Sequence[Attempt] | None = None,
+                    publisher: Publisher = nobody,
+                    recorder: Recorder = records_nothing,
+                    still_wanted: StillWanted = wanted_throughout,
+                    leads: Leads = no_leads,
+                    established_onset: EstablishedOnset | None = None) -> Findings:
+        still_wanted()
+
+        return Findings(candidates=[], already_read=[])
+
+    return investigate
 
 
 def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:

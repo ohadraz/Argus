@@ -118,7 +118,9 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     )
     # The yes-or-no the nodes hand their agents. Either ending is a reason not
     # to take the next step; where the walk goes after stopping is the routers'.
-    still_wanted = wanted_until_a_person_ends_it(collaborators.ended_by_a_person)
+    # A run taken back is no answer at all, and stops the walk where it is asked.
+    still_wanted = wanted_until_a_person_ends_it(collaborators.ended_by_a_person,
+                                                 collaborators.still_held)
 
     step(
         INVESTIGATOR_NODE, Actor.INVESTIGATOR,

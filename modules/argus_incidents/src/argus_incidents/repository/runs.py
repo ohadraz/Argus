@@ -20,7 +20,7 @@ from enum import StrEnum
 from typing import Final
 
 import psycopg
-from argus_core import UuidStr
+from argus_core import Fence, UuidStr
 from psycopg.rows import class_row
 from pydantic import BaseModel
 
@@ -170,6 +170,24 @@ def fail(conn: psycopg.Connection, held: Run, reason: str) -> bool:
     not something the incident can be read alongside.
     """
     return _settle(conn, held, RunState.FAILED, failure_reason=reason)
+
+
+def is_held(conn: psycopg.Connection, held: Fence) -> bool:
+    """Whether the run is still at the claim `held` names, and still being
+    walked.
+
+    A read and nothing more: no lock is taken, because what asks is a walk
+    deciding whether its next turn is worth paying for, and a run taken back a
+    moment after the answer is caught by the next write, which the database
+    refuses.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM incident_run WHERE id = %s AND epoch = %s AND state = %s",
+            (held.run_id, held.epoch, RunState.RUNNING)
+        )
+
+        return cursor.fetchone() is not None
 
 
 def get(conn: psycopg.Connection, run_id: str) -> Run | None:

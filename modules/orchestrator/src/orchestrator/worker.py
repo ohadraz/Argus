@@ -515,7 +515,7 @@ def main() -> None:
         with pool.connection() as conn:
             require_schema(conn)
 
-        graph_of = graph_for(connections, checkpoints, read, write, store)
+        graph_of = graph_for(connections, checkpoints, read, write, store, holding)
 
         work_forever(
             connections,

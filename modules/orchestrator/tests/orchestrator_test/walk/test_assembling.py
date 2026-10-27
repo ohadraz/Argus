@@ -28,7 +28,7 @@ from typing import Any
 import psycopg
 import pytest
 from agent_postmortem import postmortem_policy
-from argus_core import Connections, get_settings
+from argus_core import Connections, Holding, get_settings
 from argus_core.mcp_transport import McpClient
 from argus_core.models import ModelPolicy
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
@@ -76,7 +76,8 @@ def test_assembling_the_collaborators_opens_no_connection() -> None:
         .when(lambda: against(no_connections,
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
-                              None)) \
+                              None,
+                              Holding())) \
         .then(_every_collaborator_was_supplied())
 
 
@@ -109,7 +110,8 @@ def test_taking_an_action_is_bound_with_every_tool_it_needs() -> None:
         .when(lambda: against(no_connections,
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
-                              None)) \
+                              None,
+                              Holding())) \
         .then(all_of(
             _taking_an_action_needs_only(WHAT_THE_MITIGATION_NODE_SUPPLIES),
             _putting_a_change_back_needs_only(WHAT_AN_UNDO_IS_GIVEN),
@@ -128,7 +130,8 @@ def test_the_deploy_history_is_bound_with_everything_but_the_question() -> None:
         .when(lambda: against(no_connections,
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
-                              None)) \
+                              None,
+                              Holding())) \
         .then(
             _reading_the_deploy_history_needs_only(WHAT_THE_INVESTIGATION_NODE_ASKS)
         )
@@ -145,7 +148,8 @@ def test_the_investigation_is_bound_with_every_channel_it_reads() -> None:
         .when(lambda: against(no_connections,
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
-                              None)) \
+                              None,
+                              Holding())) \
         .then(
             _investigating_needs_only(WHAT_AN_INVESTIGATION_IS_GIVEN)
         )
@@ -165,7 +169,8 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
         .when(lambda: against(no_connections,
                               _a_client_that_must_not_be_reached(),
                               _a_client_that_must_not_be_reached(),
-                              None)) \
+                              None,
+                              Holding())) \
         .then(
             _the_postmortem_is_asked_under(
                 postmortem_policy(settings.postmortem_model, settings.postmortem_effort))

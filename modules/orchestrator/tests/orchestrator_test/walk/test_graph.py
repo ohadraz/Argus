@@ -20,6 +20,7 @@ from contextlib import contextmanager
 
 import psycopg
 import pytest
+from argus_core import Holding
 from argus_core.mcp_transport import McpClient
 from argus_testkit import Assertion, Scenario
 from langgraph.checkpoint.memory import MemorySaver
@@ -191,7 +192,8 @@ def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
     return build_graph(MemorySaver(), against(no_connections,
                                               McpClient(NOTHING_IS_SERVED_HERE),
                                               McpClient(NOTHING_IS_SERVED_HERE),
-                                              None))
+                                              None,
+                                              Holding()))
 
 
 

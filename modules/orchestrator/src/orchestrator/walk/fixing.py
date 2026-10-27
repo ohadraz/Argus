@@ -6,7 +6,7 @@ import logging
 from functools import partial
 
 from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
-from argus_core import parse_iso
+from argus_core import parse_iso, was_lost
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
 from argus_core.models import (
     ChangeKind,
@@ -130,6 +130,12 @@ def codefix_node(state: IncidentState,
         # Swallowed from the walk, not from the reader: what stopped it is the
         # whole value of this branch, and the one outcome somebody can act on
         # before asking again.
+        #
+        # Except a lost run, which is neither: the incident is another claim's
+        # walk, and anything said of the fix here would be said for it.
+        if was_lost(error):
+            raise
+
         logger.warning("fix could not be proposed", exc_info=True)
 
         return _said(

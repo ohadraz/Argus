@@ -48,7 +48,7 @@ from agent_mitigation import (
     take_action,
 )
 from agent_postmortem import postmortem_policy
-from argus_core import Connections, SettingsSlice, get_settings
+from argus_core import Connections, Holding, SettingsSlice, get_settings
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.embedding import an_embedder
 from argus_core.events import Publisher
@@ -57,11 +57,13 @@ from argus_core.mcp_transport import McpClient
 from argus_core.replay import Recorder
 from argus_incidents import (
     EndedByAPerson,
+    StillHeld,
     WaitForPeople,
     calls_into,
     ended_by_a_person_via,
     events_into,
     events_into_connection,
+    still_held_via,
     waiting_for_people_via,
 )
 from incident_memory.records import RememberedIncident
@@ -143,6 +145,10 @@ class Collaborators:
     # every node and by the agents between their steps, and the one thing a
     # walk's own state cannot tell it.
     ended_by_a_person: EndedByAPerson
+    # Whether the run being walked is still this process's. Asked with the
+    # ending by the agents between their steps, so a walk paused past its lease
+    # stops at its next turn rather than paying for every turn left.
+    still_held: StillHeld
     # Holds the walk off its next step while a person Argus asked to confirm
     # the incident is over has yet to answer (D11). Asked before every node.
     wait_for_people: WaitForPeople
@@ -220,7 +226,8 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[QdrantClient | 
 def against(connections: Connections,
             read: McpClient,
             write: McpClient,
-            store: QdrantClient | None) -> Collaborators:
+            store: QdrantClient | None,
+            holding: Holding) -> Collaborators:
     """The real ones, for a process that has a database, a model and two tiers.
 
     Built once where the process starts. Everything derived from `connections`
@@ -238,6 +245,9 @@ def against(connections: Connections,
     reached out silently. Passing `None`, or a double, is the only way that
     does not happen, and it is available only because nothing here constructs
     a client.
+
+    `holding` is the run the process is walking, which is all a walk asking
+    whether its run is still its own needs to be answered.
 
     Which tier answers which question is decided here and nowhere else. The read
     client serves every retrieval channel and the verification metrics; the write
@@ -386,6 +396,7 @@ def against(connections: Connections,
         publisher=events_into(connections),
         recorder=recorder,
         ended_by_a_person=ended_by_a_person_via(connections),
+        still_held=still_held_via(connections, holding),
         wait_for_people=waiting_for_people_via(connections, events_into(connections)),
         leads_of=records.leads,
         record_weighing=records.weighing,

@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixStopped
+from argus_core import RunLost
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import (
@@ -38,7 +39,15 @@ from argus_core.models import (
     no_leads,
 )
 from argus_incidents import IsStillWanted
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.ports import LeadsOf, ProposeFix
@@ -135,6 +144,26 @@ def test_a_proposal_that_could_not_be_made_does_not_fail_the_walk() -> None:
             the_updates_carry("fix_found", False),
             _the_work_was_narrated()
         ))
+
+
+@pytest.mark.unit
+def test_a_proposal_stopped_because_the_run_was_lost_is_not_said_as_a_failed_fix() -> None:
+    # Not a bad afternoon either: the run is another claim's, and whatever this
+    # walk said of the fix would be said for an incident somebody else is
+    # walking. The worker is the one that answers it, by writing nothing more.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.FIXING),
+            an_agent_told_the_run_was_lost := _an_agent_that_fails(
+                RunLost("a newer claim holds this run")
+            )
+        ) \
+        .when(attempting(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_told_the_run_was_lost)
+        )) \
+        .then(
+            an_error_was_raised(RunLost)
+        )
 
 
 @pytest.mark.unit

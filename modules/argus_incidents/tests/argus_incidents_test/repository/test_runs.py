@@ -362,6 +362,50 @@ def test_a_run_taken_back_once_its_claims_write_ended_refuses_that_claims_next_o
         the_holders_conn.rollback()
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("since", ["nothing", "taken-back", "settled"])
+def test_a_run_is_held_by_a_claim_only_while_the_run_is_still_at_it(since: str) -> None:
+    # Asked between a walk's turns, so a walk paused past its lease learns it
+    # lost the run before it pays for another turn of a model.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-that-was-paused", A_LEASE_ALREADY_OVER),
+                calling(lambda: _and_since(conn, held, since))
+            ) \
+            .when(
+                lambda: runs.is_held(conn, Fence(run_id=held.id, epoch=held.epoch))
+            ) \
+            .then(
+                _it_says_held(since == "nothing")
+            )
+
+
+def _and_since(conn: psycopg.Connection, held: runs.Run, since: str) -> None:
+    """What happened to the run after `held` claimed it."""
+    if since == "taken-back":
+        _a_claim_by(conn, "worker-that-came-after", A_GENEROUS_LEASE)
+    elif since == "settled":
+        runs.finish(conn, held)
+        conn.commit()
+
+
+def _it_says_held(expected: bool) -> Assertion[Any]:
+    def assertion(held: Any) -> bool:
+        if held is not expected:
+            raise AssertionError(
+                f"Expected the run {"still" if expected else "no longer"} held by the "
+                f"claim, got [{held!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_write_left_open_for(conn: psycopg.Connection, held: runs.Run) -> None:
     """A write the holder makes for its claim, its transaction not yet ended."""
     fence(conn, Fence(run_id=held.id, epoch=held.epoch))
