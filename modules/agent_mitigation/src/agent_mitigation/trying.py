@@ -223,10 +223,11 @@ def take_action(action: Action,
         logger.info("action not taken, incident no longer wanted")
 
         return Outcome(
-            verdict=Verdict.WITHDRAWN,
+            verdict=Verdict.STOPPED,
             detail="a person ended the incident before the action was taken",
             undo_descriptor=None,
-            measured=False
+            measured=False,
+            performed=False
         )
 
     try:
@@ -258,6 +259,7 @@ def take_action(action: Action,
             # candidate's row can read it: nothing was tested, so nothing about
             # this explanation may be recorded as having been.
             measured=False,
+            performed=False
         )
     except PlatformUnreachable as unreachable:
         # Caught before the broad handler for the reason above it is: this is an
@@ -297,6 +299,7 @@ def take_action(action: Action,
             # explains why - and it must be a candidate still worth trying when
             # the platform comes back, not one the record says was ruled out.
             measured=False,
+            performed=False
         )
     except Exception as error:
         logger.warning("action could not be performed", exc_info=True,
@@ -310,6 +313,7 @@ def take_action(action: Action,
             # something nobody foresaw, which is the best reason for it to say
             # what it knows rather than let the verdict be read for it.
             measured=False,
+            performed=False
         )
 
     settled = _what_watching_the_service_settled(
@@ -364,9 +368,9 @@ def take_action(action: Action,
     # be a second opinion about a decision the withdrawal makes once, for every
     # action the incident took and only where nobody else has been in there
     # since Argus wrote.
-    if settled.verdict is Verdict.WITHDRAWN:
+    if settled.verdict is Verdict.STOPPED:
         return Outcome(
-            verdict=Verdict.WITHDRAWN,
+            verdict=Verdict.STOPPED,
             detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
             # Nothing was measured here either, and saying so rather than
@@ -624,9 +628,10 @@ class _Settled(NamedTuple):
     because: str
 
 
-# What a wait somebody withdrew from settles as, wherever in a pass it is asked.
-_WITHDRAWN_FROM_THE_WAIT = _Settled(
-    Verdict.WITHDRAWN,
+# What a wait a person ended - resolved or withdrawn - settles as, wherever in a
+# pass it is asked.
+_ENDED_DURING_THE_WAIT = _Settled(
+    Verdict.STOPPED,
     "a person ended the incident before the verification wait reached a verdict"
 )
 
@@ -695,9 +700,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     rather than on how the last pass went, because a wait that read the shop
     nine times and failed on the tenth did measure it.
 
-    `WITHDRAWN` where somebody stopped the walk while this was waiting. The loop
-    already wakes every ten seconds to re-read the metrics, so asking here costs
-    nothing and ends the wait within one interval of the withdrawal rather than
+    `STOPPED` where a person ended the incident while this was waiting. The
+    loop already wakes every ten seconds to re-read the metrics, so asking here
+    costs nothing and ends the wait within one interval of the ending rather than
     at the end of a window nobody is waiting for.
 
     Each look is published. This is the one stretch of an incident where Argus
@@ -762,7 +767,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # stopped has been answered, and a look taken after that - announced on
         # the first pass, and posted to Slack - tells them Argus is still at it.
         if not still_wanted():
-            return _WITHDRAWN_FROM_THE_WAIT
+            return _ENDED_DURING_THE_WAIT
 
         # A read that cannot be taken costs this pass and nothing more. The loop
         # is already a poll against a deadline, so a reading that did not arrive
@@ -785,7 +790,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # wait, what the look found - would be said after the person was
         # answered.
         if not still_wanted():
-            return _WITHDRAWN_FROM_THE_WAIT
+            return _ENDED_DURING_THE_WAIT
 
         if unanswered is not None and incident_id is not None:
             say(RetrievalUnanswered(
@@ -881,7 +886,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 # Asked after the rule's read for the reason it is asked after
                 # the window's.
                 if not still_wanted():
-                    return _WITHDRAWN_FROM_THE_WAIT
+                    return _ENDED_DURING_THE_WAIT
 
                 if incident_id is not None:
                     say(RetrievalUnanswered(
@@ -917,7 +922,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 continue
 
             if not still_wanted():
-                return _WITHDRAWN_FROM_THE_WAIT
+                return _ENDED_DURING_THE_WAIT
 
             if not the_rule_was_read:
                 # Read off the rule once, as the metrics' deadline is read off
@@ -957,7 +962,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 ))
 
             if not still_wanted():
-                return _WITHDRAWN_FROM_THE_WAIT
+                return _ENDED_DURING_THE_WAIT
 
             if resolved:
                 return _Settled(
@@ -1083,7 +1088,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # claiming a confirmation on the pass the walk was stopped would credit
         # Argus with an ending it did not reach.
         if not still_wanted():
-            return _WITHDRAWN_FROM_THE_WAIT
+            return _ENDED_DURING_THE_WAIT
 
         # What the looks judge, in their words: whether the service left the
         # incident's level - never whether it was back at a baseline, which no

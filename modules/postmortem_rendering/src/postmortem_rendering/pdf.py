@@ -1240,7 +1240,7 @@ def _the_resolution_table(rendered: RenderedPostmortem) -> _Table:
                    for step in steps],
                   # The time column as wide as a time with its day, since a step
                   # off the head's day says its day as a timeline row does; who as
-                  # wide as "Code-Fix Agent", and the outcome as "withdrawn,
+                  # wide as "Code-Fix Agent", and the outcome as "not judged,
                   # still in place" - the action, which wraps anyway, gives way,
                   # though no further than "Reverted the feature flag".
                   widths=(10, 29, 40, 27, 31, 37),

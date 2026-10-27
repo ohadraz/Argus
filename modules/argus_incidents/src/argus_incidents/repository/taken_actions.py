@@ -107,8 +107,10 @@ def complete(
     hypothesis_id: str,
     outcome: Verdict,
     undo_descriptor: UndoDescriptor | None,
+    performed: bool = True,
 ) -> None:
-    """Records what came of an action already claimed (spec §11.1, §13).
+    """Records what came of an action already claimed (spec §11.1, §13), and
+    whether it was performed at all.
 
     A `Verdict` going in, for the reason `claim` takes an `ActionType`: every
     caller is holding the verdict its own attempt just reached, so nothing is
@@ -129,12 +131,13 @@ def complete(
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET outcome = %s, undo_descriptor = %s "
+            "UPDATE action SET outcome = %s, undo_descriptor = %s, performed = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (
                 outcome,
                 Jsonb(undo_descriptor.model_dump(mode="json"))
                 if undo_descriptor is not None else None,
+                performed,
                 incident_id,
                 hypothesis_id,
             ),
@@ -150,6 +153,7 @@ def record(
     outcome: Verdict,
     undo_descriptor: UndoDescriptor | None,
     at: datetime,
+    performed: bool = True,
 ) -> None:
     """One action, claimed and completed in a single step.
 
@@ -160,7 +164,7 @@ def record(
     across everything that writes one.
     """
     claim(conn, incident_id, hypothesis_id, action_type, subject, at)
-    complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor)
+    complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed)
 
 
 def get_action_for_hypothesis(conn: psycopg.Connection,
@@ -176,7 +180,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at "
+            "       undo_descriptor, outcome, taken_at, performed "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -196,7 +200,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at "
+            "       undo_descriptor, outcome, taken_at, performed "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",

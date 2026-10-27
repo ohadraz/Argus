@@ -270,7 +270,7 @@ def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str], *,
 
 def _why_nothing_was_confirmed(results: list[str]) -> str:
     """That no candidate was confirmed, and - where it can say - why: none was
-    tried, or every one tried was refuted. A candidate withdrawn, escalated or
+    tried, or every one tried was refuted. A candidate stopped, escalated or
     left with no verdict was tried all the same, and came to neither."""
     tried = [result for result in results if not was_never_tried(result)]
     if not tried:

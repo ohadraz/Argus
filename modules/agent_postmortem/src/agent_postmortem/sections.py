@@ -45,11 +45,17 @@ from agent_postmortem.measuring import Measurements
 from agent_postmortem.stamps import the_last_minute_logged_inside
 
 # Who took every action in the record. Only Argus's own actions are recorded as
-# taken; a person's resolution is read beside the document, not written into it.
+# taken; a person's resolution ends the incident, but is no action of record.
 TAKEN_BY = "Argus"
 
 NEVER_TRIED = "never tried"
 NO_VERDICT_RECORDED = "no verdict recorded"
+# What an action a person's ending stopped came to, and what became of a cause
+# whose action was performed and never measured - a person's ending during the
+# wait, or a wait whose every look went unanswered: nothing was judged, and the
+# cause was tried all the same.
+NOT_JUDGED = "not judged"
+TRIED_NOT_JUDGED = "tried, not judged"
 # What a refusal to act came to, in the resolution's outcome column.
 NOT_TAKEN = "not taken"
 
@@ -615,6 +621,15 @@ def _names(line: str, word: str) -> bool:
     return re.search(rf"(?<![\w.-]){re.escape(word)}(?![\w.-])", line) is not None
 
 
+def _what_it_came_to(verdict: str | None) -> str:
+    """An action's verdict as the resolution says it - a stopped one as not
+    judged, which is what it was."""
+    if verdict is None:
+        return NO_VERDICT_RECORDED
+
+    return NOT_JUDGED if verdict == Verdict.STOPPED else verdict
+
+
 def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
     """Every action taken, in order, with what it came to and whether it stands.
 
@@ -633,7 +648,7 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        action=action.action,
                        by=TAKEN_BY,
                        has_a_way_back=action.has_a_way_back,
-                       outcome=f"{action.verdict or NO_VERDICT_RECORDED}, {action.standing}",
+                       outcome=f"{_what_it_came_to(action.verdict)}, {action.standing}",
                        label=label_of(ACTION_PREFIX, position),
                        sync_left_off=action.paused_sync_of is not None)
         for position, action in enumerate(evidence.actions, start=1)
@@ -726,6 +741,12 @@ class OneCause:
         and "never tried" alone left a reader to guess whether the
         investigation ran out or Argus declined."""
         if not self.decided.tested:
+            # Acted on and never measured - a person ended the incident while
+            # the service was watched, or no look at it was answered. Tried,
+            # so never "never tried".
+            if self.decided.acted_on:
+                return TRIED_NOT_JUDGED
+
             why = self.decided.result
             return f"{NEVER_TRIED}: {why}" if why else NEVER_TRIED
 
@@ -803,11 +824,11 @@ def record_action_items_of(evidence: IncidentEvidence,
     document is written, so whoever takes one on does so somewhere else. An
     action that did not help is in the resolution and is not left to do.
 
-    The fix prevents a recurrence where the metrics show the service back
-    (`back_to_normal_at`), and is a mitigation where they do not: merging it is
-    then what ends the incident. Not read off a confirmed action, because an
-    incident can be over without one - a flap back before a refuted action -
-    and a person's word that it is over never reaches the document.
+    The fix prevents a recurrence where the service is known back
+    (`back_to_normal_at` - the metrics show it, or a person reported it over),
+    and is a mitigation where it is not: merging it is then what ends the
+    incident. Not read off a confirmed action, because an incident can be over
+    without one - a flap back before a refuted action, or a person's report.
 
     Automatic sync an action left off is open too, once for each application:
     until somebody turns it back on, nothing merged reaches the service. After

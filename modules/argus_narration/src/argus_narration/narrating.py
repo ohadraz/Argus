@@ -84,6 +84,7 @@ from argus_core.models import (
     ReportChannel,
     RetrievalChannel,
     RolloutAccount,
+    Verdict,
     why_it_was_refused,
 )
 from pydantic import BaseModel, Field
@@ -530,6 +531,11 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # room should be able to find it without reading the line.
             emphasis = event.outcome.upper()
             text = f"Judged the action {emphasis}"
+            # Nothing was judged: a person ended the incident while the service
+            # was watched, and a verdict in capitals would read as one reached.
+            if event.outcome is Verdict.STOPPED:
+                emphasis = "Stopped before judging the action"
+                text = f"{emphasis} - a person ended the incident"
         case FixAttempted():
             who = _CODEFIX
             emphasis, text = _what_came_of_looking_at_the_code(event)

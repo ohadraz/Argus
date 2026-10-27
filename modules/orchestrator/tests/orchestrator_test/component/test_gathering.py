@@ -948,6 +948,40 @@ def test_the_evidence_says_when_argus_first_posted_where_people_could_read_it(
 
 
 @pytest.mark.component
+def test_a_candidate_an_action_tested_is_known_as_acted_on(a_clean_database: None) -> None:
+    # A person's ending can stop the test before anything is measured, which
+    # leaves the candidate's row untested - and without the action, a write-up
+    # reads it as never tried. Only an action performed tried it: a row is also
+    # written for an attempt that changed nothing, a platform that never
+    # answered among them.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, REVERT_FEATURE_FLAG,
+                                                 Verdict.STOPPED,
+                                                 FlagUndo(flag=SOME_FLAG, was_enabled=True))),
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.PLATFORM_UNREACHABLE, None,
+                                                 summary="a rollback that never ran",
+                                                 performed=False)),
+                calling(lambda: hypotheses.record(conn, Hypothesis(
+                    incident_id=incident_id, summary="an untried cause",
+                    failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.1,
+                    supporting_evidence=[])))
+            ) \
+            .when(
+                lambda: {candidate.summary: candidate.acted_on
+                         for candidate in gather_evidence(conn, incident_id).candidates}
+            ) \
+            .then(
+                the_answer_was({"dont care": True, "a rollback that never ran": False,
+                                "an untried cause": False})
+            )
+
+
+@pytest.mark.component
 def test_an_incident_argus_never_posted_about_was_told_nowhere(a_clean_database: None) -> None:
     with connect_from_env() as conn:
         Scenario() \
@@ -2257,10 +2291,13 @@ def _an_action_taken(conn: psycopg.Connection,
                      incident_id: str,
                      action_type: ActionType,
                      outcome: Verdict,
-                     undo_descriptor: UndoDescriptor | None) -> None:
-    """One finished action, on a candidate of its own."""
+                     undo_descriptor: UndoDescriptor | None,
+                     summary: str = "dont care",
+                     performed: bool = True) -> None:
+    """One finished action, on a candidate of its own - performed, unless a
+    case says the attempt ended before anything changed."""
     candidate = Hypothesis(incident_id=incident_id,
-                           summary="dont care",
+                           summary=summary,
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                            confidence=0.8,
                            supporting_evidence=[])
@@ -2271,7 +2308,8 @@ def _an_action_taken(conn: psycopg.Connection,
                          subject=SOME_FLAG,
                          outcome=outcome,
                          undo_descriptor=undo_descriptor,
-                         at=DONT_CARE_TAKEN_AT)
+                         at=DONT_CARE_TAKEN_AT,
+                         performed=performed)
 
 
 def _an_action_claimed_then_taken(conn: psycopg.Connection,

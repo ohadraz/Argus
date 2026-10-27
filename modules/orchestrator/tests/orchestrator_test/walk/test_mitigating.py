@@ -589,6 +589,40 @@ def test_the_action_row_records_the_undo_descriptor_the_write_returned(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("performed", [True, False], ids=["performed", "never-performed"])
+def test_the_action_row_records_whether_the_action_was_performed(
+    performed: bool,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # What says the candidate was tried where nothing was measured: a person's
+    # ending stops a test before the write and during the wait alike, and only
+    # the second tried the candidate.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.STOPPED, measured=False,
+                                                  performed=performed)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=a_determined_hypothesis(a_random_id())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      complete_action=complete_action,
+                                      record_action=record_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_action_row_records_whether_it_was_performed(performed, complete_action))
+
+
+@pytest.mark.unit
 def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     take: MagicMock,
     record_action: MagicMock,
@@ -603,7 +637,7 @@ def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     # experiment that never finished.
     Scenario() \
         .given(
-            calling(lambda: _the_action_came_back(take, Verdict.WITHDRAWN)),
+            calling(lambda: _the_action_came_back(take, Verdict.STOPPED)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
                 about=a_determined_hypothesis(a_random_id())
@@ -677,7 +711,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
     Scenario() \
         .given(
             calling(lambda: _the_action_came_back(take,
-                                                  Verdict.WITHDRAWN,
+                                                  Verdict.STOPPED,
                                                   some_undo_descriptor)),
             an_action_taking_incident := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor(),
@@ -692,7 +726,7 @@ def test_an_abandoned_action_still_records_what_would_put_it_back(
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
                                       still_wanted=still_wanted)) \
-        .then(all_of(_the_action_row_records_the_outcome((str(Verdict.WITHDRAWN)), complete_action),
+        .then(all_of(_the_action_row_records_the_outcome((str(Verdict.STOPPED)), complete_action),
                      _the_action_row_records_the_way_back(some_undo_descriptor,
                                                           complete_action)))
 
@@ -1815,12 +1849,14 @@ def _the_action_came_back(take: MagicMock,
                           verdict: Verdict,
                           undo_descriptor: UndoDescriptor | None = None,
                           measured: bool = True,
-                          because: str | None = None) -> None:
+                          because: str | None = None,
+                          performed: bool = True) -> None:
     take.return_value = Outcome(verdict=verdict,
                                 detail="dont care",
                                 undo_descriptor=undo_descriptor,
                                 measured=measured,
-                                because=because)
+                                because=because,
+                                performed=performed)
 
 
 def _this_walk_holds_the_claim(record_action: MagicMock) -> None:
@@ -1948,6 +1984,22 @@ def _the_incident_was_escalated() -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the incident to be escalated, the node returned "
                 f"[{updates.status}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_row_records_whether_it_was_performed(expected: bool,
+                                                     complete_action: MagicMock
+                                                     ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        recorded = complete_action.call_args.kwargs["performed"]
+        if recorded is not expected:
+            raise AssertionError(
+                f"Expected the action row to record performed as {expected}, it "
+                f"recorded {recorded}."
             )
 
         return True

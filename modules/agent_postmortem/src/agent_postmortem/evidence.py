@@ -48,6 +48,10 @@ class CandidateRecord(BaseModel):
     to_state: str | None
     tested: bool
     result: str | None
+    # That Argus took an action to test it - whatever came of that. A test a
+    # person's ending stopped leaves `tested` false, since nothing was
+    # measured, and without this the candidate reads as never tried.
+    acted_on: bool = False
 
 
 class ActionRecord(BaseModel):

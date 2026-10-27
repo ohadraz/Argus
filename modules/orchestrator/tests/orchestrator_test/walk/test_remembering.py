@@ -86,7 +86,7 @@ def test_an_incident_with_nothing_judged_files_nothing() -> None:
             lambda: remembering_node(
                 an_incident_that_measured_nothing,
                 actions_taken=_actions(
-                    _an_action("new-checkout-flow", Verdict.WITHDRAWN)
+                    _an_action("new-checkout-flow", Verdict.STOPPED)
                 ),
                 remember=_a_store_keeping(filed))
         ) \

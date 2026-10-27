@@ -19,9 +19,11 @@ class Verdict(StrEnum):
     was reached at all, because nothing could be done or because the
     environment was left in a state Argus cannot account for.
 
-    `WITHDRAWN` is the other way no verdict is reached: the action was taken and
-    then abandoned, because somebody took the incident back while the service
-    was still being watched. It is not `REFUTED` - nothing was measured, and
+    `STOPPED` is the other way no verdict is reached: the action was taken and
+    then left unjudged, because a person ended the incident - resolved it or took
+    it back - while the service was still being watched. Not named for either
+    ending, because it is both: the record says the judging stopped, and the
+    incident's own status says why. It is not `REFUTED` - nothing was measured, and
     recording evidence against a hypothesis nobody finished testing is the one
     thing a stopped experiment must not leave behind. The change it made is
     still out there, which is why the outcome carries its undo descriptor.
@@ -58,7 +60,7 @@ class Verdict(StrEnum):
     CONFIRMED = "confirmed"
     REFUTED = "refuted"
     ESCALATED = "escalated"
-    WITHDRAWN = "withdrawn"
+    STOPPED = "stopped"
     NOT_ATTEMPTED = "not-attempted"
     PLATFORM_UNREACHABLE = "platform-unreachable"
 
@@ -928,6 +930,12 @@ class Outcome(BaseModel):
     detail: str
     undo_descriptor: UndoDescriptor | None = None
     measured: bool = True
+    # Whether the action was performed at all - false where the attempt ended
+    # before the action itself was done, though it may have changed something
+    # on the way. What says a candidate was tried where nothing was measured:
+    # a person's ending stops a test before the write and during the wait
+    # alike, and only the second tried the candidate.
+    performed: bool = True
     # What the verification wait judged, apart from the sentence that says it:
     # the rule still firing, the service still at the incident's level, a
     # window that never showed the incident. `detail` is for a reader; this is

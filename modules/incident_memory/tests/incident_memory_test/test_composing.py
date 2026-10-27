@@ -88,7 +88,7 @@ def test_an_incident_where_no_attempt_reached_a_verdict_is_not_remembered() -> N
             an_alert(),
             [
                 an_action(dont_care_flag, Verdict.ESCALATED),
-                an_action(dont_care_flag, Verdict.WITHDRAWN),
+                an_action(dont_care_flag, Verdict.STOPPED),
                 an_action(dont_care_flag, verdict=None)
             ],
             described_as=DONT_CARE_DESCRIPTION

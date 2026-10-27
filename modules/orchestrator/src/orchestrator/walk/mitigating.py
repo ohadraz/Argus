@@ -186,6 +186,7 @@ def mitigation_node(
         hypothesis_id=state.hypothesis.id,
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,
+        performed=result.performed,
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
@@ -205,8 +206,8 @@ def mitigation_node(
     # above still carries the change and its undo, because the flag really was
     # set and something has to put it back.
     #
-    # Two clauses, and they answer different questions. A withdrawal is
-    # unmeasured by definition - the walk was stopped, whatever the outcome says
+    # Two clauses, and they answer different questions. A stop is unmeasured
+    # by definition - a person ended the incident, whatever the outcome says
     # about itself - so the verdict settles it here and an outcome that forgot
     # to say cannot talk the walk out of it. Everything else has to be asked,
     # because the verdict does not tell: `ESCALATED` is the word for a wait that
@@ -214,7 +215,7 @@ def mitigation_node(
     # back, and the second of those measured it.
     if (
         state.hypothesis is not None
-        and result.verdict is not Verdict.WITHDRAWN
+        and result.verdict is not Verdict.STOPPED
         and result.measured
     ):
         record_outcome(state.hypothesis.id, tested=True, result=outcome)

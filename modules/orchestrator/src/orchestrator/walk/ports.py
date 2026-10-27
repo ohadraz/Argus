@@ -244,7 +244,8 @@ class CompleteAction(Protocol):
         hypothesis_id: str,
         outcome: Verdict,
         undo_descriptor: UndoDescriptor | None,
-        narrating: IncidentEvent
+        narrating: IncidentEvent,
+        performed: bool = True
     ) -> None: ...
 
 

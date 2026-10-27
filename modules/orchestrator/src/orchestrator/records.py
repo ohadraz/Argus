@@ -134,7 +134,8 @@ class Records:
         hypothesis_id: str,
         outcome: Verdict,
         undo_descriptor: UndoDescriptor | None,
-        narrating: IncidentEvent
+        narrating: IncidentEvent,
+        performed: bool = True
     ) -> None:
         """Records what came of the action, and says so, in one write.
 
@@ -150,7 +151,8 @@ class Records:
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 outcome=outcome,
-                undo_descriptor=undo_descriptor
+                undo_descriptor=undo_descriptor,
+                performed=performed
             )
             publish_beside(conn, narrating, self._publisher_for(conn))
 

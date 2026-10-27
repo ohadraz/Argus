@@ -19,6 +19,8 @@ class TakenAction(BaseModel):
     undo_descriptor: UndoDescriptor | None
     outcome: Verdict | UnreadVerdict | None
     taken_at: datetime
+    # Whether the action was performed - `None` until its outcome is written.
+    performed: bool | None = None
 
     @field_validator("outcome", mode="before")
     @classmethod

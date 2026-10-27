@@ -207,7 +207,10 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         alert_title=_what_was_alerted(incident.alert_payload),
         alert_finding=_what_the_alert_found(incident.alert_payload),
         timeline=_what_happened(told, [hypothesis.id for hypothesis in considered]),
-        candidates=_what_was_considered(considered),
+        candidates=_what_was_considered(
+            considered,
+            {taken.hypothesis_id for taken in taken_actions.get_by_incident(conn, incident_id)
+             if taken.performed}),
         actions=_what_was_done(conn, incident_id, account, told),
         log_lines=_what_was_read(conn, incident_id),
         logs_read_until=_how_far_the_logs_were_read(account),
@@ -621,12 +624,16 @@ def _a_message_as_meant(line: NarrationLine,
     return line if meaning is None else said_as_meant(line, meaning, name)
 
 
-def _what_was_considered(considered: list[Hypothesis]) -> list[CandidateRecord]:
-    """Every candidate ranked, tried or not.
+def _what_was_considered(considered: list[Hypothesis],
+                         acted_on: set[str | None]) -> list[CandidateRecord]:
+    """Every candidate ranked, tried or not - and whether Argus acted on each,
+    `acted_on` being the candidates its performed actions name: a row is also
+    written for an attempt that ended before the action itself was done.
 
     The untried ones are half of what a walk has to say: an investigation that
     was confident and right and one that ran out of options are told apart by
-    what was left on the list.
+    what was left on the list. An action is what tells a test a person's ending
+    stopped from one never started: neither measured anything.
     """
     return [
         CandidateRecord(summary=hypothesis.summary,
@@ -636,7 +643,8 @@ def _what_was_considered(considered: list[Hypothesis]) -> list[CandidateRecord]:
                         from_state=hypothesis.from_state,
                         to_state=hypothesis.to_state,
                         tested=hypothesis.tested,
-                        result=hypothesis.result)
+                        result=hypothesis.result,
+                        acted_on=hypothesis.id in acted_on)
         for hypothesis in considered
     ]
 

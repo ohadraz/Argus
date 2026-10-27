@@ -634,6 +634,24 @@ def test_candidates_formed_in_two_rounds_are_two_lines() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_is_said_as_never_judged() -> None:
+    # A person resolved or took the incident back while the service was watched,
+    # so nothing was judged. "Judged the action WITHDRAWN" read as a verdict
+    # reached, and as a withdrawal of an incident a person had resolved.
+    a_stopped_judgement = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.STOPPED
+    )
+
+    Scenario() \
+        .given(a_stopped_judgement) \
+        .when(lambda: build_narration([a_stopped_judgement])) \
+        .then(all_of(
+            _the_only_line_reads("Stopped before judging the action - a person ended the incident"),
+            _the_only_line_marks("Stopped before judging the action")
+        ))
+
+
+@pytest.mark.unit
 def test_a_candidate_shows_what_it_was_formed_from() -> None:
     # The findings are what make a claim checkable. Without them the page asks
     # an audience to take Argus's word for the whole investigation.

@@ -1283,6 +1283,24 @@ def test_an_action_no_verdict_was_reached_on_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_a_person_s_ending_stopped_was_not_judged() -> None:
+    # Nothing was measured, so nothing was judged - and "withdrawn" said a
+    # person took back an incident they may have resolved.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("dont care", verdict=Verdict.STOPPED, standing="still in place")
+            ])
+        ) \
+        .when(
+            lambda: [step.outcome for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["not judged, still in place"])
+        )
+
+
+@pytest.mark.unit
 def test_an_action_that_left_automatic_sync_off_is_marked_as_having_done_so() -> None:
     # Argus stops the platform syncing an application from its repository to
     # act on it, and leaves it stopped while the change stands - so nothing
@@ -1370,6 +1388,24 @@ def test_a_candidate_never_tried_says_why_where_its_row_recorded_it() -> None:
         ) \
         .then(
             the_answer_was([f"never tried: {some_reason}"])
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_acted_on_and_never_judged_was_tried_not_judged() -> None:
+    # A person ended the incident while the service was watched, so the row was
+    # left untested - nothing was measured. The action was its test all the
+    # same, and "never tried" said no test was begun.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("dont care").model_copy(update={"acted_on": True})])
+        ) \
+        .when(
+            lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["tried, not judged"])
         )
 
 

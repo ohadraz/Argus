@@ -24,6 +24,7 @@ from agent_postmortem.reviewing import (
     REVIEWED_AND_SHARED,
     review_of,
 )
+from agent_postmortem.sections import TRIED_NOT_JUDGED
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -456,13 +457,14 @@ def test_an_analysis_whose_candidates_were_refuted_is_not_complete() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("results", [[Verdict.WITHDRAWN], [Verdict.REFUTED, Verdict.WITHDRAWN]],
-                         ids=["withdrawn", "refuted-and-withdrawn"])
+@pytest.mark.parametrize("results", [[Verdict.STOPPED], [Verdict.REFUTED, Verdict.STOPPED],
+                                     [TRIED_NOT_JUDGED]],
+                         ids=["stopped", "refuted-and-stopped", "tried-not-judged"])
 def test_an_analysis_whose_tries_came_to_no_verdict_says_only_that_none_was_confirmed(
         results: list[str]) -> None:
-    # A candidate withdrawn was tried all the same, so "none was tried" is
-    # false of it - and "those tried were refuted" is false of a set where one
-    # came to no verdict.
+    # A candidate whose test a person's ending stopped was tried all the same,
+    # so "none was tried" is false of it - and "those tried were refuted" is
+    # false of a set where one came to no verdict.
     Scenario() \
         .given(
             a_document_trying_to_no_end := _a_document(hypotheses=[

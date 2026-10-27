@@ -18,7 +18,7 @@ from argus_core.models import (
     Verdict,
 )
 from argus_incidents.repository import hypotheses, taken_actions
-from argus_testkit import Assertion, Scenario, all_of
+from argus_testkit import Assertion, Scenario, all_of, calling
 
 from argus_incidents_test.framework import no_column_is_empty
 from argus_incidents_test.framework.builders import an_incident_created_for
@@ -138,6 +138,82 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
             ) \
             .then(
                 the_action_row_carries(incident_id, None)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("performed", [True, False], ids=["performed", "never-performed"])
+def test_an_action_says_whether_it_was_performed(performed: bool) -> None:
+    # What says the candidate was tried where nothing was measured: a person's
+    # ending stops a test before the write and during the wait alike, and no
+    # verdict tells the two apart.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="dont-care-flag",
+                    outcome=Verdict.STOPPED,
+                    undo_descriptor=None,
+                    at=DONT_CARE_INSTANT,
+                    performed=performed
+                )
+            ) \
+            .then(
+                _the_action_read_back_was_performed(conn, incident_id, performed)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("performed", [True, False], ids=["performed", "never-performed"])
+def test_the_action_claimed_for_a_candidate_says_whether_it_was_performed(
+        performed: bool) -> None:
+    # The other read of the row - the one a resumed walk makes - maps the column
+    # back too.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                some_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .given(
+                calling(lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=some_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="dont-care-flag",
+                    outcome=Verdict.STOPPED,
+                    undo_descriptor=None,
+                    at=DONT_CARE_INSTANT,
+                    performed=performed
+                ))
+            ) \
+            .when(
+                lambda: taken_actions.get_action_for_hypothesis(conn, incident_id,
+                                                                some_hypothesis_id)
+            ) \
+            .then(
+                _it_was_performed(performed)
             )
 
 
@@ -551,6 +627,33 @@ def _the_action_read_back_changed(conn: psycopg.Connection,
             f"Expected the action read back to name {subject}, "
             f"got {read_back[0].subject}."
         )
+
+        return True
+
+    return assertion
+
+
+def _the_action_read_back_was_performed(conn: psycopg.Connection,
+                                        incident_id: str,
+                                        expected: bool) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        read_back = taken_actions.get_by_incident(conn, incident_id)
+
+        if [action.performed for action in read_back] != [expected]:
+            raise AssertionError(f"Expected one action read back as performed "
+                                 f"{expected}, got {[a.performed for a in read_back]}.")
+
+        return True
+
+    return assertion
+
+
+def _it_was_performed(expected: bool) -> Assertion[TakenAction | None]:
+    def assertion(action: TakenAction | None) -> bool:
+        found = action.performed if action is not None else None
+        if found is not expected:
+            raise AssertionError(f"Expected the action read back as performed {expected}, "
+                                 f"got {found}.")
 
         return True
 
