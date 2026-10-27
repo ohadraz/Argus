@@ -150,24 +150,26 @@ def renew(conn: psycopg.Connection, held: Run, lease: timedelta) -> bool:
     return still_held
 
 
-def finish(conn: psycopg.Connection, run_id: str) -> None:
-    """Marks a run walked to its end, whatever end the graph reached.
+def finish(conn: psycopg.Connection, held: Run) -> bool:
+    """Marks a run walked to its end, whatever end the graph reached, and
+    answers whether this claim still held it to mark.
 
     Nothing about whether the incident was resolved: a walk that escalated is
     as finished as one that resolved, and the incident's own status is where
     that difference is recorded.
     """
-    _settle(conn, run_id, RunState.DONE, failure_reason=None)
+    return _settle(conn, held, RunState.DONE, failure_reason=None)
 
 
-def fail(conn: psycopg.Connection, run_id: str, reason: str) -> None:
-    """Records that a run stopped badly, and why.
+def fail(conn: psycopg.Connection, held: Run, reason: str) -> bool:
+    """Records that a run stopped badly, and why, and answers whether this
+    claim still held it to record.
 
     The reason is stored rather than logged, because an incident whose run
     failed has to be tellable from one still being worked - and a log line is
     not something the incident can be read alongside.
     """
-    _settle(conn, run_id, RunState.FAILED, failure_reason=reason)
+    return _settle(conn, held, RunState.FAILED, failure_reason=reason)
 
 
 def get(conn: psycopg.Connection, run_id: str) -> Run | None:
@@ -216,19 +218,29 @@ def get_unsettled_runs(conn: psycopg.Connection) -> list[Run]:
 
 
 def _settle(conn: psycopg.Connection,
-            run_id: str,
+            held: Run,
             state: RunState,
-            failure_reason: str | None) -> None:
-    """How a run stops, either way.
+            failure_reason: str | None) -> bool:
+    """How a run stops, either way - only by the claim that holds it.
 
     The lease is released with it: a settled run is nobody's, and leaving a
     worker's name on it would make a finished run look like one being walked by
     somebody who never let go.
+
+    A claim since taken back settles nothing: the run is another worker's to
+    walk, and settling it here would end that walk where nothing would ever
+    take it up again. The lease does not decide that - the epoch does - so a
+    holder whose lease ran out with nobody taking the run settles it still.
+
+    Committing is the caller's. A failed run's claims, its escalation and its
+    failure are one moment, and the caller is the one holding all three.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE incident_run SET state = %s, failure_reason = %s, "
-            "claimed_by = NULL, leased_until = NULL WHERE id = %s",
-            (state, failure_reason, run_id)
+            "claimed_by = NULL, leased_until = NULL "
+            "WHERE id = %s AND epoch = %s AND state = %s RETURNING id",
+            (state, failure_reason, held.id, held.epoch, RunState.RUNNING)
         )
-    conn.commit()
+
+        return cursor.fetchone() is not None

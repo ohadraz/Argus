@@ -124,8 +124,8 @@ def test_only_runs_waiting_or_being_walked_are_unsettled() -> None:
                 a_failed_run := _a_claimed_run_for(conn, dont_care_alert),
                 a_run_being_walked := _a_claimed_run_for(conn, dont_care_alert),
                 a_waiting_incident_id := _an_enqueued_run_for(conn, dont_care_alert),
-                calling(lambda: runs.finish(conn, a_finished_run.id)),
-                calling(lambda: runs.fail(conn, a_failed_run.id, dont_care_reason))
+                calling(lambda: runs.finish(conn, a_finished_run)),
+                calling(lambda: runs.fail(conn, a_failed_run, dont_care_reason))
             ) \
             .when(
                 lambda: runs.get_unsettled_runs(conn)
@@ -215,7 +215,7 @@ def test_a_renewal_of_a_settled_run_extends_nothing_and_says_so() -> None:
         Scenario() \
             .given(
                 settled := _a_claimed_run_for(conn, dont_care_alert),
-                calling(lambda: runs.finish(conn, settled.id))
+                calling(lambda: runs.finish(conn, settled))
             ) \
             .when(
                 lambda: runs.renew(conn, settled, A_GENEROUS_LEASE)
@@ -224,6 +224,160 @@ def test_a_renewal_of_a_settled_run_extends_nothing_and_says_so() -> None:
                 _it_says_the_run_is_no_longer_held(),
                 _the_run_has_no_lease(conn, settled.id)
             ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("settling", ["finish", "fail"])
+def test_a_run_settled_by_the_claim_holding_it_is_settled_and_says_so(settling: str) -> None:
+    # Claimed with a lease already over and taken up by nobody since: still
+    # this claim's to settle, because the epoch says who holds a run and the
+    # lease only when somebody else may take it. Refused here, the run would be
+    # logged as lost, taken back once its lease was noticed, and walked again.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_reason = "the walk ran out of tool calls"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                held := _a_claim_by(conn, "worker-whose-lease-ran-out", A_LEASE_ALREADY_OVER)
+            ) \
+            .when(
+                lambda: (runs.finish(conn, held) if settling == "finish"
+                         else runs.fail(conn, held, some_reason))
+            ) \
+            .then(all_of(
+                _it_says_the_run_was_settled(),
+                _the_run_is_settled_as(conn, held.id,
+                                       runs.RunState.DONE if settling == "finish"
+                                       else runs.RunState.FAILED,
+                                       None if settling == "finish" else some_reason)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("settling", ["finish", "fail"])
+def test_a_run_taken_back_is_not_settled_by_the_claim_it_replaced(settling: str) -> None:
+    # The paused holder wakes and settles. Settling there would end a run
+    # another worker is walking, and nothing would ever walk it again.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_reason = "the walk ran out of tool calls"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                _an_enqueued_run_for(conn, dont_care_alert),
+                the_lost_claim := _a_claim_by(conn, "worker-that-was-paused",
+                                              A_LEASE_ALREADY_OVER),
+                the_new_claim := _a_claim_by(conn, "worker-that-came-after",
+                                             A_GENEROUS_LEASE)
+            ) \
+            .when(
+                lambda: (runs.finish(conn, the_lost_claim) if settling == "finish"
+                         else runs.fail(conn, the_lost_claim, dont_care_reason))
+            ) \
+            .then(all_of(
+                _it_says_the_run_was_not_settled(),
+                _the_run_is_as_its_holder_left_it(conn, the_new_claim)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("settling", ["finish", "fail"])
+def test_settling_a_run_leaves_committing_it_to_the_caller(settling: str) -> None:
+    # A failed run's claims, its escalation and its failure are one moment, and
+    # the caller is the one holding all three.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_reason = "the walk ran out of tool calls"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                held := _a_claimed_run_for(conn, dont_care_alert),
+                calling(lambda: runs.finish(conn, held) if settling == "finish"
+                        else runs.fail(conn, held, dont_care_reason)),
+                calling(conn.rollback)
+            ) \
+            .when(
+                lambda: runs.get(conn, held.id)
+            ) \
+            .then(
+                _the_run_is_still_running()
+            )
+
+
+def _it_says_the_run_was_settled() -> Assertion[Any]:
+    def assertion(settled: Any) -> bool:
+        if settled is not True:
+            raise AssertionError(
+                f"Expected settling to say the run was settled, and it said [{settled}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_says_the_run_was_not_settled() -> Assertion[Any]:
+    def assertion(settled: Any) -> bool:
+        if settled is not False:
+            raise AssertionError(
+                f"Expected settling by a claim since taken back to say nothing was "
+                f"settled, and it said [{settled}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_run_is_settled_as(conn: psycopg.Connection,
+                           run_id: str,
+                           state: runs.RunState,
+                           reason: str | None) -> Assertion[Any]:
+    """Settled in `state` for `reason`, and held by nobody."""
+    def assertion(_settled: Any) -> bool:
+        run = runs.get(conn, run_id)
+        found = (None if run is None
+                 else (run.state, run.failure_reason, run.claimed_by, run.leased_until))
+
+        if found != (state, reason, None, None):
+            raise AssertionError(
+                f"Expected run [{run_id}] settled as [{state}] for [{reason}], with no "
+                f"holder and no lease, got (state, reason, holder, lease) [{found}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_run_is_as_its_holder_left_it(conn: psycopg.Connection,
+                                      holder: runs.Run) -> Assertion[Any]:
+    def assertion(_settled: Any) -> bool:
+        run = runs.get(conn, holder.id)
+
+        if run != holder:
+            raise AssertionError(
+                f"Expected the run as its holder left it, [{holder}], got [{run}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_run_is_still_running() -> Assertion[Any]:
+    def assertion(run: Any) -> bool:
+        if run is None or run.state != runs.RunState.RUNNING:
+            raise AssertionError(
+                f"Expected the run still running once the settling was rolled back, got "
+                f"[{None if run is None else run.state}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_later_epoch_than(replaced: runs.Run) -> Assertion[Any]:
@@ -428,7 +582,7 @@ def test_a_failed_run_leaves_no_column_of_its_row_empty_but_its_lease() -> None:
 
         Scenario() \
             .when(
-                lambda: runs.fail(conn, claimed.id, some_reason)
+                lambda: runs.fail(conn, claimed, some_reason)
             ) \
             .then(
                 no_column_is_empty(conn, "incident_run", "incident_id", incident_id,

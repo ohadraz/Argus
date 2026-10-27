@@ -31,6 +31,7 @@ from argus_core import (
     Connections,
     DatabaseSettings,
     ReadMcpEndpoint,
+    RunLost,
     TelemetrySettings,
     WriteMcpEndpoint,
     connect_from_env,
@@ -194,25 +195,77 @@ def take_one_run(conn: psycopg.Connection,
                 if ended_by_a_person(claimed.incident_id) is IncidentStatus.WITHDRAWN:
                     logger.info("incident withdrawn, unwinding", extra={"walked": walked})
                     unwind(claimed.incident_id)
+        except RunLost:
+            _the_run_was_lost()
         except Exception as failure:
             logger.exception("run failed")
-            _put_back_what_it_changed(unwind, ended_by_a_person, claimed.incident_id)
-            # On the run's own connection, so the claims settle in the commit
-            # that settles the run: a failed run is never taken again, so a
-            # claim it left open would read as an action in flight for good.
-            taken_actions.settle_claims(conn, claimed.incident_id)
-            runs.fail(conn, claimed.id, f"{type(failure).__name__}: {failure}")
-            _the_incident_needs_a_person(conn, claimed.incident_id, failure)
+
+            try:
+                _put_back_what_it_changed(unwind, ended_by_a_person, claimed.incident_id)
+            except RunLost:
+                _the_run_was_lost()
+            else:
+                if not _settled_as_failed(conn, claimed, failure):
+                    _the_run_was_lost()
         else:
-            # A run that finished has normally answered every claim it made.
-            # The one it has not is the run taken back from a dead worker and
-            # found withdrawn - unwound, never walked, and finished with the
-            # dead worker's claim still open.
-            taken_actions.settle_claims(conn, claimed.incident_id)
-            runs.finish(conn, claimed.id)
-            logger.info("run finished")
+            if _settled_as_finished(conn, claimed):
+                logger.info("run finished")
+            else:
+                _the_run_was_lost()
 
     return True
+
+
+def _settled_as_failed(conn: psycopg.Connection,
+                       held: runs.Run,
+                       failure: Exception) -> bool:
+    """Settles a run whose walk failed, and answers whether this claim still
+    held it to settle.
+
+    One transaction, committed once: the claims it left open, the incident
+    handed to a person, and the run's failure. A failed run is never taken
+    again, so a claim it left open would read as an action in flight for good;
+    and the three are one moment, so a reader never finds the run failed with
+    its incident still mid-walk. The failure is written last, so every write
+    before it is made while the run still reads as this claim's.
+
+    Where the run was taken back, none of it is written: the incident is
+    another walk's now, and failing it, escalating it or settling its claims
+    from here would end that walk part-way through.
+    """
+    with conn.transaction() as settling:
+        taken_actions.settle_claims(conn, held.incident_id)
+        _the_incident_needs_a_person(conn, held.incident_id, failure)
+        settled = runs.fail(conn, held, f"{type(failure).__name__}: {failure}")
+
+        if not settled:
+            raise psycopg.Rollback(settling)
+
+    return settled
+
+
+def _settled_as_finished(conn: psycopg.Connection, held: runs.Run) -> bool:
+    """Settles a run walked to its end, and answers whether this claim still
+    held it to settle - in one commit, or in none where it was taken back.
+
+    A run that finished has normally answered every claim it made. The one it
+    has not is the run taken back from a dead worker and found withdrawn -
+    unwound, never walked, and finished with the dead worker's claim still open.
+    """
+    with conn.transaction() as settling:
+        taken_actions.settle_claims(conn, held.incident_id)
+        settled = runs.finish(conn, held)
+
+        if not settled:
+            raise psycopg.Rollback(settling)
+
+    return settled
+
+
+def _the_run_was_lost() -> None:
+    """Says once that this run is another claim's now, and that nothing was
+    written about it from here."""
+    logger.warning("run lost, leaving it to whoever holds it now")
 
 
 @contextmanager
@@ -245,12 +298,15 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
     crashed - would be a sixth thing every reader has to learn in order to
     discover that it means what `escalated` already means.
 
-    After the run's failure is committed, and not with it: the failure is the
-    record that must survive, and a transition that could not be written must
-    not take it down. So a failed run whose incident could not be moved is
-    possible, and logged. The transition and the sentence explaining it are one
-    write, for the reason `transition` gives: the column says where the
-    incident is, and the event is the only thing that says what put it there.
+    In the transaction that settles the run, and inside a block of its own
+    within it: the failure is the record that must survive, and a transition
+    that could not be written must not take it down - the block is rolled back
+    alone, and the run's failure is still written after it. So a failed run
+    whose incident could not be moved is possible, and logged. Committing is
+    the settling's, which writes this, the claims and the failure as one. The
+    transition and the sentence explaining it are one write, for the reason
+    `transition` gives: the column says where the incident is, and the event is
+    the only thing that says what put it there.
 
     The exception's type and message are the whole of the detail. A stack trace
     is what the log is for; what a person reading the incident needs is which
@@ -269,17 +325,16 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
     its answer.
     """
     try:
-        narrating = StatusChanged(incident_id=incident_id,
-                                  to_status=IncidentStatus.ESCALATED,
-                                  detail=f"the walk stopped without finishing: "
-                                         f"{type(failure).__name__}: {failure}")
-        escalated = incidents.transition(conn, incident_id, IncidentStatus.ESCALATED,
-                                         at=narrating.at)
+        with conn.transaction():
+            narrating = StatusChanged(incident_id=incident_id,
+                                      to_status=IncidentStatus.ESCALATED,
+                                      detail=f"the walk stopped without finishing: "
+                                             f"{type(failure).__name__}: {failure}")
+            escalated = incidents.transition(conn, incident_id, IncidentStatus.ESCALATED,
+                                             at=narrating.at)
 
-        if escalated:
-            publish(narrating, events_into_connection(conn))
-
-        conn.commit()
+            if escalated:
+                publish(narrating, events_into_connection(conn))
     except Exception:
         logger.exception("incident could not be marked escalated after its run failed")
 
@@ -307,6 +362,9 @@ def _put_back_what_it_changed(unwind: Unwind,
     wrong is a second fact about the incident and a worse one - somebody has
     to go and look - but it is not the reason the run failed, and it does not
     belong in the queue in place of it.
+
+    All but `RunLost`, which is not a failure to put anything back: the run is
+    another claim's, and the caller's answer to that is to write nothing more.
     """
     try:
         ending = ended_by_a_person(incident_id)
@@ -321,6 +379,8 @@ def _put_back_what_it_changed(unwind: Unwind,
 
     try:
         unwind(incident_id)
+    except RunLost:
+        raise
     except Exception:
         logger.exception("changes could not be put back after a failed run")
 

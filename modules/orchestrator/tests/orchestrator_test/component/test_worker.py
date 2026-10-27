@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import psycopg
 import pytest
-from argus_core import connect_from_env, utc_now
+from argus_core import RunLost, connect_from_env, utc_now
 from argus_core.events import StatusChanged
 from argus_core.models import REVERT_FEATURE_FLAG, ActionProgress, Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
@@ -22,6 +22,9 @@ from orchestrator_test.framework.builders import a_determined_hypothesis
 from orchestrator_test.framework.observing import Observed, observing
 
 A_GENEROUS_LEASE = timedelta(minutes=5)
+
+# Who takes a run back from a worker that was paused past its lease.
+THE_WORKER_THAT_TOOK_IT_BACK = "worker-that-took-it-back"
 
 # Where the worker's own lines are logged from.
 THE_WORKER = "orchestrator.worker"
@@ -1140,6 +1143,257 @@ def test_a_walk_runs_with_no_transaction_left_open_on_the_workers_connection(
             .then(
                 _the_walk_found_no_transaction_open(seen)
             )
+
+
+@pytest.mark.component
+def test_a_failed_walk_whose_run_was_taken_back_leaves_both_to_the_new_holder(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The worker was paused past its lease, and the run was taken back while it
+    # was. Failing the run, escalating the incident or settling its claims would
+    # be the old holder ending a walk somebody else is part-way through.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "worker-that-was-paused"
+
+    def walk_that_loses_its_run_then_fails(incident_id: str) -> None:
+        _an_action_claimed_on_its_own_connection(incident_id)
+        _the_run_taken_from_under_it(incident_id)
+
+        raise RuntimeError("dont care")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_loses_its_run_then_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_held_by(conn, incident_id, THE_WORKER_THAT_TOOK_IT_BACK),
+                _the_incident_is(conn, incident_id, IncidentStatus.MITIGATING),
+                _its_actions_are_seen_as(incident_id, [ActionProgress.CLAIMED]),
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run lost, leaving it to whoever holds it now")
+            ))
+
+
+@pytest.mark.component
+def test_a_finished_walk_whose_run_was_taken_back_leaves_it_to_the_new_holder(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The same, for a walk that went on to its end: finishing the run would end
+    # it under the walk that took it back.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "worker-that-was-paused"
+
+    def walk_that_loses_its_run(incident_id: str) -> None:
+        _an_action_claimed_on_its_own_connection(incident_id)
+        _the_run_taken_from_under_it(incident_id)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_loses_its_run,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_held_by(conn, incident_id, THE_WORKER_THAT_TOOK_IT_BACK),
+                _its_actions_are_seen_as(incident_id, [ActionProgress.CLAIMED]),
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run lost, leaving it to whoever holds it now")
+            ))
+
+
+@pytest.mark.component
+def test_a_walk_told_its_run_was_lost_is_neither_put_back_nor_settled(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Told by a store that refused its write. What the walk changed is the new
+    # holder's to judge now, and putting it back from here would undo a walk
+    # still under way.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_worker = "worker-that-was-paused"
+    unwound: list[str] = []
+
+    def walk_told_its_run_was_lost(incident_id: str) -> None:
+        _an_action_claimed_on_its_own_connection(incident_id)
+
+        raise RunLost("a newer claim holds this run")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    some_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_told_its_run_was_lost,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _nothing_was_put_back(unwound),
+                _the_run_is_held_by(conn, incident_id, some_worker),
+                _the_incident_is(conn, incident_id, IncidentStatus.MITIGATING),
+                _its_actions_are_seen_as(incident_id, [ActionProgress.CLAIMED]),
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run lost, leaving it to whoever holds it now")
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("withdrawn", [False, True], ids=["walk-failed", "withdrawn"])
+def test_an_unwind_told_its_run_was_lost_settles_nothing_and_says_so_once(
+    withdrawn: bool, a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The put-back's own write refused: a lost run, not changes that could not
+    # be put back - and no escalation follows it.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_worker = "worker-that-was-paused"
+
+    def walk(incident_id: str) -> None:
+        if withdrawn:
+            with connect_from_env() as conn:
+                incidents.withdraw(conn, incident_id, at=utc_now())
+        else:
+            raise RuntimeError("dont care")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    some_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk,
+                    unwind=_an_unwind_told_its_run_was_lost(),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_held_by(conn, incident_id, some_worker),
+                _the_incident_was_not_escalated(conn, incident_id),
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run lost, leaving it to whoever holds it now"),
+                _it_was_never_logged(caplog, "changes could not be put back after a failed run")
+            ))
+
+
+def _an_action_claimed_on_its_own_connection(incident_id: str) -> None:
+    with connect_from_env() as conn:
+        _an_action_claimed_on(conn, incident_id)
+
+
+def _the_run_taken_from_under_it(incident_id: str) -> None:
+    """The run's lease run out while its holder was paused, and the run taken
+    back by another worker."""
+    with connect_from_env() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE incident_run SET leased_until = now() - interval '1 second' "
+                           "WHERE incident_id = %s", (incident_id,))
+        conn.commit()
+
+        claimed = runs.claim(conn, THE_WORKER_THAT_TOOK_IT_BACK, A_GENEROUS_LEASE)
+        assert claimed is not None
+
+
+def _nothing_was_put_back(unwound: list[str]) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        if unwound:
+            raise AssertionError(f"Expected nothing put back for a lost run, got {unwound}.")
+
+        return True
+
+    return assertion
+
+
+def _an_unwind_told_its_run_was_lost() -> Callable[[str], None]:
+    def unwind(dont_care_incident_id: str) -> None:
+        raise RunLost("a newer claim holds this run")
+
+    return unwind
+
+
+def _the_run_is_held_by(conn: psycopg.Connection,
+                        incident_id: str,
+                        holder: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        run = runs.get_run_for_incident(conn, incident_id)
+
+        if run is None or run.state != runs.RunState.RUNNING or run.claimed_by != holder:
+            raise AssertionError(
+                f"Expected the run still running, held by [{holder}], got "
+                f"[{None if run is None else (run.state, run.claimed_by)}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_incident_was_not_escalated(conn: psycopg.Connection,
+                                    incident_id: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        incident = incidents.get(conn, incident_id)
+
+        if incident is None or incident.status is IncidentStatus.ESCALATED:
+            raise AssertionError(
+                f"Expected a lost run's incident not to be escalated, got "
+                f"[{None if incident is None else incident.status}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_never_logged(caplog: pytest.LogCaptureFixture, message: str) -> Assertion[bool]:
+    def assertion(_took_work: bool) -> bool:
+        if any(record.getMessage() == message for record in caplog.records):
+            raise AssertionError(f"Expected a lost run never to log [{message}], and it did.")
+
+        return True
+
+    return assertion
 
 
 def _no_second_worker_took_the_run(taken: list[str]) -> Assertion[bool]:

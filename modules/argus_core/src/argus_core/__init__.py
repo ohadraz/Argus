@@ -35,6 +35,7 @@ from argus_core.config import (
 )
 from argus_core.days import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
 from argus_core.db import Connections, connect, connect_from_env, open_pool
+from argus_core.fencing import RunLost
 from argus_core.ids import UuidStr, new_id
 from argus_core.levels import level_given_in, level_said_in, said_as_a_level, said_as_a_share
 from argus_core.revisions import A_REVISION, said_short, short_form, the_revision_named
@@ -56,6 +57,7 @@ __all__ = [
     "DatabaseSettings",
     "LLMSettings",
     "ReadMcpEndpoint",
+    "RunLost",
     "Settings",
     "SettingsSlice",
     "TelemetrySettings",
