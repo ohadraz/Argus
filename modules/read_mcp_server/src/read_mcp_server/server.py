@@ -546,7 +546,7 @@ def main() -> None:
 
     with (
         start_telemetry(TelemetrySettings.of(settings), _SERVICE),
-        open_pool(DatabaseSettings.of(settings)) as pool,
+        open_pool(DatabaseSettings.of(settings)) as pool
     ):
         build_server(
             ReadMcpEndpoint.of(settings),

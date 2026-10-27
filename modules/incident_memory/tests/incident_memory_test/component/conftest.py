@@ -1,4 +1,5 @@
-"""The store this module's component tests run against, and its state between them.
+"""The store and the database this module's component tests run against, and
+their state between them.
 
 A real Qdrant rather than a double, because what these tests are about is the
 half that cannot be faked: whether a payload survives a round trip, whether a
@@ -6,9 +7,16 @@ filter selects only the service it names, whether the same incident written
 twice is one record or two. A stand-in answers all three the way whoever wrote
 it expected, which is the one answer that proves nothing.
 
-No database here, unlike the index's own conftest. Long-term memory keeps
-nothing in Postgres: there is no watermark to compare, because a memory is not
-derived from anything that could move on without it.
+A real Postgres beside it, because a record is filed there before anything can
+search it: the walk's one write is a row the fence can refuse, and the store is
+filled from the rows afterwards. Whether a refused write reaches the store, and
+whether a record refiled mid-delivery is delivered again, are questions only
+the two together can answer.
+
+The same shape as the index's conftest - one store and one database for the
+whole run, an empty one of each for each test - and for the same reason: several
+answers to "what is this suite's state" are several ways for a suite to be
+dirty.
 
 Readiness is polled here rather than left to Compose. The Qdrant image is
 distroless, so there is no shell inside it to run a healthcheck with, and
@@ -24,7 +32,11 @@ import time
 from collections.abc import Iterator
 
 import httpx2
+import psycopg
 import pytest
+from argus_core import connect_from_env
+from argus_core.schema import reset_schema
+from psycopg import sql
 from qdrant_client import QdrantClient
 
 # How long a cold container may take to answer. Generous, because the first
@@ -56,6 +68,63 @@ def qdrant() -> Iterator[str]:
         yield _the_stores_url()
     finally:
         subprocess.run(["docker", "compose", "stop"], check=True)
+
+
+@pytest.fixture(scope="session")
+def postgres() -> Iterator[None]:
+    """The database, up for the whole suite and stopped after it.
+
+    Started from an empty schema rather than an adopted one: the container may
+    be a previous run's, and a run that was killed left its rows behind.
+    """
+    subprocess.run(["docker", "compose", "up", "-d", "--wait", "postgres"], check=True)
+
+    try:
+        with connect_from_env() as conn:
+            reset_schema(conn)
+
+        yield
+    finally:
+        subprocess.run(["docker", "compose", "stop"], check=True)
+
+
+@pytest.fixture
+def a_clean_database(postgres: None) -> Iterator[None]:
+    """Empties every table after each test that asks for the database.
+
+    After rather than before, so a test that failed leaves nothing for the next
+    one to trip over - and so its rows are still there to look at while the
+    failure is being read.
+
+    Asked for rather than applied to every test, unlike the index's: most of
+    these cases are about the store alone, and bringing a database up for them
+    would make a suite about vectors wait on Postgres.
+
+    What to empty is asked of the database rather than listed here. A list would
+    be a second statement of the schema, and the day a table is added the suite
+    would keep passing while quietly leaking its rows into the next test.
+    """
+    yield
+
+    with connect_from_env() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        tables = [name for (name,) in cursor.fetchall()]
+
+        if tables:
+            cursor.execute(
+                sql.SQL("TRUNCATE {} RESTART IDENTITY CASCADE").format(
+                    sql.SQL(", ").join(sql.Identifier(table) for table in tables)
+                )
+            )
+
+        conn.commit()
+
+
+@pytest.fixture
+def records(a_clean_database: None) -> Iterator[psycopg.Connection]:
+    """A connection to the database a record is filed in."""
+    with connect_from_env() as conn:
+        yield conn
 
 
 def _wait_until_it_answers(url: str) -> None:

@@ -26,6 +26,10 @@ dev = [
     "argus-argus_testkit",
     "argus-anthropic_double",
     "import-linter>=2.15",
+    # The import graph with third parties in it, which `scripts/guard_layering.py`
+    # builds for the one rule import-linter cannot hold. It arrives with
+    # import-linter already; named because the script imports it.
+    "grimp",
 ]
 
 
@@ -325,15 +329,50 @@ forbidden_modules = ["*"]
 # `argus_narration` renders events handed to it: the walk already holds a
 # repository, and a second module opening its own connection to the same rows
 # would put the question of which incident's actions these are in two places.
+# The rows this module does own - the records filed for memory - are its own
+# table, written and read here.
 #
-# By module path alone, and that is not an oversight: nothing here names
-# `argus_core` bare. It reaches `argus_core.models` and `argus_core.embedding`,
-# both of which are doors, and an allowance matching nothing warns on every run
-# until somebody removes it.
+# By module path, but for the deliverer. The walk's side reaches the kernel
+# through doors - `argus_core.models`, `argus_core.embedding` - and never names
+# it bare. The deliverer is a process, and a process's pool, settings and
+# telemetry come from the bare door; its `main` alone installs the telemetry
+# SDK, as every process's `main` does.
 ignore_imports = [
     "incident_memory.** -> argus_core.**",
+    "incident_memory.delivering -> argus_core",
+    "incident_memory.delivering -> argus_telemetry",
 ]
 unmatched_ignore_imports_alerting = "warn"
+
+[[tool.importlinter.contracts]]
+name = "the walk writes to no store the fence cannot reach"
+type = "forbidden"
+# The packages that walk an incident: the Orchestrator and the four agents it
+# delegates to inside a walk. Every write they make is made for the run their
+# process holds, and the fence refuses it once a newer claim holds that run - but
+# only the database has a fence. A store outside it takes a write from a walk
+# whose run was taken back as readily as from the one that holds it.
+#
+# So the walk writes long-term memory as a row, and the deliverer fills the
+# store from the rows; it tells people through the event log the relay reads,
+# and never by posting. What is forbidden here is the half import-linter can
+# see: the store's writing side, the deliverer, and the chat platform's port.
+# The other half - the vendors' SDKs - is held by `scripts/guard_layering.py`,
+# which reads this contract's `source_modules` for the packages it holds to it:
+# import-linter sees a third party only with `include_external_packages`, which
+# is global and turns every `["*"]` contract above against the standard library.
+source_modules = [
+    "agent_codefix",
+    "agent_investigator",
+    "agent_mitigation",
+    "agent_postmortem",
+    "orchestrator",
+]
+forbidden_modules = [
+    "chat_platform",
+    "incident_memory.delivering",
+    "incident_memory.keeping",
+]
 
 [[tool.importlinter.contracts]]
 name = "postmortem_rendering says what a postmortem says from values it is handed"

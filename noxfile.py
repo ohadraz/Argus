@@ -100,11 +100,13 @@ def typecheck(session: nox.Session) -> None:
     report "Cannot find implementation or library stub" for a dependency that's
     declared but wasn't actually installed into the shared venv yet).
 
-    Then runs `tests/scripts`, the suite of the mypy plugin `[tool.mypy]` loads
+    Then runs the suite of the mypy plugin `[tool.mypy]` loads
     (`scripts/mypy_model_copy.py`). Here rather than anywhere else because what
     it proves is that this session's check is still a check: a plugin whose hook
     stopped firing leaves mypy green and every `model_copy` update unchecked, and
-    only running mypy over a known-bad line says so.
+    only running mypy over a known-bad line says so. The plugin's suite alone:
+    the other guards' suites beside it are run by those guards' own sessions,
+    for the same reason.
     """
     if not MODULES:
         session.skip("no modules/ yet - nothing to type-check")
@@ -113,7 +115,8 @@ def typecheck(session: nox.Session) -> None:
         external=True
     )
     session.run(
-        "uv", "run", "--all-packages", "python", "-m", "pytest", "tests/scripts",
+        "uv", "run", "--all-packages", "python", "-m", "pytest",
+        "tests/scripts/test_mypy_model_copy.py",
         external=True
     )
 
@@ -376,13 +379,25 @@ def guard_layering(session: nox.Session) -> None:
     It also holds the suites to the last two rules, which the contracts cannot:
     import-linter analyzes the packages named in `root_packages`, and a test
     package is not one of them - which is how one agent's suite came to build
-    a double out of another agent's code while every contract held.
+    a double out of another agent's code while every contract held. And it
+    holds the walk to the SDK half of its own contract: no package that walks
+    an incident reaches a vendor's store the fence cannot reach.
 
     A guard rather than a note in `CLAUDE.md`, because the note was there while
     `argus_incidents` depended on an agent - a documented invariant nothing
     checks is one nobody finds out about.
+
+    Then runs the guard's own suite, which builds the import graphs the SDK
+    rule is about and asks it what it makes of them. Here, because what it
+    proves is that this session's check is still a check: a rule that stopped
+    matching passes every build while the import it was written against comes
+    back.
     """
     session.run("uv", "run", "python", "scripts/guard_layering.py", external=True)
+    session.run(
+        "uv", "run", "python", "-m", "pytest", "tests/scripts/test_guard_layering.py",
+        external=True
+    )
 
 @nox.session
 def guard_e2e_boundary(session: nox.Session) -> None:
@@ -445,8 +460,17 @@ def guard_written_columns(session: nox.Session) -> None:
     exemption list on purpose, and a statement whose columns it cannot resolve
     fails rather than passes - a guard that waves through what it cannot read
     rebuilds the hole it was written to close.
+
+    Then runs the guard's own suite, over a schema and a source tree it builds:
+    the one table it does not look for writers of - a dependency's, as the
+    revision names it - is the half of it that could quietly wave through a
+    column of Argus's.
     """
     session.run("uv", "run", "python", "scripts/guard_written_columns.py", external=True)
+    session.run(
+        "uv", "run", "python", "-m", "pytest", "tests/scripts/test_guard_written_columns.py",
+        external=True
+    )
 
 @nox.session
 def guard_exports(session: nox.Session) -> None:
@@ -1757,6 +1781,19 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # own first step rather than something to wait for here.
         "worker",
         ["-m", "orchestrator.worker"],
+        None
+    ),
+    (
+        # What fills long-term memory. The walk only files what an incident
+        # tried, as a row the fence can refuse; this carries the rows into the
+        # store a later walk searches. A stack without it remembers every
+        # incident and recalls none of them.
+        #
+        # No readiness URL: it listens on nothing. What it is ready for is a
+        # record arriving in the store, which is what a case about memory asks
+        # for - and waits for, since it comes a pass after the walk filed it.
+        "memory",
+        ["-m", "incident_memory.delivering"],
         None
     ),
     (

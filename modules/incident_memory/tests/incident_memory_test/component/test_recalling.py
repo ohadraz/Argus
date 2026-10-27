@@ -1,4 +1,4 @@
-"""Records in and out of the store that holds them.
+"""Records out of the store that holds them.
 
 The vectors here are made up rather than embedded, and that is the point: what
 these cases are about is the store's behaviour around a search - the narrowing,
@@ -6,10 +6,13 @@ the floor, the ordering, the round trip - and a real embedder would make every
 one of them depend on how a sentence happens to land. Four dimensions, one of
 them set per record, so "near" and "far" are arranged rather than hoped for.
 
-What is not made up is the store. Whether a payload survives, whether a filter
-selects only what it names, and whether the same incident written twice is one
-record are exactly the questions a stand-in would answer the way its author
-expected.
+What is not made up is the store. Whether a payload survives and whether a
+filter selects only what it names are exactly the questions a stand-in would
+answer the way its author expected.
+
+The records are put there by the writing side's own `remember`, so a search
+here is a search of what a deliverer leaves behind rather than of a shape this
+suite invented.
 """
 
 from __future__ import annotations
@@ -17,10 +20,10 @@ from __future__ import annotations
 import pytest
 from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict
 from argus_testkit import Assertion, Scenario, all_of
+from incident_memory.keeping import remember
+from incident_memory.recalling import recalled
 from incident_memory.records import RememberedIncident, WhatWasTried
-from incident_memory.store import SERVICE_FIELD, recalled, remember
 from qdrant_client import QdrantClient
-from qdrant_client.models import CollectionInfo, PayloadSchemaType
 
 from incident_memory_test.framework.assertions import these_incidents_come_back
 
@@ -198,61 +201,6 @@ def test_no_more_than_what_was_asked_for_comes_back(store: QdrantClient) -> None
         .then(these_incidents_come_back([the_one_most_like_it]))
 
 
-@pytest.mark.component
-def test_one_incident_written_twice_is_one_record(store: QdrantClient) -> None:
-    # A walk that was resumed writes its record again. Two copies of one
-    # incident would count twice in an ordering, which is a past incident given
-    # a second vote for having been interrupted.
-    the_same_incident = "the-flag-one"
-
-    remember(store, SOME_COLLECTION, _an_incident(the_same_incident), SOMEWHAT_LIKE_IT)
-    remember(store, SOME_COLLECTION, _an_incident(the_same_incident),
-             ALMOST_WHAT_IS_SEARCHED_FOR)
-
-    Scenario() \
-        .given(store) \
-        .when(lambda: recalled(
-            store,
-            SOME_COLLECTION,
-            WHAT_IS_SEARCHED_FOR,
-            service=SOME_SERVICE,
-            limit=ENOUGH_ROOM_FOR_THEM_ALL,
-            floor=NO_FLOOR_WORTH_MENTIONING
-        )) \
-        .then(these_incidents_come_back([the_same_incident]))
-
-
-@pytest.mark.component
-def test_the_field_every_search_narrows_by_is_indexed(store: QdrantClient) -> None:
-    # Every search here narrows to one service before anything is compared, and
-    # narrowing during the search rather than after it is why a store like this
-    # was chosen. Without the payload index the answers are the same and the
-    # work is a scan, which is invisible until there are enough incidents for
-    # it not to be.
-    #
-    # Only a real store can answer this: the in-memory client accepts the call,
-    # warns that payload indexes do nothing locally, and reports no schema.
-    Scenario() \
-        .given(
-            _remembered(store, _an_incident("the-one-that-made-the-collection"))
-        ) \
-        .when(lambda: store.get_collection(SOME_COLLECTION)) \
-        .then(_the_payload_field_indexed_is(SERVICE_FIELD))
-
-
-def _remembered(store: QdrantClient,
-                incident: RememberedIncident) -> RememberedIncident:
-    """Writes the record, and hands it back so a `given` can name it.
-
-    The collection is made by the first write rather than declared anywhere, so
-    this is also what brings one into existence - which is the arrangement a
-    case about the collection itself needs.
-    """
-    remember(store, SOME_COLLECTION, incident, ALMOST_WHAT_IS_SEARCHED_FOR)
-
-    return incident
-
-
 def _what_was_tried(subject: str, verdict: Verdict) -> WhatWasTried:
     """One remembered attempt, spelled as a flag put back.
 
@@ -288,30 +236,6 @@ def _it_remembers_trying(subject: str,
 
         if _what_was_tried(subject, verdict) not in tried:
             raise AssertionError(f"Expected [{subject}] [{verdict}] among {tried}")
-
-        return True
-
-    return assertion
-
-
-def _the_payload_field_indexed_is(field: str) -> Assertion[CollectionInfo]:
-    """The store's own account of which field it can narrow on cheaply."""
-    def assertion(described: CollectionInfo) -> bool:
-        indexed = dict(described.payload_schema or {})
-
-        if field not in indexed:
-            raise AssertionError(
-                f"Expected [{field}] to carry a payload index, and the collection "
-                f"indexes {sorted(indexed)} - so every search narrowing by it is "
-                f"answered by scanning."
-            )
-
-        if indexed[field].data_type != PayloadSchemaType.KEYWORD:
-            raise AssertionError(
-                f"Expected [{field}] indexed as a keyword, and it is indexed as "
-                f"[{indexed[field].data_type}] - a filter matching an exact value "
-                f"has nothing to traverse."
-            )
 
         return True
 

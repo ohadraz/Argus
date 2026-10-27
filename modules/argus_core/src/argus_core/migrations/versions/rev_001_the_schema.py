@@ -560,6 +560,33 @@ CREATE TABLE IF NOT EXISTS repository_index (
     -- looks stale.
     indexed_at TIMESTAMPTZ
 );
+
+-- What each finished incident tried, filed for long-term memory (spec §11.2) -
+-- the walk's one write to it. A row rather than a write to the vector store,
+-- because a row is what the fence refuses: a walk whose run was taken back
+-- files nothing over the record of the walk that holds it now. The store is
+-- filled from these rows by a process of its own, and is a view of them.
+-- Written and read by `incident_memory`.
+CREATE TABLE IF NOT EXISTS incident_memory (
+    incident_id UUID PRIMARY KEY REFERENCES incident(id),
+    -- The record whole, as `incident_memory.records` spells it: it is read
+    -- whole, by the process that embeds it, and nothing queries inside it.
+    record JSONB NOT NULL,
+    -- Which filing of the record this is, moved on whenever what was tried
+    -- changes - and which of them the store last took. The difference is the
+    -- work list, the retry and the backlog, so there is no queue to drain: a
+    -- deliverer that was down, or memory switched on late, finds every record
+    -- the store does not hold still waiting.
+    version BIGINT NOT NULL DEFAULT 1,
+    delivered_version BIGINT NOT NULL DEFAULT 0,
+    -- When it was first filed, which is the order a deliverer that fell behind
+    -- catches up in.
+    filed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- What a deliverer asks for, every interval, forever: the records not yet
+-- delivered. Partial, because almost every row is delivered and stays so.
+CREATE INDEX IF NOT EXISTS incident_memory_undelivered_idx
+    ON incident_memory (filed_at) WHERE delivered_version < version;
 """
 
 # Where a walk is kept between its steps, so a run taken up after its worker

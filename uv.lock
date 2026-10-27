@@ -632,16 +632,19 @@ version = "0.1.0"
 source = { editable = "modules/incident_memory" }
 dependencies = [
     { name = "argus-argus-core" },
+    { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.optional-dependencies]
 store = [
     { name = "argus-argus-core", extra = ["embedding", "vector-store"] },
+    { name = "argus-argus-telemetry" },
     { name = "qdrant-client" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-argus-core", extra = ["migrations"] },
     { name = "argus-argus-testkit" },
     { name = "argus-incident-memory", extra = ["store"] },
 ]
@@ -651,12 +654,15 @@ requires-dist = [
     { name = "argus-argus-core", editable = "modules/argus_core" },
     { name = "argus-argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/argus_core" },
     { name = "argus-argus-core", extras = ["vector-store"], marker = "extra == 'store'", editable = "modules/argus_core" },
+    { name = "argus-argus-telemetry", marker = "extra == 'store'", editable = "modules/argus_telemetry" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "qdrant-client", marker = "extra == 'store'", specifier = ">=1.19,<1.20" },
 ]
 provides-extras = ["store"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "argus-argus-core", extras = ["migrations"], editable = "modules/argus_core" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
     { name = "argus-incident-memory", extras = ["store"] },
 ]
@@ -994,6 +1000,7 @@ source = { virtual = "." }
 dev = [
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
+    { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter" },
     { name = "mypy" },
@@ -1015,6 +1022,7 @@ dev = [
 dev = [
     { name = "argus-anthropic-double", editable = "modules/anthropic_double" },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
+    { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter", specifier = ">=2.15" },
     { name = "mypy" },

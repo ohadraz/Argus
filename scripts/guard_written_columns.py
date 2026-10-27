@@ -38,6 +38,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 _COLUMN_LIST_SEPARATOR = ", "
 
@@ -506,6 +507,36 @@ def _read_the_writers(modules: Path) -> tuple[dict[str, set[str]], list[str]]:
     return written, unreadable
 
 
+class Findings(NamedTuple):
+    """What the guard found: what it could not read, and what nothing writes.
+
+    Two lists rather than one, because they mean different things. A column on
+    the second is a defect in the schema or the code; anything on the first
+    means the second cannot be trusted at all.
+    """
+
+    unreadable: list[str]
+    unwritten: list[str]
+    """Each as `table.column`."""
+
+
+def the_findings_over(migrations: Path, modules: Path) -> Findings:
+    """The columns the chain in `migrations` declares and nothing under
+    `modules/*/src` writes, and what could not be read on the way."""
+    tables, unreadable_schema = _read_the_schema(migrations)
+    written, unreadable_writers = _read_the_writers(modules)
+
+    return Findings(
+        unreadable=unreadable_schema + unreadable_writers,
+        unwritten=[
+            f"{table.name}.{column}"
+            for table in tables.values()
+            for column, defaulted in table.columns.items()
+            if not defaulted and column not in written.get(table.name, set())
+        ]
+    )
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     migrations = (
@@ -513,17 +544,7 @@ def main() -> None:
         / "migrations" / "versions"
     )
 
-    tables, unreadable_schema = _read_the_schema(migrations)
-    written, unreadable_writers = _read_the_writers(repo_root / "modules")
-
-    unwritten = [
-        f"  {table.name}.{column}"
-        for table in tables.values()
-        for column, defaulted in table.columns.items()
-        if not defaulted and column not in written.get(table.name, set())
-    ]
-
-    complaints = unreadable_schema + unreadable_writers
+    complaints, unwritten = the_findings_over(migrations, repo_root / "modules")
 
     if complaints:
         print(
@@ -538,7 +559,7 @@ def main() -> None:
         print(
             "These columns are declared and written by nothing - no INSERT names "
             "them, no UPDATE sets them, and no DEFAULT fills them in:\n"
-            + "\n".join(unwritten)
+            + "\n".join(f"  {column}" for column in unwritten)
             + "\n\nA column only readers know about is always NULL, and nothing can "
               "tell that from a value that happens to be missing. Either write it "
               "where the row is written, or drop it from the schema.",

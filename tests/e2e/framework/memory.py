@@ -8,10 +8,15 @@ under different evidence - and a recording is a queue of answers served in order
 not a model reasoning afresh, so the divergence surfaces as the double running dry
 somewhere nobody was looking.
 
-The seeding goes through the walk's own writer rather than putting a document in
-the collection. The shape a record is stored in belongs to `incident_memory`, and
-a staging step that invented its own would let the writer drift from the reader
-with every case still green.
+The seeding goes through the deliverer's own writer rather than putting a
+document in the collection. The shape a record is stored in belongs to
+`incident_memory`, and a staging step that invented its own would let the writer
+drift from the reader with every case still green.
+
+Into the store directly, rather than filed for the deliverer to carry: the walk
+that recalls this starts the moment the case does, and a record still on its
+way would race it. An earlier incident's record is in the store long before the
+next incident, which is the world being staged.
 """
 
 from __future__ import annotations

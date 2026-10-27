@@ -485,8 +485,9 @@ def main() -> None:
     queue and is killed never opened a socket.
 
     The store is held on the same terms, and by the same owner: one client for
-    both ends of long-term memory, opened here and closed here, or none at all
-    where this deployment remembers nothing.
+    searching long-term memory, opened here and closed here, or none at all
+    where this deployment searches none. What a walk files for memory goes
+    through the pool like its other rows; the deliverer fills the store.
 
     Both pools are fenced by what the process is holding, so every connection
     this process opens writes for the run it is walking or for none - the
@@ -507,7 +508,7 @@ def main() -> None:
         # Only the write tier is told what is held: it makes changes, and a
         # change is made only for the claim that holds its run.
         write_mcp(WriteMcpEndpoint.of(settings), holding=holding) as write,
-        the_store_for(IncidentMemorySettings.of(settings)) as store,
+        the_store_for(IncidentMemorySettings.of(settings)) as store
     ):
         connections = pool.connection
 

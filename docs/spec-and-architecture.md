@@ -92,6 +92,7 @@ flowchart LR
         MCPS[MCP tool servers]
         RELAY[Relay - follows the event log]
         INTENT[Intent Agent - understands what people write]
+        MEMORY[Deliverer - fills long-term memory]
         PG[(Postgres)]
         QDRANT[(Qdrant)]
         VAULT[(HashiCorp Vault)]
@@ -111,7 +112,9 @@ flowchart LR
     INTENT -->|classifies what was written, offers| PG
     INTENT -->|who a person is| SLK
     RELAY -->|postmortem, exec summary| MAIL
-    ORCH -->|what was tried, and what it was worth| QDRANT
+    ORCH -->|similar past incidents| QDRANT
+    MEMORY -->|what was tried, and what it was worth| QDRANT
+    MEMORY -->|reads what walks filed| PG
     MCPS -->|nearest passages| QDRANT
     ORCH <--> PG
     RELAY -->|reads the event log| PG
@@ -135,7 +138,7 @@ No HTTP surface of its own. `argus_web` (§7.9) calls its intake in-process afte
 
 A run is claimed with a lease. One worker walks a given incident, a second finds nothing to take, and a run whose holder stopped renewing becomes claimable again. A walk that fails is recorded against its run with the reason, so an incident nobody is working on is distinguishable from one still being investigated.
 
-Every claim moves the run's epoch on, and a worker writes only for the claim it holds. Each connection it opens carries that claim as its fence, and every table but the queue refuses a write whose claim the run has since moved past. While the write is open the run's row is share-locked, so the run is not taken back under it. A worker paused past its lease therefore wakes to find its next write refused, and it stops: nothing settled, escalated or put back. It need not wait for a write to learn this: between model turns, the walk asks whether its claim is still the run's, so it stops before paying for another turn. The write tier holds a change to the same rule. Each call a worker makes to it carries the claim the worker holds, and a change is made only while that claim still holds the run, which stays held until the change is done. A change for a claim the run has moved past is refused as a lost run; a change that names no claim, or whose run cannot be asked after, is refused plainly. A read is answered without asking after the run. A worker's connection that names no claim is refused as well. Processes that walk no run (the web application, the relay, the schema job) write freely. LangGraph's checkpoint tables are part of the schema the job applies, and are fenced like the rest.
+Every claim moves the run's epoch on, and a worker writes only for the claim it holds. Each connection it opens carries that claim as its fence, and every table but the queue refuses a write whose claim the run has since moved past. While the write is open the run's row is share-locked, so the run is not taken back under it. A worker paused past its lease therefore wakes to find its next write refused, and it stops: nothing settled, escalated or put back. It need not wait for a write to learn this: between model turns, the walk asks whether its claim is still the run's, so it stops before paying for another turn. The write tier holds a change to the same rule. Each call a worker makes to it carries the claim the worker holds, and a change is made only while that claim still holds the run, which stays held until the change is done. A change for a claim the run has moved past is refused as a lost run; a change that names no claim, or whose run cannot be asked after, is refused plainly. A read is answered without asking after the run. A worker's connection that names no claim is refused as well. Processes that walk no run (the web application, the relay, the deliverer of long-term memory, the schema job) write freely. LangGraph's checkpoint tables are part of the schema the job applies, and are fenced like the rest.
 
 Responsibilities:
 - Create the `Incident` row and queue its run, called by `argus_web`.
@@ -255,9 +258,9 @@ It writes nothing to long-term memory. What is remembered of an incident is what
 
 ### 7.6a Remembering what was tried
 
-The last thing a walk does before the write-up, and a step rather than an agent: no model, no retrieval, no judgement. It reads the incident's actions, keeps the ones that reached a verdict on an action it can identify - a subject the row named, and a kind this version still has words for - and files them where the next incident that looks like this one will find them (§11.2).
+The last thing a walk does before the write-up, and a step rather than an agent: no model, no retrieval, no judgement. It reads the incident's actions, keeps the ones that reached a verdict on an action it can identify - a subject the row named, and a kind this version still has words for - and files them for the next incident that looks like this one to find (§11.2). Filed as a row, never written to the store: a row is a write the fence refuses for a run another claim holds (§7.1), and the store is filled from the rows by a process of its own.
 
-Before the postmortem rather than after it, so neither failure can take the other down. This step swallows its own - the incident is over, nothing downstream reads what it produces, and a store that is unreachable must not be the reason an incident ends without its write-up - and a postmortem that raises cannot then cost the next incident what this one learned. A failure here is said on the timeline, because silence is indistinguishable from an incident that had nothing worth filing.
+Before the postmortem rather than after it, so neither failure can take the other down. This step swallows its own - the incident is over, nothing downstream reads what it produces, and a filing that failed must not be the reason an incident ends without its write-up - and a postmortem that raises cannot then cost the next incident what this one learned. A failure here is said on the timeline, because silence is indistinguishable from an incident that had nothing worth filing. A row refused because the run was lost is the one failure it does not swallow or say: the incident is a newer claim's walk now, and the line would be said on that walk's timeline.
 
 ### 7.7 Incident view
 
@@ -454,6 +457,7 @@ erDiagram
     INCIDENT ||--o{ INCIDENT_RUN : is_walked_by
     INCIDENT ||--o{ INCIDENT_REFERENCE : is_known_elsewhere_by
     INCIDENT ||--o{ THREAD_MESSAGE : is_talked_about_in
+    INCIDENT ||--o| INCIDENT_MEMORY : is_remembered_by
 
     INCIDENT {
         uuid id PK
@@ -589,6 +593,13 @@ erDiagram
         text pending_sha
         timestamp indexed_at
     }
+    INCIDENT_MEMORY {
+        uuid incident_id PK
+        jsonb record
+        bigint version
+        bigint delivered_version
+        timestamp filed_at
+    }
 ```
 
 Separate tables rather than one JSON blob per incident, because the eval metrics (§21) - wasted actions per incident, escalation precision/recall, root-cause accuracy - are counts, joins, and group-bys over structured fields (`tested`, `result`, `confidence`, `tier`). A relational schema already has that structure; free text or a blob would mean re-deriving it at query time.
@@ -610,6 +621,8 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 `EXCHANGE_RATE` belongs to no incident, and is the only table here that does not - which is why it hangs off nothing in the diagram. It is a cache of what a currency was worth on a day, read when an incident's loss is reported in a currency the takings were not measured in. Keyed by the day rather than the moment: a published rate is a fact about a date, so two incidents on the same day are priced identically however far apart they ran, and a rate already fetched is never fetched twice. `fetched_at` records when Argus asked, which is a different question from when the rate was published and the one to ask when a figure looks stale.
 
 `REPOSITORY_INDEX` belongs to no incident either, and belongs to the index rather than to the record: it is the watermark saying which commit the stored passages describe and which commit the repository is at (§11.5). It is in Postgres because "is what I searched what is running" is an exact comparison rather than a nearness, which is the one question a vector store answers badly. It is also the only part of the index that is not derived - the passages can be rebuilt from the repository at any time, and this row is what says where they would be rebuilt to.
+
+`INCIDENT_MEMORY` is what each finished incident tried, filed for long-term memory (§11.2) - the walk's one write to it. A row rather than a write to the vector store, because the fence (§7.1) holds only here: a walk whose run was taken back files nothing over the record of the walk that holds it now, where the store would take its write from anybody. The store is filled from these rows and is a view of them. `version` moves on whenever what was tried changes and `delivered_version` says which the store last took, so the difference between them is the work list, the retry and the backlog - a deliverer that was down, or memory switched on late, finds every record the store does not hold still waiting.
 
 `REPLAY_LOG` serves a different purpose again: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `argus_core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
 
@@ -633,6 +646,8 @@ Every incident that ends is recorded, not only a resolved one. An escalation aft
 
 The record is composed from the incident's own `ACTION` rows and the alert that opened it, by a step of the walk that does nothing else (§7.1). Not from the postmortem: that is a document for a person to read, written by a different step from a different source, and deriving one from the other would make an unwritten document into a missing memory.
 
+**The walk files the record; it never writes the store.** What the step writes is an `INCIDENT_MEMORY` row (§11.1), which the fence refuses for a walk whose run was taken back - where the store's upsert, keyed on the incident, would keep whichever walk wrote last. A process of its own, the deliverer, reads the rows the store does not hold yet, embeds each record and keeps it, and marks the version it kept: a record refiled while its old version was on the way is still waiting afterwards, and is delivered again. One deliverer delivers at a time, holding a lock in the database on a connection of its own for each pass - two at once could leave the store holding an older version for good - and a second that finds the lock held waits for its next pass. A pass that fails is retried on the next, and a record is marked only once the store holds it, so nothing is lost by a store that is down and nothing is said about it either: the store is derived, and an event published after an incident ended would land in a finished timeline. The walk itself reads the store - recall is a read, and a read made for a lost run changes nothing anybody else holds - and is held away from the store's writing side, and from any other store with no fence, by the layering guard (§20.1).
+
 `described_as` is the text that is embedded and searched. It is assembled rather than written - the alert's own words, then what the investigation concluded and the evidence it cited - so one vector carries both how the monitoring named the incident and what it actually looked like. Assembled rather than composed by a model because its only job is to be matched against, and a join of text already on hand embeds to very nearly the same place at no cost, with no failure mode, and reproducibly.
 
 **Recall informs the order actions are tried in, not the hypotheses.** Before the first action of an incident is proposed, memory is searched with this incident's description, and each candidate is asked of Mitigation what action would answer it; any candidate whose action was taken on a similar past incident and refuted is demoted below the ones no record names. Asked of the action rather than of the candidate, because a candidate is prose: what a model calls a leak is worded differently every round, so a restart of the same service looked like two unrelated subjects until the comparison moved to what would be *done* about them. The Investigator is not seeded: what is stored is not a hypothesis, and a model told "this flag failed on a different incident" has nothing to do with it. The mitigation side, choosing what to change next, is the one place the fact changes a decision.
@@ -643,9 +658,9 @@ The search narrows by `service` before it ranks by similarity - coarse filter, f
 
 A similarity floor and a result limit bound what one ordering decision reads (§14). The floor is the one that matters: a nearest-neighbour search always answers, so without it a corpus holding one unrelated incident hands it back as the nearest thing it has, and a candidate is demoted on the strength of it.
 
-**Nothing depends on memory.** A store that is empty, unreachable, slow, or switched off is treated identically - as a store that returned nothing - and neither a failed search nor a failed write ever escalates an incident, ends a walk, or prevents an action. Every decision memory informs has an answer without it, and a system that stalled over a cache of old incidents would be worse than one with no memory at all. A failed write is said on the timeline, because silence there is indistinguishable from an incident that had nothing worth filing.
+**Nothing depends on memory.** A store that is empty, unreachable, slow, or switched off is treated identically - as a store that returned nothing - and neither a failed search nor a failed filing ever escalates an incident, ends a walk, or prevents an action. Every decision memory informs has an answer without it, and a system that stalled over a cache of old incidents would be worse than one with no memory at all. A failed filing is said on the timeline, because silence there is indistinguishable from an incident that had nothing worth filing. A filing refused because the run was lost is the exception: it ends the walk, as every lost run does (§7.1).
 
-Memory can be switched off entirely, and with it off the system neither writes records nor consults them. That is a real configuration rather than a way of disabling something broken: §21's whole question is what memory is worth, and two runs that differ in exactly one thing are how that is asked.
+Memory can be switched off, and with it off the system neither delivers records nor consults them. Every walk still files its record, so a deployment that switches memory on later has every incident it walked in the meantime. That is a real configuration rather than a way of disabling something broken: §21's whole question is what memory is worth, and two runs that differ in exactly one thing are how that is asked.
 
 Qdrant, in a collection of its own beside the repository index (§11.5) rather than a second vector store. The two corpora have nothing to do with each other - one is rewritten continuously as code moves, the other appended to once per incident - but at a few hundred records neither engine has a retrieval advantage worth measuring, and what remains is operational: one store to run, one client to learn, one service in the compose file.
 
@@ -712,7 +727,7 @@ This applies to *outbound* integrations - systems Argus itself chooses to call, 
 | Chat (Slack) | No - each platform has its own events, signatures and message shapes | No - each platform has its own message, thread and button shapes | **Slack**, in both directions. The port is `chat_platform`'s, named for the role and split by direction: `ChatPlatformReads` - what a delivery said (a reply in an incident's thread, a press of an offer's button), believed only under the app's signing secret, and what the platform calls a person - and `ChatPlatformWrites` - a message, a reply in a thread, an offer's button, and a rewrite that takes the button away. One adapter, `chat_platform.slack`, answers both, so the button the Communicator posts and the press the Web Application reads are spelled in one place. It is the only code that knows an envelope, a header, a field or a block, and only the composition roots of the Web Application, the Intent Agent (§7.5a) and the Communicator (§7.5) build it |
 | On-call platform | No - each platform has its own incident, alert and webhook shapes | N/A - Argus never pages, acknowledges or resolves on the platform | **PagerDuty**, optional: its REST API for an incident's acknowledgements, alert keys and notes, and its signed webhook for a person's resolution (§7.9). The port is `oncall_source`'s, named for the role, and the adapter is the only code that knows a route, an event type or a field. A deployment without one has no on-call platform at all: no endpoint, and postmortems that cannot say who responded |
 | Email | SMTP is already the standard | - | `argus-write-mcp` via configured SMTP relay |
-| Long-term memory | N/A - internal to Argus | - | Qdrant directly - written by the step that closes a walk and read by the step that fixes candidate order (§11.2), both inside the Orchestrator's own process. No tool, because no model ever asks for it |
+| Long-term memory | N/A - internal to Argus | - | Qdrant directly - read by the step that fixes candidate order, inside the Orchestrator's own process, and written only by the deliverer, from the rows the step that closes a walk files (§11.2). No tool, because no model ever asks for it |
 | Repository index | N/A - internal to Argus | - | Qdrant directly - queried by `argus-read-mcp`; written only by the catch-up loop that keeps it current (§11.5), which is on no incident's path |
 
 ### 12.1 MCP server topology
@@ -1323,6 +1338,7 @@ flowchart TB
         PG[(Postgres)]
         QDRANT[(Qdrant<br/>long-term memory + repository index)]
         INDEXER[index catch-up<br/>keeps the repository index at the deployed commit]
+        MEMORY[deliverer<br/>fills long-term memory from what walks filed]
         BO[Backoffice]
     end
     subgraph TargetDeploy["Target Service + Target Environment - Docker Compose / Railway"]
@@ -1336,7 +1352,9 @@ flowchart TB
     TS -->|webhook| WEB
     WEB --> MCPS
     MCPS -->|replay logs| PG
-    WEB -->|what was tried, and what it was worth| QDRANT
+    WEB -->|similar past incidents| QDRANT
+    MEMORY -->|what was tried, and what it was worth| QDRANT
+    MEMORY -->|reads what walks filed| PG
     MCPS -->|nearest passages| QDRANT
     INDEXER -->|passages| QDRANT
     INDEXER -->|the commit it describes| PG
@@ -1459,6 +1477,8 @@ A module is reached through the names its package exports and through nothing el
 
 This is enforced rather than asked. An import-linter contract forbids every path into `argus_core` but the doors, stated as the allowances they are, and `nox -s guard_layering` holds the suites and `scripts/` to the same rule - import-linter analyzes only the packages it is given, and the tests are not among them.
 
+The packages that walk an incident are held to one more rule: they reach no store the fence cannot reach (§7.1). A contract forbids them the writing side of long-term memory, its deliverer and the chat platform's port; the guard forbids them the vendors' SDKs - the vector store's and the chat platform's - through any chain at all, but recall's one read (§11.2). That half is the guard's because import-linter sees a third party only with a setting that is global, and it would turn every contract written over "everything else" against the standard library.
+
 ### 20.2 Repository tree
 
 ```
@@ -1479,7 +1499,7 @@ argus/
 │   ├── orchestrator/                # LangGraph graph, FSM, tier-gate node
 │   ├── argus_narration/             # the event-to-sentence renderer every destination reads
 │   ├── code_index/                   # the repository index: chunking, embedding, the store, the watermark, the catch-up loop
-│   ├── incident_memory/              # what earlier incidents were done about: the record, the text it is found by, the store, and the ordering it informs
+│   ├── incident_memory/              # what earlier incidents were done about: the record, the text it is found by, the row it is filed in, the deliverer, the store, and the ordering it informs
 │   ├── repository_source/            # reading a repository at a commit: its source, what changed between two, where a branch points
 │   ├── deployment_platform/          # the deployment platform's port, split by tier, and its one adapter (Argo CD)
 │   ├── chat_platform/               # the chat platform's port and its one adapter (Slack): deliveries, signatures, names
@@ -1545,7 +1565,7 @@ A library of scripted chaos scenarios injected into the Target Environment (§15
 
 The embedding model is a dimension of the same kind, which is why it is configuration (§11.5): "retrieval by meaning underperformed" and "this small local model underperformed" are different findings, and only a run with a different model separates them.
 
-**Long-term memory is a dimension too**, and for the same reason it is a switch (§11.2): the same scenarios run with memory on and with it off, and what is compared is wasted actions per incident and time-to-mitigation. A scenario that was never seen before cannot be helped by memory, so what the comparison needs is a corpus - seeded, through the same writer the walk uses, by whatever stages the run.
+**Long-term memory is a dimension too**, and for the same reason it is a switch (§11.2): the same scenarios run with memory on and with it off, and what is compared is wasted actions per incident and time-to-mitigation. A scenario that was never seen before cannot be helped by memory, so what the comparison needs is a corpus - seeded, through the same writer the deliverer uses, by whatever stages the run.
 
 One thing the current Target Service cannot show. Its alerts are few and uniformly worded, so a search by similarity and an exact match on the alert's name select the same records, and a run that found memory useful would not say which mechanism earned it. The mechanism is built for the case a real service produces constantly - one cause raising differently-named alerts, subjects renamed and versioned, free-text summaries - and demonstrating *that* needs either a richer fixture or a live system. Stated here rather than discovered at eval time.
 

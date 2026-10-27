@@ -31,7 +31,16 @@ from agent_postmortem import postmortem_policy
 from argus_core import Connections, Holding, get_settings
 from argus_core.mcp_transport import McpClient
 from argus_core.models import ModelPolicy
-from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    calling,
+    one_record_was_logged,
+)
+from incident_memory.records import RememberedIncident
 from orchestrator.walk.assembling import (
     Collaborators,
     IncidentMemorySettings,
@@ -178,6 +187,25 @@ def test_the_postmortem_is_written_by_a_model_given_its_brief() -> None:
 
 
 @pytest.mark.unit
+def test_a_process_that_searches_no_memory_still_files_what_was_tried() -> None:
+    # Memory switched off stops the store, never the filing: every walk files
+    # its record, so a deployment that switches memory on later has every
+    # incident it walked in the meantime. With no store at all, filing still
+    # reaches for the database - and a filing that went nowhere would lose
+    # exactly the incidents that make switching on worth it.
+    Scenario() \
+        .given(
+            collaborators := against(_connections_that_refuse_with(_TheDatabaseWasReached()),
+                                     _a_client_that_must_not_be_reached(),
+                                     _a_client_that_must_not_be_reached(),
+                                     None,
+                                     Holding())
+        ) \
+        .when(attempting(lambda: collaborators.remember_incident(_a_record()))) \
+        .then(an_error_was_raised(_TheDatabaseWasReached))
+
+
+@pytest.mark.unit
 def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -221,6 +249,35 @@ def _connections_that_must_not_be_opened() -> Connections:
         yield  # unreachable, and what makes this a generator
 
     return no_connections
+
+
+class _TheDatabaseWasReached(Exception):
+    """Raised by a source of connections the moment one is asked for - so a
+    collaborator that reached the database says so, and one that did nothing
+    says nothing."""
+
+
+def _connections_that_refuse_with(refusal: Exception) -> Connections:
+    @contextmanager
+    def refusing() -> Generator[psycopg.Connection]:
+        raise refusal
+        yield  # unreachable, and what makes this a generator
+
+    return refusing
+
+
+def _a_record() -> RememberedIncident:
+    """What one incident tried, as a finished walk composes it."""
+    dont_care_incident = "0f5c4d6e-3a1b-4c2d-8e9f-1a2b3c4d5e6f"
+    dont_care_description = "checkout began failing after a flag was switched on"
+
+    return RememberedIncident(
+        incident_id=dont_care_incident,
+        described_as=dont_care_description,
+        service="io-shop",
+        alert_name="HighErrorRate",
+        tried=[]
+    )
 
 
 def _every_collaborator_was_supplied() -> Assertion[Collaborators]:

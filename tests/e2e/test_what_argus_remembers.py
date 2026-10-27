@@ -1,13 +1,14 @@
 """What the stack remembers of an incident, and that the next one reaches for it.
 
 Two halves of one mechanism, and only the whole stack can show either. The
-record is composed from rows the walk wrote, embedded by a model that runs in
-Argus's own process, and put in a collection nothing else here touches - which
-is four pieces that a unit test can only assert separately.
+record is composed from rows the walk wrote, filed as a row of its own, embedded
+by the deliverer with a model that runs in Argus's own process, and put in a
+collection nothing else here touches - which is four pieces that a unit test can
+only assert separately.
 
-The seeding is deliberately done **through the same writer the walk uses**, and
-it lives in the framework rather than here: `scripts/record_incident.py` has to
-stage the same world when it captures the corpus these cases replay. See
+The seeding is deliberately done **through the same writer the deliverer uses**,
+and it lives in the framework rather than here: `scripts/record_incident.py` has
+to stage the same world when it captures the corpus these cases replay. See
 `tests.e2e.framework.memory`.
 """
 
@@ -24,7 +25,7 @@ from argus_core.events import SimilarIncidentsRecalled
 from argus_core.models import IncidentStatus, Verdict
 from argus_incidents.repository import events
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
-from incident_memory.store import recalled
+from incident_memory.recalling import recalled
 from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import (
@@ -123,7 +124,8 @@ def _it_was_remembered_as_having_tried(
 
     Searched rather than fetched by id, because searching is what a later walk
     does: a record that was written and cannot be found is, from where it
-    matters, a record that was not written.
+    matters, a record that was not written. Asked until it holds, because the
+    walk only files the record and the deliverer brings it here after.
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)

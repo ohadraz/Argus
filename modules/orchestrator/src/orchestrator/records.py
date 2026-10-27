@@ -5,7 +5,9 @@ withdrawal undoing what a walk did, and a finished incident being read back for
 its postmortem all reach `argus_incidents.repository` directly - none of them
 happens inside a node, and each says at its own site why it reads what it does.
 Two more siblings reach the repositories for things that are not the incident
-record at all: the run queue and the exchange-rate cache.
+record at all: the run queue and the exchange-rate cache. One write here is not
+the incident record either - what the incident tried, filed for long-term
+memory - and it is here because a node makes it.
 
 So the line this draws is the one a graph cares about. A node is handed its
 collaborators and has to be assertable with no database behind it; the process
@@ -38,6 +40,8 @@ from argus_incidents.repository import (
     postmortems,
     taken_actions,
 )
+from incident_memory import filing
+from incident_memory.records import RememberedIncident
 
 from orchestrator.walk.ports import ClaimedAction
 
@@ -235,6 +239,17 @@ class Records:
         with self._connections() as conn:
             postmortems.record(conn, incident_id, document, at=written.at)
             publish_beside(conn, written, self._publisher_for(conn))
+
+    def memory(self, record: RememberedIncident, /) -> None:
+        """Files what this incident tried, for long-term memory to be given.
+
+        A row rather than the store itself, and here beside the incident's own
+        rows for the reason they are here: it is a node's write, made on a
+        connection the fence refuses for a run another claim holds. The store
+        is filled from these rows by a process of its own.
+        """
+        with self._connections() as conn:
+            filing.file(conn, record)
 
     def weighing(self, lead: ThreadMessage, /) -> None:
         """Keeps what the Investigator made of a lead, then says so.

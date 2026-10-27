@@ -226,11 +226,18 @@ class Settings(BaseSettings):
     # The same Qdrant as the index above, in a collection of its own - two
     # corpora with nothing to do with each other, and one server.
     incident_memory_collection: str = Field(default="incidents_remembered")
-    # Whether an incident is remembered at all, and whether what is remembered
-    # is consulted. Off is a real configuration rather than a way of disabling a
-    # broken feature: the §21 benchmark's whole question is what memory is
-    # worth, and two runs that differ in exactly one thing are how it is asked.
+    # Whether what incidents tried is searchable, and whether it is consulted.
+    # Off is a real configuration rather than a way of disabling a broken
+    # feature: the §21 benchmark's whole question is what memory is worth, and
+    # two runs that differ in exactly one thing are how it is asked. Every walk
+    # files its record either way - what is switched off is carrying the records
+    # to the store and reading them back - so a deployment that turns memory on
+    # later has every incident it walked in the meantime.
     incident_memory_enabled: bool = Field(default=True)
+    # How often the deliverer looks for filed records the store does not hold,
+    # in seconds. The longest a finished incident is filed and unsearchable
+    # while nothing is failing; a look that finds nothing is one query.
+    incident_memory_delivery_interval_seconds: float = Field(default=2.0, gt=0)
     # Which model turns an incident's description into the vector a later
     # incident is compared against. A different corpus from the index's, so a
     # setting of its own - and changing it, like changing the index's, means

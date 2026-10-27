@@ -67,6 +67,7 @@ from argus_core.events import (
 from argus_core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
 from argus_incidents.repository import runs
 from argus_incidents.repository.runs import RunState
+from incident_memory.filing import get_undelivered
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
@@ -172,6 +173,16 @@ A_WHOLE_INVESTIGATION_SECONDS = 1800.0
 # a walk - the walk is waited out by polling below.
 REQUEST_TIMEOUT_SECONDS = 30.0
 A_POLL_SECONDS = 5.0
+
+# How long the deliverer may take to carry the last recording's record into the
+# store. Generous against its interval: a pass that finds the store briefly down
+# is retried on the next, and a minute is many of them.
+_A_DELIVERY_SECONDS: Final = 60.0
+
+# More records than one run ever leaves waiting, which is one per incident it
+# walked. Only whether any are waiting is asked; which ones is what a failure
+# names.
+_AS_MANY_AS_A_RUN_FILES: Final = 100
 
 
 class _Published(NamedTuple):
@@ -1180,6 +1191,12 @@ class _AWalkIsStillLive(Exception):
     every capture after it would be recorded into a world nobody controls."""
 
 
+class _ARecordIsStillOnItsWay(Exception):
+    """A filed record the deliverer never delivered, which ends the run for the
+    walk's reason: dropping the store under it would leave the next capture a
+    memory nobody staged."""
+
+
 def _no_walk_is_live() -> None:
     """Ends whatever walk is still live, and waits until none is.
 
@@ -1256,12 +1273,35 @@ def _a_world_this_recording_can_be_captured_in() -> None:
 
 
 def _long_term_memory_was_forgotten() -> None:
-    """Drops the collection this stack remembers incidents in.
+    """Drops the collection this stack remembers incidents in, once nothing is
+    on its way to it.
 
     Dropped rather than emptied, as the suite that replays these does it: an
     absent collection reads as an empty corpus everywhere above the store, and
-    the first write makes it again.
+    the first write makes it again - which is why the deliverer is waited out
+    first. A record it read before the drop and keeps after it makes the
+    collection again holding the last recording's incident, for the next walk
+    to recall. A record is marked delivered only once the store holds it, so
+    nothing waiting means nothing in flight.
     """
+    deadline = time.monotonic() + _A_DELIVERY_SECONDS
+
+    while True:
+        with psycopg.connect(DATABASE_URL) as connection:
+            waiting = [filed.record.incident_id
+                       for filed in get_undelivered(connection, _AS_MANY_AS_A_RUN_FILES)]
+
+        if not waiting:
+            break
+
+        if time.monotonic() >= deadline:
+            raise _ARecordIsStillOnItsWay(
+                f"the records of {waiting} were still waiting to be delivered after "
+                f"[{_A_DELIVERY_SECONDS:.0f}s]"
+            )
+
+        time.sleep(A_POLL_SECONDS)
+
     store = QdrantClient(url=get_settings().qdrant_url)
 
     try:

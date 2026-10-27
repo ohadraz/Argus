@@ -13,6 +13,7 @@ from argus_core import connect_from_env, get_settings
 from argus_incidents.repository import incidents
 from argus_incidents.repository.runs import RunState
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
+from incident_memory.filing import get_undelivered
 from pagerduty_double.server import DEFAULT_BASE_URL as PAGERDUTY_DOUBLE_BASE_URL
 from psycopg import sql
 from qdrant_client import QdrantClient
@@ -54,6 +55,10 @@ _SETTLING_TIMEOUT_SECONDS = max(
     get_settings().mitigation_verification_timeout_seconds
 )
 _SETTLING_POLL_SECONDS = 0.5
+
+# More records than one case's walks ever file, which is one per incident. Only
+# whether any are waiting is asked, and which ones is what a failure names.
+_AS_MANY_AS_A_CASE_FILES = 100
 
 # Set by `-- --hold`, which holds each case's world open once the case is done
 # and before it is put back, so what the case left - the database, the page -
@@ -147,6 +152,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
     _every_run_came_to_a_stop()
     failed = _the_runs_that_failed()
     _every_reader_caught_up()
+    _every_record_was_delivered()
     # Held here, where `--hold` asks: after every run has stopped and every
     # reader has caught up, so what is held is the case finished, and before
     # the tables are emptied, which is what destroys it.
@@ -286,6 +292,42 @@ def _every_reader_caught_up() -> None:
                 f"[{_SETTLING_TIMEOUT_SECONDS}s] after every run stopped. "
                 f"Emptying the tables now would kill it on a foreign key to an "
                 f"incident this teardown is about to remove."
+            )
+
+        time.sleep(_SETTLING_POLL_SECONDS)
+
+
+def _every_record_was_delivered() -> None:
+    """Waits until every record a walk filed is in long-term memory.
+
+    The deliverer is the last long-lived process writing about a case: it reads
+    a filed record and then puts it in the store. One still on its way when the
+    collection is dropped below puts it back, holding the record of a case that
+    is over - and the next case's walk recalls it, from a store neither case
+    mentions. Before the tables are emptied rather than before the drop: the
+    rows are what this reads, and emptying them first would make a record in
+    flight look delivered.
+
+    A record is marked delivered only once the store holds it, so nothing left
+    waiting means nothing left in flight. Loudly, for the reason the readers
+    are waited for loudly.
+    """
+    deadline = time.monotonic() + _SETTLING_TIMEOUT_SECONDS
+
+    while True:
+        with connect_from_env() as conn:
+            waiting = [filed.record.incident_id
+                       for filed in get_undelivered(conn, limit=_AS_MANY_AS_A_CASE_FILES)]
+
+        if not waiting:
+            return
+
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"The records of {waiting} were still waiting to be delivered "
+                f"[{_SETTLING_TIMEOUT_SECONDS}s] after every run stopped. Dropping "
+                f"the collection now would leave the deliverer to put them back, "
+                f"for the next case to recall."
             )
 
         time.sleep(_SETTLING_POLL_SECONDS)

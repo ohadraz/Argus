@@ -29,6 +29,7 @@ from argus_core.events import (
 )
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
+    ActionIdentity,
     ActionProgress,
     Actor,
     Alert,
@@ -51,6 +52,8 @@ from argus_incidents.repository import (
     taken_actions,
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
+from incident_memory.filing import get_undelivered
+from incident_memory.records import RememberedIncident, WhatWasTried
 from orchestrator.records import Records
 from orchestrator.walk.ports import ClaimedAction
 
@@ -513,6 +516,66 @@ def test_a_write_up_is_said_by_its_summary_as_it_reads_off_the_page_with_its_cau
             _the_write_up_was_said(incident_id, some_cause,
                                    said_off_the_page(a_document.executive_summary or ""))
         )
+
+
+@pytest.mark.component
+def test_what_an_incident_tried_is_filed_for_the_store_to_be_given(
+    a_clean_database: None
+) -> None:
+    # The walk's one write to long-term memory, and a row rather than the store:
+    # a row is a write the fence can refuse for a run a newer claim holds, and
+    # the store is filled from the rows by a process of its own.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_record := _a_record_of(incident_id)
+        ) \
+        .when(
+            lambda: records.memory(a_record)
+        ) \
+        .then(
+            _it_waits_to_be_delivered(a_record)
+        )
+
+
+def _a_record_of(incident_id: str) -> RememberedIncident:
+    """What an incident tried, as a finished walk composes it."""
+    dont_care_description = "checkout began failing after a flag was switched on"
+
+    return RememberedIncident(
+        incident_id=incident_id,
+        described_as=dont_care_description,
+        service="kuki-service",
+        alert_name="HighErrorRate",
+        tried=[
+            WhatWasTried(
+                identity=ActionIdentity(action_type=DONT_CARE_ACTION, subject="kuki-flag"),
+                verdict=Verdict.REFUTED
+            )
+        ]
+    )
+
+
+def _it_waits_to_be_delivered(record: RememberedIncident) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            waiting = [filed.record for filed in get_undelivered(conn, limit=10)]
+
+        if waiting != [record]:
+            raise AssertionError(
+                f"Expected [{record}] filed and waiting to be delivered, and the "
+                f"record holds {waiting}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_document_saying(cause: str, summary: str) -> PostmortemDocument:

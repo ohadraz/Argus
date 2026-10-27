@@ -44,7 +44,7 @@ from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
 
 if TYPE_CHECKING:
-    from qdrant_client import QdrantClient
+    from incident_memory.recalling import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ def graph_for(connections: Connections,
               checkpoints: ConnectionPool,
               read: McpClient,
               write: McpClient,
-              store: QdrantClient | None,
+              store: MemoryStore | None,
               holding: Holding) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 

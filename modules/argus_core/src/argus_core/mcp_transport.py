@@ -623,7 +623,7 @@ class McpClient:
             try:
                 async with (
                     streamable_http_client(self._url) as (read, write, _),
-                    ClientSession(read, write) as session,
+                    ClientSession(read, write) as session
                 ):
                     await session.initialize()
                     await self._publish(session, None)

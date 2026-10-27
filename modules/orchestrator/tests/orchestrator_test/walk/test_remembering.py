@@ -7,9 +7,12 @@ deployment; a test of this node that needed either would be testing something
 else.
 
 The failure case is the one that matters most here. Nothing downstream reads
-what this node produces and this incident is over either way, so a store that is
-down has to cost the walk nothing at all - and has to say so, because silence
+what this node produces and this incident is over either way, so a filing that
+fails has to cost the walk nothing at all - and has to say so, because silence
 here is indistinguishable from an incident that had nothing worth filing.
+
+All but one failure: a filing refused because the run was lost is not this
+incident's to swallow or to say. A newer claim walks it now.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
+from argus_core import RunLost
 from argus_core.events import IncidentEvent
 from argus_core.models import (
     REVERT_FEATURE_FLAG,
@@ -31,6 +35,8 @@ from argus_testkit import (
     Kept,
     Scenario,
     all_of,
+    an_error_was_raised,
+    attempting,
     calling,
     one_record_was_logged,
 )
@@ -61,7 +67,7 @@ def test_what_was_tried_is_filed_against_the_incident() -> None:
                 actions_taken=_actions(
                     _an_action(the_flag_that_did_not_help, Verdict.REFUTED)
                 ),
-                remember=_a_store_keeping(filed))
+                remember=_a_filing_keeping(filed))
         ) \
         .then(
             all_of(
@@ -88,7 +94,7 @@ def test_an_incident_with_nothing_judged_files_nothing() -> None:
                 actions_taken=_actions(
                     _an_action("new-checkout-flow", Verdict.STOPPED)
                 ),
-                remember=_a_store_keeping(filed))
+                remember=_a_filing_keeping(filed))
         ) \
         .then(_nothing_was_filed(filed))
 
@@ -108,16 +114,16 @@ def test_an_incident_with_no_actions_at_all_files_nothing() -> None:
             lambda: remembering_node(
                 an_incident_that_did_nothing,
                 actions_taken=_actions(),
-                remember=_a_store_keeping(filed))
+                remember=_a_filing_keeping(filed))
         ) \
         .then(_nothing_was_filed(filed))
 
 
 @pytest.mark.unit
-def test_a_memory_store_that_is_down_does_not_stop_the_walk() -> None:
+def test_a_filing_that_fails_does_not_stop_the_walk() -> None:
     # The incident is over and nothing downstream reads this. A node that let a
-    # vector store's outage propagate would make an unreachable cache of old
-    # incidents into the reason this one ends without its write-up.
+    # failed filing propagate would make a record of old incidents into the
+    # reason this one ends without its write-up.
     Scenario() \
         .given(
             an_incident_that_is_over := _an_incident_in(IncidentStatus.ESCALATED)
@@ -128,17 +134,17 @@ def test_a_memory_store_that_is_down_does_not_stop_the_walk() -> None:
                 actions_taken=_actions(
                     _an_action("new-checkout-flow", Verdict.REFUTED)
                 ),
-                remember=_a_store_that_refuses())
+                remember=_a_filing_that_fails())
         ) \
         .then(_it_returned_without_raising())
 
 
 @pytest.mark.unit
-def test_a_memory_store_that_is_down_is_said_on_the_timeline() -> None:
+def test_a_filing_that_fails_is_said_on_the_timeline() -> None:
     # Silence would be indistinguishable from an incident that had nothing
     # worth filing, and the two call for different things from whoever reads
-    # it: one is Argus working correctly, the other is Argus with a broken
-    # store.
+    # it: one is Argus working correctly, the other is Argus failing to file
+    # what it tried.
     why_it_could_not_be_written = "connection refused"
     published: Kept[IncidentEvent] = Kept()
 
@@ -152,13 +158,42 @@ def test_a_memory_store_that_is_down_is_said_on_the_timeline() -> None:
                 actions_taken=_actions(
                     _an_action("new-checkout-flow", Verdict.REFUTED)
                 ),
-                remember=_a_store_that_refuses(why_it_could_not_be_written),
+                remember=_a_filing_that_fails(why_it_could_not_be_written),
                 publisher=published.take)
         ) \
         .then(
             all_of(
                 _an_event_of_kind_was_published(published, "remembering-failed"),
                 _an_event_mentioning(published, why_it_could_not_be_written)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_lost_run_is_raised_and_not_said_as_a_filing_that_failed() -> None:
+    # The fence refused the row because a newer claim holds this run. That is
+    # no bad day of the database's: the incident is another walk's now, and a
+    # line saying its memory could not be filed would be said on that walk's
+    # timeline, for it.
+    published: Kept[IncidentEvent] = Kept()
+
+    Scenario() \
+        .given(
+            an_incident_that_is_over := _an_incident_in(IncidentStatus.ESCALATED)
+        ) \
+        .when(
+            attempting(lambda: remembering_node(
+                an_incident_that_is_over,
+                actions_taken=_actions(
+                    _an_action("new-checkout-flow", Verdict.REFUTED)
+                ),
+                remember=_a_filing_told_the_run_was_lost(),
+                publisher=published.take))
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(RunLost),
+                _nothing_was_published(published)
             )
         )
 
@@ -181,7 +216,7 @@ def test_what_was_filed_is_said_on_the_timeline() -> None:
                 actions_taken=_actions(
                     _an_action(the_flag_that_did_not_help, Verdict.REFUTED)
                 ),
-                remember=_a_store_keeping(Kept()),
+                remember=_a_filing_keeping(Kept()),
                 publisher=published.take)
         ) \
         .then(
@@ -206,7 +241,7 @@ def test_an_incident_that_filed_nothing_says_nothing() -> None:
             lambda: remembering_node(
                 an_incident_that_did_nothing,
                 actions_taken=_actions(),
-                remember=_a_store_keeping(Kept()),
+                remember=_a_filing_keeping(Kept()),
                 publisher=published.take)
         ) \
         .then(_nothing_was_published(published))
@@ -230,7 +265,7 @@ def test_what_was_filed_is_logged(caplog: pytest.LogCaptureFixture) -> None:
             lambda: remembering_node(
                 an_incident_that_is_over,
                 actions_taken=_actions(*the_actions_judged),
-                remember=_a_store_keeping(Kept()))
+                remember=_a_filing_keeping(Kept()))
         ) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.remembering", logging.INFO,
@@ -240,11 +275,11 @@ def test_what_was_filed_is_logged(caplog: pytest.LogCaptureFixture) -> None:
 
 
 @pytest.mark.unit
-def test_a_memory_store_that_is_down_is_logged_as_a_warning(
+def test_a_filing_that_fails_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # Swallowed from the walk, so this line and the timeline's are all there is
-    # of a store somebody has to go and bring back.
+    # of a filing somebody has to go and look into.
     Scenario() \
         .given(
             an_incident_that_is_over := _an_incident_in(IncidentStatus.ESCALATED)
@@ -255,7 +290,7 @@ def test_a_memory_store_that_is_down_is_logged_as_a_warning(
                 actions_taken=_actions(
                     _an_action("new-checkout-flow", Verdict.REFUTED)
                 ),
-                remember=_a_store_that_refuses())
+                remember=_a_filing_that_fails())
         ) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.remembering", logging.WARNING,
@@ -294,16 +329,23 @@ def _actions(*taken: TakenAction) -> ActionsTaken:
     return actions_taken
 
 
-def _a_store_keeping(filed: Kept[RememberedIncident]) -> RememberIncident:
+def _a_filing_keeping(filed: Kept[RememberedIncident]) -> RememberIncident:
     def remember(record: RememberedIncident) -> None:
         filed.take(record)
 
     return remember
 
 
-def _a_store_that_refuses(refusal: str = "dont care") -> RememberIncident:
+def _a_filing_that_fails(refusal: str = "dont care") -> RememberIncident:
     def remember(dont_care_record: RememberedIncident) -> None:
         raise ConnectionError(refusal)
+
+    return remember
+
+
+def _a_filing_told_the_run_was_lost() -> RememberIncident:
+    def remember(dont_care_record: RememberedIncident) -> None:
+        raise RunLost("a newer claim holds the run")
 
     return remember
 

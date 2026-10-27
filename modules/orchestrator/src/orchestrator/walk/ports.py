@@ -445,12 +445,12 @@ class RecallSimilar(Protocol):
 
 
 class RememberIncident(Protocol):
-    """Keeps what this incident tried, where a later one will look for it.
+    """Files what this incident tried, for the store a later one will search.
 
     Takes the finished record rather than the incident, because what a record
-    says is `incident_memory`'s to decide and where it goes is a deployment's:
-    a walk with no store configured supplies something that keeps nothing, and
-    the node above cannot tell the difference.
+    says is `incident_memory`'s to decide and where it is filed is a
+    deployment's. Filed whether or not this deployment searches memory: what is
+    switched off is the store, never the filing.
     """
 
     def __call__(self, record: RememberedIncident, /) -> None: ...
