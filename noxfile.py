@@ -1882,6 +1882,17 @@ _HOLD: Final = "--hold"
 _THE_HOLD_VARIABLE: Final = "ARGUS_E2E_HOLD"
 
 
+def _names_a_case(given: str) -> bool:
+    """Whether an argument after `--` names a case - a file, or one test in it
+    by pytest's node id (`tests/e2e/test_x.py::test_y`).
+
+    The node id counts too: read as anything but a case, it left the suite's
+    own paths in place beside it, and the one case asked for ran as the whole
+    suite.
+    """
+    return given.partition("::")[0].endswith(".py")
+
+
 def _run_against_the_stack(
     session: nox.Session,
     test_paths: list[str],
@@ -2158,7 +2169,7 @@ def e2e(session: nox.Session) -> None:
     # one, and treating it as one would leave this run collecting the whole
     # repository against the real model - the one session where that is also
     # billed.
-    named_cases = [given for given in session.posargs if given.endswith(".py")]
+    named_cases = [given for given in session.posargs if _names_a_case(given)]
 
     _run_against_the_stack(
         session,
@@ -2290,7 +2301,7 @@ def e2e_replay(session: nox.Session, mode: str) -> None:
     # leaving pytest to collect from the repository root:
     # every module's tests and the contract suite, run against a stack none of
     # them asked for.
-    named_cases = [given for given in session.posargs if given.endswith(".py")]
+    named_cases = [given for given in session.posargs if _names_a_case(given)]
 
     _run_against_the_stack(
         session,
