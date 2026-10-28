@@ -223,6 +223,10 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         stopping_when_a_person_ended_it(route_after_investigation),
         {
             MITIGATING_ROUTE: MITIGATION_PROPOSAL_NODE,
+            # A round that named only what the walk had already tried has spent
+            # the list, and a spent list goes to Code-Fix from here as it does
+            # from the node that runs out of candidates.
+            FIXING_ROUTE: CODEFIX_NODE,
             ESCALATED_ROUTE: REMEMBERING_NODE,
             RESOLVED_ROUTE: REMEMBERING_NODE,
             WITHDRAWN_ROUTE: END

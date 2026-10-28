@@ -52,6 +52,7 @@ from orchestrator.walk.candidates import (
     the_next_worth_trying,
     what_each_would_do,
 )
+from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import (
     FetchDependencies,
@@ -63,7 +64,7 @@ from orchestrator.walk.ports import (
     RecordHypothesis,
     RecordWeighing,
 )
-from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
 _logger = logging.getLogger(__name__)
@@ -280,7 +281,15 @@ def investigator_node(
     # is what the investigation learned, and it is the one thing that tells an
     # investigation with nothing to offer apart from a walk that has worked
     # through everything it was offered - the two leave the same list behind.
-    nothing_worth_trying = next_up is None
+    #
+    # Asked with nothing tried, because a round whose every cause the walk has
+    # already tried is the second of those and not the first. It named causes;
+    # the walk has answered each of them already, so the list is spent - and a
+    # spent list goes where the walk sends one out of candidates, to a fix.
+    # Counted as finding nothing, it escalated past Code-Fix with "hypothesis
+    # formed" as the reason.
+    nothing_worth_trying = the_next_worth_trying(reordered.candidates, [], start=0) is None
+    the_list_is_spent = next_up is None and not nothing_worth_trying
     # Every candidate, not only the one about to be tried. The incident's
     # record should say what was considered as well as what was acted on - a
     # runner-up that never reached the table is a finding a human picking the
@@ -291,7 +300,10 @@ def investigator_node(
     return StateDelta(
         hypothesis=hypothesis,
         candidates=candidates,
-        candidate_index=next_up[0] if next_up is not None else 0,
+        # Past the end where the list is spent, which is what says so: no
+        # candidate is under test, and nothing this round found is left to try.
+        candidate_index=(next_up[0] if next_up is not None
+                         else len(candidates) if the_list_is_spent else 0),
         # Carried on, including where it is `None`: the nodes after this one
         # act on the same history this round was reasoned from, and a provider
         # that could not be read has to reach them as that rather than as a
@@ -324,7 +336,10 @@ def investigator_node(
         candidates_formed=state.candidates_formed + len(candidates),
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,
-        narration=Narration(action=_what_the_investigation_did(hypothesis)),
+        # The spent list in the walk's own words for one, since it is the same
+        # move for the same reason.
+        narration=(nothing_left_to_try(state.attempts) if the_list_is_spent
+                   else Narration(action=_what_the_investigation_did(hypothesis))),
     )
 
 
@@ -522,14 +537,22 @@ def _the_alarm_was_disproven(state: IncidentState,
 def _what_the_investigation_did(hypothesis: Hypothesis) -> str:
     """What the timeline records the Investigator as having done (spec §11.2).
 
-    Two escalations reach this line for different reasons, and the timeline is
-    where a human finds out which. A named cause below the threshold means a
-    hypothesis was formed and is on file to be doubted; no cause at all means
-    the loop read everything it was allowed to and still had nothing - the
-    next step there is more evidence, not a second opinion on the first.
+    Two different rounds reach this line, and the timeline is where a human
+    finds out which. A named cause means a hypothesis was formed and the walk
+    goes on to try it; no cause at all means the loop read everything it was
+    allowed to and still had nothing - the next step there is more evidence,
+    not a second opinion on the first.
     """
     return "hypothesis formed" if hypothesis.failure_mode is not None else "insufficient evidence"
 
 
 def route_after_investigation(state: IncidentState) -> str:
-    return MITIGATING_ROUTE if state.status == IncidentStatus.MITIGATING else ESCALATED_ROUTE
+    if state.status == IncidentStatus.MITIGATING:
+        return MITIGATING_ROUTE
+
+    # A round that named only what the walk had already tried, which spends the
+    # list as running out of candidates does.
+    if state.status == IncidentStatus.FIXING:
+        return FIXING_ROUTE
+
+    return ESCALATED_ROUTE

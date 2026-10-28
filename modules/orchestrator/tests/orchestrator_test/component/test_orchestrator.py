@@ -268,6 +268,34 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
 
 
 @pytest.mark.component
+def test_a_round_naming_only_what_was_refuted_ends_at_code_fix_and_a_human(
+    collaborators: Collaborators
+) -> None:
+    # The second round is told the flag was put back and did not help, and names
+    # it again anyway. Changing it again would run an experiment already run, so
+    # the walk passes over it - and a round with nothing new on it has spent the
+    # list rather than found nothing. What remains is a permanent fix, as for any
+    # spent list, and when Code-Fix has none either, a person.
+    Scenario() \
+        .given(
+            the_same_answer_twice := replace(collaborators,
+                                             take=_an_action_that(Verdict.REFUTED))
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), the_same_answer_twice)) \
+        .then(all_of(
+            _the_walk_went(INVESTIGATOR_NODE,
+                           MITIGATION_PROPOSAL_NODE,
+                           TIER_GATE_NODE,
+                           MITIGATION_NODE,
+                           NEXT_CANDIDATE_NODE,
+                           INVESTIGATOR_NODE,
+                           CODEFIX_NODE,
+                           REMEMBERING_NODE,
+                           POSTMORTEM_NODE),
+            _the_incident_ended(IncidentStatus.ESCALATED)))
+
+
+@pytest.mark.component
 def test_an_incident_nobody_wants_any_more_leaves_the_graph_at_once(
     collaborators: Collaborators,
     transition_incident: MagicMock

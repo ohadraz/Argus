@@ -155,19 +155,30 @@ def next_candidate_node(state: IncidentState,
     # No mitigation is left, and what remains is a permanent fix - which is
     # the one thing `fixing` means. Reported, not decided: the index past the end
     # of the list, and no round left to buy, are what say so.
-    #
-    # How many actions, and nothing about what became of them: a restart puts
-    # nothing back and a change left as found was not put back, and where a
-    # change was put back or left as found, its verdict's own line says so.
     return StateDelta(
         attempts=attempts,
         candidate_index=next_index,
-        narration=Narration(
-            action="no explanation left to try",
-            detail=(
-                f"no explanation left to try - {_how_many_were_taken(len(attempts))}, "
-                f"and the evidence offers nothing further"
-            )
+        narration=nothing_left_to_try(attempts)
+    )
+
+
+def nothing_left_to_try(attempts: Sequence[Attempt]) -> Narration:
+    """What the walk says on its way to Code-Fix with its list spent.
+
+    Public because two nodes spend a list: this one, out of candidates, and
+    the investigation, whose round named only what the walk had already
+    tried. One sentence for both, so the two roads to the same move cannot
+    come to say it differently.
+
+    How many actions, and nothing about what became of them: a restart puts
+    nothing back and a change left as found was not put back, and where a
+    change was put back or left as found, its verdict's own line says so.
+    """
+    return Narration(
+        action="no explanation left to try",
+        detail=(
+            f"no explanation left to try - {_how_many_were_taken(len(attempts))}, "
+            f"and the evidence offers nothing further"
         )
     )
 

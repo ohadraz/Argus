@@ -66,6 +66,9 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (START, INVESTIGATOR_NODE),
 
     (INVESTIGATOR_NODE, MITIGATION_PROPOSAL_NODE),
+    # A round that named only what the walk had already tried has spent the
+    # list, and goes to Code-Fix as a walk out of candidates does.
+    (INVESTIGATOR_NODE, CODEFIX_NODE),
     (INVESTIGATOR_NODE, REMEMBERING_NODE),
     (INVESTIGATOR_NODE, END),
 

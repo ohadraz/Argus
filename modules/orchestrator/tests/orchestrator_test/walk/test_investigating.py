@@ -75,9 +75,10 @@ from argus_testkit import (
 )
 from incident_memory.records import RememberedIncident, WhatWasTried
 from orchestrator.walk import ports
+from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
-from orchestrator.walk.routes import ESCALATED_ROUTE, MITIGATING_ROUTE
+from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.assertions import (
@@ -915,10 +916,10 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     # it must not do is send the walk back to change the same flag a second
     # time, which would spend the round budget flipping one flag back and forth.
     #
-    # The round reports that it found nothing worth trying, which is what ends
-    # the incident. It is a fact about the investigation, not a status: the walk
-    # leaves an identical candidate list behind when it runs out, and those two
-    # do not end the same way.
+    # The round has spent its list rather than found nothing: it named a cause,
+    # and the walk has already answered it. So it leaves no candidate under test
+    # and does not report nothing worth trying - the fact that sends a round
+    # naming no cause to a human, where this one goes on to a fix.
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
         update={"attempts": [_an_attempt_to(putting_back(SOME_FLAG))]}
     )
@@ -939,7 +940,7 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
 
 
 @pytest.mark.unit
@@ -971,7 +972,47 @@ def test_a_later_round_does_not_restart_a_service_it_already_restarted(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
+
+
+@pytest.mark.unit
+def test_a_round_that_spent_the_list_says_so_in_the_walks_words(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # The move it leads to is the one the walk makes when it runs out of
+    # candidates, for the same reason, so it is said in the same words. Said as
+    # "hypothesis formed", it reached the timeline, Slack and the postmortem as
+    # the reason the incident went to a human.
+    the_attempts = [_an_attempt_to(putting_back(SOME_FLAG))]
+    a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
+        update={"attempts": the_attempts}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_candidate_blaming(a_round_after_that_flag_was_tried.incident_id,
+                                    SOME_FLAG)))
+        ) \
+        .when(
+            lambda: investigator_node(a_round_after_that_flag_was_tried,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(the_result_at("narration", nothing_left_to_try(the_attempts)))
+
+
+@pytest.mark.unit
+def test_an_investigation_that_spent_the_list_goes_on_to_a_fix() -> None:
+    Scenario() \
+        .given(a_fixing_incident := _an_incident_in(IncidentStatus.FIXING)) \
+        .when(lambda: route_after_investigation(a_fixing_incident)) \
+        .then(the_route_is(FIXING_ROUTE))
 
 
 @pytest.mark.unit
@@ -1570,7 +1611,7 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
                                       fetch_dependencies=fetch_dependencies,
                                       fetch_deployments=fetch_deployments)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
 
 
 @pytest.mark.unit
@@ -1604,7 +1645,7 @@ def test_a_later_round_does_not_hold_the_fleet_to_a_card_it_already_held_it_to(
                                       fetch_flag_changes=fetch_flag_changes,
                                       fetch_dependencies=fetch_dependencies)
         ) \
-        .then(the_result_at("nothing_worth_trying", True))
+        .then(_the_round_spent_the_list())
 
 
 @pytest.mark.unit
@@ -2435,6 +2476,30 @@ def _the_round_was_handed(expected: int) -> Assertion[StateDelta]:
             raise AssertionError(
                 f"Expected the round to keep that it was handed [{expected}] "
                 f"attempt(s), got [{result.attempts_handed}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_round_spent_the_list() -> Assertion[StateDelta]:
+    """No candidate left under test, and not a round that found nothing.
+
+    Both, because each alone is true of another round as well: a round that
+    named no cause leaves nothing under test either, and one with a candidate
+    to try does not report finding nothing.
+    """
+    def assertion(result: StateDelta) -> bool:
+        candidates = result.candidates or []
+
+        if not candidates or result.candidate_index != len(candidates) \
+                or result.nothing_worth_trying:
+            raise AssertionError(
+                f"Expected the round to leave no candidate of its {len(candidates)} "
+                f"under test without reporting nothing worth trying, it left the "
+                f"index at [{result.candidate_index}] and nothing worth trying "
+                f"[{result.nothing_worth_trying}]."
             )
 
         return True
