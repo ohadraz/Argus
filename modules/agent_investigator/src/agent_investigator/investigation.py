@@ -282,6 +282,7 @@ def investigate(
     still_wanted: StillWanted = wanted_throughout,
     leads: Leads = no_leads,
     established_onset: EstablishedOnset | None = None,
+    earlier_candidates: int = 0,
     sleep: Callable[[float], None] = time.sleep
 ) -> Findings:
     """Investigates one incident as a tool-use conversation (spec §9),
@@ -309,6 +310,11 @@ def investigate(
     followed the action - a flap after a revert - rather than a better reading
     of when the incident began. Handed one, the round works from it, grade and
     all, and announces no onset of its own.
+
+    `earlier_candidates` is how many candidates the incident's earlier rounds
+    formed, and what this round numbers its own from (`Hypothesis.number`): a
+    candidate is said by its number the moment it is formed, so the count has
+    to be in hand then.
 
     The collaborators are default-argument seams: the real retrieval calls and
     the real model in production, doubles in a test, and no monkeypatching
@@ -387,7 +393,7 @@ def investigate(
             because=str(unanswered)
         )
 
-        return _nothing_could_be_read(alert, incident_id, narrator)
+        return _nothing_could_be_read(alert, incident_id, earlier_candidates, narrator)
 
     if _a_flat_window_short_of_the_alarms_minute(
         alert, metric_buckets, thresholds, established_onset
@@ -466,7 +472,7 @@ def investigate(
         # having been able to see than to having seen a well service - and an
         # alarm closed on an empty window would be closed on no evidence.
         return _the_alarm_was_disproven(
-            alert, incident_id, metric_buckets, narrator
+            alert, incident_id, earlier_candidates, metric_buckets, narrator
         )
 
     if onset is None and the_window_cannot_contradict_it:
@@ -491,7 +497,7 @@ def investigate(
         # is anchored on an onset the metrics do not contain, and nothing else
         # has offered one - not even the minute the alarm fired in, which this
         # alert did not say.
-        return _nothing_to_say(alert, incident_id, metric_buckets, narrator)
+        return _nothing_to_say(alert, incident_id, earlier_candidates, metric_buckets, narrator)
 
     # The minute and its grade as one value, so a later round is handed both and
     # never grades a minute it was given by a window it read itself.
@@ -598,7 +604,7 @@ def investigate(
         if not still_wanted():
             logger.info("investigation stopped, incident no longer wanted")
 
-            return _stopped(alert, incident_id, dispatcher)
+            return _stopped(alert, incident_id, earlier_candidates, dispatcher)
 
         try:
             turn = speak(transcript, _the_tools_for(tools, shown))
@@ -619,7 +625,8 @@ def investigate(
             logger.warning("answer truncated")
 
             return replace(
-                _cut_short(alert, incident_id, metric_buckets, dispatcher, narrator),
+                _cut_short(alert, incident_id, earlier_candidates, metric_buckets, dispatcher,
+                           narrator),
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
                 leads_weighed=_the_leads_weighed(shown, weighed),
@@ -629,7 +636,8 @@ def investigate(
             logger.warning("model declined to answer")
 
             return replace(
-                _declined(alert, incident_id, metric_buckets, dispatcher, narrator),
+                _declined(alert, incident_id, earlier_candidates, metric_buckets, dispatcher,
+                          narrator),
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
                 leads_weighed=_the_leads_weighed(shown, weighed),
@@ -647,7 +655,7 @@ def investigate(
         # together is answered with its weighings counted.
         weighings = [_weigh(call, shown, weighed)
                      for call in turn.tool_calls if call.name == WEIGH_TOOL]
-        answered = _the_answer_in(turn, incident_id)
+        answered = _the_answer_in(turn, incident_id, earlier_candidates)
         unweighed = [label for label, _lead in labelled(shown) if label not in weighed]
 
         if isinstance(answered, list) and unweighed and not reached:
@@ -684,7 +692,8 @@ def investigate(
 
             return replace(
                 _ran_out(
-                    alert, incident_id, metric_buckets, reached, dispatcher, narrator
+                    alert, incident_id, earlier_candidates, metric_buckets, reached, dispatcher,
+                    narrator
                 ),
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
@@ -749,7 +758,9 @@ def _the_placement_recorded(service: str,
     return placement
 
 
-def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResult | None:
+def _the_answer_in(turn: Turn,
+                   incident_id: str,
+                   earlier_candidates: int) -> list[Hypothesis] | ToolResult | None:
     """The investigation's answer, if this turn carried one.
 
     Three outcomes, because the answer tool can be called well, called badly,
@@ -763,7 +774,7 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
         return None
 
     try:
-        return _hypotheses_in(answering, incident_id)
+        return _hypotheses_in(answering, incident_id, earlier_candidates)
     except (ValidationError, TypeError, AttributeError) as malformed:
         logger.warning("answer could not be read", exc_info=True)
 
@@ -780,12 +791,15 @@ def _the_answer_in(turn: Turn, incident_id: str) -> list[Hypothesis] | ToolResul
         )
 
 
-def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
+def _hypotheses_in(answering: ToolCall,
+                   incident_id: str,
+                   earlier_candidates: int) -> list[Hypothesis]:
     """The model's ranked explanations, joined to the incident they explain.
 
     The order is the model's own, because it was asked for one: the first is
     what a mitigation tries first. `rank` is written down rather than left as
-    list position, since rows come back from a table in no order at all.
+    list position, since rows come back from a table in no order at all. Each
+    is numbered on from `earlier_candidates`, in that order.
 
     `incident_id` is supplied here rather than asked of the model. It is not
     something the model knows, and a schema offering the field would be
@@ -811,7 +825,8 @@ def _hypotheses_in(answering: ToolCall, incident_id: str) -> list[Hypothesis]:
             from_state=explanation.get("from_state"),
             to_state=explanation.get("to_state"),
             faulting_service=explanation.get("faulting_service"),
-            rank=rank
+            rank=rank,
+            number=earlier_candidates + rank
         )
         for rank, explanation in enumerate(answering.arguments[HYPOTHESES_ARG], start=1)
     ]
@@ -973,6 +988,7 @@ def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolRes
 
 def _ran_out(alert: Alert,
              incident_id: str,
+             earlier_candidates: int,
              metric_buckets: list[MetricBucket],
              reached: list[Bound],
              dispatcher: Dispatcher,
@@ -991,14 +1007,17 @@ def _ran_out(alert: Alert,
     """
     spent = ", ".join(bound.value for bound in reached)
     ended = f"the investigation ran out of {spent} before it identified one"
-    undetermined = _undetermined(alert, incident_id, ended, metric_buckets)
+    undetermined = _undetermined(alert, incident_id, earlier_candidates, ended, metric_buckets)
     _say_formed(narrator, undetermined)
     narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
 
     return Findings(candidates=[undetermined], already_read=dispatcher.readings)
 
 
-def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings:
+def _stopped(alert: Alert,
+             incident_id: str,
+             earlier_candidates: int,
+             dispatcher: Dispatcher) -> Findings:
     """The outcome when the incident stopped being wanted mid-investigation.
 
     Says nothing to the timeline - no hypothesis formed, no channels left
@@ -1010,6 +1029,7 @@ def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings
         candidates=[_undetermined(
             alert,
             incident_id,
+            earlier_candidates,
             "the investigation was stopped because the incident is no longer wanted",
             []
         )],
@@ -1020,6 +1040,7 @@ def _stopped(alert: Alert, incident_id: str, dispatcher: Dispatcher) -> Findings
 
 def _cut_short(alert: Alert,
                incident_id: str,
+               earlier_candidates: int,
                metric_buckets: list[MetricBucket],
                dispatcher: Dispatcher,
                narrator: Narrator) -> Findings:
@@ -1044,6 +1065,7 @@ def _cut_short(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         "the model's turn was cut short before it finished, and asking again "
         "would put the same question with no more room to answer it",
         metric_buckets
@@ -1056,6 +1078,7 @@ def _cut_short(alert: Alert,
 
 def _declined(alert: Alert,
               incident_id: str,
+              earlier_candidates: int,
               metric_buckets: list[MetricBucket],
               dispatcher: Dispatcher,
               narrator: Narrator) -> Findings:
@@ -1070,6 +1093,7 @@ def _declined(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         "the model declined to answer, and asking again would put the same "
         "evidence to it",
         metric_buckets
@@ -1252,11 +1276,13 @@ def _the_onset_the_alert_states(alert: Alert) -> str | None:
 
 def _nothing_to_say(alert: Alert,
                     incident_id: str,
+                    earlier_candidates: int,
                     metric_buckets: list[MetricBucket],
                     narrator: Narrator) -> Findings:
     """The outcome when the metrics show no incident to investigate."""
     undetermined = _undetermined(
-        alert, incident_id, _reason_nothing_was_found(metric_buckets), metric_buckets
+        alert, incident_id, earlier_candidates, _reason_nothing_was_found(metric_buckets),
+        metric_buckets
     )
     _say_formed(narrator, undetermined)
 
@@ -1265,6 +1291,7 @@ def _nothing_to_say(alert: Alert,
 
 def _the_alarm_was_disproven(alert: Alert,
                              incident_id: str,
+                             earlier_candidates: int,
                              metric_buckets: list[MetricBucket],
                              narrator: Narrator) -> Findings:
     """The outcome when the window contradicts what the alarm claimed.
@@ -1295,6 +1322,7 @@ def _the_alarm_was_disproven(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         (
             f"the alarm reported a condition on a series, and no minute of the "
             f"{disproof.minutes_judged} read between {disproof.earliest_minute} "
@@ -1313,6 +1341,7 @@ def _the_alarm_was_disproven(alert: Alert,
 
 def _nothing_could_be_read(alert: Alert,
                            incident_id: str,
+                           earlier_candidates: int,
                            narrator: Narrator) -> Findings:
     """The outcome when the metrics could not be read at all.
 
@@ -1329,6 +1358,7 @@ def _nothing_could_be_read(alert: Alert,
     undetermined = _undetermined(
         alert,
         incident_id,
+        earlier_candidates,
         (
             "the service's metrics could not be read, so nothing here says "
             "whether any minute departed from its baseline - which is not the "
@@ -1343,6 +1373,7 @@ def _nothing_could_be_read(alert: Alert,
 
 def _undetermined(alert: Alert,
                   incident_id: str,
+                  earlier_candidates: int,
                   reason: str,
                   metric_buckets: list[MetricBucket]) -> Hypothesis:
     """The honest outcome: no cause, and no confidence to go with it.
@@ -1360,7 +1391,8 @@ def _undetermined(alert: Alert,
         ),
         failure_mode=None,
         confidence=None,
-        supporting_evidence=[]
+        supporting_evidence=[],
+        number=earlier_candidates + 1
     )
 
 
@@ -1387,6 +1419,7 @@ def _say_formed(narrator: Narrator, hypothesis: Hypothesis) -> None:
         from_state=hypothesis.from_state,
         to_state=hypothesis.to_state,
         rank=hypothesis.rank,
+        number=hypothesis.number,
         evidence=hypothesis.supporting_evidence
     )
 

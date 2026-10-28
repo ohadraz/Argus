@@ -1767,6 +1767,83 @@ def test_the_graph_says_what_action_it_took_and_for_which_candidate(
 
 
 @pytest.mark.unit
+def test_the_action_announced_says_the_number_of_the_candidate_it_was_for(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The number every telling says the candidate by. The move to mitigating
+    # names no candidate, so this line is where a reader learns which cause the
+    # action answered - and a reader told nothing takes it for the leader's.
+    published: list[IncidentEvent] = []
+    a_second_rounds_candidate = a_determined_hypothesis(a_random_id()).model_copy(
+        update={"number": 3})
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=a_second_rounds_candidate
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(all_of(
+            _the_action_announced_was_for_candidate(3, published),
+            _the_verdict_was_for_candidate(3, complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_an_attempt_that_ended_before_its_write_says_the_candidate_it_was_for(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # Announced by nothing else: the verdict's line is the one saying what was
+    # reached for, so it is the one saying for which candidate.
+    a_second_rounds_candidate = a_determined_hypothesis(a_random_id()).model_copy(
+        update={"number": 3})
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED, judged=False,
+                                                  performed=False)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_a_rollback_action(), about=a_second_rounds_candidate
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _the_verdict_was_for_candidate(3, complete_action)
+        )
+
+
+@pytest.mark.unit
 def test_the_graph_says_which_way_it_moved_the_flag(
     take: MagicMock,
     record_action: MagicMock,
@@ -2848,6 +2925,38 @@ def _exactly_one_action_was_announced(candidate: Hypothesis,
             raise AssertionError(
                 f"Expected [{action.action_type}] for candidate [{candidate.id}], "
                 f"got [{announced.action_type}] for [{announced.hypothesis_id}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_announced_was_for_candidate(number: int,
+                                            published: list[IncidentEvent]
+                                            ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = [event.candidate_number for event in published
+                if isinstance(event, ActionTaken)]
+        if said != [number]:
+            raise AssertionError(
+                f"Expected the action announced for candidate {number}, and it was "
+                f"announced for {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_verdict_was_for_candidate(number: int,
+                                   complete_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = complete_action.call_args.kwargs["narrating"].candidate_number
+        if said != number:
+            raise AssertionError(
+                f"Expected the verdict's line to be for candidate {number}, and it was "
+                f"for {said}."
             )
 
         return True

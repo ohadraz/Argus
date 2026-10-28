@@ -61,7 +61,8 @@ class Investigate(Protocol):
         recorder: Recorder = records_nothing,
         still_wanted: StillWanted = ...,
         leads: Leads = ...,
-        established_onset: EstablishedOnset | None = None
+        established_onset: EstablishedOnset | None = None,
+        earlier_candidates: int = 0
     ) -> Findings: ...
 
 

@@ -415,12 +415,13 @@ def test_each_action_is_said_as_the_narration_words_it_after_the_first() -> None
 @pytest.mark.unit
 def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words() -> None:
     # The candidate's own words for why, not its row's "never tried: ...",
-    # which would say it twice. By its rank, not its summary: that is the
-    # investigator's own sentences, three of them in one write-up, and set
-    # inside this one they run on into the reason. Its label after the rank,
-    # which leads to its row on the page and to nothing where the summary is
-    # said on its own. Called the candidate, as its reason calls it: "the cause
-    # it ranked first" and then "the candidate" read as two things.
+    # which would say it twice. By its place among the candidates formed, not
+    # its summary: that is the investigator's own sentences, three of them in
+    # one write-up, and set inside this one they run on into the reason. Not
+    # its rank either, which restarts with each round. Its label after the
+    # place, which leads to its row on the page and to nothing where the
+    # summary is said on its own. Called the candidate, as its reason calls it:
+    # "the cause it formed first" and then "the candidate" read as two things.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[a_candidate(
@@ -431,7 +432,7 @@ def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words(
             lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
         ) \
         .then(
-            _says("Argus did not test the candidate it ranked first (C1): rolling it back "
+            _says("Argus did not test the first candidate it formed (C1): rolling it back "
                   "would undo a change somebody meant.")
         )
 
@@ -439,7 +440,7 @@ def test_a_cause_argus_held_back_from_testing_is_said_with_why_in_its_own_words(
 @pytest.mark.unit
 def test_a_summary_said_off_the_page_leaves_out_the_labels_that_lead_to_its_rows() -> None:
     # In a channel there is no row for "(C1)" to lead to, so it points nowhere -
-    # and the rank before it already says which candidate it was.
+    # and the place before it already says which candidate it was.
     Scenario() \
         .given(
             summary := the_executive_summary(
@@ -452,16 +453,17 @@ def test_a_summary_said_off_the_page_leaves_out_the_labels_that_lead_to_its_rows
             lambda: said_off_the_page(summary)
         ) \
         .then(all_of(
-            _says("Argus did not test the candidate it ranked first: rolling it back would "
+            _says("Argus did not test the first candidate it formed: rolling it back would "
                   "undo a change somebody meant."),
             _does_not_say("(C1)")
         ))
 
 
 @pytest.mark.unit
-def test_a_held_back_cause_is_ranked_as_its_label_counts_it() -> None:
+def test_a_held_back_cause_is_counted_as_its_label_counts_it() -> None:
     # Candidates blaming one move are one row; the label still counts each
-    # candidate, and "ranked second (C3)" names a rank the label contradicts.
+    # candidate, and "the second candidate it formed (C3)" names a place the
+    # label contradicts.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -476,7 +478,7 @@ def test_a_held_back_cause_is_ranked_as_its_label_counts_it() -> None:
             lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
         ) \
         .then(
-            _says("Argus did not test the candidate it ranked third (C3): nothing could "
+            _says("Argus did not test the third candidate it formed (C3): nothing could "
                   "confirm it.")
         )
 

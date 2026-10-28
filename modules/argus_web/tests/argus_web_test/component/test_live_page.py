@@ -476,5 +476,6 @@ def _a_hypothesis_formed_for(incident_id: str) -> HypothesisFormed:
         failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
         confidence=0.9,
         subject="dont-care-flag",
-        rank=1
+        rank=1,
+        number=1
     )

@@ -41,19 +41,20 @@
 
   <h2>Candidates</h2>
 
-  {# Every candidate the investigation formed, in rank order - including the
+  {# Every candidate the investigation formed, in the order it formed them and
+     by the number the timeline and the chat give each - including the
      ones the walk never reached. Showing only what was tried would make every
      incident look like a lucky guess. #}
   <ul class="candidates">
   {% for candidate in incident.candidates %}
     <li class="candidate"
-        data-rank="{{ candidate.rank }}"
+        data-number="{{ candidate.number }}"
         data-subject="{{ candidate.subject if candidate.subject is not none else '' }}"
         data-tested="{{ 'true' if candidate.tested else 'false' }}"
         data-result="{{ candidate.result if candidate.result is not none else '' }}">
 
       <p class="claim">
-        <span class="rank">#{{ candidate.rank }}</span>
+        <span class="number">#{{ candidate.number }}</span>
         {{ candidate.summary | references([], candidate.links) }}
         {% if candidate.subject %}<code>{{ candidate.subject | references([], candidate.links) }}</code>{% endif %}
         {# The move it blamed, struck through and picked out - the same shape

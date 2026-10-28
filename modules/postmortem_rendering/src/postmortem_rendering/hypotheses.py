@@ -1,4 +1,4 @@
-"""What the investigation considered: every candidate it ranked, how confident
+"""What the investigation considered: every candidate it formed, how confident
 it was, and what became of each - from the record, ruled-out ones included,
 since what was ruled out is half of what a reader is owed.
 
@@ -63,7 +63,7 @@ class HypothesesSection(BaseModel):
 
 def the_hypotheses(postmortem: PostmortemDocument,
                    day: date | None = None) -> HypothesesSection:
-    """Every candidate ranked, in the order the investigation ranked them.
+    """Every candidate formed, in the order the investigation formed them.
 
     `day` is the one the document is dated by: a clock time a candidate names
     with the wire's zone marker is put on it, as the page puts one on the day

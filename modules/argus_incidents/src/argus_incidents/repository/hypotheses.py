@@ -20,8 +20,8 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
             "INSERT INTO hypothesis "
             "       (id, incident_id, summary, failure_mode, confidence, "
             "        supporting_evidence, subject, from_state, to_state, "
-            "        faulting_service, rank, tested, result) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "        faulting_service, rank, number, tested, result) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 hypothesis.id,
                 hypothesis.incident_id,
@@ -40,6 +40,7 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                 hypothesis.to_state,
                 hypothesis.faulting_service,
                 hypothesis.rank,
+                hypothesis.number,
                 hypothesis.tested,
                 hypothesis.result,
             ),
@@ -73,7 +74,7 @@ def record_outcome(
 
 
 def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypothesis]:
-    """Every candidate an incident formed, best-ranked first.
+    """Every candidate an incident formed, in the order it formed them.
 
     `get_latest_by_incident` answers with one row, which is the shape that hides
     a walk: an incident resolved on its second candidate looks, through that
@@ -81,17 +82,21 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
     investigation considered needs all of them, including the ones it never
     reached - an untried candidate is a fact about the walk, not a gap in it.
 
-    Ordered by rank, with `created_at` breaking ties, so two candidates the
-    Investigator ranked equally still read back in the order it formed them.
+    Ordered by each candidate's number (`Hypothesis.number`), which counts them
+    across the incident's rounds - not by rank, which restarts with each round
+    and would set a later round's best between an earlier round's own. Not by
+    when each row was written either: a round's rows are written in the order
+    memory left them, which is not the order they were formed and numbered in.
+    `created_at` breaks a tie, between rows that never said their number.
     """
     with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, summary, failure_mode, confidence, "
             "       supporting_evidence, subject, from_state, to_state, "
-            "       faulting_service, rank, tested, result "
+            "       faulting_service, rank, number, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
-            "ORDER BY rank, created_at",
+            "ORDER BY number, created_at",
             (incident_id,),
         )
         return cursor.fetchall()
@@ -100,12 +105,13 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
 def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypothesis | None:
     """The best answer of the most recent investigation of an incident.
 
-    Rank first, then recency - not recency alone. A verdict is written one
-    candidate per transaction, best first, so the newest row of an investigation
-    is its *weakest* alternative, the one that names no cause at all. Ordering
-    by time alone therefore answers "what did Argus conclude?" with the reading
-    it explicitly ranked last, and does so most confidently exactly when the
-    model offered the most alternatives.
+    Rank first, then recency - not recency alone. A round's candidates are
+    written one per transaction, in the order memory left them, so the newest
+    row of an investigation is whichever it left last - ordinarily its *weakest*
+    alternative, the one that names no cause at all. Ordering by time alone
+    therefore answers "what did Argus conclude?" with a reading it ranked below
+    its best, and does so most confidently exactly when the model offered the
+    most alternatives.
 
     Rank alone would be no better: an incident investigated a second time has
     two candidates ranked first, and the earlier one has already been refuted.
@@ -119,7 +125,7 @@ def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypoth
         cursor.execute(
             "SELECT id, incident_id, summary, failure_mode, confidence, "
             "       supporting_evidence, subject, from_state, to_state, "
-            "       faulting_service, rank, tested, result "
+            "       faulting_service, rank, number, tested, result "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY rank, created_at DESC "

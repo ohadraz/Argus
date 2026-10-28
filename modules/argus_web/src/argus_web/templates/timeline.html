@@ -60,13 +60,14 @@
           <p class="aside">{{ line.aside }}</p>
         {% endif %}
 
-        {# The explanations, ranked, each with what it was formed from. The
-           findings sit under the claim they support, because a reader asking
-           "why does it think that" is looking at the claim when they ask. #}
+        {# The explanations, best first and each by its number, with what it
+           was formed from. The findings sit under the claim they support,
+           because a reader asking "why does it think that" is looking at the
+           claim when they ask. #}
         {% if line.candidates %}
         <ol class="candidates">
           {% for candidate in line.candidates %}
-          <li data-candidate="{{ candidate.rank }}">
+          <li data-candidate="{{ candidate.number }}" value="{{ candidate.number }}">
             <span class="claim">{{ candidate.summary | references([], line.links) }}</span>
             {# The change it blamed, drawn the way the flag table draws one.
                Beside the claim rather than inside it: the model's sentence is

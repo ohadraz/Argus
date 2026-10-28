@@ -48,6 +48,7 @@ from argus_core.models import (
     Transcript,
     Turn,
     changes_not_listed,
+    for_the_candidate,
     labelled,
     no_logs_listed,
     shorter_than_the_rules_wait,
@@ -101,6 +102,7 @@ from agent_postmortem.revisions import revisions_of
 from agent_postmortem.sections import (
     ACTION_PREFIX,
     AS_IT_RAN_PREFIX,
+    CANDIDATE_PREFIX,
     CODE_READING_PREFIX,
     DEPLOYMENT_CHANGES_PREFIX,
     PRODUCTION_CHANGE_PREFIX,
@@ -1617,7 +1619,7 @@ def _a_cause_as_a_line(cause: OneCause) -> str:
     what became of it - or, where it stands for several, a line naming the
     move they blame and each of them so on a line of its own.
 
-    Said in the best-ranked one's words alone, a cause standing for several
+    Said in the first one's words alone, a cause standing for several
     shows one candidate's words and confidence as all of theirs, and the
     verdict as reached by each. So each says what became of it as the page's
     row does (`result_of`): two spellings of one fact read as two facts.
@@ -1655,8 +1657,13 @@ def _in_its_own_words(summary: str,
 
 
 def _an_action_as_a_line(action: ActionRecord) -> str:
-    """An action, whether it left anything to put back, its verdict, and
-    whether it still stands.
+    """An action, the candidate it was for, whether it left anything to put
+    back, its verdict, and whether it still stands.
+
+    The candidate because nothing else in the brief says it: the move to
+    mitigating names none, and a write-up told an action was taken after
+    "to act on the leading candidate" credited it to the leader - and called
+    the candidate it was for never acted on.
 
     Whether it can be put back is said in the page's own words: the brief said
     nothing of it, and a model guessed "reversible" a section away from a row
@@ -1667,7 +1674,9 @@ def _an_action_as_a_line(action: ActionRecord) -> str:
     way_back = (f" ({whether_it_can_be_put_back(action.has_a_way_back,
                                                 action.left_behind_known)})"
                 if action.has_a_way_back else "")
-    return (f"{action.action}{way_back} - "
+    candidate = (f" {for_the_candidate(f'[{label_of(CANDIDATE_PREFIX, action.candidate)}]')}"
+                 if action.candidate is not None else "")
+    return (f"{action.action}{candidate}{way_back} - "
             f"{what_it_came_to(action.verdict, action.progress)}, {action.standing}")
 
 

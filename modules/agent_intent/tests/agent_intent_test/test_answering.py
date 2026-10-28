@@ -128,7 +128,7 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
      "Reverted the feature flag checkout, moved from ON to OFF"),
     (NarrationLine(at=datetime(2026, 10, 11, 12, 3, tzinfo=UTC), kind="hypothesis-formed",
                    who="Investigator Agent", text="Formed 1 candidate cause, best first:",
-                   candidates=[CandidateLine(hypothesis_id="h1", rank=1,
+                   candidates=[CandidateLine(hypothesis_id="h1", number=1,
                                              summary="The checkout flag broke the page",
                                              subject="checkout", confidence="0.8",
                                              evidence=[])]),

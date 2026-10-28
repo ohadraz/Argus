@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from argus_core.models import OpenedPullRequest, ResolutionStep, TimelineEntry
+from argus_core.models import OpenedPullRequest, Refusal, ResolutionStep, TimelineEntry
 from argus_testkit import Assertion, Scenario, the_answer_was
 from postmortem_rendering.actions_taken import (
     ActionsTakenSection,
@@ -46,6 +46,49 @@ def test_each_action_is_a_row_saying_when_what_who_whether_it_undoes_and_what_it
                                         text="turned monthly-spend-feature off"),)),
                                     by="Argus", kind="can be put back",
                                     outcome="recovered, still in place"),)))
+
+
+@pytest.mark.unit
+def test_an_action_says_the_candidate_it_was_for_citing_that_candidate_s_row() -> None:
+    # Nothing else in the document says which cause an action answered, and a
+    # reader left to guess takes it for the leading candidate's. Cited, so the
+    # label leads to the candidate's row as it does from the prose.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="Did not roll back io-shop",
+                               by="Argus", has_a_way_back=False,
+                               outcome="escalated, nothing was changed", label="M1",
+                               candidate="C3")])
+        ) \
+        .when(
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).steps[0].action
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="Did not roll back io-shop for "),
+                                      Run(text="C3", role=Role.CITATION, address="C3")))))
+
+
+@pytest.mark.unit
+def test_a_refusal_cites_the_candidate_its_words_name() -> None:
+    # Its words name the candidate already, as its line in the timeline does,
+    # so it is cited where it stands - leading to the candidate's row as the
+    # row above it does - rather than said a second time after them.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="Refused to act on C3 - some reason",
+                               by="Argus", has_a_way_back=False, outcome="not taken",
+                               label=None, refused=Refusal.WOULD_UNDO_A_MEANT_CHANGE,
+                               candidate="C3")])
+        ) \
+        .when(
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).steps[0].action
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="Refused to act on "),
+                                      Run(text="C3", role=Role.CITATION, address="C3"),
+                                      Run(text=" - some reason")))))
 
 
 @pytest.mark.unit

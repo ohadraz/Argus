@@ -503,6 +503,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
             rank=1,
+            number=1,
             summary="the monthly-spend flag was turned on",
             failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
             confidence=0.8,

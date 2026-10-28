@@ -366,6 +366,11 @@ class HypothesisFormed(_Event):
     from_state: str | None = None
     to_state: str | None = None
     rank: int
+    # Which candidate of the incident this is, across every round
+    # (`Hypothesis.number`): what the line says it as, here and in the chat,
+    # where `rank` restarts with each round and two rounds' first would read
+    # as one.
+    number: int
     # What the candidate rests on, as the Investigator cited it. A claim
     # published without its evidence is an assertion, and an account of an
     # investigation that shows only conclusions asks its reader to take them on
@@ -422,6 +427,11 @@ class ActionTaken(_Event):
 
     kind: Literal["action-taken"] = "action-taken"
     hypothesis_id: UuidStr | None
+    # The number of the candidate it was for (`Hypothesis.number`), so the line
+    # says which: the move to mitigating cannot, and an action read against
+    # the wrong candidate is a verdict credited to the wrong cause. `None`
+    # where it was for none, and on an event written before it was carried.
+    candidate_number: int | None = None
     # The tag, not a free string: every renderer of this event matches on it
     # exhaustively, so a second kind of action is a type error where the words
     # for it are written rather than a row that renders as its own identifier.
@@ -532,6 +542,9 @@ class VerdictReached(_Event):
 
     kind: Literal["verdict-reached"] = "verdict-reached"
     hypothesis_id: UuidStr | None
+    # The number of the candidate the action was for, as `ActionTaken` carries
+    # it: an attempt that ended before its write is said by this line alone.
+    candidate_number: int | None = None
     outcome: Verdict
     action_type: ActionType | None = None
     subject: str | None = None
@@ -580,6 +593,10 @@ class ActionRefused(_Event):
     # to is still a refusal, and skipping it would leave the gap this event
     # exists to close.
     hypothesis_id: UuidStr | None
+    # The number of the candidate the refused action was for, as `ActionTaken`
+    # carries it: a chat with no candidate panel cannot tell a later round's
+    # refusal from the first's otherwise, nor two refused for one reason apart.
+    candidate_number: int | None = None
     refusal: Refusal
 
 
@@ -605,6 +622,9 @@ class ActionRecommended(_Event):
 
     kind: Literal["action-recommended"] = "action-recommended"
     hypothesis_id: UuidStr | None
+    # The number of the candidate the recommendation answers, for the reason
+    # the refusal beside it carries one.
+    candidate_number: int | None = None
     action_type: ActionType
     subject: str | None
 

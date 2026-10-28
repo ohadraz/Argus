@@ -284,6 +284,29 @@ def test_a_candidate_never_tried_for_a_reason_is_still_one_nobody_tried() -> Non
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("result", ["action not taken", "action not taken: some reason"])
+def test_a_candidate_whose_action_was_not_taken_is_still_one_nobody_tried(result: str) -> None:
+    # Its action was reached for and ended before its write, so nothing was
+    # changed and nothing tested it. Said apart from "never tried" on its row,
+    # and counted with it here: read as a verdict, it would make a cause nobody
+    # tested one that was tried and came to nothing.
+    Scenario() \
+        .given(
+            a_document_trying_nothing := _a_document(hypotheses=[
+                HypothesisConsidered(summary="dont care", confidence=None,
+                                     result=result, label="C1")
+            ])
+        ) \
+        .when(
+            lambda: review_of(a_document_trying_nothing, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="no candidate was confirmed - none was tried")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("result", ["not known whether tried", "tried, no verdict recorded"])
 def test_a_candidate_whose_change_may_have_been_made_is_not_one_nobody_tried(
         result: str) -> None:

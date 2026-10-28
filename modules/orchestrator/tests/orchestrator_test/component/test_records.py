@@ -508,7 +508,7 @@ def test_a_write_up_is_said_by_its_summary_as_it_reads_off_the_page_with_its_cau
         .given(
             a_document := _a_document_saying(
                 some_cause,
-                f"{some_cause} Argus did not test the candidate it ranked first (C1): it "
+                f"{some_cause} Argus did not test the first candidate it formed (C1): it "
                 f"was held back.")
         ) \
         .when(

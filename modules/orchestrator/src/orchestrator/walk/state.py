@@ -89,6 +89,10 @@ class IncidentState(BaseModel):
     # hard incident has usually spent its whole widening schedule by the time
     # the first attempt comes back refuted.
     rounds: int = 0
+    # How many candidates this incident's rounds have formed, which is what the
+    # next round numbers its own from (`Hypothesis.number`). Not `candidates`'
+    # length: that is the latest round's alone.
+    candidates_formed: int = 0
     # What the flag provider recorded as having changed, read once at the top
     # of each round. Carried rather than fetched where it is used because it is
     # used three times over - deciding what each candidate would be answered

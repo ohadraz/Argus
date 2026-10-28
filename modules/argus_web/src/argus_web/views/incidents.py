@@ -64,7 +64,9 @@ class Candidate(BaseModel):
     investigation over again.
     """
 
-    rank: int
+    # Which candidate of the incident it is (`Hypothesis.number`), as the
+    # timeline and the chat say it.
+    number: int
     summary: str
     failure_mode: FailureMode | None
     confidence: float | None
@@ -240,7 +242,7 @@ def _a_candidate(hypothesis: Hypothesis,
                                 for cited in hypothesis.supporting_evidence)]
 
     return Candidate(
-        rank=hypothesis.rank,
+        number=hypothesis.number,
         summary=summary,
         failure_mode=hypothesis.failure_mode,
         confidence=hypothesis.confidence,

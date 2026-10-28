@@ -168,6 +168,7 @@ def mitigation_node(
             now,
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
             action=state.proposed_action,
             alerting_service=state.alert.service
         )
@@ -203,6 +204,7 @@ def mitigation_node(
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
+            candidate_number=state.hypothesis.number,
             outcome=result.verdict,
             # What was reached for, and whether it was done: for an attempt
             # that ended before its write, this is the only line saying so.
@@ -333,6 +335,7 @@ def _the_change_was_made(advance_action: AdvanceAction,
                          *,
                          incident_id: str,
                          hypothesis_id: str,
+                         candidate_number: int,
                          action: Action,
                          alerting_service: str) -> None:
     """Puts on the claim that its change was made, and what would put it back
@@ -367,6 +370,7 @@ def _the_change_was_made(advance_action: AdvanceAction,
     announcement = ActionTaken(
         incident_id=incident_id,
         hypothesis_id=hypothesis_id,
+        candidate_number=candidate_number,
         action_type=action.action_type,
         subject=the_subject_of(action),
         enabled=the_direction_of(action),

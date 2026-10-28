@@ -201,15 +201,44 @@ def test_a_time_is_shown_in_the_zone_it_is_written_in() -> None:
 
 
 @pytest.mark.component
-def test_an_incident_page_shows_every_candidate_in_rank_order() -> None:
+def test_an_incident_page_shows_every_candidate_by_its_number() -> None:
     # A walk rendered without the candidates it got wrong reads as a lucky
-    # guess. Rank order, because that is the order the walk tried them in.
+    # guess. In the order they were formed across the rounds, each by the
+    # number the timeline and the chat said it by - a second round's first is
+    # #3, where its rank would say #1 and name another candidate.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
-        _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
-        _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
+        _a_candidate_recorded_for(conn, incident_id, subject="third", rank=1, number=3)
+        _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2, number=2)
+        _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1, number=1)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_shows("subject", "first", "second", "third"),
+            the_page_says('<span class="number">#3</span>')
+        ))
+
+
+@pytest.mark.component
+def test_the_timeline_says_each_candidate_by_its_own_number() -> None:
+    # Under the line that formed them, by the number each keeps for the whole
+    # incident, read rather than counted: a list counting from one again would
+    # say a second round's first as #1, the first round's own number.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, HypothesisFormed(
+            incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
+            failure_mode=None, confidence=None, subject=None, rank=1, number=3))
 
     Scenario() \
         .given(
@@ -219,7 +248,7 @@ def test_an_incident_page_shows_every_candidate_in_rank_order() -> None:
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            the_page_shows("subject", "first", "second")
+            the_page_says('<li data-candidate="3" value="3">')
         )
 
 
@@ -425,7 +454,7 @@ def test_a_finding_in_the_timeline_names_its_links_for_the_minute_they_open() ->
                                           lines=["2026-08-30T10:14:12Z ERROR checkout failed"]))
         events.record(conn, HypothesisFormed(
             incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
-            failure_mode=None, confidence=None, subject="a-flag", rank=1,
+            failure_mode=None, confidence=None, subject="a-flag", rank=1, number=1,
             evidence=[Evidence(claim="error rate rose",
                                at=datetime(2026, 8, 30, 10, 14, 30, tzinfo=UTC))]))
 
@@ -2721,7 +2750,7 @@ def test_a_revision_a_candidate_names_opens_its_commit_in_the_timeline_and_the_w
         events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
         events.record(conn, HypothesisFormed(
             incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
-            failure_mode=None, confidence=None, subject=some_revision, rank=1,
+            failure_mode=None, confidence=None, subject=some_revision, rank=1, number=1,
             evidence=[Evidence(claim=f"{some_revision} rewrote the totals", at=None)]))
         _a_candidate_recorded_for(conn, incident_id, subject=some_revision, rank=1,
                                   evidence=[f"{some_revision} rewrote the history"])
@@ -2762,7 +2791,7 @@ def test_a_revision_a_candidate_moved_from_or_to_opens_its_commit_in_the_timelin
                                               some_repository))
         events.record(conn, HypothesisFormed(
             incident_id=incident_id, hypothesis_id=new_id(), summary="dont care",
-            failure_mode=None, confidence=None, subject=None, rank=1,
+            failure_mode=None, confidence=None, subject=None, rank=1, number=1,
             from_state=some_earlier_revision, to_state=some_revision))
         hypotheses.record(conn, Hypothesis(
             incident_id=incident_id, summary="dont care",
@@ -3271,7 +3300,8 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
                               incident_id: str,
                               subject: str,
                               rank: int,
-                              evidence: list[str] | None = None) -> str:
+                              evidence: list[str] | None = None,
+                              number: int = 1) -> str:
     hypothesis = Hypothesis(
         incident_id=incident_id,
         summary=f"dont care - {subject}",
@@ -3280,6 +3310,7 @@ def _a_candidate_recorded_for(conn: psycopg.Connection,
         supporting_evidence=[Evidence(claim=cited, at=None) for cited in evidence or []],
         subject=subject,
         rank=rank,
+        number=number,
     )
     hypotheses.record(conn, hypothesis)
 

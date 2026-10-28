@@ -397,7 +397,7 @@ def test_a_revision_a_candidate_names_is_shown_short_in_its_claim_subject_and_fi
     some_line = NarrationLine(
         at=DONT_CARE_MOMENT, kind="hypothesis-formed", who="Investigator",
         text="Formed one candidate",
-        candidates=[CandidateLine(hypothesis_id="dont care", rank=1,
+        candidates=[CandidateLine(hypothesis_id="dont care", number=1,
                                   summary=f"The deploy of [{SOME_REVISION}] broke it",
                                   subject=SOME_REVISION, confidence=None,
                                   evidence=[Finding(text=f"{SOME_REVISION} rewrote it")])])
@@ -428,7 +428,7 @@ def test_a_revision_a_candidate_moved_from_or_to_is_shown_short_and_leads_to_its
     some_line = NarrationLine(
         at=DONT_CARE_MOMENT, kind="hypothesis-formed", who="Investigator",
         text="Formed one candidate",
-        candidates=[CandidateLine(hypothesis_id="dont care", rank=1, summary="dont care",
+        candidates=[CandidateLine(hypothesis_id="dont care", number=1, summary="dont care",
                                   subject=None, confidence=None,
                                   moved_from=SOME_RIVAL, moved_to=SOME_REVISION, evidence=[])])
 

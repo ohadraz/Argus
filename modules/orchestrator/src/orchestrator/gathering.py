@@ -69,6 +69,7 @@ from argus_core.models import (
     DeploymentRollbackUndo,
     FirstTold,
     FlagUndo,
+    ForCandidate,
     Hypothesis,
     IncidentStatus,
     Meaning,
@@ -216,7 +217,8 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
             {taken.hypothesis_id: taken
              for taken in taken_actions.get_by_incident(conn, incident_id)
              if taken.hypothesis_id is not None}),
-        actions=_what_was_done(conn, incident_id, account, told),
+        actions=_what_was_done(conn, incident_id, account, told,
+                               [hypothesis.id for hypothesis in considered]),
         log_lines=_what_was_read(conn, incident_id),
         logs_read_until=_how_far_the_logs_were_read(account),
         changes=_what_changed(conn, incident_id),
@@ -516,8 +518,10 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
 
     A line that formed candidates also says where they sit in `considered`,
     the hypotheses in the order the document lists them. By id rather than by
-    counting: that list is best first across every round, so a second round's
-    best sits between the first round's own.
+    counting: that list holds every round's candidates, and a line forms only
+    its own round's. And a line acting for a candidate says where that one sits,
+    and in what words the line names it, so the document can say it by its
+    label.
     """
     return [
         TimelineEntry(at=line.at,
@@ -526,9 +530,21 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
                       candidates=[considered.index(candidate.hypothesis_id)
                                   for candidate in line.candidates
                                   if candidate.hypothesis_id in considered],
+                      for_candidate=_the_candidate_it_acted_for(line, considered),
                       outside_the_walk=line.outside_the_walk)
         for line in told
     ]
+
+
+def _the_candidate_it_acted_for(line: NarrationLine,
+                                considered: list[str]) -> ForCandidate | None:
+    """Where the candidate a line acted for sits in `considered`, and the
+    words the line names it in - `None` where it names none the record holds."""
+    named = line.names_candidate
+    if named is None or named.hypothesis_id not in considered:
+        return None
+
+    return ForCandidate(place=considered.index(named.hypothesis_id), said_as=named.said_as)
 
 
 def _the_account_told(account: list[IncidentEvent]) -> list[NarrationLine]:
@@ -631,7 +647,7 @@ def _a_message_as_meant(line: NarrationLine,
 
 def _what_was_considered(considered: list[Hypothesis],
                          actions: Mapping[str, TakenAction]) -> list[CandidateRecord]:
-    """Every candidate ranked, tried or not - and how far Argus's action on
+    """Every candidate formed, tried or not - and how far Argus's action on
     each got, `actions` being the action rows by the candidate they name: a row
     is also written for an attempt that ended before the action itself was
     done, and for one nobody can say the end of.
@@ -661,7 +677,8 @@ def _a_candidate(hypothesis: Hypothesis, action: TakenAction | None) -> Candidat
 def _what_was_done(conn: psycopg.Connection,
                    incident_id: str,
                    account: list[IncidentEvent],
-                   told: list[NarrationLine]) -> list[ActionRecord]:
+                   told: list[NarrationLine],
+                   considered: list[str]) -> list[ActionRecord]:
     """Every action, with what it came to and whether it still stands.
 
     Whether it still stands because a person who resolved the incident left
@@ -682,6 +699,10 @@ def _what_was_done(conn: psycopg.Connection,
     announcements there were. A walk resumed after announcing an action and
     before taking it announces it again; the last announcement is the one it
     was taken by, and the one all three are read off.
+
+    And which candidate it was for, by its place in `considered`, the
+    candidates' ids in the order the document lists them - the place their
+    labels count.
     """
     announced = [event for event in account if isinstance(event, ActionTaken)]
     said = {event.hypothesis_id: event for event in announced if event.hypothesis_id is not None}
@@ -696,7 +717,9 @@ def _what_was_done(conn: psycopg.Connection,
                      paused_sync_of=_whose_sync_it_left_stopped(taken_action),
                      line=where.get(taken_action.hypothesis_id or ""),
                      progress=taken_action.progress,
-                     left_behind_known=_whether_what_it_left_is_known(taken_action))
+                     left_behind_known=_whether_what_it_left_is_known(taken_action),
+                     candidate=(considered.index(taken_action.hypothesis_id) + 1
+                                if taken_action.hypothesis_id in considered else None))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
 

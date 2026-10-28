@@ -729,7 +729,8 @@ def _an_investigation_asking_between_its_turns() -> ports.Investigate:
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         still_wanted()
 
         return Findings(candidates=[], already_read=[])
@@ -747,7 +748,8 @@ def _an_investigation_offering(*candidates: Hypothesis) -> ports.Investigate:
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         return Findings(
             candidates=[candidate.model_copy(update={"incident_id": incident_id})
                         for candidate in candidates],
@@ -1028,7 +1030,8 @@ def _an_investigation_whose_question_is_traced(asked: list[str],
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -1056,7 +1059,8 @@ def _an_investigation_noting_what_it_was_told(told: list[list[ThreadMessage]]
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         told.append(leads())
 
         return Findings(
@@ -1080,7 +1084,8 @@ def _an_investigation_weighing(weighed: list[ThreadMessage]) -> ports.Investigat
                     recorder: Recorder = records_nothing,
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
-                    established_onset: EstablishedOnset | None = None) -> Findings:
+                    established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0) -> Findings:
         return Findings(
             candidates=[a_candidate_blaming(SOME_FLAG).model_copy(
                 update={"incident_id": incident_id}

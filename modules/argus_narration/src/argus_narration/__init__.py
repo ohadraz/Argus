@@ -26,7 +26,9 @@ from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_narration.narrating import (
     CandidateLine,
+    CandidateNamed,
     NarrationLine,
+    a_candidate_cause,
     a_narration_line,
     build_narration,
     each_wait_told_once,
@@ -52,6 +54,7 @@ from argus_narration.showing import (
 __all__ = [
     "BucketRow",
     "CandidateLine",
+    "CandidateNamed",
     "Finding",
     "FlagToggleRow",
     "InstantInProse",
@@ -59,6 +62,7 @@ __all__ = [
     "NarrationLine",
     "ShownRevision",
     "a_bucket_row",
+    "a_candidate_cause",
     "a_finding",
     "a_flag_history",
     "a_log_line",

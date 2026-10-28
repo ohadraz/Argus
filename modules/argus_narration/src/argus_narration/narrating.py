@@ -167,7 +167,9 @@ class CandidateLine(BaseModel):
     # The hypothesis this is, so whatever lays the candidates out elsewhere -
     # the write-up, under labels of its own - can tell which line formed which.
     hypothesis_id: str
-    rank: int
+    # Which candidate of the incident it is (`HypothesisFormed.number`), which
+    # every destination says it by.
+    number: int
     summary: str
     subject: str | None
     confidence: str | None
@@ -177,6 +179,13 @@ class CandidateLine(BaseModel):
     moved_from: str = ""
     moved_to: str = ""
     evidence: list[Finding]
+
+
+class CandidateNamed(BaseModel):
+    """The candidate a line acted for, and the words the line names it in."""
+
+    hypothesis_id: str
+    said_as: str
 
 
 class NarrationLine(BaseModel):
@@ -228,6 +237,11 @@ class NarrationLine(BaseModel):
     # minute is: a destination with a page per incident leads there, and one
     # without simply reads the sentence.
     names_incident: str = ""
+    # The candidate this line acted for, where it names one - which hypothesis,
+    # and the words naming it in `text`. Carried so a destination with labels
+    # of its own for the candidates - the write-up's `C3` - can say it by the
+    # label, rather than beside a row going by one name in words of another.
+    names_candidate: CandidateNamed | None = None
     # A sentence to show under the line rather than in it - so far, what
     # Code-Fix said of the code where no pull request holds its explanation,
     # labelled as a reading nothing ran so it is not taken for a plan of
@@ -540,7 +554,8 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # Nothing was done either: the attempt ended before its write, so
             # no line above announced it, and "judged" would claim a test.
             elif not event.performed:
-                text = f"{_what_was_reached_for_and_not_done(event)} - {emphasis}"
+                text = (f"{_what_was_reached_for_and_not_done(event)}"
+                        f"{_for_its_candidate(event.candidate_number)} - {emphasis}")
             # Done, and never read: every look at the service went unanswered.
             elif not event.judged:
                 text = f"Could not judge the action - {emphasis}"
@@ -568,7 +583,9 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # refusal: the two are different findings, and which of them
             # happened is the only part a person can act on.
             emphasis = why_it_was_refused(event.refusal)
-            text = f"Refused to act - {emphasis}"
+            text = (f"Refused to act on {a_candidate_cause(event.candidate_number)} - {emphasis}"
+                    if event.candidate_number is not None else
+                    f"Refused to act - {emphasis}")
         case ActionRecommended():
             who = _ARGUS
             # The subject rather than the kind, because the kind is not
@@ -582,6 +599,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = (
                 f"Left for a person to do - "
                 f"{what_the_action_does(event.action_type, emphasis)}"
+                f"{_for_its_candidate(event.candidate_number)}"
             )
         case AlarmDisproven():
             who = _ARGUS
@@ -794,6 +812,7 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
         names_incident=_the_incident_it_names(event),
+        names_candidate=_the_candidate_it_names(event, text),
         aside=_what_it_says_beside_itself(event),
         asks_to_confirm=(event.message
                          if isinstance(event, ResolutionOffered | WithdrawalOffered)
@@ -847,7 +866,7 @@ def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
 
     return CandidateLine(
         hypothesis_id=event.hypothesis_id,
-        rank=event.rank,
+        number=event.number,
         summary=said_plainly(event.summary, beside=formed_at),
         subject=event.subject,
         confidence=_a_percentage(event.confidence) if event.confidence else None,
@@ -1236,9 +1255,14 @@ def _why_it_moved(event: StatusChanged) -> str:
     detail on that transition is the candidate's summary, and "moved to
     mitigating - <a paragraph about a flag>" reads as though the paragraph were
     the reason for moving rather than the thing being acted on.
+
+    "A candidate" and not which: the move is made once a round, as the walk
+    first reaches for one, and the walk passes over a candidate it has no
+    action for without moving again - so a move naming the leading candidate
+    named one nobody acted on. The action's own line says which it was for.
     """
     if event.to_status is IncidentStatus.MITIGATING:
-        return " to act on the leading candidate"
+        return " to act on a candidate"
 
     return f" - {event.detail}" if event.detail else ""
 
@@ -1436,8 +1460,36 @@ def _an_action_taken(event: ActionTaken) -> str:
     # placement line above.
     card = f" to {event.accelerator}" if event.accelerator else ""
 
-    return f"{said}{subject}{card}{whose}" \
+    return f"{said}{subject}{card}{whose}{_for_its_candidate(event.candidate_number)}" \
            f"{', moved ' if event.enabled is not None else ''}"
+
+
+def a_candidate_cause(number: int) -> str:
+    """A candidate as every destination names it - the line that formed it,
+    and the lines acting on it. Public because the chat says the formed line
+    itself, and two spellings of one candidate read as two."""
+    return f"candidate cause #{number}"
+
+
+def _the_candidate_it_names(event: IncidentEvent, text: str) -> CandidateNamed | None:
+    """The candidate a line acting for one names, where `text` names it - an
+    action taken or reached for, a refusal, a recommendation."""
+    match event:
+        case ActionTaken() | VerdictReached() | ActionRefused() | ActionRecommended():
+            if event.hypothesis_id is None or event.candidate_number is None:
+                return None
+            said_as = a_candidate_cause(event.candidate_number)
+            return (CandidateNamed(hypothesis_id=event.hypothesis_id, said_as=said_as)
+                    if said_as in text else None)
+        case _:
+            return None
+
+
+def _for_its_candidate(number: int | None) -> str:
+    """Which candidate an action was for, said after the action - or nothing,
+    where its event names none. The move to mitigating names none, so this is
+    the one place a reader learns which cause an action answered."""
+    return f" for {a_candidate_cause(number)}" if number is not None else ""
 
 
 def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:

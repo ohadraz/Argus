@@ -18,6 +18,7 @@ level is read belong to `metrics` and `logs`, and are tested there.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -107,6 +108,7 @@ from argus_core.models import (
     why_it_was_refused,
 )
 from argus_narration.narrating import (
+    CandidateNamed,
     NarrationLine,
     build_narration,
     each_wait_told_once,
@@ -594,12 +596,14 @@ def test_a_candidate_shows_the_move_it_blamed_the_way_the_flag_table_does() -> N
 def test_the_candidates_formed_together_are_one_line() -> None:
     # An investigation forms its explanations in one breath, and a story that
     # spent a line on each would bury what it did next under a list. They are
-    # one finding with a ranking inside it.
+    # one finding with a ranking inside it - each said by its number, which a
+    # later round's carry on from the rounds before, where its rank starts at
+    # one again.
     some_incident = new_id()
 
     two_candidates_then_something_else: list[IncidentEvent] = [
-        _a_hypothesis(summary="the flag", rank=1, incident_id=some_incident),
-        _a_hypothesis(summary="the deploy", rank=2, incident_id=some_incident),
+        _a_hypothesis(summary="the flag", rank=1, incident_id=some_incident, number=3),
+        _a_hypothesis(summary="the deploy", rank=2, incident_id=some_incident, number=4),
         OnsetDetected(incident_id=some_incident, onset=SOME_MINUTE)
     ]
 
@@ -607,7 +611,7 @@ def test_the_candidates_formed_together_are_one_line() -> None:
         .given(two_candidates_then_something_else) \
         .when(lambda: build_narration(two_candidates_then_something_else)) \
         .then(all_of(_the_kinds_are(["hypothesis-formed", "onset-detected"]),
-                     _the_first_line_ranks_the_causes([1, 2])))
+                     _the_first_line_numbers_the_causes([3, 4])))
 
 
 @pytest.mark.unit
@@ -1000,6 +1004,65 @@ def test_a_verdict_on_an_action_never_performed_says_what_was_not_done() -> None
 
 
 @pytest.mark.unit
+def test_a_verdict_on_an_action_never_performed_says_the_candidate_it_was_for() -> None:
+    # The one line saying what was reached for, so the one saying for which
+    # candidate: nothing else does, and a reader takes it for the leader's.
+    some_application = "io-shop"
+    a_verdict_on_nothing_done = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=ROLL_BACK_DEPLOYMENT, subject=some_application, performed=False,
+        candidate_number=3
+    )
+
+    Scenario() \
+        .given(a_verdict_on_nothing_done) \
+        .when(lambda: build_narration([a_verdict_on_nothing_done])) \
+        .then(
+            _the_only_line_reads(f"Did not roll back the deployment of {some_application} "
+                                 f"for candidate cause #3 - ESCALATED")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_taken_says_the_candidate_it_was_for() -> None:
+    # By the number the line that formed it gave it. The move to mitigating
+    # names no candidate, so without this a reader takes every action for the
+    # leading candidate's - and an action for the third reads as the first's.
+    some_application = "io-shop"
+    some_action = ActionTaken(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        candidate_number=3,
+        action_type=ROLL_BACK_DEPLOYMENT,
+        subject=some_application,
+        enabled=None
+    )
+
+    Scenario() \
+        .given(some_action) \
+        .when(lambda: build_narration([some_action])) \
+        .then(
+            _the_only_line_reads(f"Rolled back the deployment of {some_application} "
+                                 f"for candidate cause #3")
+        )
+
+
+@pytest.mark.unit
+def test_the_move_to_mitigating_names_no_candidate() -> None:
+    # Made once a round, as the walk first reaches for a candidate, and not
+    # again as it passes over one it has no action for - so the leading
+    # candidate it used to name was, as often as not, one nobody acted on.
+    the_move = StatusChanged(incident_id=new_id(), to_status=IncidentStatus.MITIGATING)
+
+    Scenario() \
+        .given(the_move) \
+        .when(lambda: build_narration([the_move])) \
+        .then(
+            _the_only_line_reads("Moved the incident to MITIGATING to act on a candidate")
+        )
+
+
+@pytest.mark.unit
 def test_an_action_a_person_s_ending_stopped_before_it_was_done_is_said_as_never_taken() -> None:
     # A person ended the incident between the walk choosing the action and
     # taking it. Nothing was judged, and nothing was done either.
@@ -1211,6 +1274,99 @@ def test_a_recommendation_names_the_action_somebody_should_take() -> None:
         .then(all_of(
             _the_only_line_marks(some_flag),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_a_refusal_says_the_candidate_whose_action_it_refused() -> None:
+    # The move to mitigating names no candidate, and a chat has no candidate
+    # panel beside it: a later round's refusal reads as the first round's, and
+    # two candidates refused for one reason read as one.
+    some_refusal = ActionRefused(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        candidate_number=3,
+        refusal=Refusal.NOTHING_COULD_CONFIRM_IT
+    )
+
+    Scenario() \
+        .given(some_refusal) \
+        .when(lambda: build_narration([some_refusal])) \
+        .then(
+            _the_only_line_says(f"Refused to act on candidate cause #3 - "
+                                f"{why_it_was_refused(Refusal.NOTHING_COULD_CONFIRM_IT)}")
+        )
+
+
+@pytest.mark.unit
+def test_a_recommendation_says_the_candidate_it_answers() -> None:
+    # For the refusal's reason: the action left for a person is one cause's,
+    # and which is what tells a reader what it would settle.
+    some_recommendation = ActionRecommended(
+        incident_id=new_id(),
+        hypothesis_id=new_id(),
+        candidate_number=3,
+        action_type=ROLL_BACK_DEPLOYMENT,
+        subject="io-shop"
+    )
+
+    Scenario() \
+        .given(some_recommendation) \
+        .when(lambda: build_narration([some_recommendation])) \
+        .then(
+            _the_only_line_says("Left for a person to do - rolling io-shop back "
+                                "for candidate cause #3")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("a_line_acting_for_a_candidate", [
+    lambda hypothesis_id: ActionTaken(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                      candidate_number=3, action_type=ROLL_BACK_DEPLOYMENT,
+                                      subject="io-shop"),
+    lambda hypothesis_id: VerdictReached(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                         candidate_number=3, outcome=Verdict.ESCALATED,
+                                         action_type=ROLL_BACK_DEPLOYMENT, subject="io-shop",
+                                         performed=False),
+    lambda hypothesis_id: ActionRefused(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                        candidate_number=3,
+                                        refusal=Refusal.NOTHING_COULD_CONFIRM_IT),
+    lambda hypothesis_id: ActionRecommended(incident_id=new_id(), hypothesis_id=hypothesis_id,
+                                            candidate_number=3,
+                                            action_type=ROLL_BACK_DEPLOYMENT,
+                                            subject="io-shop")
+], ids=["taken", "not-performed", "refused", "recommended"])
+def test_a_line_acting_for_a_candidate_says_which_and_in_what_words(
+    a_line_acting_for_a_candidate: Callable[[str], IncidentEvent]
+) -> None:
+    # So a destination with labels of its own for the candidates - the
+    # write-up's C3 - can say it by the label: beside a row and a resolution
+    # saying C3, "candidate cause #3" reads as a second candidate.
+    some_hypothesis = new_id()
+    some_event = a_line_acting_for_a_candidate(some_hypothesis)
+
+    Scenario() \
+        .given(some_event) \
+        .when(lambda: build_narration([some_event])[0].names_candidate) \
+        .then(
+            the_answer_was(CandidateNamed(hypothesis_id=some_hypothesis,
+                                          said_as="candidate cause #3"))
+        )
+
+
+@pytest.mark.unit
+def test_a_verdict_on_an_action_performed_names_no_candidate() -> None:
+    # Its action's own line said which; "Judged the action REFUTED" does not
+    # name one, and a destination told it did would look for words that are
+    # not there.
+    some_verdict = VerdictReached(incident_id=new_id(), hypothesis_id=new_id(),
+                                  candidate_number=3, outcome=Verdict.REFUTED)
+
+    Scenario() \
+        .given(some_verdict) \
+        .when(lambda: build_narration([some_verdict])[0].names_candidate) \
+        .then(
+            the_answer_was(None)
+        )
 
 
 @pytest.mark.unit
@@ -3130,7 +3286,8 @@ def _a_hypothesis(summary: str,
                   evidence: list[str] | None = None,
                   incident_id: str | None = None,
                   from_state: str | None = None,
-                  to_state: str | None = None) -> HypothesisFormed:
+                  to_state: str | None = None,
+                  number: int = 1) -> HypothesisFormed:
     return HypothesisFormed(
         incident_id=incident_id or new_id(),
         hypothesis_id=new_id(),
@@ -3139,6 +3296,7 @@ def _a_hypothesis(summary: str,
         confidence=0.9,
         subject=SOME_FLAG,
         rank=rank,
+        number=number,
         from_state=from_state,
         to_state=to_state,
         evidence=[Evidence(claim=cited, at=None) for cited in evidence or []]
@@ -3246,12 +3404,12 @@ def _the_only_line_offers_the_causes(expected: list[str]) -> Assertion[list[Narr
     return assertion
 
 
-def _the_first_line_ranks_the_causes(expected: list[int]) -> Assertion[list[NarrationLine]]:
+def _the_first_line_numbers_the_causes(expected: list[int]) -> Assertion[list[NarrationLine]]:
     def assertion(narration: list[NarrationLine]) -> bool:
-        ranked = [candidate.rank for candidate in narration[0].candidates]
+        numbered = [candidate.number for candidate in narration[0].candidates]
 
-        if ranked != expected:
-            raise AssertionError(f"Expected the ranks {expected}, got {ranked}.")
+        if numbered != expected:
+            raise AssertionError(f"Expected the numbers {expected}, got {numbered}.")
 
         return True
 

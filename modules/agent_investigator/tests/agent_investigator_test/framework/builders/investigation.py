@@ -76,6 +76,7 @@ class Investigation(NamedTuple):
                     still_wanted: StillWanted = wanted_throughout,
                     leads: Leads = no_leads,
                     established_onset: EstablishedOnset | None = None,
+                    earlier_candidates: int = 0,
                     sleep: Callable[[float], None] = dont_care_sleep) -> Findings:
         """The loop, run with whatever this investigation was built around.
 
@@ -109,6 +110,7 @@ class Investigation(NamedTuple):
             still_wanted=still_wanted,
             leads=leads,
             established_onset=established_onset,
+            earlier_candidates=earlier_candidates,
             sleep=sleep
         )
 

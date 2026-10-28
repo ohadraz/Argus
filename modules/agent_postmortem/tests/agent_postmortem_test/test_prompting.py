@@ -2755,6 +2755,29 @@ def test_an_action_never_performed_is_listed_apart_from_the_actions_taken() -> N
 
 
 @pytest.mark.unit
+def test_an_action_says_the_candidate_it_was_for() -> None:
+    # Under the label the candidate's row goes by. Nothing else in the brief
+    # says it: the move to mitigating names no candidate, and a write-up left
+    # to guess credited a rollback refused for the third candidate to the
+    # leading one - and said the third was never acted on.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.ESCALATED,
+                          standing="nothing was changed",
+                          has_a_way_back=False).model_copy(
+                    update={"progress": ActionProgress.NOT_PERFORMED, "candidate": 3})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("  - [M1] Did not roll back the deployment of io-shop for [C3] - escalated, "
+                  "nothing was changed"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("progress", [ActionProgress.CLAIMED, ActionProgress.UNKNOWN],
                          ids=["claimed", "unknown"])
 def test_an_action_nobody_can_account_for_is_listed_apart_from_both(

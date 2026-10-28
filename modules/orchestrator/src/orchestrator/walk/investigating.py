@@ -158,7 +158,10 @@ def investigator_node(
         # `None` on a first round, which measures one. On a later one, the minute
         # the first established: the window this round reads is one Argus has
         # since acted on, and what departs there is what the action left behind.
-        established_onset=state.onset
+        established_onset=state.onset,
+        # What this round numbers its candidates on from, so each is said by
+        # the number it keeps for the whole incident.
+        earlier_candidates=state.candidates_formed
     )
     if findings.stopped:
         return StateDelta()
@@ -315,6 +318,7 @@ def investigator_node(
         readings_cover_the_incident=findings.readings_cover_the_incident,
         onset=state.onset or findings.onset,
         rounds=state.rounds + 1,
+        candidates_formed=state.candidates_formed + len(candidates),
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,
         narration=Narration(action=_what_the_investigation_did(hypothesis)),

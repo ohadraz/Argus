@@ -95,6 +95,10 @@ class ActionRecord(BaseModel):
     # action nobody can account for is not one with nothing to put back.
     # Required, so a reader building one says which it is.
     left_behind_known: bool
+    # The candidate it was for, by its place among the candidates (from 1) -
+    # the place its label counts - and `None` where it was for none the
+    # record holds.
+    candidate: int | None = None
 
 
 class DeploymentChangesRecord(BaseModel):

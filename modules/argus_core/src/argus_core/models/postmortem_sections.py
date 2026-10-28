@@ -175,6 +175,16 @@ class TimelineMarker(StrEnum):
     IMPACT_ENDS = "impact ends"
 
 
+class ForCandidate(BaseModel):
+    """The candidate a line acted for: its place among the incident's
+    candidates as the document lists them, and the words the line names it in
+    - so the document can say it by the label its row goes by instead, as it
+    says the candidates a line formed."""
+
+    place: int
+    said_as: str
+
+
 class TimelineEntry(BaseModel):
     """One moment of the incident. `who` is `None` on a marker no agent said -
     the onset is a property of the metrics, not a line anybody wrote."""
@@ -188,6 +198,9 @@ class TimelineEntry(BaseModel):
     # to the other rather than told the same candidate twice. Empty on every
     # line that formed none.
     candidates: list[int] = []
+    # The candidate this line acted for, where it names one - an action taken
+    # or reached for, a refusal, a recommendation. `None` on every other line.
+    for_candidate: ForCandidate | None = None
     # The label the document's prose cites this line by (`T1`). `None` on a
     # marker: code placed it among the lines, and no prose was shown it to cite.
     label: str | None = None
@@ -209,7 +222,7 @@ class CandidateConsidered(BaseModel):
 
 
 class HypothesisConsidered(BaseModel):
-    """One candidate the Investigator ranked, and what became of it - under
+    """One candidate the Investigator formed, and what became of it - under
     the label the document's prose cites it by (`C1`)."""
 
     summary: str
@@ -269,6 +282,20 @@ class ResolutionStep(BaseModel):
     # with nothing to put back. `True` on a document written before it was
     # carried, which is what such a document claimed.
     left_behind_known: bool = True
+    # The label of the candidate the step was for (`C3`) - an action's, or a
+    # refusal's, whose words name it already - and `None` on a step for none
+    # and on a document written before it was carried. The move to mitigating
+    # names no candidate, so a step whose row does not either is read as the
+    # leading one's.
+    candidate: str | None = None
+
+
+def for_the_candidate(label: str) -> str:
+    """Which candidate an action was for, in the words every place showing it
+    uses - the page's resolution and the brief the model writes from. Here for
+    `whether_it_can_be_put_back`'s reason: two spellings of one fact read as
+    two facts."""
+    return f"for {label}"
 
 
 def whether_it_can_be_put_back(has_a_way_back: bool, left_behind_known: bool) -> str:

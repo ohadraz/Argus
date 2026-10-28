@@ -146,6 +146,8 @@ def tier_gate_node(
         ActionRefused(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id if state.hypothesis is not None else None,
+            candidate_number=(state.hypothesis.number if state.hypothesis is not None
+                              else None),
             refusal=refusal
         ),
         publisher
@@ -169,6 +171,9 @@ def tier_gate_node(
                 incident_id=state.incident_id,
                 hypothesis_id=(
                     state.hypothesis.id if state.hypothesis is not None else None
+                ),
+                candidate_number=(
+                    state.hypothesis.number if state.hypothesis is not None else None
                 ),
                 action_type=recommended.action_type,
                 subject=the_identity_of(recommended).subject

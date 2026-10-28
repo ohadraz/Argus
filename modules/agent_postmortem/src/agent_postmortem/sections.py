@@ -50,6 +50,11 @@ from agent_postmortem.stamps import the_last_minute_logged_inside
 TAKEN_BY = "Argus"
 
 NEVER_TRIED = "never tried"
+# What became of a cause whose action was reached for and ended before its
+# write: never tried as surely as one nobody reached, and said apart from it,
+# since the action's own row is about this cause and "never tried" beside it
+# reads as no attempt at all.
+ACTION_NOT_TAKEN = "action not taken"
 NO_VERDICT_RECORDED = "no verdict recorded"
 # What an action a person's ending stopped came to, and what became of a cause
 # whose action was performed and never measured - a person's ending during the
@@ -648,7 +653,8 @@ def what_it_came_to(verdict: str | None, progress: ActionProgress) -> str:
 
 
 def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
-    """Every action taken, in order, with what it came to and whether it stands.
+    """Every action taken, in order, with what it came to and whether it stands
+    - and the candidate it was for, under that candidate's label.
 
     And whether it left automatic sync off: until somebody turns it back on,
     nothing merged reaches the service. Marked apart from the outcome, which is
@@ -669,27 +675,39 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                                 f"{action.standing}"),
                        label=label_of(ACTION_PREFIX, position),
                        sync_left_off=action.paused_sync_of is not None,
-                       left_behind_known=action.left_behind_known)
+                       left_behind_known=action.left_behind_known,
+                       candidate=(label_of(CANDIDATE_PREFIX, action.candidate)
+                                  if action.candidate is not None else None))
         for position, action in enumerate(evidence.actions, start=1)
     ]
     declined = [
         ResolutionStep(at=evidence.timeline[refused.line].at,
-                       action=evidence.timeline[refused.line].text,
+                       action=said_of_a_line(evidence.timeline[refused.line]),
                        by=TAKEN_BY,
                        has_a_way_back=False,
                        outcome=NOT_TAKEN,
                        label=None,
                        refused=refused.refusal,
                        # Refused before anything was asked of anybody.
-                       left_behind_known=True)
+                       left_behind_known=True,
+                       candidate=_the_label_it_names(evidence.timeline[refused.line]))
         for refused in evidence.refusals
     ]
 
     return sorted([*taken, *declined], key=lambda step: step.at)
 
 
+def _the_label_it_names(entry: TimelineEntry) -> str | None:
+    """The label of the candidate a line acted for, as `said_of_a_line` says
+    it - `None` where the line names none."""
+    if entry.for_candidate is None:
+        return None
+
+    return label_of(CANDIDATE_PREFIX, entry.for_candidate.place + 1)
+
+
 def hypotheses_of(evidence: IncidentEvidence) -> list[HypothesisConsidered]:
-    """Every candidate ranked, with what became of it - untried ones included,
+    """Every candidate formed, with what became of it - untried ones included,
     and candidates that are one cause shown once (`causes_of`).
 
     A row standing for several carries each of them in its own words, mode and
@@ -721,13 +739,13 @@ def a_hypothesis_of(cause: OneCause) -> HypothesisConsidered:
 
 @dataclass(frozen=True)
 class OneCause:
-    """Candidates that are one cause, best-ranked first, each under its label."""
+    """Candidates that are one cause, first formed first, each under its label."""
 
     members: tuple[tuple[str, CandidateRecord], ...]
 
     @property
     def label(self) -> str:
-        """The label the cause is listed under: its best-ranked candidate's."""
+        """The label the cause is listed under: its first-formed candidate's."""
         return self.members[0][0]
 
     @property
@@ -737,7 +755,7 @@ class OneCause:
 
     @property
     def lead(self) -> CandidateRecord:
-        """The best-ranked candidate, whose words the cause is said in."""
+        """The first-formed candidate, whose words the cause is said in."""
         return self.members[0][1]
 
     @property
@@ -755,9 +773,9 @@ class OneCause:
     @property
     def became(self) -> str:
         """What became of the cause, in the words its row and the brief both
-        say it in: its verdict, or that it was never tried - and why, where its
-        row recorded it - or tried and never judged, or tried with no verdict
-        on file, or not known whether tried at all.
+        say it in: its verdict, or that it was never tried or its action not
+        taken - and why, where its row recorded it - or tried and never judged,
+        or tried with no verdict on file, or not known whether tried at all.
 
         The why because the gate writes on the row why it held the test back,
         and "never tried" alone left a reader to guess whether the
@@ -781,21 +799,24 @@ class OneCause:
             if progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN):
                 return NOT_KNOWN_WHETHER_TRIED
 
+            untried = ACTION_NOT_TAKEN if progress is ActionProgress.NOT_PERFORMED else NEVER_TRIED
             why = self.decided.result
-            return f"{NEVER_TRIED}: {why}" if why else NEVER_TRIED
+            return f"{untried}: {why}" if why else untried
 
         return self.decided.result or NO_VERDICT_RECORDED
 
 
 def was_never_tried(result: str) -> bool:
     """Whether what became of a cause is that it was never tried - with the
-    reason its row recorded, or without one. A reason read as a verdict would
-    make a cause nobody tested one that was tried and came to nothing."""
-    return result == NEVER_TRIED or result.startswith(f"{NEVER_TRIED}: ")
+    reason its row recorded, or without one, and its action not taken among
+    them. A reason read as a verdict would make a cause nobody tested one that
+    was tried and came to nothing."""
+    return any(result == untried or result.startswith(f"{untried}: ")
+               for untried in (NEVER_TRIED, ACTION_NOT_TAKEN))
 
 
 def causes_of(candidates: list[CandidateRecord]) -> list[OneCause]:
-    """The candidates as the causes they are, in rank order, each under its
+    """The candidates as the causes they are, in the order formed, each under its
     label: candidates blaming the same move of the same subject are one cause,
     and listed apart they read as two the investigation weighed.
 
@@ -977,7 +998,15 @@ def said_of_a_line(entry: TimelineEntry) -> str:
     hypotheses considered show under its label already - so the model would
     read each one twice with nothing to say the two are one, and a reader of
     the page would read it twice beside the row it is.
+
+    And a line acting for a candidate, which names it by its label too: in
+    the narration's words, "candidate cause #3" beside a row and a resolution
+    saying C3 reads as two candidates.
     """
+    label = _the_label_it_names(entry)
+    if entry.for_candidate is not None and label is not None:
+        return entry.text.replace(entry.for_candidate.said_as, label)
+
     if not entry.candidates:
         return entry.text
 

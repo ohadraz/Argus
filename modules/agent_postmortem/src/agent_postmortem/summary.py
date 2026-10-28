@@ -52,11 +52,12 @@ from agent_postmortem.sections import (
 
 type _Written = Callable[[str], str]
 
-# A rank as a sentence says it, as far as an investigation ranks causes.
-_RANKS: Final = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh",
-                 "eighth", "ninth", "tenth")
+# A place in a count as a sentence says it, as far as an investigation forms
+# candidates.
+_PLACES: Final = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+                  "eighth", "ninth", "tenth")
 
-# A candidate's label as the summary writes it after the candidate's rank.
+# A candidate's label as the summary writes it after the candidate's place.
 _A_CANDIDATES_LABEL: Final = re.compile(rf" \({CANDIDATE_PREFIX}\d+\)")
 
 
@@ -95,8 +96,8 @@ def the_executive_summary(evidence: IncidentEvidence,
 
 def said_off_the_page(summary: str) -> str:
     """The summary as said where the document's rows are not: without the
-    label after each candidate's rank, which leads to its row on the page and
-    to nothing anywhere else. The rank before it still says which it was."""
+    label after each candidate's place, which leads to its row on the page and
+    to nothing anywhere else. The place before it still says which it was."""
     return _A_CANDIDATES_LABEL.sub("", summary)
 
 
@@ -272,13 +273,15 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     one move that puts the fault back. Once for each application, after the
     fix, as the action items take it.
 
-    A cause by its rank, not its summary: that is the investigator's own
-    sentences, and set inside this one they run on into the reason. Its rank
-    as its label counts it - candidates blaming one move are one row, and the
-    label still counts each - and its label after it, which leads to its row
-    on the page and to nothing where the summary is said on its own."""
-    held_back = [f"Argus did not test the candidate it ranked "
-                 f"{_ranked(int(cause.label.removeprefix(CANDIDATE_PREFIX)))} ({cause.label}): "
+    A cause by its place, not its summary: that is the investigator's own
+    sentences, and set inside this one they run on into the reason. Its place
+    among the candidates formed, as its label counts it - candidates blaming
+    one move are one row, and the label still counts each - and not its rank,
+    which restarts with each round; and its label after it, which leads to
+    its row on the page and to nothing where the summary is said on its own."""
+    held_back = [f"Argus did not test the "
+                 f"{_counted(int(cause.label.removeprefix(CANDIDATE_PREFIX)))} candidate it "
+                 f"formed ({cause.label}): "
                  f"{cause.decided.result.rstrip('.')}."
                  for cause in causes_of(evidence.candidates)
                  if not cause.decided.tested and cause.decided.result]
@@ -317,6 +320,6 @@ def _what_merging_it_alone_does(evidence: IncidentEvidence) -> str:
             f"carries it.")
 
 
-def _ranked(rank: int) -> str:
-    """A rank counted from one, as a sentence says it."""
-    return _RANKS[rank - 1] if rank <= len(_RANKS) else f"{rank}th"
+def _counted(place: int) -> str:
+    """A place counted from one, as a sentence says it."""
+    return _PLACES[place - 1] if place <= len(_PLACES) else f"{place}th"

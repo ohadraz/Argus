@@ -229,6 +229,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
+                    candidates_formed=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
                     narration=Narration(action="hypothesis formed")
@@ -276,6 +277,7 @@ def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
                     already_read=[],
                     readings_cover_the_incident=False,
                     rounds=1,
+                    candidates_formed=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
                     narration=Narration(action="hypothesis formed")
@@ -474,6 +476,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
+                    candidates_formed=1,
                     confidence=None,
                     nothing_worth_trying=True,
                     narration=Narration(action="insufficient evidence")
@@ -836,6 +839,37 @@ def test_a_later_round_is_handed_the_onset_the_first_round_established(
         .then(
             _the_investigation_was_told("established_onset", some_onset, investigate)
         )
+
+
+@pytest.mark.unit
+def test_a_later_round_numbers_on_from_the_candidates_earlier_rounds_formed(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # A candidate is said by its number the moment it is formed, so a round is
+    # told how many came before it - and leaves the count, its own added, for
+    # the next round to number from. Its own list alone would restart at one.
+    a_second_round = _an_investigating_incident().model_copy(update={"candidates_formed": 2})
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate,
+                a_determined_hypothesis(a_second_round.incident_id),
+                a_determined_hypothesis(a_second_round.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(a_second_round,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(all_of(
+            _the_investigation_was_told("earlier_candidates", 2, investigate),
+            the_result_at("candidates_formed", 4)
+        ))
 
 
 @pytest.mark.unit

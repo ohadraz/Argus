@@ -71,6 +71,15 @@ class Hypothesis(BaseModel):
     # not survive being written down. Defaults to 1: an investigation that named
     # one explanation named the best one.
     rank: int = 1
+    # Which candidate of the incident this is, counted across every round in
+    # the order the Investigator formed them: the earlier rounds' count, and
+    # then this round's rank. Given once, where it is formed, because the chat
+    # says it at that moment and nothing said there can be renumbered. The walk
+    # page reads it; the write-up's labels count the candidates in its order,
+    # which comes to the same number, and stay a count so that a label is
+    # unique for a citation however the numbers ran. Defaults to 1 for the
+    # reason `rank` does.
+    number: int = 1
     # The service the fault is in, where that is not the service the alert
     # named. An address rather than a description, and a field of its own for
     # exactly that reason: `subject` is what the cause *names*, in the model's

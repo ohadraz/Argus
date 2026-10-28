@@ -391,11 +391,13 @@ def test_the_escalation_a_proposed_fix_left_says_it_by_its_name_too(
 
 
 @pytest.mark.component
-def test_a_candidate_formed_is_said_by_its_rank_with_what_it_is(
+def test_a_candidate_formed_is_said_by_its_number_with_what_it_is(
         slack: str, a_clean_database: None) -> None:
     # Said each on its own message, "Formed 1 candidate cause, best first:" twice
-    # read as two lists of one. By its rank as the walk page shows it instead -
-    # never a C label: rank restarts each round, the postmortem's C labels don't.
+    # read as two lists of one. By its number as the walk page shows it instead,
+    # and never by its rank: rank restarts each round, so a second round's first
+    # would be said as the first round's - where the number counts on, as the
+    # postmortem's C labels do. This one is a second round's first.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     some_summary = "the scrape still selects the port by its old name"
 
@@ -410,10 +412,11 @@ def test_a_candidate_formed_is_said_by_its_rank_with_what_it_is(
             .when(lambda: say(incident_id,
                                   a_narration_line(_a_candidate_formed_on(incident_id,
                                                                           some_summary,
-                                                                          rank=2)),
+                                                                          rank=1,
+                                                                          number=3)),
                                   Register.FOLLOWED)) \
             .then(
-                _that_message_says(slack, f"Formed candidate cause #2: {some_summary}")
+                _that_message_says(slack, f"Formed candidate cause #3: {some_summary}")
             )
 
 
@@ -1093,9 +1096,13 @@ def _a_candidate_naming_on(incident_id: str, revision: str) -> IncidentEvent:
                              confidence=None)
 
 
-def _a_candidate_formed_on(incident_id: str, summary: str, rank: int = 1) -> IncidentEvent:
+def _a_candidate_formed_on(incident_id: str,
+                           summary: str,
+                           rank: int = 1,
+                           number: int = 1) -> IncidentEvent:
     return HypothesisFormed(incident_id=incident_id, hypothesis_id=new_id(), summary=summary,
-                            failure_mode=None, confidence=None, subject=None, rank=rank)
+                            failure_mode=None, confidence=None, subject=None, rank=rank,
+                            number=number)
 
 
 def _slack_will_refuse(base_url: str) -> None:

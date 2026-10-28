@@ -3800,6 +3800,80 @@ def test_a_published_candidate_carries_the_transition_it_blamed() -> None:
 
 
 @pytest.mark.unit
+def test_a_later_round_numbers_its_candidates_on_from_the_earlier_rounds() -> None:
+    # Each is said by its number the moment it is formed - in the chat, where
+    # nothing said can be renumbered - so the count carries on from the rounds
+    # before rather than starting at one again, as each round's rank does.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(
+        a_model_that_says(a_turn_answering(an_explanation(), an_explanation()))
+    )
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm()))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append,
+                                              earlier_candidates=1)
+        ) \
+        .then(
+            all_of(
+                _the_candidates_are_numbered(2, 3),
+                _the_candidates_published_are_numbered(published, 2, 3)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("an_investigation_naming_no_cause", "what_the_metrics_said"),
+    [
+        (lambda: an_investigation(a_model_that_is_always_cut_short()),
+         lambda investigation: investigation.metrics_showed(a_window_that_starts_calm())),
+        (lambda: an_investigation(a_model_that_says(a_turn_the_model_declined())),
+         lambda investigation: investigation.metrics_showed(a_window_that_starts_calm())),
+        (lambda: an_investigation(
+            a_model_that_never_stops_reading(), budget=a_budget(tool_calls=1)),
+         lambda investigation: investigation.metrics_showed(a_window_that_starts_calm())),
+        (lambda: an_investigation(a_model_that_says()),
+         lambda investigation: investigation.metrics_showed([])),
+        (lambda: an_investigation(a_model_that_says()),
+         lambda investigation: investigation.metrics_showed(a_steady_window())),
+        (lambda: an_investigation(a_model_that_says()),
+         lambda investigation: raising(investigation.metrics_fetcher, McpToolError(
+             "MCP tool call [get_metrics_summary] failed: timed out")))
+    ],
+    ids=["cut-short", "declined", "ran-out", "nothing-to-say", "disproven",
+         "nothing-could-be-read"]
+)
+def test_a_round_that_named_no_cause_numbers_its_candidate_on_too(
+    an_investigation_naming_no_cause: Callable[[], Investigation],
+    what_the_metrics_said: Callable[[Investigation], Callable[[], None]]
+) -> None:
+    # A candidate like any other: recorded, and said by its number. Each ending
+    # forms it on a path of its own, so each is asked: one that slipped would
+    # be said as #1, the first round's own number, with nothing else wrong.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation_naming_no_cause()
+
+    Scenario() \
+        .given(
+            calling(what_the_metrics_said(investigation))
+        ) \
+        .when(
+            lambda: investigation.investigate(publisher=published.append,
+                                              earlier_candidates=2)
+        ) \
+        .then(
+            all_of(
+                _the_candidates_are_numbered(3),
+                _the_candidates_published_are_numbered(published, 3)
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_channel_that_was_never_asked_for_is_published_as_unread() -> None:
     # "Nobody asked" and "asked, and nothing came back" leave the same silence
     # in an account and mean opposite things - one is a gap in the
@@ -4332,6 +4406,35 @@ def _both_concluded_the_same() -> Assertion[tuple[Findings, Findings]]:
             raise AssertionError(
                 f"Expected the same evidence to be read either way, got "
                 f"{heard.already_read} and {unheard.already_read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidates_are_numbered(*numbers: int) -> Assertion[Findings]:
+    def assertion(findings: Findings) -> bool:
+        numbered = [candidate.number for candidate in findings.candidates]
+        if numbered != list(numbers):
+            raise AssertionError(
+                f"Expected the candidates numbered {list(numbers)}, and they were "
+                f"numbered {numbered}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidates_published_are_numbered(published: list[IncidentEvent],
+                                           *numbers: int) -> Assertion[Findings]:
+    def assertion(dont_care_findings: Findings) -> bool:
+        numbered = [event.number for event in published if isinstance(event, HypothesisFormed)]
+        if numbered != list(numbers):
+            raise AssertionError(
+                f"Expected the candidates published numbered {list(numbers)}, and they "
+                f"were numbered {numbered}."
             )
 
         return True

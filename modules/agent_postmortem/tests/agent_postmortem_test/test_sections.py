@@ -39,6 +39,7 @@ from argus_core.models import (
     Detection,
     ErrorRateLevels,
     FirstTold,
+    ForCandidate,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
@@ -1515,9 +1516,11 @@ def test_a_candidate_whose_action_nobody_can_account_for_is_not_known_to_be_trie
 
 
 @pytest.mark.unit
-def test_a_candidate_whose_attempt_ended_before_its_action_was_never_tried() -> None:
+def test_a_candidate_whose_attempt_ended_before_its_action_says_its_action_was_not_taken() -> None:
     # A platform that never answered, an action with nowhere left to go: a row
-    # is written, and nothing was done.
+    # is written, and nothing was done - so the cause was not tried. Said as
+    # its action not taken rather than never tried, which beside the action's
+    # own row about this cause reads as no attempt at all.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[
@@ -1528,7 +1531,27 @@ def test_a_candidate_whose_attempt_ended_before_its_action_was_never_tried() -> 
             lambda: [hypothesis.result for hypothesis in hypotheses_of(evidence)]
         ) \
         .then(
-            the_answer_was(["never tried"])
+            the_answer_was(["action not taken"])
+        )
+
+
+@pytest.mark.unit
+def test_an_action_says_the_candidate_it_was_for_under_that_candidate_s_label() -> None:
+    # The label the candidate's row goes by, so the resolution can point at it:
+    # nothing else says which cause an action answered, and a reader left to
+    # guess takes it for the leading candidate's.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Rolled back the deployment of io-shop").model_copy(
+                    update={"candidate": 3}),
+                an_action("dont care")])
+        ) \
+        .when(
+            lambda: [step.candidate for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was(["C3", None])
         )
 
 
@@ -1956,6 +1979,52 @@ def test_a_line_that_formed_candidates_names_them_by_the_labels_their_rows_go_by
         ) \
         .then(
             the_answer_was(["Formed 2 candidate causes, best first: C1, C2"])
+        )
+
+
+@pytest.mark.unit
+def test_a_line_acting_for_a_candidate_names_it_by_the_label_its_row_goes_by() -> None:
+    # In the narration's words, "candidate cause #3" beside a row, an action
+    # and a resolution saying C3 reads as a second candidate.
+    some_line = a_timeline_entry(
+        "Did not roll back the deployment of io-shop for candidate cause #3 - ESCALATED"
+    ).model_copy(update={"for_candidate": ForCandidate(place=2,
+                                                       said_as="candidate cause #3")})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, timeline=[some_line])
+        ) \
+        .when(
+            lambda: [entry.text for entry in timeline_of(evidence, back_to_normal_at=None)
+                     if entry.marker is None]
+        ) \
+        .then(
+            the_answer_was(["Did not roll back the deployment of io-shop for C3 - ESCALATED"])
+        )
+
+
+@pytest.mark.unit
+def test_a_refusal_in_the_resolution_names_its_candidate_as_the_timeline_does() -> None:
+    # Said as the document's timeline says its line - by the candidate's
+    # label - and not as the narration wrote it, which would give the one
+    # candidate two names a section apart.
+    some_line = a_timeline_entry(
+        "Refused to act on candidate cause #3 - some reason"
+    ).model_copy(update={"for_candidate": ForCandidate(place=2,
+                                                       said_as="candidate cause #3")})
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(timeline=[some_line]).model_copy(update={
+                "refusals": [RefusalRecord(line=0, refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE)]})
+        ) \
+        .when(
+            lambda: [(step.action, step.candidate) for step in resolution_of(evidence)
+                     if step.refused]
+        ) \
+        .then(
+            the_answer_was([("Refused to act on C3 - some reason", "C3")])
         )
 
 

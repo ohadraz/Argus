@@ -75,6 +75,10 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- Defaulted rather than nullable: every hypothesis has a rank, and a row
     -- that does not say otherwise is first.
     rank INTEGER NOT NULL DEFAULT 1,
+    -- Which candidate of the incident this is, counted across its rounds in
+    -- the order they were formed - the number every telling says it by.
+    -- Defaulted as the rank is: a row that does not say otherwise is first.
+    number INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

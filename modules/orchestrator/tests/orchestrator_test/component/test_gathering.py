@@ -77,6 +77,7 @@ from argus_core.models import (
     FixOutcome,
     FlagChange,
     FlagUndo,
+    ForCandidate,
     Hypothesis,
     IncidentStatus,
     Meaning,
@@ -288,24 +289,53 @@ def test_a_line_that_formed_candidates_names_them_among_the_evidence_s_own(
 ) -> None:
     # So the write-up can point at a candidate under its own label rather than
     # say it twice. By the hypothesis each line formed, not by counting: the
-    # candidates are listed best first across every round, so a second round's
-    # best sits between the first round's two, and a count names the wrong one.
+    # candidates are listed across every round, and a line forms only its own
+    # round's - here the second round's, which a count from the line's own
+    # first would number from one.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
         Scenario() \
             .given(
-                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1)),
-                calling(lambda: _a_candidate_formed(conn, incident_id, rank=2)),
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1, number=1)),
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=2, number=2)),
                 calling(lambda: events.record(conn, StatusChanged(
                     incident_id=incident_id, to_status=IncidentStatus.INVESTIGATING))),
-                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1))
+                calling(lambda: _a_candidate_formed(conn, incident_id, rank=1, number=3))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
-                _the_lines_name_the_candidates([[0, 2], [1]])
+                _the_lines_name_the_candidates([[0, 1], [2]])
+            )
+
+
+@pytest.mark.component
+def test_a_line_acting_for_a_candidate_says_where_it_sits_and_how_the_line_names_it(
+    a_clean_database: None
+) -> None:
+    # So the write-up can name it by its label rather than by the narration's
+    # words for it. By the hypothesis the line acted for, as a line forming
+    # candidates is found - here the second, which the line names #2.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        _a_candidate_formed(conn, incident_id, rank=1, number=1)
+        the_second = _a_candidate_formed(conn, incident_id, rank=2, number=2)
+
+        Scenario() \
+            .given(
+                calling(lambda: events.record(conn, ActionRefused(
+                    incident_id=incident_id, hypothesis_id=the_second, candidate_number=2,
+                    refusal=Refusal.NOTHING_COULD_CONFIRM_IT)))
+            ) \
+            .when(
+                lambda: [entry.for_candidate for entry in
+                         gather_evidence(conn, incident_id).timeline
+                         if entry.for_candidate is not None]
+            ) \
+            .then(
+                the_answer_was([ForCandidate(place=1, said_as="candidate cause #2")])
             )
 
 
@@ -1801,6 +1831,33 @@ def test_an_action_is_said_in_words(a_clean_database: None) -> None:
 
 
 @pytest.mark.component
+def test_an_action_carries_the_candidate_it_was_for(a_clean_database: None) -> None:
+    # By that candidate's place among the candidates, which is what its label
+    # counts. Nothing else says which an action was for: the move to
+    # mitigating names none, and a write-up left to guess credited the action
+    # to the leading candidate and called the one it was for never acted on.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: hypotheses.record(conn, Hypothesis(
+                    incident_id=incident_id, summary="the leading cause",
+                    failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.9,
+                    supporting_evidence=[], number=1))),
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.ESCALATED, None,
+                    performed=False, number=2))
+            ) \
+            .when(
+                lambda: [action.candidate for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([2])
+            )
+
+
+@pytest.mark.component
 def test_an_action_carries_the_verdict_it_reached(a_clean_database: None) -> None:
     # The document numbers an action that brought recovery as an action item
     # already done, so whether it did has to arrive as the verdict, not as a
@@ -2515,7 +2572,8 @@ def _an_action_taken(conn: psycopg.Connection,
                      undo_descriptor: UndoDescriptor | None,
                      summary: str = "dont care",
                      performed: bool = True,
-                     left_behind_known: bool = True) -> None:
+                     left_behind_known: bool = True,
+                     number: int = 1) -> None:
     """One finished action, on a candidate of its own - performed, unless a
     case says the attempt ended before its write, and known to have left what
     its descriptor says, unless a case says nobody can tell."""
@@ -2523,7 +2581,8 @@ def _an_action_taken(conn: psycopg.Connection,
                            summary=summary,
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                            confidence=0.8,
-                           supporting_evidence=[])
+                           supporting_evidence=[],
+                           number=number)
     hypotheses.record(conn, candidate)
     taken_actions.record(conn, incident_id,
                          hypothesis_id=candidate.id,
@@ -2922,7 +2981,10 @@ def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvide
     return assertion
 
 
-def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -> str:
+def _a_candidate_formed(conn: psycopg.Connection,
+                        incident_id: str,
+                        rank: int,
+                        number: int) -> str:
     """One candidate as the walk leaves it: the row, and the line saying it was
     formed - one hypothesis, seen twice."""
     a_candidate = Hypothesis(incident_id=incident_id,
@@ -2930,7 +2992,8 @@ def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -
                              failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
                              confidence=0.5,
                              supporting_evidence=[],
-                             rank=rank)
+                             rank=rank,
+                             number=number)
     hypotheses.record(conn, a_candidate)
     events.record(conn, HypothesisFormed(incident_id=incident_id,
                                          hypothesis_id=a_candidate.id,
@@ -2938,7 +3001,8 @@ def _a_candidate_formed(conn: psycopg.Connection, incident_id: str, rank: int) -
                                          failure_mode=a_candidate.failure_mode,
                                          confidence=a_candidate.confidence,
                                          subject=None,
-                                         rank=rank))
+                                         rank=rank,
+                                         number=number))
 
     return a_candidate.id
 

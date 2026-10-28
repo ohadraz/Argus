@@ -12,7 +12,12 @@ from datetime import date, datetime
 from typing import Final
 
 from argus_core import said_as_a_time
-from argus_core.models import PostmortemDocument, whether_it_can_be_put_back
+from argus_core.models import (
+    PostmortemDocument,
+    ResolutionStep,
+    for_the_candidate,
+    whether_it_can_be_put_back,
+)
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_clock_of
@@ -88,7 +93,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
 
     steps = tuple(StepRow(label=step.label,
                           at=said(step.at),
-                          action=Line(runs=(Run(text=step.action),)),
+                          action=_the_action_of(step),
                           by=step.by,
                           kind=whether_it_can_be_put_back(step.has_a_way_back,
                                                           step.left_behind_known),
@@ -119,6 +124,19 @@ def the_actions_taken(postmortem: PostmortemDocument,
         steps=steps,
         fix=fix,
         absent=None if steps or fix or resolution else "Nothing was done to end it.")
+
+
+def _the_action_of(step: ResolutionStep) -> Line:
+    """What a step did, and the candidate it was for, citing that candidate's
+    row - where the step names one. A refusal's words name it already, as its
+    line does, so there it is cited where it stands rather than said twice."""
+    if step.candidate is None:
+        return Line(runs=(Run(text=step.action),))
+
+    said = Run(text=step.action if step.refused is not None
+               else f"{step.action} {for_the_candidate(step.candidate)}")
+
+    return Line(runs=said.with_citations({step.candidate}))
 
 
 def the_person_who_resolved(resolution: ReportedResolution) -> Line:

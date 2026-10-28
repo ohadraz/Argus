@@ -622,6 +622,35 @@ def test_an_action_nothing_could_confirm_is_refused(
 
 
 @pytest.mark.unit
+def test_a_refusal_and_its_recommendation_say_the_number_of_the_candidate_they_answer(
+    record_outcome: MagicMock
+) -> None:
+    # The move to mitigating names no candidate, so these are where a reader
+    # learns which cause was refused - a chat has no candidate panel to look
+    # it up in, and two candidates refused for one reason read as one.
+    published: list[IncidentEvent] = []
+    a_second_rounds_candidate = a_determined_hypothesis(a_random_id()).model_copy(
+        update={"number": 3})
+
+    Scenario() \
+        .given(
+            an_incident_no_series_carries := _a_mitigating_incident(
+                proposing=_a_proposed_action(),
+                about=a_second_rounds_candidate,
+                dated_by_the_alert=datetime(2026, 9, 22, 9, 19, 43, tzinfo=UTC)
+            )
+        ) \
+        .when(lambda: tier_gate_node(an_incident_no_series_carries,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(
+            _what_was_published_was_for_candidate(3, published)
+        )
+
+
+@pytest.mark.unit
 def test_an_action_on_an_incident_its_own_series_measured_is_let_through(
     record_outcome: MagicMock
 ) -> None:
@@ -1047,6 +1076,24 @@ def _the_recommendation_was_published(flag: str,
             raise AssertionError(
                 f"Expected the recommendation to name [{flag}], got "
                 f"[{recommendations[0].subject}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_published_was_for_candidate(number: int,
+                                          published: list[IncidentEvent]
+                                          ) -> Assertion[StateDelta]:
+    def assertion(dont_care_updates: StateDelta) -> bool:
+        said = [(event.kind, event.candidate_number) for event in published
+                if isinstance(event, ActionRefused | ActionRecommended)]
+        expected = [("action-refused", number), ("action-recommended", number)]
+        if said != expected:
+            raise AssertionError(
+                f"Expected the refusal and the recommendation for candidate {number}, "
+                f"and the gate published {said}."
             )
 
         return True
