@@ -1034,6 +1034,117 @@ def test_an_answer_that_is_not_json_is_refused_not_unreachable() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
+    "failure",
+    [
+        httpx2.ConnectError("connection refused"),
+        httpx2.ConnectTimeout("timed out connecting"),
+        httpx2.PoolTimeout("no connection free")
+    ],
+    ids=["refused", "connect timed out", "pool timed out"]
+)
+def test_a_change_that_never_left_the_process_is_known_not_applied(
+    failure: Exception
+) -> None:
+    # No connection was had, so nothing was sent and nothing was done - and a
+    # caller that knows so can say the estate is as it was.
+    def never_connecting(request: httpx2.Request) -> httpx2.Response:
+        raise failure
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(never_connecting)) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .then(_it_was_known_not_applied(True))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx2.ReadTimeout("timed out"),
+        httpx2.WriteTimeout("timed out sending"),
+        httpx2.RemoteProtocolError("server disconnected")
+    ],
+    ids=["read timed out", "write timed out", "disconnected"]
+)
+def test_a_change_whose_answer_was_lost_may_have_been_applied(failure: Exception) -> None:
+    # The request went out and no answer came back to say what became of it.
+    # The platform may be doing it this second, and a caller told otherwise
+    # would record an estate that has moved as one nothing touched.
+    def losing_the_answer(request: httpx2.Request) -> httpx2.Response:
+        raise failure
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(losing_the_answer)) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .then(_it_was_known_not_applied(False))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [400, 404, 409, 503])
+def test_a_change_the_platform_answered_it_did_not_handle_is_known_not_applied(
+    status: int
+) -> None:
+    # A 4xx is a request read and rejected. A 503 is the server saying it could
+    # not handle the request at all (RFC 9110, 15.6.4) - which is also what the
+    # demo's platform answers every change with when it is staged as down.
+    platform = _Platform().answering(PATCH, THE_APPLICATION, httpx2.Response(status))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .then(_it_was_known_not_applied(True))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("status", [500, 502, 504])
+def test_a_change_the_platform_failed_part_way_may_have_been_applied(status: int) -> None:
+    # A server that faulted while handling the request, or a gateway that lost
+    # the answer from behind it: neither says the change was not made.
+    platform = _Platform().answering(PATCH, THE_APPLICATION, httpx2.Response(status))
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(attempting(lambda: argo_cd.suspend_sync(SOME_APPLICATION))) \
+        .then(_it_was_known_not_applied(False))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "answer",
+    [httpx2.ReadTimeout("timed out"), httpx2.Response(500)],
+    ids=["timed out", "faulted"]
+)
+def test_a_read_that_failed_applied_nothing(answer: Exception | httpx2.Response) -> None:
+    # A read changes nothing however its answer went missing, so a failure to
+    # read is always one the estate is untouched by.
+    def answering(request: httpx2.Request) -> httpx2.Response:
+        if isinstance(answer, Exception):
+            raise answer
+
+        return answer
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(answering)) \
+        .when(attempting(lambda: argo_cd.is_syncing_itself(SOME_APPLICATION))) \
+        .then(_it_was_known_not_applied(True))
+
+
+@pytest.mark.unit
+def test_a_read_whose_answer_could_not_be_read_applied_nothing() -> None:
+    # Refused rather than unreachable, and still a read: what went wrong is
+    # Argus's reading of the answer, and nothing was asked to change.
+    platform = _Platform().answering(
+        GET, THE_APPLICATION, httpx2.Response(200, text="<html>login</html>")
+    )
+
+    Scenario() \
+        .given(argo_cd := _argo_cd_over(platform)) \
+        .when(attempting(lambda: argo_cd.is_syncing_itself(SOME_APPLICATION))) \
+        .then(_it_was_known_not_applied(True))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
     "failure", [PlatformUnreachable, PlatformRefused], ids=["unreachable", "refused"]
 )
 def test_either_failure_is_a_deployment_platform_error(
@@ -1125,6 +1236,25 @@ def _the_last_request_carried_no(platform: _Platform, header: str) -> bool:
         )
 
     return True
+
+
+def _it_was_known_not_applied(expected: bool) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        if not isinstance(error, DeploymentPlatformError):
+            raise AssertionError(
+                f"Expected the platform's failure, and what was raised was {error!r}."
+            )
+
+        if error.known_not_applied is not expected:
+            raise AssertionError(
+                f"Expected the failure to say the request was "
+                f"{'known not to have been' if expected else 'perhaps'} applied, "
+                f"and it said known_not_applied={error.known_not_applied}: [{error}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_was_not(failure: type[Exception]) -> Assertion[Exception | None]:

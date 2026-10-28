@@ -10,8 +10,9 @@ could be taken back between the answer and the change.
 
 What a refusal means decides how it is said. A claim the run has moved past is
 a lost run, marked so the walk stops. A call naming no claim, or one whose run
-could not be asked after, is refused plainly: neither says the run was lost,
-and a walk told it was would stop in silence where it should reach a human.
+could not be asked after, is refused as an ordinary refusal: neither says the
+run was lost, and a walk told it was would stop in silence where it should reach
+a human. Both are refused before the tool runs, and say they left nothing.
 
 Reads are answered as they always were. Nothing a read does can be got wrong by
 a second walk.
@@ -25,7 +26,12 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager, suppre
 from typing import Any, Final
 
 from argus_core import DatabaseSettings, Fence, open_pool
-from argus_core.mcp_transport import FENCE_META_KEY, TracedFastMCP, a_lost_run
+from argus_core.mcp_transport import (
+    FENCE_META_KEY,
+    TracedFastMCP,
+    a_lost_run,
+    a_refusal_saying_what_it_left,
+)
 from argus_incidents.repository import runs
 from mcp.types import AnyFunction, ContentBlock
 
@@ -90,17 +96,23 @@ class FencedFastMCP(TracedFastMCP):
 
         held = _the_claim_in(meta)
 
+        # Both refused before the tool runs, so both say they left nothing: a
+        # refusal that said less would be written up as nobody knowing whether
+        # anything was changed.
         if held is None:
-            raise RuntimeError(f"[{name}] changes the world, and the call named no run "
-                               f"to change it for")
+            raise RuntimeError(a_refusal_saying_what_it_left(
+                f"[{name}] changes the world, and the call named no run to change it for"
+            ))
 
         held_for_now = ExitStack()
 
         try:
             still_held = held_for_now.enter_context(self._hold_for_a_change(held))
         except Exception as unasked:
-            raise RuntimeError(f"whether run [{held.run_id}] is still held for [{name}] "
-                               f"could not be asked: {unasked}") from unasked
+            raise RuntimeError(a_refusal_saying_what_it_left(
+                f"whether run [{held.run_id}] is still held for [{name}] could not be "
+                f"asked: {unasked}"
+            )) from unasked
 
         with _let_go_after(held_for_now, name):
             if not still_held:

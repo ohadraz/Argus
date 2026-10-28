@@ -22,6 +22,7 @@ from typing import Any, Final
 
 import httpx2
 from argus_core import SettingsSlice
+from argus_core.applying import known_not_applied
 from argus_core.models import PodPlacement, RolloutProgress
 
 from deployment_platform.failures import PlatformRefused, PlatformUnreachable
@@ -573,7 +574,8 @@ class ArgoCd:
             response.raise_for_status()
         except httpx2.TransportError as error:
             raise PlatformUnreachable(
-                f"{method} [{path}] got no answer: {error}"
+                f"{method} [{path}] got no answer: {error}",
+                known_not_applied=known_not_applied(method, error)
             ) from error
         except httpx2.HTTPStatusError as error:
             failure = (
@@ -583,7 +585,8 @@ class ArgoCd:
             )
             raise failure(
                 f"{method} [{path}] was answered "
-                f"[{error.response.status_code}]: {error.response.text}"
+                f"[{error.response.status_code}]: {error.response.text}",
+                known_not_applied=known_not_applied(method, error)
             ) from error
 
         return response
@@ -681,10 +684,14 @@ def _parsed[T](read: Callable[[], T], what: str) -> T:
     Refused rather than unreachable: the platform answered. A parse gone wrong
     here read as an outage would pass over every action through a platform that
     is perfectly well.
+
+    Known not to have applied anything: only a read's answer is parsed, and a
+    read changes nothing however its answer reads.
     """
     try:
         parsed = read()
     except (KeyError, TypeError, ValueError, AttributeError) as error:
-        raise PlatformRefused(f"{what} does not say what was asked: {error!r}") from error
+        raise PlatformRefused(f"{what} does not say what was asked: {error!r}",
+                              known_not_applied=True) from error
 
     return parsed

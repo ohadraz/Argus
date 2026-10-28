@@ -102,7 +102,27 @@ def test_whether_an_action_can_be_put_back_is_said_without_the_tier_s_words(
     # anything to put back, and the page and the brief both say it.
     Scenario() \
         .when(
-            lambda: whether_it_can_be_put_back(has_a_way_back)
+            lambda: whether_it_can_be_put_back(has_a_way_back, left_behind_known=True)
+        ) \
+        .then(
+            the_answer_was(said)
+        )
+
+
+@pytest.mark.parametrize(("has_a_way_back", "said"), [
+    (True, "can be put back"),
+    (False, "not known whether anything is left to put back")
+])
+@pytest.mark.unit
+def test_an_action_nobody_can_account_for_is_not_said_to_leave_nothing_to_put_back(
+        has_a_way_back: bool, said: str) -> None:
+    # A refusal whose change request's answer was lost may have changed
+    # something nobody recorded, and "nothing to put back" beside "not known
+    # whether anything was changed" contradicts itself. What it does carry can
+    # still be put back.
+    Scenario() \
+        .when(
+            lambda: whether_it_can_be_put_back(has_a_way_back, left_behind_known=False)
         ) \
         .then(
             the_answer_was(said)

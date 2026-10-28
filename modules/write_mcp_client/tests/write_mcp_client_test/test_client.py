@@ -381,7 +381,7 @@ def test_a_change_made_while_no_run_is_held_is_refused_and_changes_nothing(
     running_write_mcp: type[FakeUnleashHandler]
 ) -> None:
     # A caller that forgot to say which claim it acts for is a bug, not a walk
-    # that lost its run - so it is refused, and refused plainly.
+    # that lost its run - so it is an ordinary refusal that says it left nothing.
     some_flag = "monthly-spend-feature"
 
     Scenario() \

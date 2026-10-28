@@ -808,7 +808,8 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
 
         return Outcome(verdict=next(answers, last),
                        detail="dont care",
-                       undo_descriptor=the_way_back)
+                       undo_descriptor=the_way_back,
+                       left_behind_known=True)
 
     return take
 

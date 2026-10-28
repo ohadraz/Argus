@@ -668,7 +668,8 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        outcome=(f"{what_it_came_to(action.verdict, action.progress)}, "
                                 f"{action.standing}"),
                        label=label_of(ACTION_PREFIX, position),
-                       sync_left_off=action.paused_sync_of is not None)
+                       sync_left_off=action.paused_sync_of is not None,
+                       left_behind_known=action.left_behind_known)
         for position, action in enumerate(evidence.actions, start=1)
     ]
     declined = [
@@ -678,7 +679,9 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        has_a_way_back=False,
                        outcome=NOT_TAKEN,
                        label=None,
-                       refused=refused.refusal)
+                       refused=refused.refusal,
+                       # Refused before anything was asked of anybody.
+                       left_behind_known=True)
         for refused in evidence.refusals
     ]
 

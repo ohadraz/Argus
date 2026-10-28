@@ -987,24 +987,28 @@ same request retried: a platform that did not answer this action will not answer
 the next one seconds later, and a retry against a dead plane buys a second
 identical failure.
 
-**A failure that lost the platform after something landed is still a failure to
-reach it, and says what it left behind.** Four of the five platform actions
-suspend the platform's own reconciliation before they act, so an outage arriving
-between the suspension and the action leaves an application un-reconciled and
-recorded nowhere. The descriptor is what answers that, not withholding the
-report: the failure names the platform *and* what has to be put back, so the
-walk narrows itself while a person is still told what changed. Reporting it as
-an ordinary failed action instead would make Argus's response depend on which
-call the outage happened to land on, which is a system that handles this mode
-only when the platform fails on the first request.
+**Every refusal says what it left behind, and whether that is all of it.** Four
+of the five platform actions suspend the platform's own reconciliation before
+they act, so a refusal arriving between the suspension and the action - an
+outage, or the platform answering no - leaves an application un-reconciled and
+recorded nowhere else. The descriptor travels on the failure: a platform that is
+gone is named *and* what has to be put back, so the walk narrows itself while a
+person is still told what changed, and a refusal from a platform that answered
+escalates with the same account. A refusal raised before any change was asked
+for says it left nothing, so the write-up says nothing was changed rather than
+that nobody knows. Reporting less would make what Argus records depend on which
+call the failure happened to land on.
 
-**The exception is an action that may have taken effect and whose effect cannot
-be established.** A restart the platform accepted and then stopped confirming
-may be rolling or may have been dropped, and nothing Argus can read settles it.
-What that costs is not an unrecorded change but an unreliable verification:
-every measurement afterwards is taken against a service that may be recovering
-on its own, so the next action taken would be confirmed by the restart's work
-rather than its own, and the record would carry a hypothesis nothing
+**Knowledge stops at a change request that went out and got no answer saying it
+was not applied.** A refused connection, a 4xx and a 503 say the request was not
+handled; a timeout, a 500 and a gateway that lost the answer say nothing either
+way, and the change may be landing as the failure is read. Such a failure is not
+marked as an unreachable platform, and carries only what the calls before it
+answered for. A restart the platform accepted and then stopped confirming is the
+same case. What it costs is not only an unrecorded change but an unreliable
+verification: every measurement afterwards is taken against a service that may
+be recovering on its own, so the next action taken would be confirmed by this
+one's work rather than its own, and the record would carry a hypothesis nothing
 established. Escalating is the honest report of a state Argus cannot describe,
 and a wrong verdict written down as a confirmed one is worse than a page.
 

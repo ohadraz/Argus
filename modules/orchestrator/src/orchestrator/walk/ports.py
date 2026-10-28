@@ -242,6 +242,10 @@ class CompleteAction(Protocol):
     `narrating` for the reason `TransitionIncident` has one: the verdict and
     the line reporting it are one fact, and two writes of one fact can end up
     disagreeing about it.
+
+    `left_behind_known` is whether the descriptor is the whole of what the
+    attempt left behind, and has no default for the reason `Outcome`'s has
+    none.
     """
 
     def __call__(
@@ -251,7 +255,9 @@ class CompleteAction(Protocol):
         outcome: Verdict,
         undo_descriptor: UndoDescriptor | None,
         narrating: IncidentEvent,
-        performed: bool = True
+        performed: bool = True,
+        *,
+        left_behind_known: bool
     ) -> None: ...
 
 

@@ -314,6 +314,9 @@ dependencies = [
 embedding = [
     { name = "fastembed" },
 ]
+http = [
+    { name = "httpx2" },
+]
 llm = [
     { name = "anthropic" },
 ]
@@ -330,7 +333,7 @@ vector-store = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "argus-argus-core", extra = ["embedding", "llm", "mcp", "migrations", "vector-store"] },
+    { name = "argus-argus-core", extra = ["embedding", "http", "llm", "mcp", "migrations", "vector-store"] },
     { name = "argus-argus-testkit" },
     { name = "opentelemetry-sdk" },
 ]
@@ -340,6 +343,7 @@ requires-dist = [
     { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
     { name = "anthropic", marker = "extra == 'llm'", specifier = ">=1.0" },
     { name = "fastembed", marker = "extra == 'embedding'", specifier = ">=0.8" },
+    { name = "httpx2", marker = "extra == 'http'" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.29.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
@@ -349,11 +353,11 @@ requires-dist = [
     { name = "qdrant-client", marker = "extra == 'vector-store'", specifier = ">=1.19,<1.20" },
     { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
 ]
-provides-extras = ["embedding", "vector-store", "llm", "mcp", "migrations"]
+provides-extras = ["embedding", "vector-store", "llm", "mcp", "http", "migrations"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "argus-argus-core", extras = ["embedding", "llm", "mcp", "migrations", "vector-store"] },
+    { name = "argus-argus-core", extras = ["embedding", "http", "llm", "mcp", "migrations", "vector-store"] },
     { name = "argus-argus-testkit", editable = "modules/argus_testkit" },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]

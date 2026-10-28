@@ -133,6 +133,15 @@ UNREACHABLE_PLATFORM_MARKER: Final = "argus:platform-unreachable"
 # to be encoded around.
 LEFT_BEHIND_MARKER: Final = "argus:left-behind="
 
+# What a write tool puts in an ordinary refusal to say the refusal is the tier's own
+# and says the whole of what it left behind - nothing, where no descriptor
+# follows. Its own token because the absence of it means something too: a tool
+# that raised for a reason nobody foresaw, or a change request whose answer was
+# lost, has said nothing about the estate, and is not to be read as having said
+# it was untouched. The two markers above promise it already, so neither needs
+# this beside it.
+LEFT_BEHIND_KNOWN_MARKER: Final = "argus:left-behind-known"
+
 # What a write tool puts at the front of a refusal of a change asked for by a
 # claim the run has moved past (`argus_core.fencing`). Its own token, because it
 # means something no other refusal does: the caller's walk is somebody else's
@@ -157,7 +166,27 @@ class McpToolError(RuntimeError):
     Its own type because the retry is built on the distinction: a server that
     said no has been reached, and a second session would carry the same answer.
     Every other failure means the connection, not the answer.
+
+    It carries what the failure left behind, as far as the tool said. A write
+    tool can refuse after it has changed something - a suspension that landed
+    before the action's own write was refused - and that change is recorded
+    nowhere but here. `undo_descriptor` is what the tool said it left, `None`
+    where it said nothing; `left_behind_known` is whether the tool said that is
+    all of it. The two are apart because they come apart: a change request
+    whose answer was lost after an earlier one landed carries the earlier one,
+    and nothing may say the estate holds no more than that.
+
+    `left_behind_known` is false unless something said otherwise, which is the
+    point of having it: a failure nobody accounted for is not one that changed
+    nothing.
     """
+
+    def __init__(self, said: str,
+                 undo_descriptor: UndoDescriptor | None = None,
+                 left_behind_known: bool = False) -> None:
+        super().__init__(said)
+        self.undo_descriptor = undo_descriptor
+        self.left_behind_known = left_behind_known
 
 
 class ActionExhausted(McpToolError):
@@ -179,7 +208,13 @@ class ActionExhausted(McpToolError):
     Recognised here rather than in the tier's own client, because this is the
     point where `isError` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
+
+    What it left behind is known, and is nothing: the marker is only ever
+    applied to a refusal raised before anything was touched.
     """
+
+    def __init__(self, said: str) -> None:
+        super().__init__(said, undo_descriptor=None, left_behind_known=True)
 
 
 class PlatformUnreachable(McpToolError):
@@ -230,12 +265,15 @@ class PlatformUnreachable(McpToolError):
     Recognised here rather than in the tier's own client, because this is the
     point where `isError` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
+
+    What it left behind is known, whatever it carries: a marked failure says
+    what it left, and one that may have changed more is not marked at all
+    (`an_unreachable_platform`).
     """
 
     def __init__(self, said: str,
                  undo_descriptor: UndoDescriptor | None = None) -> None:
-        super().__init__(said)
-        self.undo_descriptor = undo_descriptor
+        super().__init__(said, undo_descriptor=undo_descriptor, left_behind_known=True)
 
 
 class McpUnreachable(RuntimeError):
@@ -287,15 +325,40 @@ def an_unreachable_platform(platform: str, said: str,
     the reason `PlatformUnreachable` gives: what a caller branches on comes from
     the action's kind, and this is what a person reads.
     """
-    marked = f"{UNREACHABLE_PLATFORM_MARKER} {platform} {said}"
+    return with_what_it_left(f"{UNREACHABLE_PLATFORM_MARKER} {platform} {said}",
+                             undo_descriptor)
 
-    if undo_descriptor is None:
-        return marked
 
-    return (
-        f"{marked} {LEFT_BEHIND_MARKER}"
-        f"{undo_descriptor.model_dump_json()}"
-    )
+def a_refusal_saying_what_it_left(said: str,
+                                  left_behind: UndoDescriptor | None = None) -> str:
+    """`said`, marked as a refusal that says the whole of what it left behind.
+
+    For a write tool's own refusal where it can say so: one raised before any
+    change was asked for, which left nothing, and one at a change request the
+    platform answered it did not handle, which left what the earlier calls
+    answered for. Not for a change request whose answer was lost - that one may
+    have changed more, and `with_what_it_left` carries what it knows without
+    saying it is all.
+
+    The marker goes first and the descriptor last, for `what_was_left_behind`:
+    the descriptor runs to the end of the message.
+    """
+    return with_what_it_left(f"{LEFT_BEHIND_KNOWN_MARKER} {said}", left_behind)
+
+
+def with_what_it_left(said: str, left_behind: UndoDescriptor | None) -> str:
+    """`said`, carrying what a failure left behind where it left anything, and
+    saying nothing about whether that is all of it.
+
+    The spelling every marked failure carries its descriptor in, and the whole
+    of what an unmarked one says: a change request whose answer was lost after
+    an earlier change landed has that change to report, and no more it can
+    vouch for. Appended last, because nothing may follow the descriptor.
+    """
+    if left_behind is None:
+        return said
+
+    return f"{said} {LEFT_BEHIND_MARKER}{left_behind.model_dump_json()}"
 
 
 def a_lost_run(said: str) -> str:
@@ -304,8 +367,9 @@ def a_lost_run(said: str) -> str:
     For a write tier to wrap the words of a refusal it raises *before changing
     anything*, when the claim the call was made for is one the run has moved
     past. Only then: a call that named no run, or one whose run could not be
-    asked after, is refused plainly - neither says the run was lost, and a walk
-    told it was would stop where it should have reached a human.
+    asked after, is an ordinary refusal that says it left nothing - neither says
+    the run was lost, and a walk told it was would stop where it should have
+    reached a human.
     """
     return f"{RUN_LOST_MARKER} {said}"
 
@@ -320,8 +384,8 @@ def what_was_left_behind(spoken: str) -> UndoDescriptor | None:
     The descriptor runs to the end of the message, because JSON is not
     self-terminating in a way a split can find: an object with a space inside it
     would be cut in half by taking the first word. Nothing follows it, which is
-    what makes that safe, and what `an_unreachable_platform` guarantees by
-    appending it last.
+    what makes that safe, and what `with_what_it_left` guarantees by appending it
+    last.
 
     A payload that will not parse is treated as no payload rather than raised on.
     What is in hand at this point is already a failure, and replacing a caller's
@@ -830,7 +894,11 @@ def _answered(name: str, result: CallToolResult) -> object:
         if UNREACHABLE_PLATFORM_MARKER in spoken:
             raise PlatformUnreachable(said, what_was_left_behind(spoken))
 
-        raise McpToolError(said)
+        # Any refusal may carry what it left, the unmarked ones too: a change
+        # request whose answer was lost still reports the suspension before it.
+        raise McpToolError(said,
+                           undo_descriptor=what_was_left_behind(spoken),
+                           left_behind_known=LEFT_BEHIND_KNOWN_MARKER in spoken)
 
     structured = result.structuredContent
 

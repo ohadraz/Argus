@@ -316,6 +316,13 @@ ignore_imports = [
     # and the server reading it back are one convention, kept in one module.
     # Each declares `mcp` itself, so each resolves on its own.
     "read_mcp_server.** -> argus_core.mcp_transport",
+    # Whether a failed request is known not to have been applied, read off the
+    # HTTP client's error. Narrow for the reason `mcp_transport` is - `httpx2`
+    # is an extra - and taken by the two write paths that ask over HTTP: the
+    # deployment platform's adapter and the flag provider's write. Each
+    # declares `httpx2` itself.
+    "deployment_platform.** -> argus_core.applying",
+    "write_mcp_server.** -> argus_core.applying",
 ]
 unmatched_ignore_imports_alerting = "warn"
 

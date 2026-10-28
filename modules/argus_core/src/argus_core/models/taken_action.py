@@ -52,6 +52,11 @@ class TakenAction(BaseModel):
     # How far it got. A claim until anything more is written, which is every
     # row's state from the moment it exists.
     progress: ActionProgress = ActionProgress.CLAIMED
+    # Whether `undo_descriptor` is the whole of what the attempt left behind -
+    # nothing, where it is absent. False until somebody says otherwise, as the
+    # row is from its claim: a worker that stopped after claiming may have made
+    # the change.
+    left_behind_known: bool = False
 
     @field_validator("outcome", mode="before")
     @classmethod

@@ -33,17 +33,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
-from argus_core.models import (
-    DEPLOYMENT_PLATFORM,
-    AcceleratorPinRestored,
-    AcceleratorPinUndo,
-)
-from deployment_platform import (
-    DeploymentPlatformError,
-    DeploymentPlatformWrites,
-    PlatformUnreachable,
-)
+from argus_core.mcp_transport import an_exhausted_action
+from argus_core.models import AcceleratorPinRestored, AcceleratorPinUndo
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+
+from write_mcp_server.refusing import a_platform_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -67,21 +61,18 @@ class AcceleratorPinRefused(Exception):
     change it."""
 
 
-def _refusing(said: str, error: DeploymentPlatformError,
+def _refusing(said: str, error: DeploymentPlatformError, *,
+              asked_to_change: bool,
               left_behind: AcceleratorPinUndo | None = None) -> AcceleratorPinRefused:
-    """This module's refusal, marked where the platform was never reached.
+    """This module's refusal, marked as `a_platform_refusal` marks it.
 
     `left_behind` is what the failure cost, where it cost anything: a suspension
-    that landed before the pin did not travels on the failure, so a caller can
-    narrow itself to a reachable platform and still know an application is
-    sitting un-reconciled.
+    that landed before the pin did not travels on the failure, so a caller still
+    knows an application is sitting un-reconciled.
     """
-    if isinstance(error, PlatformUnreachable):
-        return AcceleratorPinRefused(
-            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
-        )
-
-    return AcceleratorPinRefused(said)
+    return AcceleratorPinRefused(a_platform_refusal(
+        said, error, asked_to_change=asked_to_change, left_behind=left_behind
+    ))
 
 
 def pin_to_accelerator(application: str,
@@ -100,7 +91,8 @@ def pin_to_accelerator(application: str,
         was_pinned_to = platform.accelerator_pin_of(application)
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not read which card [{application}] is held to: {error}", error
+            f"could not read which card [{application}] is held to: {error}", error,
+            asked_to_change=False
         ) from error
 
     if was_pinned_to == accelerator:
@@ -113,13 +105,22 @@ def pin_to_accelerator(application: str,
 
     try:
         was_syncing_itself = platform.is_syncing_itself(application)
-
-        if was_syncing_itself:
-            platform.suspend_sync(application)
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not suspend the sync of [{application}]: {error}", error
+            f"could not read whether [{application}] syncs itself: {error}", error,
+            asked_to_change=False
         ) from error
+
+    # Apart from the read before it, because this is the first change asked
+    # for: a failure here may have suspended the sync, where one there cannot.
+    if was_syncing_itself:
+        try:
+            platform.suspend_sync(application)
+        except DeploymentPlatformError as error:
+            raise _refusing(
+                f"could not suspend the sync of [{application}]: {error}", error,
+                asked_to_change=True
+            ) from error
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -140,7 +141,8 @@ def pin_to_accelerator(application: str,
         raise _refusing(
             f"[{application}] could not be held to [{accelerator}]: {error}",
             error,
-            undo if was_syncing_itself else None
+            asked_to_change=True,
+            left_behind=undo if was_syncing_itself else None
         ) from error
 
     logger.info("deployment pinned to accelerator", extra={

@@ -43,7 +43,24 @@ from write_mcp_server.flag_state import (
     set_flag,
 )
 
+from write_mcp_server_test.framework.refusals import (
+    it_left_behind,
+    it_was_refused_as,
+    what_it_left_is_known,
+)
+
 DONT_CARE_FLAG = "dont-care-flag"
+DONT_CARE_PROVIDER_URL = "http://flags.invalid/"
+
+
+def _a_status_error(status: int) -> httpx2.HTTPStatusError:
+    request = httpx2.Request("POST", DONT_CARE_PROVIDER_URL)
+
+    return httpx2.HTTPStatusError(
+        f"answered {status}",
+        request=request,
+        response=httpx2.Response(status, request=request)
+    )
 
 
 @pytest.mark.unit
@@ -217,6 +234,83 @@ def test_an_unreachable_provider_is_not_reported_as_set() -> None:
         .then(
             an_error_was_raised(FlagNotSet)
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "failure",
+    [httpx2.ConnectError("connection refused"), _a_status_error(400)],
+    ids=["never sent", "rejected"]
+)
+def test_a_write_the_provider_never_took_is_known_to_have_changed_nothing(
+    failure: Exception
+) -> None:
+    # Nothing was sent, or what was sent was read and refused: the flag is as
+    # it was, and the refusal says so.
+    provider = a_flag_provider_reporting([])
+    provider.post.side_effect = failure
+
+    Scenario() \
+        .when(attempting(lambda: _setting_it_off(provider))) \
+        .then(all_of(
+            it_was_refused_as(FlagNotSet),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "failure",
+    [httpx2.ReadTimeout("timed out"), _a_status_error(500)],
+    ids=["timed out", "faulted"]
+)
+def test_a_write_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
+    failure: Exception
+) -> None:
+    # The provider may have flipped it. A refusal saying it left nothing would
+    # have the record say the flag is as it was.
+    provider = a_flag_provider_reporting([])
+    provider.post.side_effect = failure
+
+    Scenario() \
+        .when(attempting(lambda: _setting_it_off(provider))) \
+        .then(all_of(
+            it_was_refused_as(FlagNotSet),
+            what_it_left_is_known(False),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_write_accepted_and_never_seen_in_effect_carries_what_puts_it_back() -> None:
+    # The provider took the change, so the flag Argus flipped is flipped,
+    # whatever evaluation says yet - and recorded nowhere else, it is a flag no
+    # withdrawal would ever put back.
+    provider = a_flag_provider_reporting([DONT_CARE_FLAG])
+
+    Scenario() \
+        .when(attempting(lambda: _setting_it_off(provider))) \
+        .then(all_of(
+            it_was_refused_as(FlagNotSet),
+            what_it_left_is_known(True),
+            it_left_behind(_the_flag_as_it_was(enabled=True))
+        ))
+
+
+@pytest.mark.unit
+def test_a_write_accepted_and_then_unconfirmable_carries_what_puts_it_back() -> None:
+    # The same change taken, and the evaluation read gone with it.
+    provider = a_flag_provider_reporting([])
+    provider.evaluate.side_effect = httpx2.ConnectError("connection refused")
+
+    Scenario() \
+        .when(attempting(lambda: _setting_it_off(provider))) \
+        .then(all_of(
+            it_was_refused_as(FlagNotSet),
+            what_it_left_is_known(True),
+            it_left_behind(_the_flag_as_it_was(enabled=True))
+        ))
 
 
 @pytest.mark.unit
@@ -505,6 +599,28 @@ def a_flag_provider_dating_its_write_as(header: str) -> _FlagProvider:
     )
 
     return provider
+
+
+def _setting_it_off(provider: _FlagProvider) -> FlagUndo:
+    return set_flag(
+        DONT_CARE_FLAG,
+        enabled=False,
+        settings=some_settings(),
+        post=provider.post,
+        evaluate=provider.evaluate,
+        sleep=dont_care_sleep
+    )
+
+
+def _the_flag_as_it_was(enabled: bool) -> FlagUndo:
+    """What puts the flag back, as `some_settings` addresses it and as a
+    provider that dates nothing leaves it."""
+    return FlagUndo(
+        flag=DONT_CARE_FLAG,
+        was_enabled=enabled,
+        environment=some_settings().unleash_environment,
+        written_at=None
+    )
 
 
 def some_settings(project: str = "default",

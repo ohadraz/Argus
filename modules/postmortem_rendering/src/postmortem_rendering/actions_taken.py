@@ -90,7 +90,8 @@ def the_actions_taken(postmortem: PostmortemDocument,
                           at=said(step.at),
                           action=Line(runs=(Run(text=step.action),)),
                           by=step.by,
-                          kind=whether_it_can_be_put_back(step.has_a_way_back),
+                          kind=whether_it_can_be_put_back(step.has_a_way_back,
+                                                          step.left_behind_known),
                           outcome=step.outcome,
                           sync_left_off=step.sync_left_off)
                   for step in postmortem.resolution)
@@ -108,7 +109,7 @@ def the_actions_taken(postmortem: PostmortemDocument,
                       # A draft changes nothing running, so - like a restart -
                       # there is nothing of it to put back: the column says of
                       # the fix what it says of every action.
-                      kind=whether_it_can_be_put_back(False),
+                      kind=whether_it_can_be_put_back(False, left_behind_known=True),
                       outcome=OPENED_AS_A_DRAFT)
 
     return ActionsTakenSection(

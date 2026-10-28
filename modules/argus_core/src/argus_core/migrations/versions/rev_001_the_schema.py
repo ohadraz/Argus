@@ -122,6 +122,14 @@ CREATE TABLE IF NOT EXISTS action (
     -- `performed`, and no verdict says it: a stop is the word for an ending
     -- before the write and for one during the wait.
     progress TEXT NOT NULL,
+    -- Whether `undo_descriptor` is the whole of what the attempt left behind -
+    -- nothing, where it is NULL. False from the claim, since a worker that
+    -- stopped after it may have made the change; true for a change made, and
+    -- for every ending before any change was asked for. What tells a refusal
+    -- that changed nothing from one whose change request's answer was lost:
+    -- both are `not-performed`, both may carry no descriptor, and only the first
+    -- may be written up as having changed nothing.
+    left_behind_known BOOLEAN NOT NULL DEFAULT false,
     -- When the claim was written, on the walk's clock: no default, because the
     -- database's is a clock nothing else in the incident is dated by. Before
     -- the action, not at it - a reader dating the action reads its

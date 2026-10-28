@@ -142,7 +142,7 @@ def an_action_restarting(service: str) -> Action:
 
 
 def an_outcome_reaching(verdict: Verdict) -> Outcome:
-    return Outcome(verdict=verdict, detail="dont care")
+    return Outcome(verdict=verdict, detail="dont care", left_behind_known=True)
 
 
 def a_clock_frozen_at(moment: datetime) -> Callable[[], datetime]:

@@ -45,19 +45,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
-from argus_core.models import (
-    DEPLOYMENT_PLATFORM,
-    AutoscalerUndo,
-    AutoscalingRestored,
-)
-from deployment_platform import (
-    Autoscaler,
-    DeploymentPlatformError,
-    DeploymentPlatformWrites,
-    PlatformUnreachable,
-)
+from argus_core.mcp_transport import an_exhausted_action
+from argus_core.models import AutoscalerUndo, AutoscalingRestored
+from deployment_platform import Autoscaler, DeploymentPlatformError, DeploymentPlatformWrites
 
+from write_mcp_server.refusing import a_platform_refusal
 from write_mcp_server.scaling import THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR
 
 logger = logging.getLogger(__name__)
@@ -84,28 +76,18 @@ class PinRefused(Exception):
     """The platform would not report the bounds, or would not change them."""
 
 
-def _refusing(said: str, error: DeploymentPlatformError,
+def _refusing(said: str, error: DeploymentPlatformError, *,
+              asked_to_change: bool,
               left_behind: AutoscalerUndo | None = None) -> PinRefused:
-    """This module's refusal, marked where the platform was never reached.
-
-    The mark is what lets a caller tell four actions being unavailable from this
-    pin being rejected, without reading the words of either. It is applied here
-    rather than by the platform: what a response means is the platform's to say,
-    and what to raise about it is the action's own.
+    """This module's refusal, marked as `a_platform_refusal` marks it.
 
     `left_behind` is what the failure cost, where it cost anything. Where the
     suspension landed and the floor did not move, that suspension travels on the
-    failure - so a caller can narrow itself to a reachable platform and still
-    know an application is sitting un-reconciled. Withholding the mark instead
-    would have meant this mode was handled only when the platform failed on the
-    first call.
+    failure - so a caller still knows an application is sitting un-reconciled.
     """
-    if isinstance(error, PlatformUnreachable):
-        return PinRefused(
-            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
-        )
-
-    return PinRefused(said)
+    return PinRefused(a_platform_refusal(
+        said, error, asked_to_change=asked_to_change, left_behind=left_behind
+    ))
 
 
 def pin_autoscaler(application: str,
@@ -131,7 +113,8 @@ def pin_autoscaler(application: str,
         bounds = platform.autoscaler_bounds(application, autoscaler)
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not read [{application}]'s autoscaler: {error}", error
+            f"could not read [{application}]'s autoscaler: {error}", error,
+            asked_to_change=False
         ) from error
 
     the_floor_to_ask_for = min(bounds.ceiling, THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR)
@@ -148,13 +131,22 @@ def pin_autoscaler(application: str,
 
     try:
         was_syncing_itself = platform.is_syncing_itself(application)
-
-        if was_syncing_itself:
-            platform.suspend_sync(application)
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not suspend the sync of [{application}]: {error}", error
+            f"could not read whether [{application}] syncs itself: {error}", error,
+            asked_to_change=False
         ) from error
+
+    # Apart from the read before it, because this is the first change asked
+    # for: a failure here may have suspended the sync, where one there cannot.
+    if was_syncing_itself:
+        try:
+            platform.suspend_sync(application)
+        except DeploymentPlatformError as error:
+            raise _refusing(
+                f"could not suspend the sync of [{application}]: {error}", error,
+                asked_to_change=True
+            ) from error
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -176,7 +168,8 @@ def pin_autoscaler(application: str,
             f"[{application}]'s autoscaler floor could not be raised to "
             f"[{the_floor_to_ask_for}]: {error}",
             error,
-            undo if was_syncing_itself else None
+            asked_to_change=True,
+            left_behind=undo if was_syncing_itself else None
         ) from error
 
     logger.info("autoscaler floor raised", extra={

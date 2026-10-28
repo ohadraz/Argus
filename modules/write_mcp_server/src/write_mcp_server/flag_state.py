@@ -26,10 +26,12 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 import httpx2
 from argus_core import SettingsSlice
+from argus_core.applying import known_not_applied
+from argus_core.mcp_transport import a_refusal_saying_what_it_left
 from argus_core.models import FlagUndo
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,10 @@ _EVALUATION_ATTEMPTS = 25
 _SECONDS_BETWEEN_ATTEMPTS = 0.2
 
 EVALUATION_PATH = "/api/frontend"
+
+# The method the admin write is made with, as the classification of its
+# failure is asked about it.
+_THE_WRITE: Final = "POST"
 
 
 class FlagNotSet(Exception):
@@ -147,7 +153,12 @@ def set_flag(
     truer.
 
     Raises `FlagNotSet` unless the provider accepted the change *and* the change
-    became visible to evaluation.
+    became visible to evaluation - saying, as every write tool's refusal says,
+    what it left behind. A write the provider never took left nothing; one whose
+    answer was lost may have flipped the flag, and says nothing either way. One
+    the provider took and nobody saw evaluating has flipped it, so the failure
+    carries what puts it back: recorded nowhere else, it is a flag no withdrawal
+    would ever touch.
     """
     url = f"{settings.unleash_base_url}{_environment_path(settings, flag, enabled)}"
 
@@ -159,20 +170,28 @@ def set_flag(
         )
         response.raise_for_status()
     except Exception as error:
+        said = f"could not set flag [{flag}] {_state_name(enabled)} at [{url}]: {error}"
+
         raise FlagNotSet(
-            f"could not set flag [{flag}] {_state_name(enabled)} at [{url}]: {error}"
+            a_refusal_saying_what_it_left(said)
+            if known_not_applied(_THE_WRITE, error) else said
         ) from error
 
-    _wait_until_evaluating(flag, enabled, evaluate, sleep)
-
-    logger.info("flag set", extra={"flag": flag, "enabled": enabled})
-
-    return FlagUndo(
+    undo = FlagUndo(
         flag=flag,
         was_enabled=not enabled,
         environment=settings.unleash_environment,
         written_at=_when_the_provider_recorded(flag, response)
     )
+
+    try:
+        _wait_until_evaluating(flag, enabled, evaluate, sleep)
+    except FlagNotSet as unconfirmed:
+        raise FlagNotSet(a_refusal_saying_what_it_left(str(unconfirmed), undo)) from unconfirmed
+
+    logger.info("flag set", extra={"flag": flag, "enabled": enabled})
+
+    return undo
 
 
 def _when_the_provider_recorded(flag: str, response: httpx2.Response) -> datetime | None:

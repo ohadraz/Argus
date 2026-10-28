@@ -68,6 +68,7 @@ from argus_core.models import (
     ChannelReading,
     DeploymentRollbackUndo,
     FirstTold,
+    FlagUndo,
     Hypothesis,
     IncidentStatus,
     Meaning,
@@ -107,14 +108,6 @@ from argus_narration import (
 )
 
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
-
-# The verdicts an attempt never performed comes back with only where nothing
-# was written: the platform gone before the first write, nowhere left for the
-# action to go, a person's ending before it. Any other refusal can follow a
-# write, so it says nothing about what production holds.
-_ENDINGS_BEFORE_ANY_WRITE: Final = frozenset(
-    {Verdict.PLATFORM_UNREACHABLE, Verdict.NOT_ATTEMPTED, Verdict.STOPPED}
-)
 
 # The kind a line telling an announcement carries: the event's own, read off
 # its type rather than spelled a second time.
@@ -702,7 +695,8 @@ def _what_was_done(conn: psycopg.Connection,
                      standing=_what_became_of(taken_action),
                      paused_sync_of=_whose_sync_it_left_stopped(taken_action),
                      line=where.get(taken_action.hypothesis_id or ""),
-                     progress=taken_action.progress)
+                     progress=taken_action.progress,
+                     left_behind_known=_whether_what_it_left_is_known(taken_action))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
 
@@ -733,6 +727,18 @@ def _whether_it_left_a_way_back(taken_action: TakenAction) -> bool:
         return taken_action.undo_descriptor is not None
 
     return taken_action.has_a_way_back
+
+
+def _whether_what_it_left_is_known(taken_action: TakenAction) -> bool:
+    """Whether what an action left is known, where its row can be in doubt.
+
+    Only for an action never performed, whose way back is what it left on the
+    way: one performed has its kind's way back, and how far it got already
+    says what is in doubt about it."""
+    if taken_action.progress is ActionProgress.NOT_PERFORMED:
+        return taken_action.left_behind_known
+
+    return True
 
 
 def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
@@ -930,18 +936,29 @@ def _what_became_of(taken_action: TakenAction) -> str:
     left it put back and recorded nothing. And a claim that never said more may
     never have been made at all.
 
-    An action never performed changed nothing where that is known - a platform
-    that went before the first write, an action with nowhere left to go, a
-    person's ending before the write - unless it left something on the way,
-    which its undo says: a platform lost after the sync was suspended. A tier
-    that refused for any other reason may have changed something first, and
-    nobody can say what.
+    An action never performed changed nothing where its row knows so - a tier
+    that refused before asking for any change, a platform that said it did not
+    handle one, an action with nowhere left to go, a person's ending before the
+    write - unless it left something on the way, which its undo says: a
+    suspension before a rollback that was refused. Where a change request's
+    answer was lost, or what failed said nothing about the estate, nobody can
+    say what was changed beyond what the undo carries.
+
+    A flag revert is the one whose undo is its own write: nothing changes
+    before it, so a flag revert carrying one was taken by the provider and
+    never seen evaluating - made, not "not made".
     """
     if taken_action.progress is ActionProgress.NOT_PERFORMED:
-        if taken_action.undo_descriptor is not None:
-            return "not made; what it changed on the way is still in place"
+        if isinstance(taken_action.undo_descriptor, FlagUndo):
+            return "made at the provider but never seen in effect; still in place"
 
-        if taken_action.outcome in _ENDINGS_BEFORE_ANY_WRITE:
+        if taken_action.undo_descriptor is not None:
+            if taken_action.left_behind_known:
+                return "not made; what it changed on the way is still in place"
+
+            return "not known whether it was made; what it changed on the way is still in place"
+
+        if taken_action.left_behind_known:
             return "nothing was changed"
 
         return "not known whether anything was changed"

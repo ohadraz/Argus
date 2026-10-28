@@ -240,6 +240,7 @@ def test_a_verdict_is_not_durable_before_the_line_that_narrates_it(
                 hypothesis_id=candidate.id,
                 outcome=some_outcome,
                 undo_descriptor=dont_care_undo_descriptor,
+                left_behind_known=True,
                 narrating=VerdictReached(
                     incident_id=incident_id,
                     hypothesis_id=candidate.id,
@@ -291,6 +292,7 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
                 hypothesis_id=candidate.id,
                 outcome=some_outcome,
                 undo_descriptor=dont_care_undo_descriptor,
+                left_behind_known=True,
                 narrating=VerdictReached(
                     incident_id=incident_id,
                     hypothesis_id=candidate.id,

@@ -1552,36 +1552,115 @@ def test_an_action_never_performed_is_said_as_not_done_and_as_changing_nothing(
             ) \
             .when(
                 lambda: [(action.action, action.standing, action.progress,
-                          action.has_a_way_back)
+                          action.has_a_way_back, action.left_behind_known)
                          for action in gather_evidence(conn, incident_id).actions]
             ) \
             .then(
                 # Nothing to put back either: a rollback's kind leaves a way
                 # back, and one never made left nothing.
                 the_answer_was([(f"Did not roll back the deployment of {SOME_FLAG}",
-                                 "nothing was changed", ActionProgress.NOT_PERFORMED, False)])
+                                 "nothing was changed", ActionProgress.NOT_PERFORMED, False,
+                                 True)])
             )
 
 
 @pytest.mark.component
-def test_an_action_a_tier_refused_is_not_said_to_have_changed_nothing(
+def test_an_action_a_tier_refused_unaccountably_is_not_said_to_have_changed_nothing(
         a_clean_database: None) -> None:
-    # A refusal that is neither a platform gone nor an action with nowhere to
-    # go can follow a write, and nobody can say what production holds.
+    # A refusal nobody can account for - a change request whose answer was
+    # lost, a tool that raised for a reason nobody foresaw - and nobody can say
+    # what production holds. Nor that there is nothing to put back.
     with connect_from_env() as conn:
         incident_id = _an_incident_that_ended(conn)
 
         Scenario() \
             .given(
                 calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
-                                                 Verdict.ESCALATED, None, performed=False))
+                                                 Verdict.ESCALATED, None, performed=False,
+                                                 left_behind_known=False))
             ) \
             .when(
-                lambda: [action.standing
+                lambda: [(action.standing, action.has_a_way_back, action.left_behind_known)
                          for action in gather_evidence(conn, incident_id).actions]
             ) \
             .then(
-                the_answer_was(["not known whether anything was changed"])
+                the_answer_was([("not known whether anything was changed", False, False)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_a_tier_refused_before_asking_for_any_change_is_said_to_have_changed_nothing(
+        a_clean_database: None) -> None:
+    # A tier that refused before asking for any change - "could not read
+    # [io-shop]" - said so, and the row kept it: the write-up says nothing was
+    # changed rather than that nobody knows.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, ROLL_BACK_DEPLOYMENT,
+                                                 Verdict.ESCALATED, None, performed=False,
+                                                 left_behind_known=True))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back, action.left_behind_known)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("nothing was changed", False, True)])
+            )
+
+
+@pytest.mark.component
+def test_an_action_whose_answer_was_lost_after_a_suspension_says_both(
+        a_clean_database: None) -> None:
+    # The suspension is in place either way, and whether the rollback itself
+    # landed is what nobody can say.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.ESCALATED,
+                    DeploymentRollbackUndo(application=SOME_FLAG, was_on_history_id=41,
+                                           was_on_revision="0f1e2d3",
+                                           was_syncing_itself=True),
+                    performed=False, left_behind_known=False))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("not known whether it was made; what it changed on the way "
+                                 "is still in place", True)])
+            )
+
+
+@pytest.mark.component
+def test_a_flag_set_at_the_provider_and_never_seen_in_effect_is_said_as_made(
+        a_clean_database: None) -> None:
+    # "Not made" would be false: the provider took the write. What nobody saw
+    # is the flag evaluating as set, and what is left is the flag itself.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.ESCALATED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                    performed=False, left_behind_known=True))
+            ) \
+            .when(
+                lambda: [(action.standing, action.has_a_way_back)
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([("made at the provider but never seen in effect; still in "
+                                 "place", True)])
             )
 
 
@@ -1605,7 +1684,7 @@ def test_an_action_nobody_can_account_for_is_named_in_no_tense(
                          for action in gather_evidence(conn, incident_id).actions]
             ) \
             .then(
-                the_answer_was([(f"Putting {SOME_FLAG} back", progress)])
+                the_answer_was([(f"Reverting {SOME_FLAG}", progress)])
             )
 
 
@@ -2435,9 +2514,11 @@ def _an_action_taken(conn: psycopg.Connection,
                      outcome: Verdict,
                      undo_descriptor: UndoDescriptor | None,
                      summary: str = "dont care",
-                     performed: bool = True) -> None:
+                     performed: bool = True,
+                     left_behind_known: bool = True) -> None:
     """One finished action, on a candidate of its own - performed, unless a
-    case says the attempt ended before anything changed."""
+    case says the attempt ended before its write, and known to have left what
+    its descriptor says, unless a case says nobody can tell."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary=summary,
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
@@ -2451,7 +2532,8 @@ def _an_action_taken(conn: psycopg.Connection,
                          outcome=outcome,
                          undo_descriptor=undo_descriptor,
                          at=DONT_CARE_TAKEN_AT,
-                         performed=performed)
+                         performed=performed,
+                         left_behind_known=left_behind_known)
 
 
 def _an_action_left_at(conn: psycopg.Connection,
@@ -2497,7 +2579,8 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                          subject=SOME_FLAG,
                          outcome=Verdict.CONFIRMED,
                          undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True),
-                         at=taken_at - timedelta(minutes=4))
+                         at=taken_at - timedelta(minutes=4),
+                         left_behind_known=True)
     events.record(conn, ActionTaken(incident_id=incident_id,
                                     hypothesis_id=candidate.id,
                                     action_type=REVERT_FEATURE_FLAG,
@@ -2524,7 +2607,8 @@ def _a_candidate_acted_on(conn: psycopg.Connection,
                          subject=subject,
                          outcome=outcome,
                          undo_descriptor=FlagUndo(flag=subject, was_enabled=True),
-                         at=parse_iso(taken_at))
+                         at=parse_iso(taken_at),
+                         left_behind_known=True)
 
     return candidate.id
 

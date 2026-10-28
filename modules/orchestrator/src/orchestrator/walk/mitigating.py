@@ -197,6 +197,9 @@ def mitigation_node(
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,
         performed=result.performed,
+        # What tells a refusal that asked for no change from one nobody can
+        # account for, which the write-up says differently.
+        left_behind_known=result.left_behind_known,
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,

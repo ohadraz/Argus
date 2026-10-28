@@ -277,16 +277,19 @@ def an_action(action: str,
               has_a_way_back: bool = True,
               taken_at: datetime = STARTED_AT + timedelta(minutes=2),
               paused_sync_of: str | None = None,
-              line: int | None = None) -> ActionRecord:
-    """One action Argus took - with no verdict, unless a test names one, and
-    no line of the account saying it, unless a test says where it sits."""
+              line: int | None = None,
+              left_behind_known: bool = True) -> ActionRecord:
+    """One action Argus took - with no verdict, unless a test names one, no
+    line of the account saying it, unless a test says where it sits, and known
+    to have left what it says, unless a test says nobody can tell."""
     return ActionRecord(taken_at=taken_at,
                         action=action,
                         has_a_way_back=has_a_way_back,
                         verdict=verdict,
                         standing=standing,
                         paused_sync_of=paused_sync_of,
-                        line=line)
+                        line=line,
+                        left_behind_known=left_behind_known)
 
 
 def a_resolution(at: datetime,

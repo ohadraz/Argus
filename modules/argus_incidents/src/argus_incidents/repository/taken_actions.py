@@ -110,6 +110,8 @@ def complete(
     outcome: Verdict,
     undo_descriptor: UndoDescriptor | None,
     performed: bool = True,
+    *,
+    left_behind_known: bool,
 ) -> None:
     """Records what came of an action already claimed (spec §11.1, §13), and
     whether it was performed at all.
@@ -131,18 +133,25 @@ def complete(
     wrote when the change was made: this is the attempt's own whole account, and
     a change put back after a refutation is a change that was still made.
 
+    And whether the descriptor is the whole of what the attempt left behind:
+    what tells a refusal that asked for no change from one whose change
+    request's answer was lost, which neither the verdict nor the progress
+    can. Required, so a caller that forgot it cannot claim to know the estate.
+
     Committing is the caller's. The event reporting this verdict is written on
     the same connection, and a commit here would put the verdict beyond reach
     of the account before the account existed.
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET outcome = %s, undo_descriptor = %s, progress = %s "
+            "UPDATE action SET outcome = %s, undo_descriptor = %s, progress = %s, "
+            "                  left_behind_known = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (
                 outcome,
                 _as_column(undo_descriptor),
                 ActionProgress.PERFORMED if performed else ActionProgress.NOT_PERFORMED,
+                left_behind_known,
                 incident_id,
                 hypothesis_id,
             ),
@@ -168,6 +177,11 @@ def advance(
     Only from `claimed`. A completed row is the attempt's own account, and
     `unknown` is final - a later write about a claim must not overwrite either
     with less than they say.
+
+    Whether what the attempt left is known is not written here. It is the
+    attempt's own account, which only `complete` gives: a resumed walk's
+    answer that the change landed comes without the descriptor that went with
+    the dead worker, and a row moved to `unknown` is one nobody answered.
 
     Committing is the caller's, as `complete`'s is.
     """
@@ -212,6 +226,8 @@ def record(
     undo_descriptor: UndoDescriptor | None,
     at: datetime,
     performed: bool = True,
+    *,
+    left_behind_known: bool,
 ) -> None:
     """One action, claimed and completed in a single step.
 
@@ -222,7 +238,8 @@ def record(
     across everything that writes one.
     """
     claim(conn, incident_id, hypothesis_id, action_type, subject, at)
-    complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed)
+    complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed,
+             left_behind_known=left_behind_known)
 
 
 def get_action_for_hypothesis(conn: psycopg.Connection,
@@ -238,7 +255,7 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, progress "
+            "       undo_descriptor, outcome, taken_at, progress, left_behind_known "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -258,7 +275,7 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, progress "
+            "       undo_descriptor, outcome, taken_at, progress, left_behind_known "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",

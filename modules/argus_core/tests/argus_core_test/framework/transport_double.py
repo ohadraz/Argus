@@ -37,8 +37,10 @@ from argus_core.mcp_transport import (
     FENCE_META_KEY,
     TracedFastMCP,
     a_lost_run,
+    a_refusal_saying_what_it_left,
     an_exhausted_action,
     an_unreachable_platform,
+    with_what_it_left,
 )
 from argus_core.models import DeploymentRollbackUndo
 from mcp.server.fastmcp import Context
@@ -55,6 +57,15 @@ POLL_SECONDS = 0.2
 # else. It is what lets a test say a refusal was *not* retried: a client that
 # quietly asked again would leave two here where the test made one call.
 _times_refused = 0
+
+# What the refusals that changed something leave behind: one suspension, as the
+# rollback's shape leaves it.
+_A_SUSPENSION = DeploymentRollbackUndo(
+    application="some-application",
+    was_on_history_id=41,
+    was_on_revision="0f1e2d3",
+    was_syncing_itself=True
+)
 
 
 def build_double(port: int) -> TracedFastMCP:
@@ -127,12 +138,34 @@ def build_double(port: int) -> TracedFastMCP:
         raise RuntimeError(an_unreachable_platform(
             "some-deployment-platform",
             "stopped answering after reconciliation was suspended",
-            undo_descriptor=DeploymentRollbackUndo(
-                application="some-application",
-                was_on_history_id=41,
-                was_on_revision="0f1e2d3",
-                was_syncing_itself=True
-            )
+            undo_descriptor=_A_SUSPENSION
+        ))
+
+    @server.tool()
+    def refuse_saying_it_left_nothing() -> list[str]:
+        """Refuses the way a tier refuses before it has asked for any change -
+        a read the platform answered with a no."""
+        raise RuntimeError(a_refusal_saying_what_it_left(
+            "could not read some-application"
+        ))
+
+    @server.tool()
+    def refuse_saying_what_it_left() -> list[str]:
+        """Refuses the way a tier refuses an action's own write that the
+        platform answered with a no, after suspending reconciliation."""
+        raise RuntimeError(a_refusal_saying_what_it_left(
+            "the rollback was refused after reconciliation was suspended",
+            _A_SUSPENSION
+        ))
+
+    @server.tool()
+    def refuse_with_what_it_left() -> list[str]:
+        """Refuses the way a tier refuses an action's own write whose answer was
+        lost, after suspending reconciliation: what it left is carried, and not
+        said to be all of it."""
+        raise RuntimeError(with_what_it_left(
+            "the rollback's answer was lost after reconciliation was suspended",
+            _A_SUSPENSION
         ))
 
     @server.tool()

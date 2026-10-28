@@ -43,6 +43,9 @@ embedding = ["fastembed>=0.8"]
 vector_store = ["qdrant-client>=1.19,<1.20"]
 llm = ["anthropic>=1.0"]
 mcp = ["mcp>=1.29.0", "uvicorn>=0.30"]
+# The HTTP client `argus_core.applying` reads a failed request's error off. Its
+# two dependants declare `httpx2` themselves, as the write server declares `mcp`.
+http = ["httpx2"]
 migrations = ["alembic>=1.20.0"]
 
 # `test_module` resolves each module against its own dependencies alone, so a
@@ -54,7 +57,7 @@ migrations = ["alembic>=1.20.0"]
 # CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
-    "argus-argus_core[embedding,llm,mcp,migrations,vector_store]",
+    "argus-argus_core[embedding,http,llm,mcp,migrations,vector_store]",
     "argus-argus_testkit",
     # What an instrumented call is asserted through: an SDK's in-memory
     # exporter and reader, handed to the code under test as its tracer and

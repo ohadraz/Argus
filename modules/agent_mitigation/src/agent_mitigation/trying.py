@@ -33,8 +33,10 @@ from argus_core.events import (
 )
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_KNOWN_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
+    McpToolError,
     PlatformUnreachable,
     without_the_payload,
 )
@@ -244,6 +246,7 @@ def take_action(action: Action,
 
         return Outcome(
             verdict=Verdict.STOPPED,
+            left_behind_known=True,
             detail="a person ended the incident before the action was taken",
             undo_descriptor=None,
             judged=False,
@@ -271,6 +274,7 @@ def take_action(action: Action,
         # ruled a cause out when nothing ruled it out.
         return Outcome(
             verdict=Verdict.NOT_ATTEMPTED,
+            left_behind_known=True,
             detail=(
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_marker(exhausted)}"
@@ -309,6 +313,9 @@ def take_action(action: Action,
         # failure, which is the platform going before the first write.
         return Outcome(
             verdict=Verdict.PLATFORM_UNREACHABLE,
+            # Known, as every marked platform failure is: one that may have
+            # changed more than it carries is never marked.
+            left_behind_known=unreachable.left_behind_known,
             detail=(
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_platform_marker(unreachable)}"
@@ -330,9 +337,18 @@ def take_action(action: Action,
         logger.warning("action could not be performed", exc_info=True,
                        extra={"action_type": action.action_type})
 
+        # What the tier said it left, where a tier said anything. A refusal
+        # can follow a change - a rollback refused after the sync was
+        # suspended - and the row this outcome writes is the only record of
+        # it. Anything that is not a tool's answer said nothing about the
+        # estate, so nothing about it is known.
+        told = error if isinstance(error, McpToolError) else None
+
         return Outcome(
             verdict=Verdict.ESCALATED,
-            detail=f"could not {_what_it_would_have_done(action)}: {error}",
+            left_behind_known=told.left_behind_known if told is not None else False,
+            detail=f"could not {_what_it_would_have_done(action)}: {_in_its_own_words(error)}",
+            undo_descriptor=told.undo_descriptor if told is not None else None,
             # Nothing was performed and so nothing was watched. This is the
             # broadest of the three and the one most likely to be reached by
             # something nobody foresaw, which is the best reason for it to say
@@ -360,6 +376,7 @@ def take_action(action: Action,
     if settled.verdict is Verdict.CONFIRMED:
         return Outcome(
             verdict=Verdict.CONFIRMED,
+            left_behind_known=True,
             because=settled.because,
             # The reason the watching gave, rather than a sentence written here.
             # One verdict is reached four ways that mean different things - a
@@ -384,6 +401,7 @@ def take_action(action: Action,
     if settled.verdict is Verdict.ESCALATED:
         return Outcome(
             verdict=Verdict.ESCALATED,
+            left_behind_known=True,
             detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
             # Said rather than left to the verdict, which is the same word here
@@ -400,6 +418,7 @@ def take_action(action: Action,
     if settled.verdict is Verdict.STOPPED:
         return Outcome(
             verdict=Verdict.STOPPED,
+            left_behind_known=True,
             detail=f"{performed.said}, and {settled.because}",
             undo_descriptor=performed.undo_descriptor,
             # Nothing was judged here either, whatever the wait read before the
@@ -639,6 +658,19 @@ def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
     """
     return without_the_payload(
         str(unreachable).replace(UNREACHABLE_PLATFORM_MARKER, "")
+    ).strip()
+
+
+def _in_its_own_words(failure: Exception) -> str:
+    """A failure that was no answer of a kind, in its own words: without the
+    token that says the tier knows what it left, and without what it left.
+
+    `_without_the_platform_marker`'s reasoning, for the ordinary refusal. Taking
+    any exception rather than a tool's alone, because the branch it serves
+    catches everything - and a failure carrying neither leaves here as it
+    came."""
+    return without_the_payload(
+        str(failure).replace(LEFT_BEHIND_KNOWN_MARKER, "")
     ).strip()
 
 
@@ -1366,6 +1398,7 @@ def _undone(performed: Performed,
     if undo_descriptor is None:
         return Outcome(
             verdict=Verdict.REFUTED,
+            left_behind_known=True,
             because=because,
             detail=(
                 f"{taken}, but {because}, and "
@@ -1390,6 +1423,7 @@ def _undone(performed: Performed,
 
             return Outcome(
                 verdict=Verdict.ESCALATED,
+                left_behind_known=True,
                 because=because,
                 detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
@@ -1397,6 +1431,7 @@ def _undone(performed: Performed,
         case Undone.LEFT_AS_FOUND:
             return Outcome(
                 verdict=Verdict.REFUTED,
+                left_behind_known=True,
                 because=because,
                 detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
@@ -1404,6 +1439,7 @@ def _undone(performed: Performed,
         case Undone.RESTORED:
             return Outcome(
                 verdict=Verdict.REFUTED,
+                left_behind_known=True,
                 because=because,
                 detail=(
                     f"{taken}, but {because}, so it was put back "
@@ -1422,6 +1458,7 @@ def _undone(performed: Performed,
             # so a kind that ever does both says one thing twice.
             return Outcome(
                 verdict=Verdict.REFUTED,
+                left_behind_known=True,
                 because=because,
                 detail=(
                     f"{taken}, but {because}, and "

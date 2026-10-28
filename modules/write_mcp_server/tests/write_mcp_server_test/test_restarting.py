@@ -36,6 +36,13 @@ from deployment_platform import (
 )
 from write_mcp_server.restarting import ServiceNotRestarted, restart_service
 
+from write_mcp_server_test.framework.refusals import (
+    it_is_marked_unreachable,
+    it_left_behind,
+    it_was_refused_as,
+    what_it_left_is_known,
+)
+
 DONT_CARE_SERVICE = "dont-care-service"
 
 # Two start times that are unmistakably different processes, as seconds since the
@@ -211,12 +218,79 @@ def test_a_platform_that_could_not_be_read_before_the_action_is_unreachable() ->
 @pytest.mark.unit
 def test_a_platform_that_never_received_the_action_is_unreachable() -> None:
     platform = a_platform()
-    platform.restart.side_effect = PlatformUnreachable("connection refused")
+    platform.restart.side_effect = PlatformUnreachable(
+        "connection refused", known_not_applied=True
+    )
 
     Scenario() \
         .given(platform) \
         .when(attempting(lambda: _restarting(platform))) \
-        .then(_it_is_reported_as_an_unreachable_platform())
+        .then(all_of(
+            _it_is_reported_as_an_unreachable_platform(),
+            what_it_left_is_known(True)
+        ))
+
+
+@pytest.mark.unit
+def test_a_platform_that_refused_the_read_is_known_to_have_changed_nothing() -> None:
+    # Nothing had been asked for, so however the read failed, nothing changed.
+    platform = a_platform()
+    platform.newest_pod_started_at.side_effect = PlatformRefused("permission denied")
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(
+            it_was_refused_as(ServiceNotRestarted),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_restart_the_platform_rejected_is_known_to_have_changed_nothing() -> None:
+    # Read and refused, so no pod was asked to roll.
+    platform = a_platform()
+    platform.restart.side_effect = PlatformRefused(
+        "permission denied", known_not_applied=True
+    )
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True),
+            it_left_behind(None)
+        ))
+
+
+@pytest.mark.unit
+def test_a_restart_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -> None:
+    # Pods may be rolling this second. Marked unreachable, the walk would judge
+    # its next action against a service that may be coming back on its own.
+    platform = a_platform()
+    platform.restart.side_effect = PlatformUnreachable("timed out", known_not_applied=False)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(all_of(
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_restart_that_could_not_be_confirmed_is_not_said_to_have_changed_nothing() -> None:
+    # The platform took the action; whether a pod rolled is what nobody saw.
+    platform = a_platform_whose_reading_fails_after_the_action()
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _restarting(platform))) \
+        .then(what_it_left_is_known(False))
 
 
 @pytest.mark.unit

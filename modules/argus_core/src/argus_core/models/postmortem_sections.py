@@ -264,9 +264,14 @@ class ResolutionStep(BaseModel):
     # is said in every place that cites the action. `False` on a document
     # written before it was carried, whose outcome says it already.
     sync_left_off: bool = False
+    # Whether what the step left behind is known - false for an action whose
+    # change request may have landed with nobody able to say, which is not one
+    # with nothing to put back. `True` on a document written before it was
+    # carried, which is what such a document claimed.
+    left_behind_known: bool = True
 
 
-def whether_it_can_be_put_back(has_a_way_back: bool) -> str:
+def whether_it_can_be_put_back(has_a_way_back: bool, left_behind_known: bool) -> str:
     """Whether an action left something to put back, in the words every place
     showing it uses.
 
@@ -278,8 +283,16 @@ def whether_it_can_be_put_back(has_a_way_back: bool) -> str:
     Here rather than with whoever shows it, because the page and the brief the
     model writes from both say it, and two spellings of one fact read as two
     facts.
+
+    An action nobody can account for is not said to leave nothing: it may have
+    changed something nobody recorded. What it does carry can be put back.
     """
-    return "can be put back" if has_a_way_back else "nothing to put back"
+    if has_a_way_back:
+        return "can be put back"
+
+    return "nothing to put back" if left_behind_known else (
+        "not known whether anything is left to put back"
+    )
 
 
 def shorter_than_the_rules_wait(waits_said: str, held_before_the_onset: bool | None) -> str:

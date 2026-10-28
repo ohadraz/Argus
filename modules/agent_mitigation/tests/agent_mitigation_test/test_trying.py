@@ -37,13 +37,16 @@ from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import AwaitingRecovery, IncidentEvent, RecoveryChecked, RetrievalUnanswered
 from argus_core.mcp_transport import (
     EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     McpToolError,
     PlatformUnreachable,
+    a_refusal_saying_what_it_left,
     an_exhausted_action,
     an_unreachable_platform,
+    with_what_it_left,
 )
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
@@ -264,9 +267,11 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 undo=an_undo_nobody_calls()
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.CONFIRMED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            # The descriptor is the tier's own account of the change it made.
+            _what_it_left_is_known(True)
+        ))
 
 
 @pytest.mark.unit
@@ -374,6 +379,7 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
             _the_flag_was_never_set(set_state),
             _it_carries_nothing_to_put_back(),
             _it_says_it_was_performed(False),
+            _what_it_left_is_known(True),
             # The agent holds a yes-or-no and cannot tell a withdrawal from a
             # resolution, so it says what it knows and claims neither.
             _the_detail_mentions("a person ended the incident"),
@@ -2102,7 +2108,8 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
             ),
             _the_detail_mentions(THE_AUTOSCALER_HAS_NO_ROOM_LEFT),
             _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
-            _there_is_nothing_to_put_back()
+            _there_is_nothing_to_put_back(),
+            _what_it_left_is_known(True)
         ))
 
 
@@ -2187,7 +2194,8 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
             _it_says_it_was_performed(False),
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
             _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
-            _there_is_nothing_to_put_back()
+            _there_is_nothing_to_put_back(),
+            _what_it_left_is_known(True)
         ))
 
 
@@ -2218,6 +2226,131 @@ def test_a_rollback_refused_by_a_platform_that_answered_still_escalates() -> Non
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _there_is_nothing_to_put_back(),
+            _what_it_left_is_known(False)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_before_anything_changed_says_nothing_was_changed() -> None:
+    # The tier said it had asked for no change. The escalation still stands - a
+    # person has to look at why it refused - and the record can say the estate
+    # is as it was.
+    Scenario() \
+        .given(
+            the_platform_refused_it := _a_roller_refusing_saying_what_it_left(
+                THE_ROLLBACK_WAS_REFUSED, None
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_refused_it),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _it_says_it_was_performed(False),
+            _what_it_left_is_known(True),
+            _there_is_nothing_to_put_back(),
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_refused_after_the_suspension_carries_what_it_left() -> None:
+    # The suspension the refusal carries is the one record of an application
+    # sitting un-reconciled, and the outcome is where the walk's row reads it
+    # from.
+    Scenario() \
+        .given(
+            the_platform_refused_it := _a_roller_refusing_saying_what_it_left(
+                THE_ROLLBACK_WAS_REFUSED, WHAT_THE_ROLLBACK_LEFT
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_platform_refused_it),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _what_it_left_is_known(True),
+            _it_carries_back(WHAT_THE_ROLLBACK_LEFT),
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
+            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER),
+            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_is_not_known() -> None:
+    # The revision may be moving: what is carried is what the earlier calls
+    # answered for, and the record must not say that is all.
+    Scenario() \
+        .given(
+            the_answer_was_lost := _a_roller_failing_with_what_it_left(
+                THE_ROLLBACK_WAS_REFUSED, WHAT_THE_ROLLBACK_LEFT
+            )
+        ) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=the_answer_was_lost),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _what_it_left_is_known(False),
+            _it_carries_back(WHAT_THE_ROLLBACK_LEFT),
+            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+        ))
+
+
+@pytest.mark.unit
+def test_a_write_that_failed_outside_the_tier_is_not_known_to_have_changed_nothing() -> None:
+    # Not a tool's answer at all - a failure between the agent and the tier -
+    # so nobody said what the estate was left as.
+    roll_back = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = RuntimeError("the session dropped")
+
+    Scenario() \
+        .given(roll_back) \
+        .when(
+            lambda: take_action(
+                _a_rollback_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(roll_back=roll_back),
+                fetch_metrics=metrics_reading(a_recovered_window()),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=an_undo_nobody_calls()
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _what_it_left_is_known(False),
             _there_is_nothing_to_put_back()
         ))
 
@@ -3990,6 +4123,49 @@ def _a_roller_that_lost_the_platform_mid_action(failure: str) -> MagicMock:
     )
 
     return roll_back
+
+
+def _a_roller_refusing_saying_what_it_left(
+    failure: str, left_behind: UndoDescriptor | None
+) -> MagicMock:
+    """Answers as the tier does when the platform said no and the tier can say
+    what it left: built as the transport builds it from that refusal."""
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = McpToolError(
+        a_refusal_saying_what_it_left(failure, left_behind),
+        undo_descriptor=left_behind,
+        left_behind_known=True
+    )
+
+    return roll_back
+
+
+def _a_roller_failing_with_what_it_left(failure: str,
+                                        left_behind: UndoDescriptor) -> MagicMock:
+    """Answers as the tier does when a change request's answer was lost after an
+    earlier change landed: what it knows it left, and not that it is all."""
+    roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
+    roll_back.side_effect = McpToolError(
+        with_what_it_left(failure, left_behind),
+        undo_descriptor=left_behind,
+        left_behind_known=False
+    )
+
+    return roll_back
+
+
+def _what_it_left_is_known(expected: bool) -> Assertion[Outcome]:
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.left_behind_known is not expected:
+            raise AssertionError(
+                f"Expected the outcome to say what the attempt left behind is "
+                f"{'known' if expected else 'not known'}, and it said "
+                f"left_behind_known={outcome.left_behind_known}: [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_carries_back(expected: UndoDescriptor) -> Assertion[Outcome]:

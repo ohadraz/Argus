@@ -91,6 +91,10 @@ class ActionRecord(BaseModel):
     paused_sync_of: str | None = None
     line: int | None = None
     progress: ActionProgress = ActionProgress.PERFORMED
+    # Whether what the action left behind is known, as its row records it: an
+    # action nobody can account for is not one with nothing to put back.
+    # Required, so a reader building one says which it is.
+    left_behind_known: bool
 
 
 class DeploymentChangesRecord(BaseModel):

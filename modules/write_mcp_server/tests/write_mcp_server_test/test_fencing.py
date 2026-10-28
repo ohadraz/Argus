@@ -24,6 +24,7 @@ import pytest
 from argus_core import Fence
 from argus_core.mcp_transport import (
     FENCE_META_KEY,
+    LEFT_BEHIND_KNOWN_MARKER,
     RUN_LOST_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     an_unreachable_platform,
@@ -83,7 +84,8 @@ def test_a_change_naming_no_run_is_refused_but_not_as_a_lost_run(
 ) -> None:
     # A caller that forgot to say which claim it acts for is a bug rather than a
     # walk that lost its run, and a walk told its run was lost writes nothing
-    # more - so a forgetful caller told that would end in silence.
+    # more - so a forgetful caller told that would end in silence. And it says
+    # it left nothing, because the tool never ran.
     made: list[str] = []
     asked: list[Fence] = []
 
@@ -96,6 +98,7 @@ def test_a_change_naming_no_run_is_refused_but_not_as_a_lost_run(
         ) \
         .then(all_of(
             _refused(as_a_lost_run=False),
+            _refused_with(LEFT_BEHIND_KNOWN_MARKER),
             _the_change_was_made(made, times=0),
             _the_run_was_asked_about(asked, [])
         ))
@@ -105,7 +108,7 @@ def test_a_change_naming_no_run_is_refused_but_not_as_a_lost_run(
 def test_a_change_whose_run_could_not_be_checked_is_refused_but_not_as_a_lost_run() -> None:
     # The run may be held for all anybody knows. Refused, because a change made
     # unchecked is the one this exists to stop; and not as a lost run, because
-    # nothing said it was.
+    # nothing said it was. It says it left nothing: the tool never ran.
     made: list[str] = []
 
     Scenario() \
@@ -117,6 +120,7 @@ def test_a_change_whose_run_could_not_be_checked_is_refused_but_not_as_a_lost_ru
         ) \
         .then(all_of(
             _refused(as_a_lost_run=False),
+            _refused_with(LEFT_BEHIND_KNOWN_MARKER),
             _the_change_was_made(made, times=0)
         ))
 

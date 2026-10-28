@@ -661,6 +661,43 @@ def test_the_action_row_records_whether_the_action_was_performed(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("left_behind_known", [True, False], ids=["known", "not-known"])
+def test_the_action_row_records_whether_what_the_attempt_left_is_known(
+    left_behind_known: bool,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # What tells a refusal that asked for no change from one whose answer was
+    # lost: both are not performed, both may carry nothing, and only the first
+    # may be written up as having changed nothing.
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED, judged=False,
+                                                  performed=False,
+                                                  left_behind_known=left_behind_known)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=a_determined_hypothesis(a_random_id())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      complete_action=complete_action,
+                                      record_action=record_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(_the_action_row_records_whether_what_it_left_is_known(left_behind_known,
+                                                                    complete_action))
+
+
+@pytest.mark.unit
 def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     take: MagicMock,
     record_action: MagicMock,
@@ -2268,7 +2305,8 @@ def _the_action_came_back(take: MagicMock,
                           undo_descriptor: UndoDescriptor | None = None,
                           judged: bool = True,
                           because: str | None = None,
-                          performed: bool = True) -> None:
+                          performed: bool = True,
+                          left_behind_known: bool = True) -> None:
     """The agent answers with `verdict` - telling of the change as it makes it,
     as the real one does, wherever the action was performed."""
     outcome = Outcome(verdict=verdict,
@@ -2276,7 +2314,8 @@ def _the_action_came_back(take: MagicMock,
                       undo_descriptor=undo_descriptor,
                       judged=judged,
                       because=because,
-                      performed=performed)
+                      performed=performed,
+                      left_behind_known=left_behind_known)
 
     def taking(dont_care_action: Action, /, **keywords: object) -> Outcome:
         change_made = cast(ChangeMade, keywords["change_made"])
@@ -2528,7 +2567,8 @@ def _an_agent_that_tells_of_the_change(undo_descriptor: UndoDescriptor,
              **dont_care_keywords: object) -> Outcome:
         change_made(undo_descriptor)
 
-        return Outcome(verdict=verdict, detail="dont care", undo_descriptor=undo_descriptor)
+        return Outcome(verdict=verdict, detail="dont care", undo_descriptor=undo_descriptor,
+                       left_behind_known=True)
 
     return cast(ports.TakeAction, take)
 
@@ -2587,6 +2627,23 @@ def _the_action_row_records_whether_it_was_performed(expected: bool,
             raise AssertionError(
                 f"Expected the action row to record performed as {expected}, it "
                 f"recorded {recorded}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_row_records_whether_what_it_left_is_known(expected: bool,
+                                                         complete_action: MagicMock
+                                                         ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        recorded = complete_action.call_args.kwargs["left_behind_known"]
+        if recorded is not expected:
+            raise AssertionError(
+                f"Expected the action row to record what the attempt left behind as "
+                f"{'known' if expected else 'not known'}, it recorded "
+                f"left_behind_known={recorded}."
             )
 
         return True

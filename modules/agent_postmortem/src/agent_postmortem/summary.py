@@ -254,7 +254,7 @@ def _an_action_taken(step: ResolutionStep) -> str:
     """An action and what it came to, with whether it can be put back only
     where it can: one with no way back comes to "nothing to put back", and the
     same words beside it said it twice in one clause."""
-    way_back = (f" ({whether_it_can_be_put_back(step.has_a_way_back)})"
+    way_back = (f" ({whether_it_can_be_put_back(step.has_a_way_back, step.left_behind_known)})"
                 if step.has_a_way_back else "")
     return f"{inside_a_sentence(step.action)}{way_back} - {step.outcome}"
 

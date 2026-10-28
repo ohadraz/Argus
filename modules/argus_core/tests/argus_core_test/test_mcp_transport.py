@@ -31,12 +31,15 @@ import pytest
 import uvicorn
 from argus_core import Fence, Holding, RunLost
 from argus_core.mcp_transport import (
+    LEFT_BEHIND_KNOWN_MARKER,
+    LEFT_BEHIND_MARKER,
     ActionExhausted,
     McpClient,
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
     TracedFastMCP,
+    a_refusal_saying_what_it_left,
     an_unreachable_platform,
     every_tool_listed,
     serving_a_tool_call,
@@ -142,7 +145,9 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
                     "say_something", "refuse", "refuse_without_a_word", "times_refused",
                     "refuse_as_exhausted",
                     "refuse_as_unreachable_platform",
-                    "refuse_as_unreachable_platform_mid_action", "refuse_as_lost_run",
+                    "refuse_as_unreachable_platform_mid_action",
+                    "refuse_saying_it_left_nothing", "refuse_saying_what_it_left",
+                    "refuse_with_what_it_left", "refuse_as_lost_run",
                     "the_fence_i_was_sent", "dawdle", "the_trace_i_am_in"
                 ]),
                 _the_tool_listed_requires("dawdle", ["seconds"]),
@@ -590,6 +595,111 @@ def test_a_descriptor_recording_that_there_was_nothing_before_survives_the_cross
             an_unreachable_platform(PLATFORM, WHAT_THE_TIER_SAID, left_behind)
         )) \
         .then(_it_came_back_as(left_behind))
+
+
+@pytest.mark.component
+def test_a_refusal_saying_it_left_nothing_is_known_to_have_changed_nothing() -> None:
+    """A tier that refused before it asked for anything to change says so.
+
+    The refusal is still an ordinary one - the platform answered and said no, so
+    nothing is narrowed and nothing is spent - but a caller can now tell it from
+    a failure nobody can account for, and say the estate is as it was.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with("refuse_saying_it_left_nothing"))) \
+            .then(all_of(
+                _what_was_raised_was(McpToolError),
+                _what_was_raised_was_not(ActionExhausted),
+                _what_was_raised_was_not(PlatformUnreachable),
+                _what_it_left_behind_is_known(True),
+                _it_left_nothing_behind()
+            ))
+
+
+@pytest.mark.component
+def test_a_refusal_saying_what_it_left_carries_it_and_is_known() -> None:
+    """A tier refused the action's own write after suspending reconciliation.
+
+    The application is sitting un-reconciled, and the refusal is the only record
+    of it - so it travels on the failure, and the failure says that is all.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with("refuse_saying_what_it_left"))) \
+            .then(all_of(
+                _what_was_raised_was(McpToolError),
+                _what_was_raised_was_not(PlatformUnreachable),
+                _what_it_left_behind_is_known(True),
+                _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND)
+            ))
+
+
+@pytest.mark.component
+def test_a_refusal_that_may_have_changed_more_still_carries_what_it_knows_it_left() -> None:
+    """A tier whose change request may have landed, after one that surely did.
+
+    Not known: the request whose answer was lost may be taking effect this
+    second. What the earlier calls answered for is still carried, because the
+    suspension they report is in place either way and something has to put it
+    back.
+    """
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with("refuse_with_what_it_left"))) \
+            .then(all_of(
+                _what_was_raised_was(McpToolError),
+                _what_was_raised_was_not(PlatformUnreachable),
+                _what_it_left_behind_is_known(False),
+                _what_it_left_behind_is(WHAT_WAS_LEFT_BEHIND)
+            ))
+
+
+@pytest.mark.component
+def test_an_ordinary_refusal_is_not_known_to_have_changed_nothing(
+    running_double: RunningDouble
+) -> None:
+    """A tool that raised for a reason nobody foresaw has said nothing about the
+    estate, and is not taken to have said it was untouched."""
+    Scenario() \
+        .given(running_double) \
+        .when(_asking(running_double, _refusing_once_and_counting)) \
+        .then(all_of(
+            _what_it_left_behind_is_known(False),
+            _it_left_nothing_behind()
+        ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(
+    "tool", ["refuse_as_exhausted", "refuse_as_unreachable_platform"],
+    ids=["exhausted", "unreachable platform"]
+)
+def test_a_refusal_marked_for_its_kind_is_known_to_say_what_it_left(tool: str) -> None:
+    """Both markers already promise it: an exhausted action is spent before
+    anything is touched, and a platform is only marked unreachable where the
+    tier can say what it left behind."""
+    with a_running_double() as double:
+        Scenario() \
+            .given(double) \
+            .when(_asking(double, _refusing_with(tool))) \
+            .then(_what_it_left_behind_is_known(True))
+
+
+@pytest.mark.unit
+def test_a_refusal_says_it_is_known_before_the_descriptor_it_carries() -> None:
+    # The descriptor runs to the end of the message, which is how it is read
+    # back: anything after it would be read as part of it.
+    Scenario() \
+        .given(WHAT_WAS_LEFT_BEHIND) \
+        .when(lambda: a_refusal_saying_what_it_left(WHAT_THE_TIER_SAID, WHAT_WAS_LEFT_BEHIND)) \
+        .then(all_of(
+            _the_marker_comes_before_the_payload(),
+            _it_reads_back_as(WHAT_WAS_LEFT_BEHIND)
+        ))
 
 
 @pytest.mark.component
@@ -1355,6 +1465,62 @@ def _it_left_nothing_behind() -> Assertion[_Attempt]:
             )
 
         return True
+
+    return assertion
+
+
+def _refusing_with(tool: str) -> Callable[[McpClient], _Attempt]:
+    def ask(client: McpClient) -> _Attempt:
+        try:
+            client.call(tool, SOMETHING.validate_python)
+        except Exception as refusal:
+            return _Attempt(raised=refusal)
+
+        return _Attempt()
+
+    return ask
+
+
+def _what_it_left_behind_is_known(expected: bool) -> Assertion[_Attempt]:
+    """Whether the failure says it carries the whole of what it left behind."""
+    def assertion(attempt: _Attempt) -> bool:
+        if not isinstance(attempt.raised, McpToolError):
+            raise AssertionError(
+                f"Expected a tool's refusal, and what was raised was {attempt.raised!r}."
+            )
+
+        if attempt.raised.left_behind_known is not expected:
+            raise AssertionError(
+                f"Expected the refusal to say what it left behind is "
+                f"{'known' if expected else 'not known'}, and it said "
+                f"left_behind_known={attempt.raised.left_behind_known}: "
+                f"[{attempt.raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_marker_comes_before_the_payload() -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        marker = said.find(LEFT_BEHIND_KNOWN_MARKER)
+        payload = said.find(LEFT_BEHIND_MARKER)
+
+        if marker < 0 or payload < 0 or marker > payload:
+            raise AssertionError(
+                f"Expected [{LEFT_BEHIND_KNOWN_MARKER}] and then "
+                f"[{LEFT_BEHIND_MARKER}], and the refusal said [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_reads_back_as(expected: UndoDescriptor) -> Assertion[str]:
+    def assertion(said: str) -> bool:
+        return _it_came_back_as(expected)(what_was_left_behind(said))
 
     return assertion
 

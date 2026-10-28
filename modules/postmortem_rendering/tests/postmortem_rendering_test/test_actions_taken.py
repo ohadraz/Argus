@@ -105,6 +105,25 @@ def test_an_action_with_nothing_to_put_back_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_nobody_can_account_for_is_not_said_to_leave_nothing_to_put_back() -> None:
+    # An outcome saying nobody knows whether anything was changed, beside a
+    # Kind saying there is nothing to put back, contradicts itself.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="dont care", by="dont care",
+                               has_a_way_back=False, left_behind_known=False,
+                               outcome="escalated, not known whether anything was changed",
+                               label="M1")])
+        ) \
+        .when(
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).steps[0].kind
+        ) \
+        .then(
+            the_answer_was("not known whether anything is left to put back"))
+
+
+@pytest.mark.unit
 def test_the_table_names_its_columns_and_their_zone() -> None:
     Scenario() \
         .given(

@@ -1664,7 +1664,8 @@ def _an_action_as_a_line(action: ActionRecord) -> str:
     Only where there is a way back: one with none stands as "nothing to put
     back", and the same words beside it said it twice on one line.
     """
-    way_back = (f" ({whether_it_can_be_put_back(action.has_a_way_back)})"
+    way_back = (f" ({whether_it_can_be_put_back(action.has_a_way_back,
+                                                action.left_behind_known)})"
                 if action.has_a_way_back else "")
     return (f"{action.action}{way_back} - "
             f"{what_it_came_to(action.verdict, action.progress)}, {action.standing}")

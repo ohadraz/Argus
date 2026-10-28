@@ -939,6 +939,17 @@ class Outcome(BaseModel):
     # a person's ending stops a test before the write and during the wait
     # alike, and only the second tried the candidate.
     performed: bool = True
+    # Whether `undo_descriptor` is the whole of what the attempt left behind -
+    # nothing, where it is `None`. True for a change made, whose descriptor is
+    # the tier's own account of it, and for every ending before any change was
+    # asked for; false where a change request may have landed and nobody can
+    # say, or where what failed said nothing about the estate at all. What tells
+    # a refusal that changed nothing from one nobody can account for, which the
+    # verdict cannot: both escalate, and both are not performed.
+    #
+    # Required, where `judged` and `performed` default: a default of true would
+    # let a new ending claim to know the estate by forgetting to say.
+    left_behind_known: bool
     # What the verification wait judged, apart from the sentence that says it:
     # the rule still firing, the service still at the incident's level, a
     # window that never showed the incident. `detail` is for a reader; this is

@@ -95,7 +95,8 @@ def test_record_writes_the_action_with_its_outcome_and_undo_descriptor() -> None
                     subject="monthly-spend-feature",
                     outcome=Verdict.CONFIRMED,
                     undo_descriptor=some_undo_descriptor,
-                    at=DONT_CARE_INSTANT
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
                 )
             ) \
             .then(all_of(
@@ -134,7 +135,8 @@ def test_an_action_with_nothing_to_undo_is_recorded_without_a_descriptor() -> No
                     subject="dont-care-flag",
                     outcome=Verdict.ESCALATED,
                     undo_descriptor=None,
-                    at=DONT_CARE_INSTANT
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
                 )
             ) \
             .then(
@@ -174,11 +176,81 @@ def test_a_completed_action_says_whether_it_was_performed(performed: bool,
                     outcome=Verdict.STOPPED,
                     undo_descriptor=None,
                     at=DONT_CARE_INSTANT,
-                    performed=performed
+                    performed=performed,
+                    left_behind_known=True
                 )
             ) \
             .then(
                 _the_progress_read_back_is(conn, incident_id, [progress])
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("left_behind_known", [True, False], ids=["known", "not-known"])
+def test_a_completed_action_says_whether_what_it_left_is_known(
+        left_behind_known: bool) -> None:
+    # Two refusals that changed nothing anybody recorded, and only one of them
+    # may be written up as having changed nothing: the tier that said it asked
+    # for no change, against the one whose change request's answer was lost.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="roll-back-deployment",
+                    subject="io-shop",
+                    outcome=Verdict.ESCALATED,
+                    undo_descriptor=None,
+                    at=DONT_CARE_INSTANT,
+                    performed=False,
+                    left_behind_known=left_behind_known
+                )
+            ) \
+            .then(
+                _what_it_left_is_read_back_as_known(conn, incident_id, left_behind_known)
+            )
+
+
+@pytest.mark.integration
+def test_an_action_only_claimed_is_not_known_to_have_left_nothing() -> None:
+    # A worker that stopped after its claim may have made the change, so the
+    # row says nothing is known until something more is written.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.claim(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject="dont-care-flag",
+                    at=DONT_CARE_INSTANT
+                )
+            ) \
+            .then(
+                _what_it_left_is_read_back_as_known(conn, incident_id, False)
             )
 
 
@@ -213,7 +285,8 @@ def test_the_action_claimed_for_a_candidate_says_how_far_it_got(
                     outcome=Verdict.STOPPED,
                     undo_descriptor=None,
                     at=DONT_CARE_INSTANT,
-                    performed=performed
+                    performed=performed,
+                    left_behind_known=True
                 ))
             ) \
             .when(
@@ -329,7 +402,8 @@ def test_an_action_already_completed_is_not_moved_back(performed: bool,
                     outcome=Verdict.STOPPED,
                     undo_descriptor=None,
                     at=DONT_CARE_INSTANT,
-                    performed=performed
+                    performed=performed,
+                    left_behind_known=True
                 ))
             ) \
             .when(
@@ -411,7 +485,8 @@ def test_settling_an_incidents_claims_leaves_every_row_that_moved_on_alone() -> 
             taken_actions.record(conn, incident_id, hypothesis_id=never_performed,
                                  action_type="revert-feature-flag", subject="dont-care-flag",
                                  outcome=Verdict.PLATFORM_UNREACHABLE, undo_descriptor=None,
-                                 at=SOME_INSTANT + timedelta(minutes=2), performed=False)
+                                 at=SOME_INSTANT + timedelta(minutes=2), performed=False,
+                                 left_behind_known=True)
             taken_actions.claim(conn, another_incident_id, hypothesis_id=anothers,
                                 action_type="revert-feature-flag", subject="dont-care-flag",
                                 at=DONT_CARE_INSTANT)
@@ -471,7 +546,8 @@ def test_an_action_names_the_subject_it_changed() -> None:
                     undo_descriptor=FlagUndo(
                         flag=the_flag_that_was_changed, was_enabled=True
                     ),
-                    at=DONT_CARE_INSTANT
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
                 )
             ) \
             .then(all_of(
@@ -547,7 +623,8 @@ def test_an_action_names_the_candidate_it_was_taken_for() -> None:
                     subject="monthly-spend-feature",
                     outcome=Verdict.REFUTED,
                     undo_descriptor=FlagUndo(flag="monthly-spend-feature", was_enabled=False),
-                    at=DONT_CARE_INSTANT
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
                 )
             ) \
             .then(
@@ -585,7 +662,8 @@ def test_two_candidates_naming_one_subject_keep_their_own_actions() -> None:
                     subject=the_contested_flag,
                     outcome=outcome,
                     undo_descriptor=FlagUndo(flag=the_contested_flag, was_enabled=True),
-                    at=DONT_CARE_INSTANT
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
                 )
 
         Scenario() \
@@ -623,7 +701,8 @@ def test_the_actions_of_an_incident_come_back_in_the_order_they_were_taken() -> 
                     subject="dont-care",
                     outcome=outcome,
                     undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
-                    at=at
+                    at=at,
+                    left_behind_known=True
                 )
 
         Scenario() \
@@ -716,7 +795,8 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
                     undo_descriptor=FlagUndo(
                         flag=the_flag_that_was_changed, was_enabled=True
                     ),
-                    at=DONT_CARE_INSTANT
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
                 )
             ) \
             .then(
@@ -843,6 +923,24 @@ def _the_action_read_back_changed(conn: psycopg.Connection,
             f"Expected the action read back to name {subject}, "
             f"got {read_back[0].subject}."
         )
+
+        return True
+
+    return assertion
+
+
+def _what_it_left_is_read_back_as_known(conn: psycopg.Connection,
+                                        incident_id: str,
+                                        expected: bool) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        read_back = [action.left_behind_known
+                     for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if read_back != [expected]:
+            raise AssertionError(
+                f"Expected one action whose left_behind_known reads [{expected}], "
+                f"and the incident's actions read {read_back}."
+            )
 
         return True
 

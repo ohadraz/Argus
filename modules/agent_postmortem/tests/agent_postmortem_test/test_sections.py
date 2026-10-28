@@ -1234,6 +1234,29 @@ def test_resolution_lists_each_action_as_argus_took_it() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("left_behind_known", [True, False], ids=["known", "not-known"])
+def test_resolution_says_whether_what_each_action_left_is_known(
+        left_behind_known: bool) -> None:
+    # What the page's Kind column is read from: an action nobody can account
+    # for is not one with nothing to put back.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.ESCALATED,
+                          standing="not known whether anything was changed",
+                          has_a_way_back=False, left_behind_known=left_behind_known)
+            ])
+        ) \
+        .when(
+            lambda: [step.left_behind_known for step in resolution_of(evidence)]
+        ) \
+        .then(
+            the_answer_was([left_behind_known])
+        )
+
+
+@pytest.mark.unit
 def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> None:
     # Declining an action is how an incident ended as much as taking one is -
     # the one rollback that would answer it undoing a change made on purpose.

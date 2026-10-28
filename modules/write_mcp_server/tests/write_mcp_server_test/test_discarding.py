@@ -36,13 +36,22 @@ from argus_testkit import (
     attempting,
     calling,
     one_record_was_logged,
+    the_answer_was,
 )
 from write_mcp_server.discarding import (
     DiscardEntries,
     DiscardSettings,
     EntriesNotDiscarded,
     NothingLeftToDiscard,
+    StoreClient,
+    StoreNotReached,
     discard_cache_entries,
+    with_redis,
+)
+
+from write_mcp_server_test.framework.refusals import (
+    it_is_marked_unreachable,
+    what_it_left_is_known,
 )
 
 SOME_CACHE_URL = "redis://cache.invalid:6379"
@@ -179,7 +188,32 @@ def test_a_cache_that_could_not_be_reached_raises_and_says_which_one() -> None:
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
             _it_named(SOME_CACHE_URL),
-            _it_marked_the_platform_unreachable()
+            _it_marked_the_platform_unreachable(),
+            what_it_left_is_known(True)
+        ))
+
+
+@pytest.mark.unit
+def test_a_cache_lost_once_the_discard_was_asked_for_is_not_said_to_have_changed_nothing() -> None:
+    # The entries may have gone: marked as a store that could not be reached,
+    # the record would say nothing was changed and the walk would narrow away
+    # from a store that may well have answered.
+    Scenario() \
+        .given(
+            discard := _a_store_lost_after_it_was_asked()
+        ) \
+        .when(
+            attempting(
+                lambda: discard_cache_entries(
+                    DONT_CARE_KEYS, _some_settings(), discard=discard
+                )
+            )
+        ) \
+        .then(all_of(
+            an_error_was_raised(EntriesNotDiscarded),
+            _it_named(SOME_CACHE_URL),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(False)
         ))
 
 
@@ -220,7 +254,71 @@ def test_a_discard_naming_no_keys_never_reaches_the_store() -> None:
         ) \
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
-            _it_never_asked(discard)
+            _it_never_asked(discard),
+            it_is_marked_unreachable(False),
+            what_it_left_is_known(True)
+        ))
+
+
+@pytest.mark.unit
+def test_a_store_that_does_not_answer_before_the_discard_is_not_reached() -> None:
+    # Asked before the discard, so a store that is not there is told apart
+    # from one that went once the discard was on its way.
+    store = _a_store_client()
+    store.ping.side_effect = ConnectionError("connection refused")
+
+    Scenario() \
+        .given(store) \
+        .when(attempting(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
+                                            connect=lambda dont_care_url: store))) \
+        .then(all_of(
+            an_error_was_raised(StoreNotReached),
+            _nothing_was_unlinked(store),
+            _it_was_closed(store)
+        ))
+
+
+@pytest.mark.unit
+def test_a_store_whose_client_cannot_be_built_is_not_reached() -> None:
+    # An address the client cannot be built from was never dialled, so nothing
+    # was asked of the store.
+    Scenario() \
+        .given() \
+        .when(attempting(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
+                                            connect=_a_client_that_cannot_be_built))) \
+        .then(an_error_was_raised(StoreNotReached))
+
+
+@pytest.mark.unit
+def test_a_store_lost_once_the_discard_was_asked_for_is_raised_as_it_came() -> None:
+    # Not "not reached": the entries may have gone, and the caller must not
+    # be told nothing changed.
+    store = _a_store_client()
+    store.unlink.side_effect = ConnectionError("connection reset by peer")
+
+    Scenario() \
+        .given(store) \
+        .when(attempting(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
+                                            connect=lambda dont_care_url: store))) \
+        .then(all_of(
+            an_error_was_raised(ConnectionError),
+            _it_was_not_said_to_be_unreached(),
+            _it_was_closed(store)
+        ))
+
+
+@pytest.mark.unit
+def test_a_store_that_answered_says_how_many_went_and_is_let_go() -> None:
+    store = _a_store_client()
+    store.unlink.return_value = len(SOME_KEYS) - 1
+
+    Scenario() \
+        .given(store) \
+        .when(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
+                                 connect=lambda dont_care_url: store)) \
+        .then(all_of(
+            the_answer_was(len(SOME_KEYS) - 1),
+            _it_was_closed(store)
         ))
 
 
@@ -287,14 +385,73 @@ def _a_store_reporting(discarded: int) -> Any:
 
 
 def _a_store_that_cannot_be_reached() -> Any:
-    """A store that does not answer at all.
+    """A store that did not answer before anything was asked of it - the seam's
+    own word for a connection that was never had."""
+    discard = create_autospec(DiscardEntries, instance=True)
+    discard.side_effect = StoreNotReached("connection refused")
+
+    return discard
+
+
+def _a_store_client() -> Any:
+    """A store's client, answering every ping. `Any` for the reason
+    `_a_store_reporting` gives."""
+    return create_autospec(StoreClient, instance=True)
+
+
+def _a_client_that_cannot_be_built(dont_care_url: str) -> StoreClient:
+    """What Redis's client does with an address in a scheme it does not know."""
+    raise ValueError("Redis URL must specify one of the following schemes")
+
+
+def _nothing_was_unlinked(store: Any) -> Assertion[object]:
+    def assertion(dont_care: object) -> bool:
+        if store.unlink.called:
+            raise AssertionError(
+                f"Expected nothing to be discarded from a store that did not answer, "
+                f"and it was asked {store.unlink.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_closed(store: Any) -> Assertion[object]:
+    def assertion(dont_care: object) -> bool:
+        if store.close.call_count != 1:
+            raise AssertionError(
+                f"Expected the client closed once, and it was closed "
+                f"{store.close.call_count} times."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_not_said_to_be_unreached() -> Assertion[Exception | None]:
+    def assertion(raised: Exception | None) -> bool:
+        if isinstance(raised, StoreNotReached):
+            raise AssertionError(
+                f"Expected the failure raised as it came, and it was called a store "
+                f"not reached: [{raised}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_store_lost_after_it_was_asked() -> Any:
+    """A store that went once the discard was on its way.
 
     An arbitrary exception rather than a Redis one: what reaches this seam is
     whatever the client raised, and a module catching one specific class would
     let every other way a connection fails escape as an unhandled error.
     """
     discard = create_autospec(DiscardEntries, instance=True)
-    discard.side_effect = OSError("connection refused")
+    discard.side_effect = OSError("connection reset by peer")
 
     return discard
 

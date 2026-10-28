@@ -3308,7 +3308,8 @@ def _an_attempt_taken_for(conn: psycopg.Connection,
         subject="dont-care",
         outcome=outcome,
         undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
-        at=utc_now()
+        at=utc_now(),
+        left_behind_known=True
     )
 
 

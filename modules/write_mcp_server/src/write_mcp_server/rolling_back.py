@@ -37,17 +37,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
-from argus_core.models import (
-    DEPLOYMENT_PLATFORM,
-    DeploymentRestored,
-    DeploymentRollbackUndo,
-)
-from deployment_platform import (
-    DeploymentPlatformError,
-    DeploymentPlatformWrites,
-    PlatformUnreachable,
-)
+from argus_core.mcp_transport import an_exhausted_action
+from argus_core.models import DeploymentRestored, DeploymentRollbackUndo
+from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+
+from write_mcp_server.refusing import a_platform_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -71,31 +65,21 @@ class RollbackRefused(Exception):
     """The platform would not perform the rollback."""
 
 
-def _refusing(said: str, error: DeploymentPlatformError,
+def _refusing(said: str, error: DeploymentPlatformError, *,
+              asked_to_change: bool,
               left_behind: DeploymentRollbackUndo | None = None
               ) -> RollbackRefused:
-    """This module's refusal, marked where the platform was never reached.
-
-    The mark is what lets a caller tell four actions being unavailable from this
-    rollback being rejected, without reading the words of either. It is this
-    module's to apply rather than the platform's: what a response means is the
-    platform's to say, and what to raise about it is the action's own.
+    """This module's refusal, marked as `a_platform_refusal` marks it.
 
     `left_behind` is what the failure cost, where it cost anything. A platform
-    that disappears after reconciliation was suspended has left this application
-    un-reconciled and recorded nowhere, and the mark used to be withheld for
-    exactly that reason - a caller told only that the platform was unavailable
-    would narrow to another action believing the estate untouched. Saying what
-    was left behind answers that without withholding the fact the caller needs,
-    and withholding it meant the mode was handled only when the platform failed
-    on the first call.
+    that refuses after reconciliation was suspended has left this application
+    un-reconciled and recorded nowhere else, so the suspension travels on every
+    refusal after it - a caller told only that the rollback failed would pass
+    over the application believing the estate untouched.
     """
-    if isinstance(error, PlatformUnreachable):
-        return RollbackRefused(
-            an_unreachable_platform(DEPLOYMENT_PLATFORM, said, left_behind)
-        )
-
-    return RollbackRefused(said)
+    return RollbackRefused(a_platform_refusal(
+        said, error, asked_to_change=asked_to_change, left_behind=left_behind
+    ))
 
 
 def roll_back_deployment(application: str,
@@ -118,7 +102,8 @@ def roll_back_deployment(application: str,
     try:
         history = platform.deployments_of(application)
     except DeploymentPlatformError as error:
-        raise _refusing(f"could not read [{application}]: {error}", error) from error
+        raise _refusing(f"could not read [{application}]: {error}", error,
+                        asked_to_change=False) from error
 
     if len(history) < 2:
         raise NoEarlierRevision(
@@ -132,13 +117,22 @@ def roll_back_deployment(application: str,
 
     try:
         was_syncing_itself = platform.is_syncing_itself(application)
-
-        if was_syncing_itself:
-            platform.suspend_sync(application)
     except DeploymentPlatformError as error:
         raise _refusing(
-            f"could not suspend the sync of [{application}]: {error}", error
+            f"could not read whether [{application}] syncs itself: {error}", error,
+            asked_to_change=False
         ) from error
+
+    # Apart from the read before it, because this is the first change asked
+    # for: a failure here may have suspended the sync, where one there cannot.
+    if was_syncing_itself:
+        try:
+            platform.suspend_sync(application)
+        except DeploymentPlatformError as error:
+            raise _refusing(
+                f"could not suspend the sync of [{application}]: {error}", error,
+                asked_to_change=True
+            ) from error
 
     # Built before the action rather than after it, because it describes what
     # has already been changed: where sync was suspended, this is what a caller
@@ -160,7 +154,8 @@ def roll_back_deployment(application: str,
             f"[{application}] could not be rolled back to history entry "
             f"[{previous.history_id}]: {error}",
             error,
-            undo if was_syncing_itself else None
+            asked_to_change=True,
+            left_behind=undo if was_syncing_itself else None
         ) from error
 
     logger.info("deployment rolled back", extra={
