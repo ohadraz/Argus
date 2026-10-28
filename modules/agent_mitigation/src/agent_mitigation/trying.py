@@ -279,6 +279,7 @@ def take_action(action: Action,
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_marker(exhausted)}"
             ),
+            not_performed_because=_without_the_marker(exhausted),
             # The same thing the paragraph above says in words, said where the
             # candidate's row can read it: nothing was tested, so nothing about
             # this explanation may be recorded as having been.
@@ -320,6 +321,7 @@ def take_action(action: Action,
                 f"did not {_what_it_would_have_done(action)} - "
                 f"{_without_the_platform_marker(unreachable)}"
             ),
+            not_performed_because=_without_the_platform_marker(unreachable),
             undo_descriptor=unreachable.undo_descriptor,
             # The action was not taken, so the service was never watched for it.
             # The candidate is passed over on this walk and the platform is what
@@ -348,6 +350,7 @@ def take_action(action: Action,
             verdict=Verdict.ESCALATED,
             left_behind_known=told.left_behind_known if told is not None else False,
             detail=f"could not {_what_it_would_have_done(action)}: {_in_its_own_words(error)}",
+            not_performed_because=_in_its_own_words(error),
             undo_descriptor=told.undo_descriptor if told is not None else None,
             # Nothing was performed and so nothing was watched. This is the
             # broadest of the three and the one most likely to be reached by
@@ -1427,6 +1430,8 @@ def _undone(performed: Performed,
                 because=because,
                 detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
@@ -1435,6 +1440,8 @@ def _undone(performed: Performed,
                 because=because,
                 detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
         case Undone.RESTORED:
             return Outcome(
@@ -1446,6 +1453,8 @@ def _undone(performed: Performed,
                     f"{_how_it_was_put_back(undo_descriptor)}"
                 ),
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
         case Undone.NO_UNDO_WAS_OWED:
             # Reached by nothing today: this is what an *unwind* reports for a
@@ -1465,6 +1474,8 @@ def _undone(performed: Performed,
                     f"{_why_nothing_was_put_back(action_type)}"
                 ),
                 undo_descriptor=undo_descriptor,
+                undone=attempt.outcome,
+                undone_detail=attempt.detail,
             )
 
     assert_never(attempt.outcome)

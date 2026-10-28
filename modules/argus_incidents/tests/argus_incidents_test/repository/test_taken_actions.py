@@ -15,6 +15,7 @@ from argus_core.models import (
     Hypothesis,
     TakenAction,
     UndoDescriptor,
+    Undone,
     UnreadVerdict,
     Verdict,
 )
@@ -220,6 +221,46 @@ def test_a_completed_action_says_whether_what_it_left_is_known(
             ) \
             .then(
                 _what_it_left_is_read_back_as_known(conn, incident_id, left_behind_known)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("undone", [Undone.RESTORED, Undone.LEFT_AS_FOUND, None],
+                         ids=["restored", "left-as-found", "no-undo"])
+def test_a_completed_action_says_what_its_own_putting_back_did(
+        undone: Undone | None) -> None:
+    # A refuted change restored, one left as somebody else had since set it, and
+    # one nothing attempted to put back: the cleanup after the incident passes
+    # over the first two and puts back the third, so the row must tell them apart.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    some_flag = "kuki-flag"
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type="revert-feature-flag",
+                    subject=some_flag,
+                    outcome=Verdict.REFUTED,
+                    undo_descriptor=FlagUndo(flag=some_flag, was_enabled=True),
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True,
+                    undone=undone
+                )
+            ) \
+            .then(
+                _what_was_undone_is_read_back_as(conn, incident_id, undone)
             )
 
 
@@ -768,9 +809,10 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
     # that only asks whether a writer exists in the source.
     #
     # One action with everything an action can have: a claim, a candidate, a
-    # subject, a verdict, and a change with a way back. A row legitimately
-    # lacking one of those is a different case with its own test above; this
-    # asks whether the complete case reaches the table complete.
+    # subject, a verdict, a change with a way back, and the walk's own putting
+    # back of it after the refutation. A row legitimately lacking one of those
+    # is a different case with its own test above; this asks whether the
+    # complete case reaches the table complete.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     the_flag_that_was_changed = "monthly-spend-feature"
 
@@ -791,12 +833,13 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
                     hypothesis_id=hypothesis_id,
                     action_type="revert-feature-flag",
                     subject=the_flag_that_was_changed,
-                    outcome=Verdict.CONFIRMED,
+                    outcome=Verdict.REFUTED,
                     undo_descriptor=FlagUndo(
                         flag=the_flag_that_was_changed, was_enabled=True
                     ),
                     at=DONT_CARE_INSTANT,
-                    left_behind_known=True
+                    left_behind_known=True,
+                    undone=Undone.RESTORED
                 )
             ) \
             .then(
@@ -939,6 +982,24 @@ def _what_it_left_is_read_back_as_known(conn: psycopg.Connection,
         if read_back != [expected]:
             raise AssertionError(
                 f"Expected one action whose left_behind_known reads [{expected}], "
+                f"and the incident's actions read {read_back}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_undone_is_read_back_as(conn: psycopg.Connection,
+                                     incident_id: str,
+                                     expected: Undone | None) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        read_back = [action.undone
+                     for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if read_back != [expected]:
+            raise AssertionError(
+                f"Expected one action whose undone reads [{expected}], "
                 f"and the incident's actions read {read_back}."
             )
 

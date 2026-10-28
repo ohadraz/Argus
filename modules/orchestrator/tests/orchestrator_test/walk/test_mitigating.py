@@ -53,6 +53,7 @@ from argus_core.models import (
     RollBackDeployment,
     ScaleOut,
     UndoDescriptor,
+    Undone,
     UnreadVerdict,
     Verdict,
     the_actions_through,
@@ -695,6 +696,87 @@ def test_the_action_row_records_whether_what_the_attempt_left_is_known(
                                       still_wanted=still_wanted)) \
         .then(_the_action_row_records_whether_what_it_left_is_known(left_behind_known,
                                                                     complete_action))
+
+
+@pytest.mark.unit
+def test_a_candidate_passed_over_untested_keeps_why_on_its_row_and_its_line(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The tier had nowhere to take the action, so nothing was tested - and the
+    # tier's own sentence is the one thing a reader of the list or the line has
+    # for why this explanation was never tried. Untested, so no verdict on it.
+    some_candidate = a_determined_hypothesis(a_random_id())
+    some_reason = "[io-shop] has no revision before the one it is running"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.NOT_ATTEMPTED, judged=False,
+                                                  performed=False,
+                                                  not_performed_because=some_reason)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=some_candidate
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      complete_action=complete_action,
+                                      record_action=record_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(all_of(
+            _the_candidate_was_left_untested_because(some_candidate, some_reason,
+                                                     record_outcome),
+            _the_verdict_s_line_says_why_it_was_not_performed(some_reason, complete_action)
+        ))
+
+
+@pytest.mark.unit
+def test_the_action_row_and_its_line_keep_what_putting_it_back_did(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The row, so the cleanup after the incident does not put it back a second
+    # time; the line, because nothing else live says the flag went back.
+    some_flag_put_back = "was put back ON"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.REFUTED,
+                                                  undo_descriptor=FlagUndo(
+                                                      flag=DONT_CARE_FLAG, was_enabled=True
+                                                  ),
+                                                  undone=Undone.RESTORED,
+                                                  undone_detail=some_flag_put_back)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=a_determined_hypothesis(a_random_id())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      change_landed=_nothing_landed(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      complete_action=complete_action,
+                                      record_action=record_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _putting_it_back_was_kept_as(Undone.RESTORED, some_flag_put_back, complete_action)
+        )
 
 
 @pytest.mark.unit
@@ -2383,7 +2465,10 @@ def _the_action_came_back(take: MagicMock,
                           judged: bool = True,
                           because: str | None = None,
                           performed: bool = True,
-                          left_behind_known: bool = True) -> None:
+                          left_behind_known: bool = True,
+                          not_performed_because: str | None = None,
+                          undone: Undone | None = None,
+                          undone_detail: str | None = None) -> None:
     """The agent answers with `verdict` - telling of the change as it makes it,
     as the real one does, wherever the action was performed."""
     outcome = Outcome(verdict=verdict,
@@ -2392,7 +2477,10 @@ def _the_action_came_back(take: MagicMock,
                       judged=judged,
                       because=because,
                       performed=performed,
-                      left_behind_known=left_behind_known)
+                      left_behind_known=left_behind_known,
+                      not_performed_because=not_performed_because,
+                      undone=undone,
+                      undone_detail=undone_detail)
 
     def taking(dont_care_action: Action, /, **keywords: object) -> Outcome:
         change_made = cast(ChangeMade, keywords["change_made"])
@@ -2753,6 +2841,62 @@ def _the_action_row_records_the_outcome(expected: str,
             raise AssertionError(
                 f"Expected the action row to record [{expected}], it recorded "
                 f"[{recorded}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidate_was_left_untested_because(candidate: Hypothesis,
+                                             reason: str,
+                                             record_outcome: MagicMock
+                                             ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        recorded = [(call.args[0], call.kwargs) for call in record_outcome.call_args_list]
+        expected = [(candidate.id, {"tested": False, "result": reason})]
+
+        if recorded != expected:
+            raise AssertionError(
+                f"Expected the candidate recorded once as untested because [{reason}], "
+                f"it was recorded as {recorded}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_verdict_s_line_says_why_it_was_not_performed(reason: str,
+                                                      complete_action: MagicMock
+                                                      ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = complete_action.call_args.kwargs["narrating"].not_performed_because
+
+        if said != reason:
+            raise AssertionError(
+                f"Expected the verdict's line to say it was not performed because "
+                f"[{reason}], it said [{said}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _putting_it_back_was_kept_as(expected: Undone,
+                                 said: str,
+                                 complete_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        kept = complete_action.call_args.kwargs
+        narrating = kept["narrating"]
+        found = (kept["undone"], narrating.undone, narrating.undone_detail)
+
+        if found != (expected, expected, said):
+            raise AssertionError(
+                f"Expected the row and the line to keep the undo as [{expected}] "
+                f"saying [{said}], got row [{found[0]}] and line [{found[1]}] "
+                f"saying [{found[2]}]."
             )
 
         return True

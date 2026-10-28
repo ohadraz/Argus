@@ -1024,6 +1024,72 @@ def test_a_verdict_on_an_action_never_performed_says_the_candidate_it_was_for() 
 
 
 @pytest.mark.unit
+def test_a_verdict_on_an_action_never_performed_says_why_in_the_tier_s_words() -> None:
+    # The only reason this line has for an explanation passed over untested,
+    # and nothing else live says it.
+    some_application = "io-shop"
+    some_reason = f"[{some_application}] has no revision before the one it is running"
+    a_verdict_on_nothing_done = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.NOT_ATTEMPTED,
+        action_type=ROLL_BACK_DEPLOYMENT, subject=some_application, performed=False,
+        candidate_number=3, not_performed_because=some_reason
+    )
+
+    Scenario() \
+        .given(a_verdict_on_nothing_done) \
+        .when(lambda: build_narration([a_verdict_on_nothing_done])) \
+        .then(all_of(
+            _the_only_line_reads(f"Did not roll back the deployment of {some_application} "
+                                 f"for candidate cause #3 - NOT-ATTEMPTED: {some_reason}"),
+            _the_only_line_marks("NOT-ATTEMPTED")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("undone, said", [
+    (Undone.RESTORED, "was put back ON"),
+    (Undone.LEFT_AS_FOUND,
+     "was left as found: it has been changed from outside since Argus set it")
+], ids=["restored", "left-as-found"])
+def test_a_refuted_change_says_what_putting_it_back_did(undone: Undone, said: str) -> None:
+    # Nothing else live says it: the cleanup's own line comes only when an
+    # incident is unwound, and a thread without it reads as the flag still off.
+    a_refutation_put_back = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.REFUTED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG,
+        undone=undone, undone_detail=said
+    )
+
+    Scenario() \
+        .given(a_refutation_put_back) \
+        .when(lambda: build_narration([a_refutation_put_back])) \
+        .then(all_of(
+            _the_only_line_reads(f"Judged the action REFUTED - {SOME_FLAG} {said}"),
+            _the_only_line_marks("REFUTED")
+        ))
+
+
+@pytest.mark.unit
+def test_an_escalated_undo_is_not_said_again_on_the_verdict_s_line() -> None:
+    # The undo could not be established, and the move to ESCALATED beside this
+    # line says it in the same words. Said here too, a reader reads it twice.
+    an_escalated_undo = VerdictReached(
+        incident_id=new_id(), hypothesis_id=new_id(), outcome=Verdict.ESCALATED,
+        action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG,
+        undone=Undone.NOT_ESTABLISHED,
+        undone_detail=("was not written: whether anybody changed it since Argus "
+                       "set it could not be established")
+    )
+
+    Scenario() \
+        .given(an_escalated_undo) \
+        .when(lambda: build_narration([an_escalated_undo])) \
+        .then(
+            _the_only_line_reads("Judged the action ESCALATED")
+        )
+
+
+@pytest.mark.unit
 def test_an_action_taken_says_the_candidate_it_was_for() -> None:
     # By the number the line that formed it gave it. The move to mitigating
     # names no candidate, so without this a reader takes every action for the

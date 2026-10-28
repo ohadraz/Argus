@@ -553,12 +553,22 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                 text = f"{emphasis} - a person ended the incident"
             # Nothing was done either: the attempt ended before its write, so
             # no line above announced it, and "judged" would claim a test.
+            # Why, in the tier's words, where a tier said: the only reason
+            # this line has for an explanation passed over untested.
             elif not event.performed:
+                why = (f": {event.not_performed_because}"
+                       if event.not_performed_because else "")
                 text = (f"{_what_was_reached_for_and_not_done(event)}"
-                        f"{_for_its_candidate(event.candidate_number)} - {emphasis}")
+                        f"{_for_its_candidate(event.candidate_number)} - {emphasis}{why}")
             # Done, and never read: every look at the service went unanswered.
             elif not event.judged:
                 text = f"Could not judge the action - {emphasis}"
+            # Refuted, and the change put back or left as found: in the undo's
+            # own words, the cleanup line's, since nothing else live says it.
+            # Not an escalated undo's, whose words the move line beside it
+            # already says.
+            elif event.outcome is Verdict.REFUTED and event.undone_detail and event.subject:
+                text = f"Judged the action {emphasis} - {event.subject} {event.undone_detail}"
         case FixAttempted():
             who = _CODEFIX
             emphasis, text = _what_came_of_looking_at_the_code(event)

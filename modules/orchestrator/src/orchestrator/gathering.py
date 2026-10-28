@@ -81,6 +81,7 @@ from argus_core.models import (
     RetrievalChannel,
     TakenAction,
     TimelineEntry,
+    Undone,
     Verdict,
     as_a_change,
 )
@@ -988,6 +989,12 @@ def _what_became_of(taken_action: TakenAction) -> str:
 
     if not taken_action.has_a_way_back:
         return "nothing to put back"
+
+    # Refuted, and left as somebody else had since set it: not put back, and a
+    # reader told it was would take the subject for Argus's again.
+    if taken_action.outcome is Verdict.REFUTED and taken_action.undone is Undone.LEFT_AS_FOUND:
+        return ("left as found when it did not help: it had been changed from "
+                "outside since Argus set it")
 
     if taken_action.outcome is Verdict.REFUTED:
         return "put back when it did not help"

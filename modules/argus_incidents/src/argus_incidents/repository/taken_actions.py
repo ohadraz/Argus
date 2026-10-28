@@ -8,6 +8,7 @@ from argus_core.models import (
     ActionType,
     TakenAction,
     UndoDescriptor,
+    Undone,
     Verdict,
     leaves_something_to_put_back,
 )
@@ -112,6 +113,7 @@ def complete(
     performed: bool = True,
     *,
     left_behind_known: bool,
+    undone: Undone | None = None,
 ) -> None:
     """Records what came of an action already claimed (spec §11.1, §13), and
     whether it was performed at all.
@@ -138,6 +140,11 @@ def complete(
     request's answer was lost, which neither the verdict nor the progress
     can. Required, so a caller that forgot it cannot claim to know the estate.
 
+    And what the attempt's own putting back did, where it put the change back
+    after a refutation. `None` where it attempted none, which leaves the change
+    to the cleanup after the incident - the safe reading for a caller that
+    forgot to say.
+
     Committing is the caller's. The event reporting this verdict is written on
     the same connection, and a commit here would put the verdict beyond reach
     of the account before the account existed.
@@ -145,13 +152,14 @@ def complete(
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE action SET outcome = %s, undo_descriptor = %s, progress = %s, "
-            "                  left_behind_known = %s "
+            "                  left_behind_known = %s, undone = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (
                 outcome,
                 _as_column(undo_descriptor),
                 ActionProgress.PERFORMED if performed else ActionProgress.NOT_PERFORMED,
                 left_behind_known,
+                undone,
                 incident_id,
                 hypothesis_id,
             ),
@@ -228,6 +236,7 @@ def record(
     performed: bool = True,
     *,
     left_behind_known: bool,
+    undone: Undone | None = None,
 ) -> None:
     """One action, claimed and completed in a single step.
 
@@ -239,7 +248,7 @@ def record(
     """
     claim(conn, incident_id, hypothesis_id, action_type, subject, at)
     complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed,
-             left_behind_known=left_behind_known)
+             left_behind_known=left_behind_known, undone=undone)
 
 
 def get_action_for_hypothesis(conn: psycopg.Connection,
@@ -255,7 +264,8 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, progress, left_behind_known "
+            "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
+            "       undone "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id),
@@ -275,7 +285,8 @@ def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAct
     with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
         cursor.execute(
             "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, progress, left_behind_known "
+            "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
+            "       undone "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",

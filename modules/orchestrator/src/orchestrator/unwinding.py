@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 # wrong here.
 type TakenActionsOf = Callable[[str], list[TakenAction]]
 
+# What a walk's own undo can leave that needs nothing more from an unwind: the
+# change restored, left as somebody else set it, or owing nothing back. Not
+# `NOT_ESTABLISHED`, which is a change that may still be out there.
+_SETTLED_BY_THE_WALK = frozenset({Undone.RESTORED, Undone.LEFT_AS_FOUND,
+                                  Undone.NO_UNDO_WAS_OWED})
+
 
 class UndoChange(Protocol):
     """One recorded change, put back where it is still Argus's to put back."""
@@ -111,12 +117,14 @@ def unwind_incident(incident_id: str,
                     publisher: Publisher = nobody) -> None:
     """Puts back every change the incident made, and says what became of each.
 
-    Nothing is filtered by what the walk made of an action. A change the walk
-    already put back is put back again, to the state it is already in: the only
-    thing the provider's record shows since Argus wrote is Argus's own restore,
-    which is nobody else's decision to protect. That is what makes this safe to
-    run over an incident that had already tidied up after itself, and safe to
-    run twice.
+    Except a change the walk already settled after refuting it - put back, or
+    left as somebody else had since set it - which its verdict's own line has
+    already said. Put back a second time it was said a second time, the
+    thread reading as the flag still changed until this ran. Every other row is
+    put back whatever the walk made of it, and a change the walk's own undo
+    could not establish is tried again here: the only thing the provider's
+    record can show since Argus wrote is Argus's own, which is nobody else's
+    decision to protect. That is what makes this safe to run twice.
 
     Three kinds of action have no descriptor to act on, and they are not the
     same thing. One leaves nothing to put back at all - a restart changes no
@@ -149,6 +157,9 @@ def unwind_incident(incident_id: str,
     with it would leave more behind rather than less.
     """
     for taken_action in taken_actions_of(incident_id):
+        if taken_action.undone in _SETTLED_BY_THE_WALK:
+            continue
+
         unaccounted = _a_change_nothing_was_kept_to_undo(taken_action)
         if unaccounted is not None:
             _said_in_the_log(unaccounted)

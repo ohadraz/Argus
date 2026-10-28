@@ -249,6 +249,48 @@ def test_a_spent_list_buys_another_investigation() -> None:
 
 
 @pytest.mark.unit
+def test_a_spent_list_says_it_investigates_again_without_saying_anything_was_refuted() -> None:
+    # The list ran out, which is all the line may claim. A candidate the gate
+    # refused or the tier had nowhere to take was never tested, and a line
+    # saying every explanation was refuted puts a measurement in the record
+    # that never happened.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 rounds=1)
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _what_it_said_names("no explanation left to try", "investigating again"),
+            _what_it_said_does_not_name("refuted")
+        ))
+
+
+@pytest.mark.unit
+def test_a_spent_list_with_nothing_tried_since_its_round_looks_for_a_fix() -> None:
+    # Rounds left, and nothing refuted since this round began: its candidate's
+    # action was never performed, so another round would be handed exactly the
+    # evidence this one was. What is left is a permanent fix.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk_that_changed_nothing := _a_walk_at(
+                incident_id,
+                [a_determined_hypothesis(incident_id)],
+                index=0,
+                rounds=1
+            ).model_copy(update={"acted_at": None})
+        ) \
+        .when(lambda: next_candidate_node(a_walk_that_changed_nothing, SOME_ROUND_BUDGET)) \
+        .then(_the_walk_goes_to(FIXING_ROUTE, a_walk_that_changed_nothing))
+
+
+@pytest.mark.unit
 def test_a_walk_that_has_used_every_round_ends() -> None:
     # The bound is a count of rounds rather than the walk's own judgement: each
     # round is a model call and another set of real changes to production, and

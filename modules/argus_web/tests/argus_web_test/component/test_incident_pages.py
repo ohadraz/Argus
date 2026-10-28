@@ -69,6 +69,7 @@ from argus_core.models import (
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    Undone,
     Verdict,
     Weighing,
 )
@@ -303,6 +304,35 @@ def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_bac
 
 
 @pytest.mark.component
+def test_an_incident_page_says_a_candidate_whose_action_a_tier_could_not_take_was_not_taken(
+) -> None:
+    # The gate let the test through and the tier had nowhere to take the
+    # action, writing why on the row. The write-up says "action not taken", and
+    # the page says the same fact in the same words - not the gate's.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    some_reason = "[io-shop] has no revision before the one it is running"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        not_taken = _a_candidate_recorded_for(conn, incident_id, subject="not taken", rank=1)
+        _an_attempt_taken_for(conn, incident_id, not_taken, outcome=Verdict.NOT_ATTEMPTED,
+                              performed=False)
+        hypotheses.record_outcome(conn, not_taken, tested=False, result=some_reason)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(all_of(
+            the_page_says(f"action not taken: {some_reason}"),
+            _the_page_does_not_say("test held back")
+        ))
+
+
+@pytest.mark.component
 def test_an_incident_page_does_not_say_a_candidate_with_an_attempt_was_never_reached() -> None:
     # A walk stopped while its action was out - a person reported the incident
     # over - leaves the candidate untested and without a result, its attempt
@@ -472,17 +502,23 @@ def test_a_finding_in_the_timeline_names_its_links_for_the_minute_they_open() ->
 
 
 @pytest.mark.component
-def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
+def test_an_incident_page_shows_what_putting_each_refuted_attempt_back_did() -> None:
     # A reversible action that did not help is undone before its verdict is
-    # returned. A page showing the attempt without that would leave a reader
-    # believing the flag is still flipped.
+    # returned, and the row says how: put back, or left as somebody else had
+    # since set it. A page showing the attempt without that would leave a
+    # reader believing the flag is still flipped - and one saying "put back"
+    # for both would hand somebody's change back to Argus.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
-        refuted = _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
-        confirmed = _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
-        _an_attempt_taken_for(conn, incident_id, refuted, outcome=Verdict.REFUTED)
+        restored = _a_candidate_recorded_for(conn, incident_id, subject="first", rank=1)
+        left = _a_candidate_recorded_for(conn, incident_id, subject="second", rank=2)
+        confirmed = _a_candidate_recorded_for(conn, incident_id, subject="third", rank=3)
+        _an_attempt_taken_for(conn, incident_id, restored, outcome=Verdict.REFUTED,
+                              undone=Undone.RESTORED)
+        _an_attempt_taken_for(conn, incident_id, left, outcome=Verdict.REFUTED,
+                              undone=Undone.LEFT_AS_FOUND)
         _an_attempt_taken_for(conn, incident_id, confirmed, outcome=Verdict.CONFIRMED)
 
     Scenario() \
@@ -493,8 +529,10 @@ def test_an_incident_page_shows_that_a_refuted_attempt_was_put_back() -> None:
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(all_of(
-            the_page_shows("outcome", "refuted", "confirmed"),
-            the_page_shows("undone", "true", "false")
+            the_page_shows("outcome", "refuted", "refuted", "confirmed"),
+            the_page_shows("undone", "restored", "left-as-found", ""),
+            the_page_says(">put back<"),
+            the_page_says(">left as found<")
         ))
 
 
@@ -3330,7 +3368,9 @@ def _the_page_never_says(text: str) -> Assertion[str]:
 def _an_attempt_taken_for(conn: psycopg.Connection,
                           incident_id: str,
                           hypothesis_id: str,
-                          outcome: Verdict) -> None:
+                          outcome: Verdict,
+                          undone: Undone | None = None,
+                          performed: bool = True) -> None:
     taken_actions.record(
         conn,
         incident_id,
@@ -3338,9 +3378,11 @@ def _an_attempt_taken_for(conn: psycopg.Connection,
         action_type="revert-feature-flag",
         subject="dont-care",
         outcome=outcome,
-        undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
+        undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True) if performed else None,
         at=utc_now(),
-        left_behind_known=True
+        performed=performed,
+        left_behind_known=True,
+        undone=undone
     )
 
 

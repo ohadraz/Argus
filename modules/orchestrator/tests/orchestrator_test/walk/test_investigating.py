@@ -229,6 +229,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
+                    attempts_handed=0,
                     candidates_formed=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
@@ -277,6 +278,7 @@ def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
                     already_read=[],
                     readings_cover_the_incident=False,
                     rounds=1,
+                    attempts_handed=0,
                     candidates_formed=1,
                     confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
@@ -476,6 +478,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
+                    attempts_handed=0,
                     candidates_formed=1,
                     confidence=None,
                     nothing_worth_trying=True,
@@ -809,6 +812,36 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
                                         investigate),
             _the_investigation_was_told("already_refuted", [a_refuted_attempt],
                                         investigate)))
+
+
+@pytest.mark.unit
+def test_a_round_keeps_how_many_attempts_it_was_handed(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # What says, once this round's candidates are spent, whether anything was
+    # refuted after it began - and so whether another round would be handed
+    # anything this one was not.
+    a_second_round = _an_investigating_incident().model_copy(
+        update={"attempts": [_an_attempt_to(putting_back(SOME_FLAG))]}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_returned(
+                investigate, a_determined_hypothesis(a_second_round.incident_id)))
+        ) \
+        .when(
+            lambda: investigator_node(a_second_round,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            _the_round_was_handed(1)
+        )
 
 
 @pytest.mark.unit
@@ -2394,6 +2427,19 @@ def _the_investigation_found_the_incident_unread(investigate: MagicMock,
 
 def _an_attempt_to(identity: ActionIdentity) -> Attempt:
     return Attempt(identity=identity, enabled=False, occurred_at="2026-08-29T16:00:00Z")
+
+
+def _the_round_was_handed(expected: int) -> Assertion[StateDelta]:
+    def assertion(result: StateDelta) -> bool:
+        if result.attempts_handed != expected:
+            raise AssertionError(
+                f"Expected the round to keep that it was handed [{expected}] "
+                f"attempt(s), got [{result.attempts_handed}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _every_candidate_was_recorded(expected: list[Hypothesis],

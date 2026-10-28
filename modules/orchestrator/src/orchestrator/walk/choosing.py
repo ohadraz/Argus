@@ -28,7 +28,7 @@ from orchestrator.walk.routes import (
     INVESTIGATING_ROUTE,
     MITIGATING_ROUTE,
 )
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import IncidentState, another_round_is_bought
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,14 @@ def next_candidate_node(state: IncidentState,
     Three outcomes, in the order they are worth having. Another candidate above
     the mitigate threshold is tried, because the second explanation of a
     correlated change is usually still on the list. Failing that, another
-    investigation is bought - and what buys it is the refutation, not a wider
-    window: Argus changed production and the service did not answer, which is
-    evidence no amount of re-reading produces and which the model has never
-    seen. Gating that on leftover widening budget shut the door at exactly the
-    wrong moment, since a hard incident spends its whole schedule reaching a
-    confident first answer. Failing both, there are no moves left and a human is
-    needed.
+    investigation is bought - and what buys it is a refutation since the latest
+    round began, not a wider window: Argus changed production and the service
+    did not answer, which is evidence no amount of re-reading produces and which
+    the model has never seen. Gating that on leftover widening budget shut the
+    door at exactly the wrong moment, since a hard incident spends its whole
+    schedule reaching a confident first answer. A list spent with nothing
+    refuted buys nothing, because the next round would be handed what the last
+    one was. Failing both, there are no moves left and a human is needed.
 
     What was just tried is remembered on the way past. That record is the one
     thing a later round knows that the first could not, and it belongs here,
@@ -136,18 +137,24 @@ def next_candidate_node(state: IncidentState,
             )
         )
 
-    if state.rounds < max_rounds:
+    # Asked of the state as this node leaves it, the attempt just made
+    # included, which is what `status_after` will be asked of.
+    if another_round_is_bought(state.model_copy(update={"attempts": attempts}),
+                               max_rounds):
+        # Not "every explanation was refuted": a candidate the gate refused or
+        # the tier could not act on was never tested, and a line saying it was
+        # refuted puts a measurement in the record that never happened.
         return StateDelta(
             attempts=attempts,
             candidate_index=next_index,
             narration=Narration(
-                action="every explanation was refuted, investigating again"
+                action="no explanation left to try, investigating again"
             )
         )
 
     # No mitigation is left, and what remains is a permanent fix - which is
     # the one thing `fixing` means. Reported, not decided: the index past the end
-    # of the list and a spent round budget are what say so.
+    # of the list, and no round left to buy, are what say so.
     return StateDelta(
         attempts=attempts,
         candidate_index=next_index,

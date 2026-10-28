@@ -48,7 +48,7 @@ from argus_core.models import (
 from argus_testkit import Assertion, Scenario, all_of
 from fpdf import FPDF
 from postmortem_rendering.pdf import as_pdf
-from postmortem_rendering.rendering import render
+from postmortem_rendering.rendering import RenderedPostmortem, render
 from pypdf import PageObject, PdfReader
 from pypdf.generic import ContentStream
 
@@ -1428,32 +1428,93 @@ def test_a_name_too_wide_for_its_column_breaks_only_after_an_underscore() -> Non
             lambda: as_pdf(some_rendered)
         ) \
         .then(
-            _cut_only_after_an_underscore(some_name, times=len(some_lengths)))
+            _cut_only_after(some_name, "_", times=len(some_lengths)))
 
 
 @pytest.mark.unit
-def test_a_name_too_wide_for_its_cell_breaks_only_after_an_underscore() -> None:
-    # As one in running text does. A table's cell cut a name wherever its line
-    # ran out: "tests/io_shop/test_spend_summ" / "ary.py against the merged fix".
-    # Words of every length before it put the name at every place along a line.
-    some_name = "tests/io_shop/test_" + "_".join(["spend_summary"] * 9) + ".py"
+@pytest.mark.parametrize("some_word, joints", [
+    ("src/" + "/".join(["io_shop_reconciliation"] * 4) + "/spend_summary.py:47", ("/",)),
+    ("-".join(["9c1d4e7a"] * 10), ("-",)),
+    ("tests/io_shop/test_" + "_".join(["spend_summary"] * 9) + ".py", ("/", "_"))
+], ids=["path", "id", "path-whose-file-is-too-wide"])
+def test_a_path_or_an_id_too_wide_for_its_column_breaks_only_at_its_own_joint(
+        some_word: str, joints: tuple[str, ...]) -> None:
+    # As a cell does. A path cut after an underscore splits a directory's or a
+    # file's name, and an id cut wherever the line ran out splits a group - and
+    # a reader copying either gets a token nobody has. A file's name wider than
+    # a whole line is cut again, at the next joint it holds.
     some_lengths = range(1, 12)
-    some_items = [ActionItem(number=f"AI-{length}",
-                             text=" ".join(["word"] * length) + f" {some_name} now",
-                             type=ActionItemType.PREVENT, owner=None, tracking=None,
-                             status=ActionItemStatus.OPEN)
-                  for length in some_lengths]
+    some_lessons = Lessons(went_well=[" ".join(["word"] * length) + f" {some_word} now"
+                                      for length in some_lengths],
+                           went_wrong=["dont care"],
+                           got_lucky=["dont care"])
 
     Scenario() \
         .given(
-            some_rendered := render(a_postmortem(action_items=some_items), an_alert(), [],
+            some_rendered := render(a_postmortem(lessons=some_lessons), an_alert(), [],
                                     SOME_ADDRESS)
         ) \
         .when(
             lambda: as_pdf(some_rendered)
         ) \
         .then(
-            _cut_only_after_an_underscore(some_name, times=len(some_lengths)))
+            _cut_only_after(some_word, *joints, times=len(some_lengths)))
+
+
+@pytest.mark.unit
+def test_a_name_too_wide_for_its_cell_breaks_only_at_its_joints() -> None:
+    # As one in running text does. A table's cell cut a name wherever its line
+    # ran out: "tests/io_shop/test_spend_summ" / "ary.py against the merged fix".
+    # Words of every length before it put the name at every place along a line.
+    some_name = "tests/io_shop/test_" + "_".join(["spend_summary"] * 9) + ".py"
+    some_lengths = range(1, 12)
+
+    Scenario() \
+        .given(
+            some_rendered := _action_items_naming(some_name, some_lengths)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_name, "/", "_", times=len(some_lengths)))
+
+
+@pytest.mark.unit
+def test_a_path_too_wide_for_its_cell_keeps_its_file_s_name_whole() -> None:
+    # A cell cut "src/io_shop/spend_summary.py:47" after "spend_", and a reader
+    # copying it got a file nobody has. Cut after a "/", the file's name stays
+    # whole and the two pieces join where they visibly do.
+    some_path = "src/" + "/".join(["io_shop_reconciliation"] * 4) + "/spend_summary.py:47"
+    some_lengths = range(1, 12)
+
+    Scenario() \
+        .given(
+            some_rendered := _action_items_naming(some_path, some_lengths)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_path, "/", times=len(some_lengths)))
+
+
+@pytest.mark.unit
+def test_an_id_too_wide_for_its_cell_is_cut_between_its_groups() -> None:
+    # A cell cut an incident's id inside its last group: "...-8000-000" /
+    # "00000fee1". Cut at a hyphen, each group stays whole.
+    some_id = "-".join(["9c1d4e7a"] * 14)
+    some_lengths = range(1, 12)
+
+    Scenario() \
+        .given(
+            some_rendered := _action_items_naming(some_id, some_lengths)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _cut_only_after(some_id, "-", times=len(some_lengths)))
 
 
 @pytest.mark.unit
@@ -2207,10 +2268,22 @@ def _spelled(text: str) -> str:
     return re.escape(text).replace("\u00a0", "[ \u00a0]")
 
 
-def _cut_only_after_an_underscore(word: str, times: int) -> Assertion[bytes]:
+def _action_items_naming(word: str, lengths: range) -> RenderedPostmortem:
+    """A postmortem whose action items each name `word` after a different
+    number of words, so it lands at every place along a cell's line."""
+    some_items = [ActionItem(number=f"AI-{length}",
+                             text=" ".join(["word"] * length) + f" {word} now",
+                             type=ActionItemType.PREVENT, owner=None, tracking=None,
+                             status=ActionItemStatus.OPEN)
+                  for length in lengths]
+
+    return render(a_postmortem(action_items=some_items), an_alert(), [], SOME_ADDRESS)
+
+
+def _cut_only_after(word: str, *joints: str, times: int) -> Assertion[bytes]:
     """`word` is set `times` times, and wherever a line of the PDF's text ends
     partway through it, with the next going on with the rest of it, the line
-    ends just after an underscore."""
+    ends just after one of `joints`."""
     # Whatever the text comes back with between each two of its letters.
     spaced = "".join(f"{re.escape(letter)}(\\s*)" for letter in word[:-1]) + re.escape(word[-1])
 
@@ -2219,12 +2292,12 @@ def _cut_only_after_an_underscore(word: str, times: int) -> Assertion[bytes]:
         found = list(re.finditer(spaced, text))
         cuts = [f"{word[:at + 1]} / {word[at + 1:]}" for each in found
                 for at, between in enumerate(each.groups())
-                if "\n" in between and word[at] != "_"]
+                if "\n" in between and word[at] not in joints]
 
         if len(found) != times or cuts:
             raise AssertionError(f"Expected [{word}] set {times} times and cut across lines only "
-                                 f"after an underscore, and the PDF sets it {len(found)} times "
-                                 f"and cuts it as {cuts}.")
+                                 f"after one of {list(joints)}, and the PDF sets it "
+                                 f"{len(found)} times and cuts it as {cuts}.")
 
         return True
 

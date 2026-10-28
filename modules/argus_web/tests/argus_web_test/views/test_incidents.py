@@ -27,6 +27,7 @@ from argus_core.models import (
     Incident,
     IncidentStatus,
     TakenAction,
+    Undone,
     Verdict,
 )
 from argus_narration import ShownRevision
@@ -126,28 +127,37 @@ def test_a_candidate_the_walk_never_reached_is_shown_as_untried() -> None:
 
 
 @pytest.mark.unit
-def test_a_refuted_attempt_is_shown_as_having_been_put_back() -> None:
+def test_an_attempt_is_shown_put_back_as_its_row_says_it_was() -> None:
     # A reversible action that did not help is undone before its verdict is
-    # returned. A page showing the attempt without that would leave a reader
-    # believing the flag is still flipped.
+    # returned, and the row says what the undo did. A page showing the attempt
+    # without that would leave a reader believing the flag is still flipped -
+    # and one reading it off the verdict would say a refuted change somebody
+    # had since moved, or a refuted restart, was put back.
     an_incident = _an_incident()
-    the_refuted_candidate = _a_candidate(an_incident.id, subject="refuted", rank=1)
-    the_confirmed_candidate = _a_candidate(an_incident.id, subject="confirmed", rank=2)
+    the_restored_candidate = _a_candidate(an_incident.id, subject="restored", rank=1)
+    the_left_candidate = _a_candidate(an_incident.id, subject="left", rank=2)
+    the_unrestored_candidate = _a_candidate(an_incident.id, subject="unrestored", rank=3)
+    the_confirmed_candidate = _a_candidate(an_incident.id, subject="confirmed", rank=4)
 
     Scenario() \
         .given(
-            one_of_each_verdict := [
-                _an_attempt(an_incident.id, the_refuted_candidate.id, outcome=REFUTED),
+            one_of_each := [
+                _an_attempt(an_incident.id, the_restored_candidate.id, outcome=REFUTED,
+                            undone=Undone.RESTORED),
+                _an_attempt(an_incident.id, the_left_candidate.id, outcome=REFUTED,
+                            undone=Undone.LEFT_AS_FOUND),
+                _an_attempt(an_incident.id, the_unrestored_candidate.id, outcome=REFUTED),
                 _an_attempt(an_incident.id, the_confirmed_candidate.id, outcome=CONFIRMED)
             ]
         ) \
         .when(lambda: build_incident_detail(
             an_incident,
-            candidates=[the_refuted_candidate, the_confirmed_candidate],
-            attempts=one_of_each_verdict,
+            candidates=[the_restored_candidate, the_left_candidate,
+                        the_unrestored_candidate, the_confirmed_candidate],
+            attempts=one_of_each,
             account=NOTHING_WAS_SAID
         )) \
-        .then(_the_attempts_were_undone([True, False]))
+        .then(_the_attempts_were_undone([Undone.RESTORED, Undone.LEFT_AS_FOUND, None, None]))
 
 
 @pytest.mark.unit
@@ -170,7 +180,7 @@ def test_an_attempt_with_no_verdict_yet_is_shown_as_undecided_rather_than_undone
             account=NOTHING_WAS_SAID
         )) \
         .then(all_of(_the_attempts_shown_per_candidate_are([("in flight", [None])]),
-                     _the_attempts_were_undone([False]),
+                     _the_attempts_were_undone([None]),
                      _the_attempts_await_a_verdict([True])))
 
 
@@ -476,7 +486,8 @@ def _a_candidate(incident_id: str,
 
 def _an_attempt(incident_id: str,
                 hypothesis_id: str | None,
-                outcome: Verdict | None) -> TakenAction:
+                outcome: Verdict | None,
+                undone: Undone | None = None) -> TakenAction:
     return TakenAction(
         id=new_id(),
         incident_id=incident_id,
@@ -486,7 +497,8 @@ def _an_attempt(incident_id: str,
         has_a_way_back=True,
         undo_descriptor=FlagUndo(flag="dont-care", was_enabled=True),
         outcome=outcome,
-        taken_at=_OPENED_AT + timedelta(minutes=1)
+        taken_at=_OPENED_AT + timedelta(minutes=1),
+        undone=undone
     )
 
 
@@ -540,7 +552,7 @@ def _the_attempts_await_a_verdict(expected: list[bool]) -> Assertion[IncidentDet
     return assertion
 
 
-def _the_attempts_were_undone(expected: list[bool]) -> Assertion[IncidentDetail]:
+def _the_attempts_were_undone(expected: list[Undone | None]) -> Assertion[IncidentDetail]:
     def assertion(detail: IncidentDetail) -> bool:
         undone = [
             attempt.undone

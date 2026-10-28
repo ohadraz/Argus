@@ -8,6 +8,7 @@ from pydantic import BaseModel, field_validator
 from argus_core.ids import UuidStr
 from argus_core.models.action import UnreadVerdict, Verdict
 from argus_core.models.undo_descriptor import UndoDescriptor
+from argus_core.models.undone import Undone
 
 
 class ActionProgress(StrEnum):
@@ -57,6 +58,13 @@ class TakenAction(BaseModel):
     # row is from its claim: a worker that stopped after claiming may have made
     # the change.
     left_behind_known: bool = False
+    # What the walk's own putting back did, after a refutation: restored; left
+    # as found, because somebody changed it since; not established, where what
+    # it holds could not be read; or no undo owed. `None` where the walk
+    # attempted no undo. The cleanup after the incident puts back `None` and
+    # not established - a change that may still be out there - and passes over
+    # the rest.
+    undone: Undone | None = None
 
     @field_validator("outcome", mode="before")
     @classmethod

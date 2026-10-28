@@ -25,7 +25,7 @@ from argus_core.models import (
     Incident,
     IncidentStatus,
     TakenAction,
-    Verdict,
+    Undone,
 )
 from argus_incidents import when_it_was_taken
 from argus_narration import (
@@ -48,7 +48,10 @@ class Attempt(BaseModel):
 
     action_type: str
     outcome: str | None
-    undone: bool
+    # What the walk's own putting back did, as the row records it - restored,
+    # or left as somebody else had since set it - and `None` where it put
+    # nothing back.
+    undone: Undone | None
     taken_at: datetime
     # Whether a verdict may still come: none is recorded and the incident is
     # still being worked. With the incident over, a missing verdict is one that
@@ -197,14 +200,10 @@ def _an_attempt(taken_action: TakenAction,
     over it is the opposite: no verdict is coming, because the worker taking it
     stopped - and "yet" would promise one.
 
-    Undone is the verdict an action gets when the service did not recover and
-    the action left something to put back: the walk puts such an action back
-    before returning it - see `agent_mitigation` - so `REFUTED` is also the
-    record that the change was reverted. An action that left nothing behind is
-    refuted with nothing undone, which is a cleaner ending and reads as one.
-    That is an inference from the walk's contract rather than something the row
-    states, and if the contract changes the fix is to record the revert, not to
-    read it off a different verdict.
+    What putting it back did is the row's own record of the walk's undo, not
+    an inference from the verdict: a refuted restart put nothing back, and a
+    refuted flag somebody changed since was left as they set it - both
+    `REFUTED`, and neither put back.
 
     The outcome is shown as the page was handed it, which is the spelling the
     column holds even where no verdict spells it. A row an older version wrote
@@ -214,7 +213,7 @@ def _an_attempt(taken_action: TakenAction,
     return Attempt(
         action_type=taken_action.type,
         outcome=taken_action.outcome,
-        undone=taken_action.outcome is Verdict.REFUTED,
+        undone=taken_action.undone,
         taken_at=when_it_was_taken(taken_action, account),
         awaiting_a_verdict=taken_action.outcome is None and still_worked
     )

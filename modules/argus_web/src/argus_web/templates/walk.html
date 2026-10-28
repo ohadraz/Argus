@@ -68,9 +68,15 @@
         {# Reached and held back is not never reached: the gate writes on the
            row why it declined the test, and without it a refusal reads as a
            candidate nobody got to - in the words the one after it carries.
-           Nor is an attempt the walk stopped before its verdict: untested and
-           with no result, it was still reached, and its attempt is beneath. #}
-        {% if not candidate.tested and candidate.result %}
+           A tier that had nowhere to take the action writes its own words
+           there too, and that candidate has its attempt beneath - so it reads
+           as the brief says it, an action not taken, where a gate's refusal,
+           which never reaches a tier, is a test held back. Nor is an attempt
+           the walk stopped before its verdict: untested and with no result,
+           it was still reached, and its attempt is beneath. #}
+        {% if not candidate.tested and candidate.result and candidate.attempts %}
+          <span class="untried">action not taken: {{ candidate.result }}</span>
+        {% elif not candidate.tested and candidate.result %}
           <span class="untried">test held back: {{ candidate.result }}</span>
         {% elif not candidate.tested and not candidate.attempts %}
           <span class="untried">never reached</span>
@@ -99,7 +105,7 @@
       {% for attempt in candidate.attempts %}
         <li class="attempt"
             data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
-            data-undone="{{ 'true' if attempt.undone else 'false' }}">
+            data-undone="{{ attempt.undone if attempt.undone is not none else '' }}">
           <span class="action">{{ attempt.action_type }}</span>
           {# An action taken a moment ago has no answer yet. That is a state to
              show, not an absence to hide. On an incident that is over, no
@@ -111,7 +117,13 @@
           {% else %}
             <span class="verdict {{ attempt.outcome }}">{{ attempt.outcome }}</span>
           {% endif %}
-          {% if attempt.undone %}<span class="undone">put back</span>{% endif %}
+          {# What the walk's own undo did, as the row records it: a refuted
+             change it restored, or one somebody had changed since and it left
+             as they set it. Nothing for any other - a refuted restart put
+             nothing back. #}
+          {% if attempt.undone == "restored" %}<span class="undone">put back</span>
+          {% elif attempt.undone == "left-as-found" %}<span class="undone">left as found</span>
+          {% endif %}
           <span class="when">{{ attempt.taken_at | time }} UTC</span>
         </li>
       {% endfor %}
@@ -130,7 +142,7 @@
   {% for attempt in incident.unattributed_attempts %}
     <li class="attempt"
         data-outcome="{{ attempt.outcome if attempt.outcome is not none else '' }}"
-        data-undone="{{ 'true' if attempt.undone else 'false' }}">
+        data-undone="{{ attempt.undone if attempt.undone is not none else '' }}">
       <span class="action">{{ attempt.action_type }}</span>
       <span class="when">{{ attempt.taken_at | time }} UTC</span>
     </li>

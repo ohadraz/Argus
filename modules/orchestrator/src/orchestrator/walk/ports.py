@@ -34,6 +34,7 @@ from argus_core.models import (
     TakenAction,
     ThreadMessage,
     UndoDescriptor,
+    Undone,
     UnreadVerdict,
 )
 
@@ -246,7 +247,8 @@ class CompleteAction(Protocol):
 
     `left_behind_known` is whether the descriptor is the whole of what the
     attempt left behind, and has no default for the reason `Outcome`'s has
-    none.
+    none. `undone` is what the attempt's own putting back did, `None` where it
+    attempted none.
     """
 
     def __call__(
@@ -258,7 +260,8 @@ class CompleteAction(Protocol):
         narrating: IncidentEvent,
         performed: bool = True,
         *,
-        left_behind_known: bool
+        left_behind_known: bool,
+        undone: Undone | None = None
     ) -> None: ...
 
 

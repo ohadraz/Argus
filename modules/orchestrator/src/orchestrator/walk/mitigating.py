@@ -201,6 +201,9 @@ def mitigation_node(
         # What tells a refusal that asked for no change from one nobody can
         # account for, which the write-up says differently.
         left_behind_known=result.left_behind_known,
+        # What putting a refuted change back did, so the cleanup after the
+        # incident does not put it back a second time.
+        undone=result.undone,
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.hypothesis.id,
@@ -211,6 +214,9 @@ def mitigation_node(
             action_type=state.proposed_action.action_type,
             subject=the_subject_of(state.proposed_action),
             performed=result.performed,
+            not_performed_because=result.not_performed_because,
+            undone=result.undone,
+            undone_detail=result.undone_detail,
             judged=result.judged
         )
     )
@@ -240,6 +246,17 @@ def mitigation_node(
         and result.judged
     ):
         record_outcome(state.hypothesis.id, tested=True, result=outcome)
+    # Not performed, and a tier said why: the candidate was passed over untested,
+    # and its row keeps the reason as the gate's refusals keep theirs - the one
+    # thing a reader of the list has for why this explanation was never tried.
+    # Untested, so nothing here reads as a verdict on it.
+    elif (
+        state.hypothesis is not None
+        and not result.performed
+        and result.not_performed_because is not None
+    ):
+        record_outcome(state.hypothesis.id, tested=False,
+                       result=result.not_performed_because)
 
     if result.verdict is Verdict.PLATFORM_UNREACHABLE:
         # Recorded here because here is the only place that holds both halves:

@@ -20,7 +20,9 @@ import pytest
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     Action,
+    ActionIdentity,
     Alert,
+    Attempt,
     Disproof,
     FailureMode,
     FlagUndo,
@@ -144,7 +146,9 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
                 candidates=[_a_candidate(), _a_candidate()],
                 candidate_index=2,
                 action_outcome=Verdict.REFUTED,
-                rounds=1
+                rounds=1,
+                attempts=[_a_refuted_attempt()],
+                attempts_handed=0
             )
         ) \
         .when(
@@ -152,6 +156,31 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
         ) \
         .then(
             _the_status_is(IncidentStatus.INVESTIGATING)
+        )
+
+
+@pytest.mark.unit
+def test_a_walk_out_of_candidates_with_nothing_refuted_since_its_round_looks_for_a_fix() -> None:
+    # Rounds left, and the list spent without a refutation since the round
+    # began: its one attempt was handed to the round already, and what came
+    # after was refused or had nowhere to go. Another round would be handed the
+    # evidence this one was, so none is bought.
+    Scenario() \
+        .given(
+            a_walk_that_learnt_nothing_new := _an_incident(
+                candidates=[_a_candidate(), _a_candidate()],
+                candidate_index=2,
+                action_outcome=Verdict.NOT_ATTEMPTED,
+                rounds=2,
+                attempts=[_a_refuted_attempt()],
+                attempts_handed=1
+            )
+        ) \
+        .when(
+            lambda: status_after(a_walk_that_learnt_nothing_new, SOME_MAX_ROUNDS)
+        ) \
+        .then(
+            _the_status_is(IncidentStatus.FIXING)
         )
 
 
@@ -567,6 +596,8 @@ class _WhatHasHappened(TypedDict, total=False):
     candidate_index: int
     unreachable_platforms: list[Platform]
     rounds: int
+    attempts: list[Attempt]
+    attempts_handed: int
     recommended_action: Action | None
     the_mode_has_no_mitigation: bool
     nothing_worth_trying: bool
@@ -598,6 +629,15 @@ def _a_candidate() -> Hypothesis:
         confidence=0.8,
         supporting_evidence=[],
         subject="monthly-spend-feature"
+    )
+
+
+def _a_refuted_attempt() -> Attempt:
+    return Attempt(
+        identity=ActionIdentity(action_type="revert-feature-flag",
+                                subject="monthly-spend-feature"),
+        enabled=False,
+        occurred_at="2026-10-28T16:28:07Z"
     )
 
 

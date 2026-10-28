@@ -103,6 +103,7 @@ class StateDelta(BaseModel):
     # the postmortem, and every later round is handed it.
     onset: EstablishedOnset | None = None
     rounds: int | None = None
+    attempts_handed: int | None = None
     candidates_formed: int | None = None
     # Set explicitly to `None` by the node that could not read the provider, so
     # that "nobody could say" reaches the rest of the round as itself.

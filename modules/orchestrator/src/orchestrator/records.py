@@ -30,6 +30,7 @@ from argus_core.models import (
     TakenAction,
     ThreadMessage,
     UndoDescriptor,
+    Undone,
     Verdict,
 )
 from argus_incidents import PublisherFor, publish_beside
@@ -142,7 +143,8 @@ class Records:
         narrating: IncidentEvent,
         performed: bool = True,
         *,
-        left_behind_known: bool
+        left_behind_known: bool,
+        undone: Undone | None = None
     ) -> None:
         """Records what came of the action, and says so, in one write.
 
@@ -160,7 +162,8 @@ class Records:
                 outcome=outcome,
                 undo_descriptor=undo_descriptor,
                 performed=performed,
-                left_behind_known=left_behind_known
+                left_behind_known=left_behind_known,
+                undone=undone
             )
             publish_beside(conn, narrating, self._publisher_for(conn))
 

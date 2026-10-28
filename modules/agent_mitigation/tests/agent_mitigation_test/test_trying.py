@@ -380,6 +380,8 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
             _it_carries_nothing_to_put_back(),
             _it_says_it_was_performed(False),
             _what_it_left_is_known(True),
+            # A person's ending is said by its own line, so no tier's reason.
+            _why_it_was_not_performed_is(None),
             # The agent holds a yes-or-no and cannot tell a withdrawal from a
             # resolution, so it says what it knows and claims neither.
             _the_detail_mentions("a person ended the incident"),
@@ -823,7 +825,8 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions(some_flag),
-            _the_detail_mentions(some_undo_failure)
+            _the_detail_mentions(some_undo_failure),
+            _putting_it_back_is_carried_as(Undone.NOT_ESTABLISHED, some_undo_failure)
         ))
 
 
@@ -887,7 +890,8 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
             the_verdict_is(Verdict.REFUTED),
             _the_detail_mentions(some_flag),
             _the_detail_mentions("changed"),
-            _the_detail_mentions(f"and [{some_flag}] was left as found")
+            _the_detail_mentions(f"and [{some_flag}] was left as found"),
+            _putting_it_back_is_carried_as(Undone.LEFT_AS_FOUND, "was left as found")
         ))
 
 
@@ -976,7 +980,9 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
         )) \
         .then(all_of(
             _the_change_was_put_back_through(undo),
-            the_verdict_is(Verdict.REFUTED)
+            the_verdict_is(Verdict.REFUTED),
+            _putting_it_back_is_carried_as(Undone.RESTORED,
+                                           f"flag [{some_flag}] was put back")
         ))
 
 
@@ -2038,7 +2044,8 @@ def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> N
             the_verdict_is(Verdict.ESCALATED),
             _the_detail_mentions(f"scale [{SOME_APPLICATION}] out"),
             _the_detail_mentions(THE_CEILING_REFUSED),
-            _there_is_nothing_to_put_back()
+            _there_is_nothing_to_put_back(),
+            _why_it_was_not_performed_is(THE_CEILING_REFUSED)
         ))
 
 
@@ -2109,7 +2116,8 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
             _the_detail_mentions(THE_AUTOSCALER_HAS_NO_ROOM_LEFT),
             _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
             _there_is_nothing_to_put_back(),
-            _what_it_left_is_known(True)
+            _what_it_left_is_known(True),
+            _why_it_was_not_performed_is(THE_AUTOSCALER_HAS_NO_ROOM_LEFT)
         ))
 
 
@@ -2195,7 +2203,9 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
             _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
             _there_is_nothing_to_put_back(),
-            _what_it_left_is_known(True)
+            _what_it_left_is_known(True),
+            # Named with the platform, as the tier names it to whoever reads it.
+            _why_it_was_not_performed_is(f"{DEPLOYMENT_PLATFORM} {THE_PLATFORM_DID_NOT_ANSWER}")
         ))
 
 
@@ -3531,6 +3541,38 @@ def _the_detail_mentions(expected: str) -> Assertion[Outcome]:
             raise AssertionError(
                 f"Expected the detail to mention [{expected}], "
                 f"got [{outcome.detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _why_it_was_not_performed_is(expected: str | None) -> Assertion[Outcome]:
+    """The tier's own sentence for an attempt that ended before its write,
+    carried apart from the sentence that says it - for the candidate's row and
+    the line, which keep the reason and not the rest."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.not_performed_because != expected:
+            raise AssertionError(
+                f"Expected the outcome to say it was not performed because "
+                f"[{expected}], got [{outcome.not_performed_because}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _putting_it_back_is_carried_as(expected: Undone,
+                                   said: str) -> Assertion[Outcome]:
+    """What the undo did, and its own words for it, carried apart from the
+    detail - for the action's row and the verdict's line."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.undone is not expected or said not in (outcome.undone_detail or ""):
+            raise AssertionError(
+                f"Expected the outcome to carry the undo as [{expected}] saying "
+                f"[{said}], got [{outcome.undone}] saying [{outcome.undone_detail}]."
             )
 
         return True

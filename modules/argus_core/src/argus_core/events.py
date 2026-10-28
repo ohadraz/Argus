@@ -549,6 +549,16 @@ class VerdictReached(_Event):
     action_type: ActionType | None = None
     subject: str | None = None
     performed: bool = True
+    # Why it was not performed, in the tier's own words, where it was not and a
+    # tier said: the one reason a reader of this line has for an explanation
+    # passed over untested. `None` for a performed action and a person's stop.
+    not_performed_because: str | None = None
+    # What putting the change back did, where the attempt was refuted and put
+    # it back, and the undo's own words for it - said on this line because
+    # nothing else live says it: "monthly-spend-feature was put back ON".
+    # `None` where no undo was attempted.
+    undone: Undone | None = None
+    undone_detail: str | None = None
     # Whether this attempt judged the action: false where the wait never read
     # the service, and for a stop whatever it read before it. A wait whose
     # every look went unanswered escalates with the word a refutation whose

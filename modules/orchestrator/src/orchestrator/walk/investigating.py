@@ -318,6 +318,9 @@ def investigator_node(
         readings_cover_the_incident=findings.readings_cover_the_incident,
         onset=state.onset or findings.onset,
         rounds=state.rounds + 1,
+        # What this round was told had been tried, so the walk can tell whether
+        # anything was refuted after it.
+        attempts_handed=len(state.attempts),
         candidates_formed=state.candidates_formed + len(candidates),
         confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,

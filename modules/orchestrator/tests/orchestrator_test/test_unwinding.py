@@ -5,11 +5,11 @@ what makes stopping honest - a walk halted mid-flight has production in a state
 it chose for a reason that no longer applies, and nobody but Argus knows what
 that state replaced.
 
-Every recorded change goes through the same conditional undo, and none of them
-is filtered by what the walk made of it. A change already put back reads as one
-somebody else changed, so it is left alone - which makes running this twice cost
-nothing, and makes it safe over an incident whose walk had already tidied up
-after itself.
+Every recorded change goes through the same conditional undo, except one the
+walk already settled after refuting it - put back, or left as somebody else had
+since set it - which its verdict's line has already said. Running this twice
+costs nothing: a second pass finds only Argus's own restore since Argus wrote,
+so it restores again, to the state the flag is already in.
 
 What became of each change is published rather than written as a note. There is
 one event per change, because an incident that moved three flags and restored
@@ -82,6 +82,66 @@ def test_every_change_the_incident_recorded_is_put_back(
         ) \
         .then(
             _the_changes_put_back(undo, a_first_change, a_second_change)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("settled_as", [Undone.RESTORED, Undone.LEFT_AS_FOUND],
+                         ids=["restored", "left-as-found"])
+def test_a_change_the_walk_already_settled_is_passed_over(
+    settled_as: Undone, undo: MagicMock, published: list[IncidentEvent]
+) -> None:
+    # The walk put it back after refuting it, or left it as somebody else had
+    # since set it, and its verdict's line said so. Put back again it is said
+    # again; the change beside it, which nothing settled, is still put back.
+    a_settled_change = _a_taken_action_carrying(
+        _an_undo_descriptor_for("monthly-spend-feature"), undone=settled_as
+    )
+    an_unsettled_change = _an_undo_descriptor_for("checkout-kill-switch")
+    undo.return_value = _restored("checkout-kill-switch")
+
+    Scenario() \
+        .given(
+            an_incident := [a_settled_change, _a_taken_action_carrying(an_unsettled_change)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident),
+                undo=undo,
+                publisher=published.append,
+            )
+        ) \
+        .then(all_of(
+            _the_changes_put_back(undo, an_unsettled_change),
+            _one_change_was_reported(published)
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_the_walk_could_not_establish_is_tried_again(
+    undo: MagicMock, published: list[IncidentEvent]
+) -> None:
+    # The walk's own undo could not say what the flag holds, so the change may
+    # still be out there - and this is the last thing that happens to it.
+    a_change_left_unestablished = _an_undo_descriptor_for("monthly-spend-feature")
+    undo.return_value = _restored("monthly-spend-feature")
+
+    Scenario() \
+        .given(
+            an_incident := [_a_taken_action_carrying(a_change_left_unestablished,
+                                                     undone=Undone.NOT_ESTABLISHED)]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(an_incident),
+                undo=undo,
+                publisher=published.append,
+            )
+        ) \
+        .then(
+            _the_changes_put_back(undo, a_change_left_unestablished)
         )
 
 
@@ -550,7 +610,8 @@ def _reading(recorded: list[TakenAction]) -> Callable[[str], list[TakenAction]]:
 
 
 def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None,
-                             progress: ActionProgress = ActionProgress.PERFORMED
+                             progress: ActionProgress = ActionProgress.PERFORMED,
+                             undone: Undone | None = None
                              ) -> TakenAction:
     return TakenAction(
         id=new_id(),
@@ -562,5 +623,6 @@ def _a_taken_action_carrying(undo_descriptor: UndoDescriptor | None,
         undo_descriptor=undo_descriptor,
         outcome=_DONT_CARE_VERDICT,
         taken_at=datetime.now(UTC),
-        progress=progress
+        progress=progress,
+        undone=undone
     )

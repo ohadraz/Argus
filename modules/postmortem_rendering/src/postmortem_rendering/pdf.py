@@ -400,10 +400,11 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
     each in its own face, as `_where_the_lines_lie` measures a word: a soft
     hyphen takes no room and a non-breaking space joins rather than parts.
 
-    A word wider than a whole line is cut, and only after an underscore in it
-    - a name in code, read at a glance as one, whose parts each still read as
-    words: so each part is measured as a word is, the underscore ending it. A
-    part wider than a whole line is left to fpdf2 to cut.
+    A word wider than a whole line is cut, and only after a joint in it - a
+    path's "/", an id's "-", a code name's "_" (`_where_each_piece_ends`) -
+    whose parts each still read as one: so each part is measured as a word
+    is, the joint ending it. A part wider than a whole line is left to fpdf2
+    to cut.
 
     The one place inline text is written, a label of the layout's own
     included: a caller writing a run itself writes it with nothing measuring
@@ -438,18 +439,39 @@ def _written(pdf: _Sheet, height: float, runs: Sequence[tuple[Run, _Look]]) -> N
 def _where_each_piece_ends(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]],
                            begins: Sequence[int], said: str) -> dict[int, int]:
     """Where each part of a word too wide for a whole line begins in `said`,
-    and where it ends: just after the next underscore in the word, or where
-    the word does. A word that fits a line has no parts."""
+    and where it ends: just after a joint in the word, or where the word does.
+    The word is parted at the first of `_JOINTS` it holds - a path at its
+    "/"s, so the file's name stays whole - and a part still too wide at the
+    next. A word that fits a line has no parts."""
     room = pdf.w - pdf.l_margin - pdf.r_margin - 2 * pdf.c_margin
     parts: dict[int, int] = {}
     for word in re.finditer(r"[^ \n]+", said):
-        if "_" not in word.group() or _how_wide(pdf, runs, begins, *word.span()) <= room:
-            continue
-        starts = [word.start(), *(word.start() + found.end()
-                                  for found in re.finditer("_", word.group())
-                                  if found.end() < len(word.group()))]
-        parts |= dict(zip(starts, [*starts[1:], word.end()], strict=True))
+        starts = _where_the_parts_begin(pdf, runs, begins, said, *word.span(), room, _JOINTS)
+        if len(starts) > 1:
+            parts |= dict(zip(starts, [*starts[1:], word.end()], strict=True))
     return parts
+
+
+def _where_the_parts_begin(pdf: _Sheet, runs: Sequence[tuple[Run, _Look]],
+                           begins: Sequence[int], said: str, start: int, end: int,
+                           room: float, joints: Sequence[str]) -> list[int]:
+    """Where each part of `said` from `start` to `end` begins: the whole of it
+    where it fits `room` or no joint is left to part it at, and otherwise its
+    pieces after each of the first of `joints` in it, each parted again at the
+    joints after that one."""
+    if not joints or _how_wide(pdf, runs, begins, start, end) <= room:
+        return [start]
+
+    piece_starts = [start, *(start + found.end()
+                             for found in re.finditer(re.escape(joints[0]), said[start:end])
+                             if start + found.end() < end)]
+    if len(piece_starts) == 1:
+        return _where_the_parts_begin(pdf, runs, begins, said, start, end, room, joints[1:])
+
+    return [part
+            for piece_start, piece_end in zip(piece_starts, [*piece_starts[1:], end], strict=True)
+            for part in _where_the_parts_begin(pdf, runs, begins, said, piece_start, piece_end,
+                                               room, joints[1:])]
 
 
 def _a_label(text: str, size: float) -> tuple[Run, _Look]:
@@ -953,8 +975,11 @@ def _the_most_that_fits(text: str, begins: int, ends_by: int,
     """Where the longest piece of `text` from `begins`, and ending by
     `ends_by`, that is `fitting` ends: before the last space or line break
     that leaves it fitting, or - where a word alone is wider than the cell -
-    just after the last underscore that does, as inline text cuts one: a name
-    in code, whose parts each still read as words. Only a part still wider
+    just after the last joint in it that does (`_JOINTS`, in the order they
+    are preferred): a path at a "/", so the file's name stays whole; an id or
+    a slug at a "-", between its groups; a name in code at a "_", as inline
+    text cuts one. Each part still reads as one, and a reader copying it puts
+    the two back together where they visibly join. Only a part still wider
     than the cell is cut wherever the measure says.
 
     The longest is found by doubling a reach until it no longer fits and then
@@ -979,8 +1004,13 @@ def _the_most_that_fits(text: str, begins: int, ends_by: int,
     if space > begins:
         return space
 
-    underscore = text.rfind("_", begins, shortest)
-    return underscore + 1 if underscore >= begins else shortest
+    for joint in _JOINTS:
+        # Past the piece's first character, so no piece is a joint alone.
+        at = text.rfind(joint, begins, shortest)
+        if at > begins:
+            return at + 1
+
+    return shortest
 
 
 # How far a piece is first reached for, in characters, before the reach doubles.
@@ -993,6 +1023,12 @@ _BREAKS: Final = (" ", "\n")
 # Where a word may be broken, and otherwise nothing. The font draws it as a
 # hyphen, so a line written character by character leaves it out.
 _SOFT_HYPHEN: Final = "\u00ad"
+
+# Where a word wider than its cell is cut, after the last that fits, in the
+# order tried: a path's separator, an id's or a slug's hyphen, a code name's
+# underscore. A path is tried first because its directories may hold hyphens
+# and underscores too, and cut there the file's name would go in two.
+_JOINTS: Final = ("/", "-", "_")
 
 
 def _set_in(pdf: _Sheet, style: FontFace | None) -> None:

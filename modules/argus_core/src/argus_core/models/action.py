@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 
 from argus_core.models.undo_descriptor import FlagUndo, UndoDescriptor
+from argus_core.models.undone import Undone
 
 
 class Verdict(StrEnum):
@@ -956,3 +957,18 @@ class Outcome(BaseModel):
     # for a later round of the same incident, which is told why each attempt
     # did not help and nothing else about it. `None` where nothing was watched.
     because: str | None = None
+    # Why the action was not performed, in the tier's own words - "[io-shop]
+    # has no revision before the one it is running" - apart from the sentence
+    # that says it, as `because` is for a watched one. What the candidate's row
+    # and the line saying the attempt keep, so an explanation passed over is
+    # never left with no reason on it. `None` for a performed action, and for a
+    # person's stop, whose own line says why.
+    not_performed_because: str | None = None
+    # What putting a refuted change back did, and the undo's own words for it -
+    # "was put back ON", "was left as found: it has been changed from outside
+    # since Argus set it". Carried apart from `detail` because the row and the
+    # line both keep it: a refutation put back and one left as somebody else
+    # set it are different states of the estate. `None` where no undo was
+    # attempted.
+    undone: Undone | None = None
+    undone_detail: str | None = None

@@ -96,6 +96,7 @@ from argus_core.models import (
     Transcript,
     Turn,
     UndoDescriptor,
+    Undone,
     Verdict,
     Weighing,
     a_chat_message,
@@ -1539,6 +1540,37 @@ def test_an_action_that_did_not_help_is_said_to_be_put_back(a_clean_database: No
 
 
 @pytest.mark.component
+def test_an_action_that_did_not_help_and_was_changed_since_is_said_to_be_left_as_found(
+        a_clean_database: None) -> None:
+    # Refuted too, and not put back: somebody changed the flag after Argus set
+    # it, so it was left as they set it. Said as put back, a reader would take
+    # the flag for Argus's again.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.REFUTED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                    undone=Undone.LEFT_AS_FOUND))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _mentions_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "left as found"
+                ),
+                _mentions_none_among(
+                    lambda evidence: [action.standing for action in evidence.actions],
+                    "put back"
+                )
+            ))
+
+
+@pytest.mark.component
 @pytest.mark.parametrize(("progress", "standing"), [
     pytest.param(ActionProgress.PERFORMED, "may still be in place", id="made-and-never-judged"),
     pytest.param(ActionProgress.UNKNOWN, "not known whether it was made", id="unaccounted-for"),
@@ -2573,7 +2605,8 @@ def _an_action_taken(conn: psycopg.Connection,
                      summary: str = "dont care",
                      performed: bool = True,
                      left_behind_known: bool = True,
-                     number: int = 1) -> None:
+                     number: int = 1,
+                     undone: Undone | None = None) -> None:
     """One finished action, on a candidate of its own - performed, unless a
     case says the attempt ended before its write, and known to have left what
     its descriptor says, unless a case says nobody can tell."""
@@ -2592,7 +2625,8 @@ def _an_action_taken(conn: psycopg.Connection,
                          undo_descriptor=undo_descriptor,
                          at=DONT_CARE_TAKEN_AT,
                          performed=performed,
-                         left_behind_known=left_behind_known)
+                         left_behind_known=left_behind_known,
+                         undone=undone)
 
 
 def _an_action_left_at(conn: psycopg.Connection,
@@ -3284,6 +3318,19 @@ def _mentions_among(reading: Callable[[IncidentEvidence], list[str]],
 
         if not any(expected in line for line in lines):
             raise AssertionError(f"Expected [{expected}] among {lines}.")
+
+        return True
+
+    return assertion
+
+
+def _mentions_none_among(reading: Callable[[IncidentEvidence], list[str]],
+                         unwanted: str) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        lines = reading(evidence)
+
+        if any(unwanted in line for line in lines):
+            raise AssertionError(f"Expected [{unwanted}] in none of {lines}.")
 
         return True
 

@@ -89,6 +89,11 @@ class IncidentState(BaseModel):
     # hard incident has usually spent its whole widening schedule by the time
     # the first attempt comes back refuted.
     rounds: int = 0
+    # How many attempts the latest round was handed. What says whether anything
+    # was refuted since it began - an action the gate refused or the tier could
+    # not take adds no attempt - and so whether another round would be told
+    # anything the last one was not.
+    attempts_handed: int = 0
     # How many candidates this incident's rounds have formed, which is what the
     # next round numbers its own from (`Hypothesis.number`). Not `candidates`'
     # length: that is the latest round's alone.
@@ -309,7 +314,31 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     if state.unreachable_platforms:
         return IncidentStatus.ESCALATED
 
-    if state.rounds < max_rounds:
+    if another_round_is_bought(state, max_rounds):
         return IncidentStatus.INVESTIGATING
 
     return IncidentStatus.FIXING
+
+
+def another_round_is_bought(state: IncidentState, max_rounds: int) -> bool:
+    """Whether the walk, out of candidates, investigates again.
+
+    Bought by a refutation, and only by one made since the latest round began:
+    Argus changed production and the service did not answer, which is evidence
+    no amount of re-reading produces and the model has never seen. A list spent
+    without one - every action refused by the gate, or one the tier had nowhere
+    to take - leaves the next round the evidence the last was handed, and a
+    re-read of it is the round `nothing_worth_trying` already declines to pay
+    for.
+
+    The first round is owed rather than bought: nothing has been read yet, so
+    there is nothing for it to repeat.
+
+    Stated once, because two callers ask it: `status_after`, and the node that
+    says why the walk moved. Asked separately, the two could disagree about
+    where the incident went and why.
+    """
+    if state.rounds == 0:
+        return max_rounds > 0
+
+    return state.rounds < max_rounds and len(state.attempts) > state.attempts_handed
