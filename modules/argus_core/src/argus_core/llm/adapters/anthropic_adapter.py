@@ -125,9 +125,10 @@ MAX_TOKENS: Final = DEFAULT_MAX_OUTPUT_TOKENS
 # investigation's own wall clock. The time bound is what answers to the human
 # waiting on the incident, and a call retrying with backoff for a minute has
 # spent a fifth of it before the model has said anything. Past two, a failure
-# reaching Argus is one it should act on rather than wait through: the walk
-# now unwinds what it changed and records why it stopped, which is a better
-# outcome than a longer silence.
+# reaching Argus is one it should act on rather than wait through: said as
+# `ModelUnavailable`, it is the caller's to decide about, and a walk that
+# cannot go on without the answer has its run requeued to be tried again
+# minutes later rather than held in a longer silence here.
 TRANSPORT_RETRIES = 2
 
 # What a turn offers the API to keep, so the next turn does not pay for it
@@ -186,7 +187,8 @@ _STOP_REASON_ERRORS: dict[str, type[ModelDidNotAnswer]] = {
 # The SDK's errors that mean the model could not be reached for now, raised
 # once its own retries are spent: 429, 529, any other 5xx, and a connection
 # that failed or timed out (`APITimeoutError` is one). Each is said as
-# `ModelUnavailable`; anything else - a 400 above all - is left as raised.
+# `ModelUnavailable`; anything else - a 400 above all - is left as raised, and
+# so is the one 429 that is not for now, the account's spending cap.
 _UNAVAILABLE_FOR_NOW: Final = (anthropic.RateLimitError,
                                anthropic.OverloadedError,
                                anthropic.InternalServerError,
@@ -201,6 +203,21 @@ OVERLOADED_ERROR_TYPE: Final = "overloaded_error"
 TIMEOUT_ERROR_TYPE: Final = "timeout_error"
 _UNAVAILABLE_ERROR_TYPES: Final = frozenset({RATE_LIMIT_ERROR_TYPE, API_ERROR_TYPE,
                                              OVERLOADED_ERROR_TYPE, TIMEOUT_ERROR_TYPE})
+
+# How a rate limit that is really the account's spending cap is told apart from
+# one that will lift in a moment (Anthropic's rate-limits page, "Reaching your
+# spend cap"): the code in the error's details. A cap answers the same until
+# somebody raises it, so it is never the model being unavailable for now.
+SPEND_CAP_ERROR_CODE: Final = "enforced_spend_limit_reached"
+
+
+def _is_the_spend_cap(failed: anthropic.APIStatusError) -> bool:
+    """Whether the error's details carry the spending cap's code."""
+    body = failed.body
+    error = body.get("error") if isinstance(body, dict) else None
+    details = error.get("details") if isinstance(error, dict) else None
+
+    return isinstance(details, dict) and details.get("error_code") == SPEND_CAP_ERROR_CODE
 
 
 def to_messages(transcript: Transcript) -> list[MessageParam]:
@@ -576,10 +593,13 @@ class AnthropicLLMClient:
             with self._client.messages.stream(**asked) as streamed:
                 return cast(Message, streamed.get_final_message())
         except _UNAVAILABLE_FOR_NOW as unavailable:
+            if isinstance(unavailable, anthropic.APIStatusError) and _is_the_spend_cap(unavailable):
+                raise
+
             raise ModelUnavailable(f"the model could not be reached for now: "
                                    f"{unavailable}") from unavailable
         except anthropic.APIStatusError as failed:
-            if failed.type not in _UNAVAILABLE_ERROR_TYPES:
+            if failed.type not in _UNAVAILABLE_ERROR_TYPES or _is_the_spend_cap(failed):
                 raise
 
             raise ModelUnavailable(f"the model could not be reached for now: "

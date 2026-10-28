@@ -376,6 +376,67 @@ def test_a_resolved_incident_is_not_moved_by_a_transition(to_status: IncidentSta
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("status", [status for status in IncidentStatus
+                                    if not status.is_terminal()])
+def test_an_incident_still_being_worked_is_escalated_when_its_walk_stopped(
+    status: IncidentStatus
+) -> None:
+    # The walk raised part-way through, and nothing will take its run again. An
+    # incident left where the walk was - `mitigating`, most often - reads as
+    # work in progress that nobody is going to pick up.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 10, 28, 3, 50, 1, 234567, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_ended_at = partial(_the_incident_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := _an_incident_at(conn, some_alert, status)
+            ) \
+            .when(
+                lambda: incidents.escalate_unless_ended(conn, incident_id, at=some_moment)
+            ) \
+            .then(all_of(
+                _the_transition_reported(True),
+                the_incident_is(IncidentStatus.ESCALATED, incident_id=incident_id),
+                the_incident_ended_at(incident_id, some_moment)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ending", [status for status in IncidentStatus if status.is_terminal()])
+def test_an_incident_that_already_ended_is_not_escalated_when_its_walk_stopped(
+    ending: IncidentStatus
+) -> None:
+    # The walk failed after an ending - its own, in the write-up after it
+    # mitigated, or a person's. Escalating would call a mitigated incident one
+    # a person must take over, and re-stamp when it ended. In the statement
+    # rather than a read before it, as `transition` keeps a person's endings:
+    # a read that failed would otherwise leave a stopped walk unescalated.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        the_incident_is = partial(_the_incident_is, conn)
+        the_incident_still_ended_at = partial(_the_incident_still_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := _an_incident_ended_as(conn, some_alert, ending),
+                ended_at := _when_it_ended(conn, incident_id)
+            ) \
+            .when(
+                lambda: incidents.escalate_unless_ended(conn, incident_id, at=utc_now())
+            ) \
+            .then(all_of(
+                _the_transition_reported(False),
+                the_incident_is(ending, incident_id=incident_id),
+                the_incident_still_ended_at(incident_id, ended_at)
+            ))
+
+
+@pytest.mark.integration
 def test_incidents_come_back_newest_first() -> None:
     # The history view opens on what just happened. Oldest-first would put the
     # incident somebody is looking for at the bottom of the page.
@@ -1037,6 +1098,15 @@ def _a_resolved_incident_for(conn: psycopg.Connection, alert: Alert) -> str:
         IncidentStatus.RESOLVED,
         at=utc_now(),
     )
+
+    return incident_id
+
+
+def _an_incident_at(conn: psycopg.Connection, alert: Alert, status: IncidentStatus) -> str:
+    """An incident still being worked, at `status`, committed."""
+    incident_id = incidents.create(conn, alert, at=utc_now())
+    incidents.transition(conn, incident_id, status, at=utc_now())
+    conn.commit()
 
     return incident_id
 

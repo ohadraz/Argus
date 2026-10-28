@@ -20,11 +20,15 @@ from argus_core.telemetry import (
 from argus_incidents.repository import events, incidents
 from argus_testkit import one_record_was_logged
 from argus_testkit.assertions import Assertion, all_of
-from argus_testkit.scenario import Scenario, calling
+from argus_testkit.scenario import Scenario, attempting, calling
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import StateSnapshot
 from opentelemetry import trace
 from orchestrator import entrypoint
+from orchestrator.walk.state import IncidentState
 from psycopg.rows import dict_row
 
 from orchestrator_test.framework.observing import Observed, attributes_of, observing
@@ -36,6 +40,13 @@ THE_SCHEMA = "public"
 # after.
 A_SCRATCH_SCHEMA = "langgraph_setup"
 
+# What the checkpointer holds on the thread of an incident never walked.
+NOTHING: dict[str, Any] = {}
+
+# What it holds on the thread of a walk that stopped part-way - after the
+# incident was mitigated, in the write-up, say.
+SOME_WALK_PART_WAY = {"status": IncidentStatus.MITIGATED}
+
 
 @pytest.mark.component
 def test_a_walk_announces_the_investigation_before_the_graph_runs(
@@ -46,7 +57,7 @@ def test_a_walk_announces_the_investigation_before_the_graph_runs(
     # account as well as the status, because the gap between the incident's own
     # created_at and that line is what says how long it waited for a worker.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
-    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph = _a_graph_holding(NOTHING)
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
@@ -75,7 +86,7 @@ def test_a_walk_withdrawn_before_it_started_announces_no_investigation(
     # withdrawn, and the account must not say otherwise: a line announcing an
     # investigation of an incident nobody wants is one a reader would act on.
     dont_care_alert = Alert(service="muki-service", alert_name="HighErrorRate")
-    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph = _a_graph_holding(NOTHING)
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
@@ -97,12 +108,13 @@ def test_a_walk_withdrawn_before_it_started_announces_no_investigation(
 
 @pytest.mark.component
 def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: None) -> None:
-    # This is what makes the resume above a resume rather than a restart: the
-    # thread is the incident, so the checkpointer answers with whatever that
-    # incident already reached. A walk that invoked the graph on a fresh thread
-    # would replay a whole investigation and call it recovery.
+    # Half of what makes a resume a resume rather than a restart: the thread is
+    # the incident, so the checkpointer answers with whatever that incident
+    # already reached. A walk that invoked the graph on a fresh thread would
+    # replay a whole investigation and call it recovery. The other half is the
+    # input it is invoked with, below.
     dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
-    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph = _a_graph_holding(NOTHING)
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
@@ -125,12 +137,105 @@ def test_a_walk_invokes_the_graph_on_the_incidents_own_thread(a_clean_database: 
 
 
 @pytest.mark.component
+def test_a_walk_its_thread_already_holds_is_resumed_rather_than_started_again(
+    a_clean_database: None
+) -> None:
+    # The run was requeued to try again, or taken from a worker that stopped.
+    # Invoked with the incident's state again, the graph starts over from its
+    # first node - investigating anew, and free to act on the world a second
+    # time. Invoked with nothing, it goes on from the node it stopped in.
+    dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    a_graph = _a_graph_holding(SOME_WALK_PART_WAY)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        conn.commit()  # the walk reads it back on a connection of its own
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: entrypoint.run_incident(
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                )
+            ) \
+            .then(all_of(
+                _the_thread_it_was_invoked_on_was(a_graph, incident_id),
+                _it_went_on_from_where_it_stopped(a_graph)
+            ))
+
+
+@pytest.mark.component
+def test_a_walk_that_stopped_part_way_through_a_real_graph_goes_on_from_where_it_stopped(
+    a_clean_database: None
+) -> None:
+    # Against LangGraph itself, with a checkpointer of its own, because what
+    # resumes a thread and what starts it over is LangGraph's to say - it said
+    # the opposite of what this module assumed once, and an upgrade could say
+    # something else again. Stopped in its second step and walked again, the
+    # graph runs that step again and never the first.
+    dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    ran: list[str] = []
+    a_graph = _a_two_step_graph_stopping_once_in_its_second(ran)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        conn.commit()  # the walk reads it back on a connection of its own
+
+        Scenario() \
+            .given(
+                calling(attempting(lambda: entrypoint.run_incident(
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                )))
+            ) \
+            .when(
+                lambda: entrypoint.run_incident(
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                )
+            ) \
+            .then(
+                _the_steps_that_ran_were(ran, ["first", "second", "second"])
+            )
+
+
+@pytest.mark.component
+def test_a_resumed_walk_leaves_its_incident_where_the_walk_had_taken_it(
+    a_clean_database: None
+) -> None:
+    # Mitigated before the write-up stopped. Announcing an investigation again
+    # would move the incident back to `investigating`, and a walk that goes on
+    # from the write-up never moves it on from there.
+    dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+    a_graph = _a_graph_holding(SOME_WALK_PART_WAY)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATED, at=utc_now())
+        conn.commit()  # the walk reads it back on a connection of its own
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: entrypoint.run_incident(
+                    incident_id, connect_from_env, graph_of=lambda: a_graph
+                )
+            ) \
+            .then(all_of(
+                _the_incident_is(conn, incident_id, IncidentStatus.MITIGATED),
+                _the_account_never_says_it_was_taken_up(conn, incident_id)
+            ))
+
+
+@pytest.mark.component
 def test_a_walk_is_one_span_the_graph_runs_inside(a_clean_database: None) -> None:
     # The root of the walk's trace. Every step's span hangs from it, and so
     # every model call and tool call the walk made - which is what lets a
     # reader start from an incident and see the whole of what Argus did.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
-    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph = _a_graph_holding(NOTHING)
     a_walk = _a_walk_ending_at(IncidentStatus.MITIGATED)
     a_graph.invoke.side_effect = a_walk
     observed = observing()
@@ -162,7 +267,7 @@ def test_a_walk_is_counted_and_timed_by_how_the_incident_ended(
     # On an injected clock, so the duration is exact rather than however long
     # a mocked graph took to return.
     dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
-    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph = _a_graph_holding(NOTHING)
     a_graph.invoke.side_effect = _a_walk_ending_at(IncidentStatus.ESCALATED)
     some_seconds_walked = 42.5
     observed = observing()
@@ -195,7 +300,7 @@ def test_a_walk_is_logged_as_it_starts_and_as_it_ends(
     # How the incident ended and how long it took, on the line that says so -
     # the two things asked of every walk afterwards.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
-    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph = _a_graph_holding(NOTHING)
     a_graph.invoke.side_effect = _a_walk_ending_at(IncidentStatus.ESCALATED)
     some_seconds_walked = 42.5
 
@@ -405,12 +510,104 @@ def _the_account_never_says_it_was_taken_up(conn: psycopg.Connection,
 
         if IncidentStatus.INVESTIGATING in moves:
             raise AssertionError(
-                f"Expected the account to announce no investigation of an incident "
-                f"that was withdrawn before its walk started, got {moves}.")
+                f"Expected the account to announce no investigation, got {moves}.")
 
         return True
 
     return assertion
+
+
+def _the_incident_is(conn: psycopg.Connection,
+                     incident_id: str,
+                     expected: IncidentStatus) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        incident = incidents.get(conn, incident_id)
+        found = None if incident is None else incident.status
+
+        if found != expected:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] still [{expected}] once its walk was "
+                f"resumed, got [{found}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_went_on_from_where_it_stopped(a_graph: Any) -> Assertion[Any]:
+    """Invoked with no input, which is what LangGraph resumes a thread on - any
+    input starts the graph again from its first node."""
+    def assertion(_result: Any) -> bool:
+        given = a_graph.invoke.call_args.args[0]
+
+        if given is not None:
+            raise AssertionError(
+                f"Expected the walk resumed with no input, and it was invoked with "
+                f"[{given!r}], which starts it over."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_two_step_graph_stopping_once_in_its_second(
+    ran: list[str]
+) -> CompiledStateGraph[IncidentState]:
+    """A real graph of two steps over the walk's own state, checkpointed in
+    memory, whose second step raises the first time it runs - each step
+    noting in `ran` that it did."""
+    stopped: list[bool] = []
+
+    # `state` for LangGraph's node protocol, which calls a node's parameter so.
+    def first(state: IncidentState) -> dict[str, Any]:
+        ran.append("first")
+
+        return {}
+
+    def second(state: IncidentState) -> dict[str, Any]:
+        ran.append("second")
+
+        if not stopped:
+            stopped.append(True)
+            raise RuntimeError("the model could not be reached for now")
+
+        return {}
+
+    graph = StateGraph(IncidentState)
+    graph.add_node("first", first)
+    graph.add_node("second", second)
+    graph.add_edge(START, "first")
+    graph.add_edge("first", "second")
+    graph.add_edge("second", END)
+
+    return graph.compile(checkpointer=InMemorySaver())
+
+
+def _the_steps_that_ran_were(ran: list[str], expected: list[str]) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        if ran != expected:
+            raise AssertionError(
+                f"Expected the steps {expected} across the walk and its resumption, and "
+                f"{ran} ran."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_graph_holding(values: dict[str, Any]) -> Any:
+    """A compiled graph whose checkpointer holds `values` on every thread -
+    nothing at all for an incident never walked."""
+    a_graph = create_autospec(CompiledStateGraph, instance=True)
+    a_graph.get_state.return_value = StateSnapshot(
+        values=values, next=(), config={}, metadata=None, created_at=None,
+        parent_config=None, tasks=(), interrupts=()
+    )
+
+    return a_graph
 
 
 class _AWalkEndingAt:

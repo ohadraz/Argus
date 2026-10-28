@@ -21,6 +21,7 @@ from typing import Final
 
 import psycopg
 from argus_core import Fence, UuidStr
+from argus_core.models import IncidentStatus
 from psycopg.rows import class_row
 from pydantic import BaseModel
 
@@ -49,6 +50,9 @@ class Run(BaseModel):
 
     `epoch` is which claim of the run this is: every claim moves it on, so a
     holder whose run was taken back holds an epoch the row no longer has.
+
+    `retries` is how many times the run was requeued to be tried again, and
+    `not_before` when it may next be taken - see `try_again_later`.
     """
 
     id: UuidStr
@@ -59,11 +63,13 @@ class Run(BaseModel):
     epoch: int
     failure_reason: str | None
     created_at: datetime
+    retries: int
+    not_before: datetime | None
 
 
 # Every column a `Run` is read from, in its order.
 _A_RUN: Final = ("id, incident_id, state, claimed_by, leased_until, epoch, failure_reason, "
-                 "created_at")
+                 "created_at, retries, not_before")
 
 
 def enqueue(conn: psycopg.Connection, incident_id: str) -> str:
@@ -103,20 +109,29 @@ def claim(conn: psycopg.Connection,
 
     Every claim moves the run's epoch on, a taking-back included, so the claim
     it replaced can tell it no longer holds the run.
+
+    A run requeued to be tried again waits out its `not_before` first - unless
+    its incident was withdrawn meanwhile. What a withdrawn incident's walk does
+    next is put back what it changed, which needs no model, and Argus's changes
+    would otherwise stand until the wait was over. A resolution keeps the wait:
+    its walk goes on to the write-up, which needs the model the wait is for.
     """
     with conn.cursor(row_factory=class_row(Run)) as cursor:
         cursor.execute(
             "UPDATE incident_run SET state = %s, claimed_by = %s, "
             "leased_until = now() + %s, epoch = epoch + 1 "
             "WHERE id = ("
-            "    SELECT id FROM incident_run"
-            "    WHERE state = %s OR (state = %s AND leased_until < now())"
-            "    ORDER BY created_at"
+            "    SELECT run.id FROM incident_run run JOIN incident ON incident.id = run.incident_id"
+            "    WHERE (run.state = %s AND (run.not_before IS NULL OR run.not_before <= now()"
+            "                               OR incident.status = %s))"
+            "       OR (run.state = %s AND run.leased_until < now())"
+            "    ORDER BY run.created_at"
             "    LIMIT 1"
-            "    FOR UPDATE SKIP LOCKED"
+            "    FOR UPDATE OF run SKIP LOCKED"
             ") "
             f"RETURNING {_A_RUN}",
-            (RunState.RUNNING, claimed_by, lease, RunState.QUEUED, RunState.RUNNING)
+            (RunState.RUNNING, claimed_by, lease, RunState.QUEUED, IncidentStatus.WITHDRAWN,
+             RunState.RUNNING)
         )
         claimed = cursor.fetchone()
     conn.commit()
@@ -170,6 +185,30 @@ def fail(conn: psycopg.Connection, held: Run, reason: str) -> bool:
     not something the incident can be read alongside.
     """
     return _settle(conn, held, RunState.FAILED, failure_reason=reason)
+
+
+def try_again_later(conn: psycopg.Connection, held: Run, wait: timedelta) -> bool:
+    """Requeues a run to be taken again once `wait` is over, counted as one
+    more try, and answers whether this claim still held it to requeue.
+
+    For a walk that could not get an answer from the model for now. The next
+    claim resumes it from its checkpoint, where it stopped, so nothing the walk
+    did is undone or done again - its claims on actions included, which the
+    resumed walk answers as it would a dead worker's.
+
+    Only by the claim that holds the run, as settling is, and for the same
+    reason: one since taken back would take the run from the worker walking it.
+    Committing is the caller's.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE incident_run SET state = %s, retries = retries + 1, "
+            "not_before = now() + %s, claimed_by = NULL, leased_until = NULL "
+            "WHERE id = %s AND epoch = %s AND state = %s RETURNING id",
+            (RunState.QUEUED, wait, held.id, held.epoch, RunState.RUNNING)
+        )
+
+        return cursor.fetchone() is not None
 
 
 def is_held(conn: psycopg.Connection, held: Fence) -> bool:

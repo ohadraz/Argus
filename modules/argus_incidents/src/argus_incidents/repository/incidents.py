@@ -111,6 +111,32 @@ def transition(
         return cursor.rowcount == 1
 
 
+def escalate_unless_ended(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool:
+    """Moves an incident whose walk stopped without finishing to `escalated`,
+    stamping its end, and says whether it did.
+
+    Never from an ending - a person's, as `transition` refuses, nor the walk's
+    own. A walk that mitigated the incident and failed after it, in the
+    write-up, stopped nowhere: escalating it would call a mitigated incident
+    one a person must take over, and re-stamp when it ended. In the statement
+    rather than a read before it, for the reason `transition` gives - and
+    because a read that failed would leave a walk that did stop unescalated,
+    reading as work in progress that nothing is going to pick up.
+
+    Committing is the caller's, as `transition`'s is.
+    """
+    endings = [status for status in IncidentStatus if status.is_terminal()]
+
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE incident SET status = %s, ended_at = %s "
+            " WHERE id = %s AND status <> ALL(%s)",
+            (IncidentStatus.ESCALATED, at, incident_id, endings)
+        )
+
+        return cursor.rowcount == 1
+
+
 def withdraw(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool:
     """Takes an incident back from Argus, and says whether it took effect.
 

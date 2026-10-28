@@ -406,7 +406,14 @@ CREATE TABLE IF NOT EXISTS incident_run (
     -- distinguishable from one still being worked by asking the database,
     -- which is the question every reader of a run actually asks.
     failure_reason TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- How many times the run was requeued to be tried again, and the moment
+    -- before which it is not to be taken: none and null for a run nobody has
+    -- requeued. A run is requeued where its walk could not get an answer from
+    -- the model for now, and taken again only once the wait is over - taken at
+    -- once, it would be asked into the same outage.
+    retries INTEGER NOT NULL DEFAULT 0,
+    not_before TIMESTAMPTZ
 );
 
 -- What a worker asks for, every interval, forever: the runs it could take.

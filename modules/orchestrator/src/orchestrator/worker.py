@@ -33,6 +33,7 @@ from argus_core import (
     Fence,
     Holding,
     ReadMcpEndpoint,
+    Settings,
     TelemetrySettings,
     WriteMcpEndpoint,
     connect_from_env,
@@ -42,6 +43,7 @@ from argus_core import (
     was_lost,
 )
 from argus_core.events import StatusChanged, publish
+from argus_core.llm import ModelUnavailable
 from argus_core.models import IncidentStatus
 from argus_core.schema import require_schema
 from argus_core.telemetry import ARGUS_RUN_ID
@@ -57,6 +59,7 @@ from argus_incidents.repository.incidents import NO_TRACE_CONTEXT
 from argus_telemetry import start_telemetry
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
+from pydantic import BaseModel, ConfigDict
 from read_mcp_client import read_mcp
 from write_mcp_client import write_mcp
 
@@ -83,6 +86,37 @@ RUN_SPAN: Final = "run"
 # What this process is called in its telemetry, and the directory its runs are
 # written under.
 _SERVICE: Final = "argus-worker"
+
+# How much longer each wait before trying again is than the one before.
+_EACH_WAIT_OVER_THE_LAST: Final = 5
+
+
+class TryingAgain(BaseModel):
+    """How a run whose walk could not get an answer from the model for now is
+    tried again: `attempts` tries in all, the wait before the second one
+    `first_wait`, and each wait after that five times the one before.
+
+    `attempts` counts the first try, so one means never tried again.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    attempts: int
+    first_wait: timedelta
+
+    @classmethod
+    def of(cls, settings: Settings) -> TryingAgain:
+        return cls(attempts=settings.run_attempts,
+                   first_wait=timedelta(seconds=settings.run_first_retry_wait_seconds))
+
+    def wait_after(self, retries: int) -> timedelta:
+        """The wait before the next try, once a run has been requeued `retries`
+        times before."""
+        # Named for its type: an int raised to an int is `Any` to mypy, since a
+        # negative power would be a float.
+        grown: int = _EACH_WAIT_OVER_THE_LAST ** retries
+
+        return self.first_wait * grown
 
 
 @contextmanager
@@ -124,23 +158,34 @@ def take_one_run(conn: psycopg.Connection,
                  ended_by_a_person: EndedByAPerson,
                  connections: Connections = connect_from_env,
                  tracer: Tracer | None = None,
-                 holding: Holding | None = None) -> bool:
+                 holding: Holding | None = None,
+                 trying_again: TryingAgain | None = None) -> bool:
     """Takes one run if there is one, walks it, and says whether it found any.
 
     Answers `False` for an empty queue rather than blocking on it, so the
     waiting is the caller's to decide - a loop that sleeps, a test that does
     not.
 
-    A walk that raises settles the run as failed and does not re-raise: one
-    incident Argus could not finish must not stop it working on the next, and
-    the failure is recorded where the incident can be read beside it. It is
-    also unwound, because a run that failed is a run that ended without
-    finishing - the same thing a withdrawal makes of one, and the same answer.
-    The moment worth picturing is a rate limit arriving at the Code-Fix node,
-    after a mitigation has already been applied: a run that only writes
-    "failed" in the queue there leaves production altered, no postmortem
-    written and nothing remembered, and no later run is coming to tidy up
-    after the one that died.
+    A walk that raises because the model could not be reached for now is
+    requeued to be tried again, as `trying_again` says - the process's own
+    settings where nobody said. Nothing about the incident is wrong, and the
+    same question a minute later gets an answer: the run is resumed from its
+    checkpoint by whichever claim takes it next, so the incident stays where
+    the walk had taken it and nothing it changed is put back. Its last try
+    fails as any other failure does.
+
+    Any other walk that raises settles the run as failed and does not re-raise:
+    one incident Argus could not finish must not stop it working on the next,
+    and the failure is recorded where the incident can be read beside it.
+    Before the walk reached an ending, the incident is also escalated and
+    unwound, because a run that failed there is a run that ended without
+    finishing - the same thing a withdrawal makes of one, and the same answer:
+    a change it made may be standing for a reason nobody will now finish
+    judging, and no later run is coming to tidy up after the one that died.
+    After an ending of the walk's own - mitigated, escalated, recommended,
+    disproven - neither: the walk failed in what comes after its ending, the
+    write-up above all, and escalating a mitigated incident or putting back the
+    fix it confirmed would undo what the walk had finished.
 
     The same question is asked either side of the walk: has a person ended
     this incident, and how. An incident withdrawn before anybody claimed it is
@@ -182,6 +227,8 @@ def take_one_run(conn: psycopg.Connection,
     if claimed is None:
         return False
 
+    tried_again_as = trying_again if trying_again is not None else TryingAgain.of(get_settings())
+
     held = Fence(run_id=claimed.id, epoch=claimed.epoch)
     held_by = holding if holding is not None else Holding()
 
@@ -214,9 +261,13 @@ def take_one_run(conn: psycopg.Connection,
         except Exception as failure:
             if was_lost(failure):
                 _the_run_was_lost()
+            elif (isinstance(failure, ModelUnavailable)
+                  and claimed.retries + 1 < tried_again_as.attempts):
+                _requeue_to_try_again(conn, claimed, failure, tried_again_as)
             else:
                 logger.exception("run failed")
-                _settle_the_failure(conn, claimed, failure, unwind, ended_by_a_person)
+                _settle_the_failure(conn, claimed, failure, unwind, ended_by_a_person,
+                                    connections)
         else:
             if _settled_as_finished(conn, claimed):
                 logger.info("run finished")
@@ -238,24 +289,77 @@ def _fenced(conn: psycopg.Connection, held: Fence) -> Generator[None]:
         fence(conn, None)
 
 
+def _requeue_to_try_again(conn: psycopg.Connection,
+                          held: runs.Run,
+                          failure: Exception,
+                          trying_again: TryingAgain) -> None:
+    """Requeues a run to be tried again, committed - or, where the run
+    was taken back, does nothing and says so."""
+    if not runs.try_again_later(conn, held, trying_again.wait_after(held.retries)):
+        conn.rollback()
+        _the_run_was_lost()
+        return
+
+    conn.commit()
+    logger.warning("run requeued to try again", extra={"retries": held.retries + 1},
+                   exc_info=failure)
+
+
 def _settle_the_failure(conn: psycopg.Connection,
                         held: runs.Run,
                         failure: Exception,
                         unwind: Unwind,
-                        ended_by_a_person: EndedByAPerson) -> None:
+                        ended_by_a_person: EndedByAPerson,
+                        connections: Connections) -> None:
     """Puts back what a failed walk changed and settles its run as failed - or,
-    where either finds the run taken back, does neither and says so."""
-    try:
-        _put_back_what_it_changed(unwind, ended_by_a_person, held.incident_id)
-    except Exception as error:
-        if not was_lost(error):
-            raise
+    where either finds the run taken back, does neither and says so.
 
-        _the_run_was_lost()
-        return
+    Puts nothing back where the walk had already ended the incident itself -
+    see `take_one_run` - nor where how the incident stands cannot be read.
+    Whether it is escalated is not this read's to say: the statement that
+    escalates refuses an incident that has ended, so a read that failed leaves
+    nothing standing mid-walk.
+    """
+    if _to_be_put_back(connections, held.incident_id):
+        try:
+            _put_back_what_it_changed(unwind, ended_by_a_person, held.incident_id)
+        except Exception as error:
+            if not was_lost(error):
+                raise
+
+            _the_run_was_lost()
+            return
 
     if not _settled_as_failed(conn, held, failure):
         _the_run_was_lost()
+
+
+def _to_be_put_back(connections: Connections, incident_id: str) -> bool:
+    """Whether a failed run's changes are still to be put back as far as its
+    walk is concerned: not where the walk reached an ending of its own, whose
+    fix putting back would undo.
+
+    A person's endings are `_put_back_what_it_changed`'s to answer, and an
+    incident with no row is one there is nothing to keep. Read on a connection
+    of its own, so that the worker's is the settling's alone. Where it cannot
+    be read, nothing is put back: undoing the fix of an incident the walk had
+    mitigated is the error this exists to prevent, and a change left in place
+    is one a person can put right.
+    """
+    try:
+        with connections() as reading:
+            incident = incidents.get(reading, incident_id)
+    except Exception:
+        logger.exception("how the incident stood could not be read after a failed run, "
+                         "so nothing was put back")
+        return False
+
+    if (incident is not None and incident.status.is_terminal()
+            and not incident.status.is_a_persons_ending()):
+        logger.info("incident ended by its walk, leaving it as the walk left it")
+        return False
+
+    return True
 
 
 def _settled_as_failed(conn: psycopg.Connection,
@@ -374,11 +478,12 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
     would otherwise replace a recorded failure with an unrecorded one. The log
     is the fallback, which is where this sat in its entirety before.
 
-    Not over a withdrawal, and not said about one either. A person who withdrew
-    the incident has it in hand, so the row refuses the move - and a line
-    telling everyone watching that it was escalated would contradict it. The
-    transition goes first for that reason: whether there is anything to say is
-    its answer.
+    Not over any ending, and not said about one either. A person who withdrew
+    or resolved the incident has it in hand, and a walk that reached an ending
+    of its own and failed after it - in the write-up - stopped nowhere: a line
+    telling everyone watching that a mitigated incident was escalated would
+    contradict both. The row refuses the move, and the move goes first for
+    that reason: whether there is anything to say is its answer.
     """
     try:
         with conn.transaction():
@@ -386,8 +491,7 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
                                       to_status=IncidentStatus.ESCALATED,
                                       detail=f"the walk stopped without finishing: "
                                              f"{type(failure).__name__}: {failure}")
-            escalated = incidents.transition(conn, incident_id, IncidentStatus.ESCALATED,
-                                             at=narrating.at)
+            escalated = incidents.escalate_unless_ended(conn, incident_id, at=narrating.at)
 
             if escalated:
                 publish(narrating, events_into_connection(conn))
@@ -461,12 +565,13 @@ def work_forever(connections: Connections,
     settings = get_settings()
     lease = timedelta(seconds=settings.run_lease_seconds)
     idle_wait = settings.run_poll_interval_seconds
+    trying_again = TryingAgain.of(settings)
     me = this_worker()
 
     with connections() as conn:
         while True:
             if not take_one_run(conn, me, lease, walk, unwind, ended_by_a_person,
-                                connections, holding=holding):
+                                connections, holding=holding, trying_again=trying_again):
                 time.sleep(idle_wait)
 
 

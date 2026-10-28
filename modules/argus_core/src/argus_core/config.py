@@ -326,6 +326,16 @@ class Settings(BaseSettings):
         default=_VERIFICATION_TIMEOUT_SECONDS * _LEASES_PER_LONGEST_WAIT, gt=0.0
     )
 
+    # How many times a run is tried where its walk could not get an answer from
+    # the model for now, and how long it waits before the second try. Each wait
+    # after that is five times the one before. Only a model that could not be
+    # reached for now is tried again - nothing else would be answered
+    # differently a minute later - and every try is paid for, which is why the
+    # count is small: three tries, each of which the model client retries twice
+    # itself, is nine requests at most.
+    run_attempts: int = Field(default=3, gt=0)
+    run_first_retry_wait_seconds: float = Field(default=60.0, gt=0.0)
+
     anthropic_api_key: str = Field(default="")
 
     # Where the Anthropic SDK sends its requests. Empty means the real API.

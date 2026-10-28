@@ -8,8 +8,18 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_core import Fence, Holding, RunLost, connect_from_env, fence, get_settings, utc_now
+from argus_core import (
+    Connections,
+    Fence,
+    Holding,
+    RunLost,
+    connect_from_env,
+    fence,
+    get_settings,
+    utc_now,
+)
 from argus_core.events import StatusChanged
+from argus_core.llm import ModelUnavailable
 from argus_core.models import REVERT_FEATURE_FLAG, ActionProgress, Alert, IncidentStatus
 from argus_core.telemetry import ARGUS_INCIDENT_ID, ARGUS_RUN_ID
 from argus_incidents.ending import EndedByAPerson, ended_by_a_person_via
@@ -59,6 +69,14 @@ A_LEASE_SHORTER_THAN_THE_WALK = timedelta(milliseconds=500)
 SOME_TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 SOME_SPAN = "00f067aa0ba902b7"
 SOME_TRACE_CONTEXT = {"traceparent": f"00-{SOME_TRACE}-{SOME_SPAN}-01"}
+
+# How a worker tries again a walk the model could not answer for now: three
+# tries, the first wait a minute.
+SOME_TRYING_AGAIN = worker.TryingAgain(attempts=3, first_wait=timedelta(minutes=1))
+
+# Long enough for everything between a run being requeued and its wait being
+# read, and far shorter than any wait it is told apart from.
+A_MOMENT_THE_TEST_TAKES = timedelta(seconds=30)
 
 
 @pytest.mark.component
@@ -266,22 +284,22 @@ def test_an_incident_a_failed_walk_escalated_ends_when_its_account_says(
 
 @pytest.mark.component
 def test_a_run_that_failed_has_its_changes_put_back(a_clean_database: None) -> None:
-    # The worst moment to fail is after Code-Fix has started, because a
-    # mitigation has already been applied by then. A run that ends there
-    # having only written "failed" in the queue leaves production altered, no
-    # postmortem written, and nothing remembered - and the walk is not coming
-    # back to tidy up, because the run it would have tidied up in is the one
-    # that died.
+    # Failed before the walk reached an ending: a change it made may be
+    # standing for a reason nobody will now finish judging - a flag reverted,
+    # its verification never read. A run that ends there having only written
+    # "failed" in the queue leaves production altered, and the walk is not
+    # coming back to tidy up, because the run it would have tidied up in is the
+    # one that died.
     #
     # Unwinding is what the process does with an incident that ended without
-    # finishing, and a run that failed ended without finishing. That it is
-    # already the answer for a withdrawn incident is not a reason to give a
-    # different one here: the world is in the same state either way, and
-    # `unwind_incident` is written to be safe over an incident that had
-    # already tidied up after itself.
+    # finishing, and a run that failed before an ending ended without
+    # finishing. That it is already the answer for a withdrawn incident is not
+    # a reason to give a different one here: the world is in the same state
+    # either way, and `unwind_incident` is written to be safe over an incident
+    # that had already tidied up after itself.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"
-    what_went_wrong = "the model was rate limited partway through the walk"
+    what_went_wrong = "a bug in a node nobody has written yet"
     unwound: list[str] = []
 
     def walk_that_fails(dont_care_incident_id: str) -> None:
@@ -327,7 +345,7 @@ def test_an_unwind_that_fails_after_a_failed_run_still_records_the_failure(
     # rather than in place of the first.
     dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
     dont_care_worker = "a-worker"
-    what_went_wrong = "the model was rate limited partway through the walk"
+    what_went_wrong = "a bug in a node nobody has written yet"
 
     def walk_that_fails(dont_care_incident_id: str) -> None:
         raise RuntimeError(what_went_wrong)
@@ -624,6 +642,219 @@ def test_a_resolved_incident_whose_walk_then_failed_is_not_unwound(
 
 
 @pytest.mark.component
+@pytest.mark.parametrize("ending", [IncidentStatus.MITIGATED, IncidentStatus.ESCALATED,
+                                    IncidentStatus.RECOMMENDED, IncidentStatus.DISPROVEN])
+def test_an_incident_its_walk_had_ended_is_left_as_the_walk_left_it_when_the_run_fails(
+    ending: IncidentStatus, a_clean_database: None
+) -> None:
+    # The walk reached its ending and then failed in what comes after it - the
+    # write-up above all. Escalating there would call a mitigated incident one a
+    # person must take over, and putting the changes back would undo the fix the
+    # walk confirmed. The incident stays as the walk left it, and only the run
+    # says something went wrong.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the request did not match the recording"
+    unwound: list[str] = []
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError(what_went_wrong)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, ending, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_failed(conn, incident_id, what_went_wrong),
+                _the_incident_is(conn, incident_id, ending),
+                _nothing_was_put_back(unwound),
+                _the_account_never_said_it_was(conn, incident_id, IncidentStatus.ESCALATED)
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("where", [IncidentStatus.MITIGATING, IncidentStatus.MITIGATED])
+def test_a_walk_the_model_could_not_answer_for_now_is_requeued_to_try_again(
+    where: IncidentStatus, a_clean_database: None
+) -> None:
+    # The model was overloaded, rate limited or out of reach when the walk
+    # asked it - mid-mitigation, or in the write-up after the walk had
+    # mitigated the incident. Nothing about the incident is wrong, and a minute
+    # later the same question gets an answer. So the run goes back in line to
+    # go on from where it stopped: the incident as it was, nothing put back,
+    # and the walk's claims left for the walk that resumes to answer.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    unwound: list[str] = []
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, where, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=_a_walk_that_claims_an_action_and_fails(
+                        failing_with=ModelUnavailable("the model could not be reached for now")
+                    ),
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN
+                )
+            ) \
+            .then(all_of(
+                _the_run_waits_to_be_tried_again(conn, incident_id, retries=1),
+                _the_incident_is(conn, incident_id, where),
+                _nothing_was_put_back(unwound),
+                _its_actions_are_seen_as(incident_id, [ActionProgress.CLAIMED])
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("retries_before", [0, 1])
+def test_a_run_requeued_waits_longer_each_time(
+    retries_before: int, a_clean_database: None
+) -> None:
+    # A minute, then five: an outage that outlasted one wait is one a second
+    # wait of the same length is likelier to land inside than past.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_the_model_could_not_answer(dont_care_incident_id: str) -> None:
+        raise ModelUnavailable("the model could not be reached for now")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+        _requeued_before(conn, incident_id, retries_before)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_the_model_could_not_answer,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN
+                )
+            ) \
+            .then(
+                _the_run_waits_about(conn, incident_id,
+                                     SOME_TRYING_AGAIN.first_wait * 5 ** retries_before)
+            )
+
+
+@pytest.mark.component
+def test_a_walk_the_model_could_not_answer_on_its_last_try_fails(a_clean_database: None) -> None:
+    # Every try spent, and the model still out of reach: the run fails, as any
+    # other failure does - and the incident the walk had mitigated stays so.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the model could not be reached for now"
+    unwound: list[str] = []
+
+    def walk_the_model_could_not_answer(dont_care_incident_id: str) -> None:
+        raise ModelUnavailable(what_went_wrong)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATED, at=utc_now())
+        runs.enqueue(conn, incident_id)
+        _requeued_before(conn, incident_id, SOME_TRYING_AGAIN.attempts - 1)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_the_model_could_not_answer,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_failed(conn, incident_id, what_went_wrong),
+                _the_incident_is(conn, incident_id, IncidentStatus.MITIGATED),
+                _nothing_was_put_back(unwound)
+            ))
+
+
+@pytest.mark.component
+def test_a_walk_the_model_could_not_answer_on_its_last_try_mid_walk_is_escalated_and_put_back(
+    a_clean_database: None
+) -> None:
+    # Every try spent before the walk reached an ending: the run fails as any
+    # other failure there does - escalated, and its changes put back - with the
+    # model's being out of reach as the reason.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "the model could not be reached for now"
+    unwound: list[str] = []
+
+    def walk_the_model_could_not_answer(dont_care_incident_id: str) -> None:
+        raise ModelUnavailable(what_went_wrong)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+        _requeued_before(conn, incident_id, SOME_TRYING_AGAIN.attempts - 1)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_the_model_could_not_answer,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_failed(conn, incident_id, what_went_wrong),
+                _the_incident_is(conn, incident_id, IncidentStatus.ESCALATED),
+                _the_incident_unwound_was(unwound, incident_id)
+            ))
+
+
+@pytest.mark.component
 def test_a_failed_run_whose_ending_cannot_be_read_is_not_unwound(
     a_clean_database: None
 ) -> None:
@@ -660,6 +891,51 @@ def test_a_failed_run_whose_ending_cannot_be_read_is_not_unwound(
             .then(all_of(
                 _nothing_was_unwound(unwound),
                 _the_run_is_failed(conn, incident_id, what_went_wrong)
+            ))
+
+
+@pytest.mark.component
+def test_a_failed_run_whose_incident_cannot_be_read_is_escalated_and_not_unwound(
+    a_clean_database: None
+) -> None:
+    # The database could not say how the incident stood once the walk failed.
+    # Putting back blind could undo the fix of an incident the walk had
+    # mitigated; leaving a change in place is the one of the two a person can
+    # put right. Whether to escalate is the statement's to decide, not the
+    # read's, so a walk that stopped mid-way is still handed to a person rather
+    # than left reading as work in progress.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    what_went_wrong = "a bug in a node nobody has written yet"
+    unwound: list[str] = []
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError(what_went_wrong)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATING, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given(unwound),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=_connections_only_before_the_walk()
+                )
+            ) \
+            .then(all_of(
+                _nothing_was_put_back(unwound),
+                _the_run_is_failed(conn, incident_id, what_went_wrong),
+                _the_incident_is(conn, incident_id, IncidentStatus.ESCALATED)
             ))
 
 
@@ -1042,6 +1318,122 @@ def test_a_failed_run_left_alone_because_a_person_resolved_it_is_logged(
 
 
 @pytest.mark.component
+def test_a_run_requeued_to_try_again_is_logged_with_what_failed(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Not work lost, so not "run failed": the run will be taken up again, and a
+    # reader needs to know which try this was and why.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_the_model_could_not_answer(dont_care_incident_id: str) -> None:
+        raise ModelUnavailable("the model could not be reached for now")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_the_model_could_not_answer,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN
+                )
+            ) \
+            .then(all_of(
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run requeued to try again", values={"retries": 1},
+                                      failure=ModelUnavailable),
+                _it_was_never_logged(caplog, "run failed")
+            ))
+
+
+@pytest.mark.component
+def test_a_failed_run_left_alone_because_its_walk_had_ended_it_is_logged(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A failed run is otherwise escalated and put back, so a reader of the log
+    # seeing neither needs to be told it was deliberate.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("some failure nobody planned for")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        incidents.transition(conn, incident_id, IncidentStatus.MITIGATED, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: caplog.set_level(logging.INFO)),
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env)
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.INFO,
+                                      "incident ended by its walk, leaving it as the walk "
+                                      "left it")
+            )
+
+
+@pytest.mark.component
+def test_a_failed_run_whose_incident_cannot_be_read_is_logged_with_what_failed(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Nothing was put back, and whether anything should have been is unknown.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+
+    def walk_that_fails(dont_care_incident_id: str) -> None:
+        raise RuntimeError("some failure nobody planned for")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_fails,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    connections=_connections_only_before_the_walk()
+                )
+            ) \
+            .then(
+                one_record_was_logged(caplog, THE_WORKER, logging.ERROR,
+                                      "how the incident stood could not be read after a "
+                                      "failed run, so nothing was put back",
+                                      failure=ConnectionError)
+            )
+
+
+@pytest.mark.component
 def test_a_failed_run_whose_ending_cannot_be_read_is_logged_with_what_failed(
     a_clean_database: None, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1241,6 +1633,48 @@ def test_a_finished_walk_whose_run_was_taken_back_leaves_it_to_the_new_holder(
                 _its_actions_are_seen_as(incident_id, [ActionProgress.CLAIMED]),
                 one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
                                       "run lost, leaving it to whoever holds it now")
+            ))
+
+
+@pytest.mark.component
+def test_a_walk_the_model_could_not_answer_whose_run_was_taken_back_leaves_it_to_the_new_holder(
+    a_clean_database: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Paused past its lease, the run taken back, and only then the model's
+    # failure arrives. Requeueing the run from here would take it from the
+    # worker walking it now.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "worker-that-was-paused"
+
+    def walk_that_loses_its_run_then_cannot_get_an_answer(incident_id: str) -> None:
+        _the_run_taken_from_under_it(incident_id)
+
+        raise ModelUnavailable("the model could not be reached for now")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_that_loses_its_run_then_cannot_get_an_answer,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN
+                )
+            ) \
+            .then(all_of(
+                _the_run_is_held_by(conn, incident_id, THE_WORKER_THAT_TOOK_IT_BACK),
+                one_record_was_logged(caplog, THE_WORKER, logging.WARNING,
+                                      "run lost, leaving it to whoever holds it now"),
+                _it_was_never_logged(caplog, "run requeued to try again")
             ))
 
 
@@ -1547,7 +1981,7 @@ def _the_run_taken_from_under_it(incident_id: str) -> None:
 def _nothing_was_put_back(unwound: list[str]) -> Assertion[bool]:
     def assertion(_took_work: bool) -> bool:
         if unwound:
-            raise AssertionError(f"Expected nothing put back for a lost run, got {unwound}.")
+            raise AssertionError(f"Expected nothing put back, got {unwound}.")
 
         return True
 
@@ -1777,16 +2211,70 @@ def _an_action_claimed_on(conn: psycopg.Connection, incident_id: str) -> None:
                         at=utc_now())
 
 
-def _a_walk_that_claims_an_action_and_fails() -> Callable[[str], None]:
-    """A walk that stopped mid-action the way an unforeseen failure stops one:
-    its claim written, and nothing after it."""
+def _a_walk_that_claims_an_action_and_fails(
+    failing_with: Exception | None = None
+) -> Callable[[str], None]:
+    """A walk that stopped mid-action the way an unforeseen failure stops one -
+    or as `failing_with` stops it: its claim written, and nothing after it."""
     def walk(incident_id: str) -> None:
         with connect_from_env() as conn:
             _an_action_claimed_on(conn, incident_id)
 
-        raise RuntimeError("dont care")
+        raise failing_with if failing_with is not None else RuntimeError("dont care")
 
     return walk
+
+
+def _requeued_before(conn: psycopg.Connection, incident_id: str, retries: int) -> None:
+    """The incident's run as one already requeued `retries` times."""
+    conn.execute("UPDATE incident_run SET retries = %s WHERE incident_id = %s",
+                 (retries, incident_id))
+    conn.commit()
+
+
+def _the_run_waits_to_be_tried_again(conn: psycopg.Connection,
+                                     incident_id: str,
+                                     retries: int) -> Assertion[bool]:
+    """Back in line after being requeued `retries` times, held by nobody, and not
+    to be taken yet."""
+    def assertion(_took_work: bool) -> bool:
+        run = runs.get_run_for_incident(conn, incident_id)
+        found = None if run is None else (run.state, run.retries, run.claimed_by)
+        waiting = run is not None and run.not_before is not None and run.not_before > utc_now()
+
+        if found != (runs.RunState.QUEUED, retries, None) or not waiting:
+            raise AssertionError(
+                f"Expected the run queued again after [{retries}] retries, held by nobody and "
+                f"waiting, got (state, retries, holder) [{found}] waiting until "
+                f"[{None if run is None else run.not_before}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_run_waits_about(conn: psycopg.Connection,
+                         incident_id: str,
+                         wait: timedelta) -> Assertion[bool]:
+    """Not to be taken for `wait` from the moment it was requeued, as the
+    database's own clock reads it - give or take the moments this test took."""
+    def assertion(_took_work: bool) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT not_before - now() FROM incident_run WHERE incident_id = %s",
+                           (incident_id,))
+            row = cursor.fetchone()
+
+        left = None if row is None else row[0]
+
+        if left is None or not wait - A_MOMENT_THE_TEST_TAKES < left <= wait:
+            raise AssertionError(
+                f"Expected the run requeued for [{wait}], and it has [{left}] left to wait."
+            )
+
+        return True
+
+    return assertion
 
 
 def _its_actions_are_seen_as(incident_id: str,
@@ -1850,6 +2338,22 @@ def _nothing_was_unwound(unwound: list[str]) -> Assertion[bool]:
         return True
 
     return assertion
+
+
+def _connections_only_before_the_walk() -> Connections:
+    """Connections to the database until the walk starts, and none after -
+    the first one opened is the worker's read of the incident it claimed."""
+    opened: list[bool] = []
+
+    def connections() -> psycopg.Connection:
+        if opened:
+            raise ConnectionError("the database went away")
+
+        opened.append(True)
+
+        return connect_from_env()
+
+    return connections
 
 
 def _readable_only_before_the_walk() -> EndedByAPerson:

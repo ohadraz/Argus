@@ -133,9 +133,13 @@ def run_incident(incident_id: str,
     run: it is already recorded there, and a second copy travelling with the
     run would be a second version of the same fact to keep in step.
 
-    Invoked on the incident's own id as the thread, so a run taken up after
-    its worker stopped resumes against what the checkpointer already holds
-    instead of walking the incident a second time.
+    Invoked on the incident's own id as the thread, and with no input where
+    that thread already holds a walk, so a run taken up after its worker
+    stopped - or requeued to be tried again - goes on from the node it stopped
+    in instead of walking the incident a second time. Both are needed:
+    LangGraph resumes a thread only when it is given nothing, and starts any
+    input over from the first node, investigating anew and free to act on the
+    world again.
 
     `graph_of` is a parameter so that which thread a walk resumes on can be
     asserted without a model, an MCP server or a real checkpointer behind it -
@@ -153,34 +157,26 @@ def run_incident(incident_id: str,
     if incident is None:
         raise LookupError(f"no incident [{incident_id}] to run")
 
+    graph = graph_of()
+    resumed = bool(graph.get_state({"configurable": {"thread_id": incident_id}}).values)
+
     # The first thing a walk does, before any node runs: the incident stops
     # being one nobody is on. Written here rather than by a node, because a
     # node's status is derived from the work it did (`status_after`) and this
     # one is derived from the fact that work has started at all.
     #
-    # Idempotent by way of the status it writes: a resumed run re-announces an
-    # investigation that is already under way, which is true again each time it
-    # is taken up.
+    # Not where the walk is resumed. Its incident was taken up when the walk
+    # began, and has been wherever the walk's nodes moved it since - mitigated,
+    # it may be, with only the write-up left - so announcing an investigation
+    # again would move it back to one, and nothing after the node it resumes in
+    # would move it on.
     #
     # Not said where the row refused it. A withdrawal can land between the
     # worker asking and this write, and then the incident stays withdrawn - an
     # account announcing an investigation of it would contradict the row. The
     # walk is still invoked, and its first node hears the withdrawal and stops.
-    taking_up = StatusChanged(incident_id=incident_id,
-                              to_status=IncidentStatus.INVESTIGATING,
-                              detail="a worker took the incident up")
-
-    with connections() as conn:
-        taken_up = incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING,
-                                        at=taking_up.at)
-
-        if taken_up:
-            # Beside the status, on the same connection, for the reason every
-            # other transition publishes beside its own: this is the only
-            # account there is, and a walk that started without saying so
-            # leaves a reader looking at an incident that was acknowledged and
-            # then simply changed.
-            publish_beside(conn, taking_up, events_into_connection(conn))
+    if not resumed:
+        _taken_up(incident_id, connections)
 
     settings = get_settings()
     initial_state = IncidentState(
@@ -208,8 +204,8 @@ def run_incident(incident_id: str,
         logger.info("walk started")
 
         try:
-            ended = graph_of().invoke(
-                initial_state,
+            ended = graph.invoke(
+                None if resumed else initial_state,
                 config={
                     "configurable": {"thread_id": incident_id},
                     # The walk is a real cycle in the graph, so the default
@@ -233,6 +229,26 @@ def run_incident(incident_id: str,
         span.set_attribute(ARGUS_INCIDENT_OUTCOME, outcome)
         _measured(walks, walk_duration, walked, outcome)
         logger.info("walk ended", extra={"outcome": outcome, "duration_s": walked})
+
+
+def _taken_up(incident_id: str, connections: Connections) -> None:
+    """Moves the incident to `investigating`, and says so where the row took
+    the move."""
+    taking_up = StatusChanged(incident_id=incident_id,
+                              to_status=IncidentStatus.INVESTIGATING,
+                              detail="a worker took the incident up")
+
+    with connections() as conn:
+        taken_up = incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING,
+                                        at=taking_up.at)
+
+        if taken_up:
+            # Beside the status, on the same connection, for the reason every
+            # other transition publishes beside its own: this is the only
+            # account there is, and a walk that started without saying so
+            # leaves a reader looking at an incident that was acknowledged and
+            # then simply changed.
+            publish_beside(conn, taking_up, events_into_connection(conn))
 
 
 def _how_it_ended(ended: Any) -> str:

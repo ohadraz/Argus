@@ -10,7 +10,9 @@ translates these into one.
 
 Only these. A request the API refused as asked - a 400 - is not the model
 being unavailable: in a replay it is a recording that no longer matches, and it
-has to stay loud.
+has to stay loud. Nor is the account's spending cap, though the API says it as a
+429 like any rate limit: it answers the same until somebody raises it, and a
+caller told the model is unavailable for now would ask again.
 
 A streamed answer can fail after its 200 has arrived, as an error event inside
 the stream, and the SDK raises that with the status the response already had -
@@ -34,6 +36,12 @@ from argus_testkit import Assertion, Scenario
 from argus_core_test.framework.llm import settings_that_reach_no_api
 
 SOME_REQUEST = httpx2.Request("POST", "https://api.invalid/v1/messages")
+
+# What the API's body says a spending cap with, as its rate-limits page gives
+# it: a rate limit's type, and a code in the details that tells the two apart.
+A_SPEND_CAP = {"type": "error",
+               "error": {"type": "rate_limit_error", "message": "dont care",
+                         "details": {"error_code": "enforced_spend_limit_reached"}}}
 
 
 @pytest.mark.unit
@@ -78,6 +86,42 @@ def test_a_request_the_api_refused_as_asked_is_not_said_as_unavailable() -> None
         ) \
         .then(
             _the_failure_was_left_as(a_bad_request)
+        )
+
+
+@pytest.mark.unit
+def test_a_spending_cap_is_not_said_as_unavailable() -> None:
+    a_spend_cap = anthropic.RateLimitError(
+        "dont care", response=httpx2.Response(429, request=SOME_REQUEST), body=A_SPEND_CAP)
+
+    Scenario() \
+        .given(
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         client=_an_api_failing_with(a_spend_cap))
+        ) \
+        .when(
+            lambda: _what_was_raised_by(client)
+        ) \
+        .then(
+            _the_failure_was_left_as(a_spend_cap)
+        )
+
+
+@pytest.mark.unit
+def test_a_stream_stopped_by_a_spending_cap_after_it_answered_is_not_said_as_unavailable() -> None:
+    a_spend_cap = anthropic.APIStatusError(
+        "dont care", response=httpx2.Response(200, request=SOME_REQUEST), body=A_SPEND_CAP)
+
+    Scenario() \
+        .given(
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         client=_an_api_failing_with(a_spend_cap))
+        ) \
+        .when(
+            lambda: _what_was_raised_by(client, streamed=True)
+        ) \
+        .then(
+            _the_failure_was_left_as(a_spend_cap)
         )
 
 
