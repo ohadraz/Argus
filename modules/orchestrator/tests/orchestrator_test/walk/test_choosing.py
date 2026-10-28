@@ -32,6 +32,7 @@ from argus_core.events import CandidateSelected, IncidentEvent
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     Alert,
+    Attempt,
     DiscardCacheEntries,
     Evidence,
     FailureMode,
@@ -44,6 +45,7 @@ from argus_core.models import (
     RevertFeatureFlag,
     RollBackDeployment,
     the_actions_through,
+    the_identity_of,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from orchestrator.walk.choosing import next_candidate_node, route_after_next_candidate
@@ -313,6 +315,56 @@ def test_a_walk_that_has_used_every_round_ends() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("earlier", "acted_at", "how_many"), [
+    pytest.param(0, None, "no action was taken", id="none"),
+    pytest.param(0, DONT_CARE_MOMENT_IT_WAS_TAKEN, "1 action was taken", id="one"),
+    pytest.param(1, DONT_CARE_MOMENT_IT_WAS_TAKEN, "2 actions were taken", id="two")
+])
+def test_a_walk_that_looks_for_a_fix_says_how_many_actions_it_took(
+        earlier: int, acted_at: datetime | None, how_many: str) -> None:
+    # The count is Argus's own, so it is said as a count. "1 action(s) were
+    # taken" reads as though Argus could not tell whether it had acted, and the
+    # model writing the postmortem is handed that sentence as it stands. None at
+    # all is the walk whose every candidate was passed over untested.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_at(incident_id,
+                                 [a_determined_hypothesis(incident_id)],
+                                 index=0,
+                                 rounds=_every_round()).model_copy(
+                update={"attempts": _earlier_attempts(earlier), "acted_at": acted_at}
+            )
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _the_walk_goes_to(FIXING_ROUTE, a_walk),
+            _what_it_said_names(how_many)))
+
+
+@pytest.mark.unit
+def test_a_walk_that_looks_for_a_fix_does_not_say_its_actions_were_undone() -> None:
+    # A restart puts nothing back, and a change left as found was not put back
+    # either, so "taken and undone" is false for both. Where a change was put
+    # back or left as found, its verdict's own line says so.
+    incident_id = a_random_id()
+
+    Scenario() \
+        .given(
+            a_walk := _a_walk_that_restarted_the_service(
+                incident_id,
+                [_a_leak_worded_as(incident_id, "resident set climbing")],
+                index=0
+            ).model_copy(update={"rounds": _every_round()})
+        ) \
+        .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
+        .then(all_of(
+            _the_walk_goes_to(FIXING_ROUTE, a_walk),
+            _what_it_said_does_not_name("undone")))
+
+
+@pytest.mark.unit
 def test_a_walk_with_nothing_left_on_a_reachable_platform_escalates() -> None:
     # Not another investigation and not a permanent fix, which are the two
     # endings this node had. A further round would re-read the same evidence and
@@ -403,7 +455,7 @@ def test_a_doubtful_candidate_is_tried_like_any_other() -> None:
 @pytest.mark.unit
 def test_a_candidate_blaming_a_flag_already_tried_is_skipped() -> None:
     # The same subject, twice on one list. Changing it again would be running
-    # the experiment that has already been run and undone, against a world that
+    # the experiment that has already been run, against a world that
     # answered once - so the walk passes over it and reaches the first
     # explanation that is actually new.
     incident_id = a_random_id()
@@ -561,6 +613,26 @@ def test_a_moved_replica_answered_by_a_pin_already_taken_is_skipped() -> None:
 
 def _every_round() -> int:
     return SOME_ROUND_BUDGET
+
+
+def _earlier_attempts(how_many: int) -> list[Attempt]:
+    """Actions an earlier round took and saw refuted, each on a flag of its own.
+
+    Only how many there are is read, which is the count the ending says.
+    """
+    return [
+        Attempt(
+            identity=the_identity_of(RevertFeatureFlag(
+                flag=f"some-earlier-flag-{index}",
+                enabled=False,
+                undo_descriptor=FlagUndo(flag=f"some-earlier-flag-{index}",
+                                         was_enabled=True)
+            )),
+            enabled=False,
+            occurred_at=DONT_CARE_MOMENT
+        )
+        for index in range(how_many)
+    ]
 
 
 def _a_walk_at(incident_id: str,

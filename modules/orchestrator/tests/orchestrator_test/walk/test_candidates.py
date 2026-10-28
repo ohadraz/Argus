@@ -7,7 +7,7 @@ their own subject; this is only about which candidate comes back.
 
 Two things disqualify one, and neither is confidence. A candidate that named no
 cause has nothing to change on its account, and a candidate the walk would
-answer with an action it has already taken and undone would be the same
+answer with an action it has already taken would be the same
 experiment run twice. Everything else on the list is worth trying, however far
 down it sits.
 
@@ -684,7 +684,7 @@ def _answered_by_a_flag_each(candidates: list[Hypothesis]) -> list[WhatWouldBeTr
 
 
 def _an_attempt_to(identity: ActionIdentity) -> Attempt:
-    """A mitigation this incident already took, and undid again.
+    """A mitigation this incident already took, and saw refuted.
 
     Everything but the identity is arbitrary: only the identity is read here,
     and an attempt exists on the list at all only because it failed.

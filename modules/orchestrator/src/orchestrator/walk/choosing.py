@@ -155,17 +155,32 @@ def next_candidate_node(state: IncidentState,
     # No mitigation is left, and what remains is a permanent fix - which is
     # the one thing `fixing` means. Reported, not decided: the index past the end
     # of the list, and no round left to buy, are what say so.
+    #
+    # How many actions, and nothing about what became of them: a restart puts
+    # nothing back and a change left as found was not put back, and where a
+    # change was put back or left as found, its verdict's own line says so.
     return StateDelta(
         attempts=attempts,
         candidate_index=next_index,
         narration=Narration(
             action="no explanation left to try",
             detail=(
-                f"no explanation left to try - {len(attempts)} action(s) were "
-                f"taken and undone, and the evidence offers nothing further"
+                f"no explanation left to try - {_how_many_were_taken(len(attempts))}, "
+                f"and the evidence offers nothing further"
             )
         )
     )
+
+
+def _how_many_were_taken(count: int) -> str:
+    """The count of actions the walk took, said as a count."""
+    if count == 0:
+        return "no action was taken"
+
+    if count == 1:
+        return "1 action was taken"
+
+    return f"{count} actions were taken"
 
 
 def _what_the_platforms_took_away(platforms: Sequence[Platform]) -> str:
@@ -190,8 +205,8 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     """The attempt this node is reacting to, if production was actually changed.
 
     An action the gate refused never ran, so there is nothing to remember and
-    nothing a later round could learn from it. Only a change that was made -
-    and undone - is evidence about the cause it was made on.
+    nothing a later round could learn from it. Only a change that was made is
+    evidence about the cause it was made on.
 
     A cleared action is the whole of that test, and it is the whole of it for
     every kind. It used to ask after the undo descriptor as well, which stopped
