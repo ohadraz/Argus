@@ -139,7 +139,8 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
         .then(
             all_of(
                 _the_tools_listed_are([
-                    "say_something", "refuse", "times_refused", "refuse_as_exhausted",
+                    "say_something", "refuse", "refuse_without_a_word", "times_refused",
+                    "refuse_as_exhausted",
                     "refuse_as_unreachable_platform",
                     "refuse_as_unreachable_platform_mid_action", "refuse_as_lost_run",
                     "the_fence_i_was_sent", "dawdle", "the_trace_i_am_in"
@@ -195,6 +196,44 @@ def test_a_tool_that_refused_is_raised_rather_than_asked_again(
             _what_was_raised_was(McpToolError),
             _the_tool_was_asked(times=1)
         ))
+
+
+@pytest.mark.component
+def test_a_refusal_is_said_in_the_tools_own_words(running_double: RunningDouble) -> None:
+    """What a tool said when it refused, and nothing the transport wrapped it in.
+
+    The refusal is read by a person - in an escalation's reason, the timeline,
+    the postmortem and a Slack line - and it used to arrive as the SDK's own
+    "Error executing tool ..." inside the `repr` of a list of content blocks.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, _refusing_once_and_counting)
+        ) \
+        .then(
+            _what_was_raised_said("this tool always refuses")
+        )
+
+
+@pytest.mark.component
+def test_a_refusal_without_a_word_still_says_whose_it_was(
+    running_double: RunningDouble
+) -> None:
+    """A tool that refused in no words is named in their place.
+
+    Stripping what the SDK put in front of a refusal leaves nothing where the
+    tool said nothing, and an empty reason in an escalation tells a person
+    neither what failed nor where to look.
+    """
+    Scenario() \
+        .given(running_double) \
+        .when(
+            _asking(running_double, _refusing_without_a_word)
+        ) \
+        .then(
+            _what_was_raised_said("[refuse_without_a_word] failed and said nothing")
+        )
 
 
 @pytest.mark.component
@@ -968,6 +1007,15 @@ def _refusing_once_and_counting(client: McpClient) -> _Attempt:
     return _Attempt(asked=client.call("times_refused", A_COUNT.validate_python))
 
 
+def _refusing_without_a_word(client: McpClient) -> _Attempt:
+    try:
+        client.call("refuse_without_a_word", SOMETHING.validate_python)
+    except Exception as refusal:
+        return _Attempt(raised=refusal)
+
+    return _Attempt()
+
+
 def _refusing_as_a_lost_run_and_counting(client: McpClient) -> _Attempt:
     try:
         client.call("refuse_as_lost_run", SOMETHING.validate_python)
@@ -1095,6 +1143,20 @@ def _what_was_raised_was(expected: type[BaseException]) -> Assertion[_Attempt]:
         if not isinstance(attempt.raised, expected):
             raise AssertionError(
                 f"Expected {expected.__name__} to be raised, got {attempt.raised!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_was_raised_said(expected: str) -> Assertion[_Attempt]:
+    def assertion(attempt: _Attempt) -> bool:
+        said = None if attempt.raised is None else str(attempt.raised)
+
+        if said != expected:
+            raise AssertionError(
+                f"Expected the refusal to say [{expected}], and it said [{said}]."
             )
 
         return True

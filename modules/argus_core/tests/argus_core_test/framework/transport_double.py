@@ -73,6 +73,16 @@ def build_double(port: int) -> TracedFastMCP:
         raise RuntimeError("this tool always refuses")
 
     @server.tool()
+    def refuse_without_a_word() -> list[str]:
+        """Refuses with an exception that carries no message.
+
+        What the SDK then answers is its own prefix and nothing after it, which
+        is the one refusal a transport stripping that prefix is left with no
+        words for.
+        """
+        raise RuntimeError()
+
+    @server.tool()
     def times_refused() -> int:
         return _times_refused
 

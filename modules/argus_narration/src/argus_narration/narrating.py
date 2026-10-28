@@ -946,7 +946,7 @@ def what_to_do(action_type: ActionType, subject: str) -> str:
     """
     match action_type:
         case "revert-feature-flag":
-            return f"Put {subject} back"
+            return f"Revert {subject}"
         case "restart-service":
             return f"Restart {subject}"
         case "roll-back-deployment":
@@ -1370,7 +1370,10 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
     """
     match action_type:
         case "revert-feature-flag":
-            return f"putting {subject} back"
+            # "Reverting", as the account's own line says "Reverted". "Putting
+            # it back" is what undoing a change is called, and a revert beside
+            # its own undo would read as two of one thing.
+            return f"reverting {subject}"
         case "restart-service":
             return f"restarting {subject}"
         case "roll-back-deployment":

@@ -932,7 +932,7 @@ def test_an_action_done_is_said_in_words_rather_than_by_its_tag() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("action_type", "said"), [
-    (REVERT_FEATURE_FLAG, "Put some-subject back"),
+    (REVERT_FEATURE_FLAG, "Revert some-subject"),
     (RESTART_SERVICE, "Restart some-subject"),
     (ROLL_BACK_DEPLOYMENT, "Roll some-subject back"),
     (SCALE_OUT, "Scale some-subject out"),
@@ -1331,7 +1331,7 @@ def test_an_unavailable_platform_says_only_the_actions_it_actually_took() -> Non
     Scenario() \
         .given(some_outage) \
         .when(lambda: build_narration([some_outage])) \
-        .then(_the_only_line_does_not_say("putting"))
+        .then(_the_only_line_does_not_say("reverting"))
 
 
 @pytest.mark.unit
@@ -1352,7 +1352,7 @@ def test_a_platform_that_took_one_action_says_that_one() -> None:
         .when(lambda: build_narration([some_outage])) \
         .then(all_of(
             _the_only_line_marks(FLAG_PROVIDER),
-            _the_only_line_says("putting"),
+            _the_only_line_says("reverting"),
             _the_only_line_does_not_say("restarting", "rolling", "scaling")))
 
 
@@ -2134,7 +2134,7 @@ def test_an_order_memory_changed_says_what_moved_and_what_moved_it() -> None:
         .given(what_memory_did) \
         .when(lambda: build_narration([what_memory_did])) \
         .then(all_of(
-            _the_only_line_marks(f"putting {the_flag_that_was_moved_down} back"),
+            _the_only_line_marks(f"reverting {the_flag_that_was_moved_down}"),
             _the_only_line_mentions(the_incident_that_moved_it),
             # As the narration says a verdict - "Judged the action REFUTED" -
             # and not as a service that "did not recover", which is one of
@@ -2256,7 +2256,7 @@ def test_what_was_filed_about_this_incident_names_what_was_tried() -> None:
         .when(lambda: build_narration([what_was_filed])) \
         .then(all_of(
             _the_only_line_marks(
-                f"putting {a_flag_that_did_not_help} back, "
+                f"reverting {a_flag_that_did_not_help}, "
                 f"restarting {a_service_that_was_restarted}"
             ),
             _the_lines_are_credited_to(["Argus"])))

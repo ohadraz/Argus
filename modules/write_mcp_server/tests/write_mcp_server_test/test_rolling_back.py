@@ -23,6 +23,7 @@ from unittest.mock import create_autospec
 
 import pytest
 from argus_core.mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_MARKER,
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
@@ -178,6 +179,21 @@ def test_an_application_that_has_never_deployed_is_refused() -> None:
             an_error_was_raised(NoEarlierRevision),
             _nothing_was_changed(platform)
         ))
+
+
+@pytest.mark.unit
+def test_an_application_with_no_earlier_entry_refuses_in_a_way_a_caller_can_recognise() -> None:
+    # The refusal that is an answer, as a deployment already at its ceiling
+    # refuses a scale-out: nothing was changed and the action has nowhere to
+    # go, so the walk tries its next explanation rather than waking a human, and
+    # the postmortem says nothing was changed rather than that nobody knows.
+    only_ever_deployed_once = [_a_deployment(THE_ENTRY_RUNNING, THE_REVISION_RUNNING)]
+    platform = a_platform(history=only_ever_deployed_once)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _rolling_back(platform))) \
+        .then(_the_refusal_says_the_action_is_exhausted())
 
 
 @pytest.mark.unit
@@ -525,6 +541,22 @@ def _the_sync_policy_was_not_touched(platform: Any) -> Assertion[object]:
             raise AssertionError(
                 f"Expected the sync policy to be left alone, and the platform was "
                 f"asked {platform.method_calls}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
+    """The refusal carries the marker the transport turns into a type - asserted
+    against the marker rather than the sentence, which is allowed to change."""
+    def assertion(refusal: Exception | None) -> bool:
+        if refusal is None or EXHAUSTED_ACTION_MARKER not in str(refusal):
+            raise AssertionError(
+                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so "
+                f"that a caller can tell an exhausted action from a broken "
+                f"platform, and it said [{refusal}]."
             )
 
         return True

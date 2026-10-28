@@ -139,6 +139,11 @@ LEFT_BEHIND_MARKER: Final = "argus:left-behind="
 # now, and the caller is to stop rather than try anything else.
 RUN_LOST_MARKER: Final = "argus:run-lost"
 
+# What the MCP SDK's own server puts in front of the words of a tool that raised
+# (`mcp.server.fastmcp.tools.base.Tool.run`), the tool's name in it. The words
+# after it are the tool's.
+FASTMCP_TOOL_ERROR: Final = "Error executing tool {name}: "
+
 # Where in a call's `_meta` the claim it is made for is said, as `Fence.spoken`
 # says it. In `_meta` rather than a header for the trace's reason: the session
 # is held, and its headers were fixed before any run was claimed. Prefixed with
@@ -344,6 +349,18 @@ def _the_words_of(result: CallToolResult) -> str:
     return " ".join(
         block.text for block in result.content if isinstance(block, TextContent)
     )
+
+
+def _the_tools_own_words(name: str, spoken: str) -> str:
+    """What a tool that failed said, without what its server put in front of it.
+
+    A tool that raises is answered by the MCP SDK's server with the exception's
+    words behind `FASTMCP_TOOL_ERROR`; a tool that said nothing is named, so the
+    failure still says whose it was.
+    """
+    own = spoken.removeprefix(FASTMCP_TOOL_ERROR.format(name=name)).strip()
+
+    return own if own else f"[{name}] failed and said nothing"
 
 
 def without_the_payload(said: str) -> str:
@@ -790,15 +807,17 @@ async def every_tool_listed(
 
 
 def _answered(name: str, result: CallToolResult) -> object:
-    """What the tool said, unwrapped, or the error it reported instead."""
+    """What the tool said, unwrapped, or the error it reported instead.
+
+    An error is raised saying what the tool said and nothing else, because a
+    person reads it - in an escalation's reason, the timeline, the postmortem
+    and a Slack line - and the content blocks it arrived in are this
+    transport's business. The markers are looked for in the same words, and a
+    descriptor is read out of them: one reading of one string.
+    """
     if result.isError:
-        said = f"MCP tool call [{name}] failed: {result.content!r}"
-        # What the tool said, rather than how the line above displays it. The
-        # two differ by a `repr`, which escapes the quotes inside a payload and
-        # would have a descriptor carrying an apostrophe arrive as something
-        # that is no longer JSON. The markers are looked for here for the same
-        # reason: one reading of one string, not one of each.
         spoken = _the_words_of(result)
+        said = _the_tools_own_words(name, spoken)
 
         # The walk's own exception rather than a kind of tool error, because
         # what it means is not about the tool: the walk is to stop.

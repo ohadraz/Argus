@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from argus_core.mcp_transport import an_unreachable_platform
+from argus_core.mcp_transport import an_exhausted_action, an_unreachable_platform
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
     DeploymentRestored,
@@ -59,6 +59,11 @@ class NoEarlierRevision(Exception):
     changed. An application on its first deployment has no earlier entry, and
     a caller told "done" would record a mitigation that never happened and
     then judge the service against it.
+
+    Marked as an exhausted action, as a scale-out past the ceiling is: the
+    action has nowhere to go and nothing was touched, so the walk tries its
+    next explanation rather than reaching a human, and what it records says
+    nothing was changed.
     """
 
 
@@ -117,8 +122,10 @@ def roll_back_deployment(application: str,
 
     if len(history) < 2:
         raise NoEarlierRevision(
-            f"[{application}] has no revision before the one it is running, so "
-            f"there is nothing to roll back to"
+            an_exhausted_action(
+                f"[{application}] has no revision before the one it is running, so "
+                f"there is nothing to roll back to"
+            )
         )
 
     running, previous = history[-1], history[-2]
