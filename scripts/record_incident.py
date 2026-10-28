@@ -89,6 +89,7 @@ from tests.e2e.framework.argus import (
     RECORDED_FLAG_TOGGLE_BESIDE_ANOTHER,
     RECORDED_FLAG_TOGGLE_PAGED,
     RECORDED_FLAG_TOGGLE_RED_HERRING,
+    RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
     RECORDED_FLAG_TOGGLE_UNCORROBORATED,
     RECORDED_HALF_FINISHED_ROLLOUT,
     RECORDED_LEAD_BEFORE_THE_WALK,
@@ -702,11 +703,20 @@ EVERY_RECORDING: tuple[_Recording, ...] = (
         # go back, but a refuted action is put back inside the mitigation loop
         # and recorded as the measurement that refuted it. `ChangeUndone` is
         # what a *withdrawal* publishes, which is a different case entirely.
-        #
-        # And the memory read, because the case replaying this one stages a record
-        # and asserts the walk found it. Held here so that a capture in which the
-        # search found nothing is refused at record time rather than replayed for
-        # weeks as a walk that never reached memory.
+        (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED)
+    ),
+    # The same incident, in a world where an earlier one already tried this
+    # flag. Its own recording, because the record the walk and the write-up
+    # read is not the plain one's: it holds the recall and what came of it.
+    _Recording(
+        RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
+        "flag-toggle-red-herring",
+        "HighErrorRate",
+        IncidentStatus.ESCALATED,
+        # And the memory read, because the case replaying this one stages a
+        # record and asserts the walk found it. Held here so that a capture in
+        # which the search found nothing is refused at record time rather than
+        # replayed for weeks as a walk that never reached memory.
         (_AN_ACTION_WAS_TAKEN, _A_VERDICT_WAS_REACHED, _MEMORY_WAS_READ),
         that_flag_was_tried_before_and_did_not_help
     ),

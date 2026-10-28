@@ -108,6 +108,9 @@ RECORDED_RESOLVED_FROM_THE_PAGE = "flag-toggle-resolved-from-the-page"
 RECORDED_RESOLVED_IN_PAGERDUTY = "flag-toggle-resolved-in-pagerduty"
 RECORDED_RESOLVED_FROM_SLACK = "flag-toggle-resolved-from-slack"
 RECORDED_FLAG_TOGGLE_RED_HERRING = "flag-toggle-red-herring"
+# The red herring again, in a world where an earlier incident already tried
+# its flag: the record it is walked and written up from holds the recall.
+RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED = "flag-toggle-red-herring-remembered"
 RECORDED_FLAG_TOGGLE_UNCORROBORATED = "flag-toggle-uncorroborated"
 # The flag toggle again, whole, in a world staged around it differently:
 # somebody paged for it, or another flag switched on beside it. Each has a

@@ -32,7 +32,7 @@ from tests.e2e.framework.argus import (
     DATABASE_URL,
     MITIGATION_TIMEOUT_SECONDS,
     RECORDED_FLAG_TOGGLE,
-    RECORDED_FLAG_TOGGLE_RED_HERRING,
+    RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED,
     THE_SERVICE_NAME,
     WALK_TIMEOUT_SECONDS,
     argus_ended_with_status,
@@ -99,8 +99,8 @@ def test_an_earlier_incident_like_this_one_is_found_and_said() -> None:
         .given(
             calling(that_flag_was_tried_before_and_did_not_help),
             calling(a_scenario_was_seeded("flag-toggle-red-herring",
-                                          as_recorded_in=RECORDED_FLAG_TOGGLE_RED_HERRING)),
-            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING))
+                                          as_recorded_in=RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED)),
+            calling(the_model_answers_from(RECORDED_FLAG_TOGGLE_RED_HERRING_REMEMBERED))
         ) \
         .when(
             argus_is_triggered_with_alert(some_alert)
