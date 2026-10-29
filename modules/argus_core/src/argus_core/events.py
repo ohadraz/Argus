@@ -44,6 +44,7 @@ from argus_core.models.pull_request import OpenedPullRequest
 from argus_core.models.reading import RetrievalChannel
 from argus_core.models.reference import Reference
 from argus_core.models.refusal import Refusal
+from argus_core.models.remembered import RecalledIncident
 from argus_core.models.report import Report
 from argus_core.models.rollout import RolloutAccount
 from argus_core.models.service_dependency import ServiceDependency
@@ -207,7 +208,7 @@ class DeploymentChangesRead(_Event):
     @model_validator(mode="after")
     def _names_its_service_where_nothing_was_compared(self) -> DeploymentChangesRead:
         """In the type rather than in the one caller that publishes it, as
-        `SimilarIncidentsRecalled` holds its ids: a row is read back by every
+        `SimilarIncidentsRecalled` holds its incidents: a row is read back by every
         reader that says it, and one with no service would say it of nothing."""
         if self.comparison is not DeploymentComparison.COMPARED and self.service is None:
             raise ValueError(f"An answer that is {self.comparison.value}, not a diff, "
@@ -840,16 +841,18 @@ class SimilarIncidentsRecalled(_Event):
     """
 
     kind: Literal["similar-incidents-recalled"] = "similar-incidents-recalled"
-    # The ids alone. What each of those incidents tried is in the record this was
-    # read from, and a copy of it here would be a second version of the same
-    # fact - one that goes stale the moment the record is written to again.
+    # Each incident with what it had tried when the walk read it. Not a copy of
+    # the record to go stale when it is written to again: it is what this walk
+    # was shown, which no later write changes. And it is the part a reader can
+    # use - an id alone sends them to look the incident up, and what they would
+    # find there is an action and whether it helped.
     #
     # At least one, in the type rather than in the caller that publishes this. The
     # silence on an empty search is a decision one publisher makes, and a row is
     # read back by everything that renders a timeline - which reads the nearest
     # incident off the front of this list, and would raise on a page and in a
     # postmortem a long way from whoever wrote the row.
-    incident_ids: list[str] = Field(min_length=1)
+    recalled: list[RecalledIncident] = Field(min_length=1)
 
 
 class CandidatesReordered(_Event):

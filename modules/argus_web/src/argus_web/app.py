@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Final
@@ -727,10 +727,9 @@ def postmortem_page(request: Request,
     one written before the report is not rewritten, and the person who ended
     the incident is part of what a reader of its write-up is owed.
     """
-    address = str(request.url_for("incident_page", incident_id=incident_id))
     with connections() as conn:
         incident = _an_incident_or_404(conn, incident_id)
-        postmortem = reads.read_postmortem(conn, incident, address)
+        postmortem = reads.read_postmortem(conn, incident, _the_address_of(request))
         resolution = reads.read_resolution(conn, incident_id)
 
     # Where nothing has been written, the page still names the incident and who
@@ -758,10 +757,9 @@ def postmortem_pdf(request: Request,
     where nothing has been written, unlike the page: a download of nothing has
     nothing to send.
     """
-    address = str(request.url_for("incident_page", incident_id=incident_id))
     with connections() as conn:
         incident = _an_incident_or_404(conn, incident_id)
-        postmortem = reads.read_postmortem(conn, incident, address)
+        postmortem = reads.read_postmortem(conn, incident, _the_address_of(request))
 
     if postmortem is None:
         raise HTTPException(status_code=404, detail=f"incident {incident_id} has no postmortem")
@@ -791,3 +789,13 @@ def _an_incident_or_404(conn: psycopg.Connection,
         raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
 
     return incident
+
+
+def _the_address_of(request: Request) -> Callable[[str], str]:
+    """An incident's page by its full address, as this request reaches the
+    server - for a document read away from the page it came from, where an
+    address relative to nothing leads nowhere."""
+    def address_of(incident_id: str) -> str:
+        return str(request.url_for("incident_page", incident_id=incident_id))
+
+    return address_of

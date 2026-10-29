@@ -2361,6 +2361,37 @@ def test_a_candidate_a_line_of_the_timeline_names_links_to_its_row() -> None:
 
 
 @pytest.mark.component
+def test_a_postmortem_line_about_an_earlier_incident_leads_to_its_page() -> None:
+    # As the walk page's line does: the id is no name to look up by hand, and
+    # the document is read away from the screen, so the address is whole.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "timeline": [TimelineEntry(at=datetime(2026, 10, 11, 14, 3, tzinfo=UTC),
+                                       who="Argus",
+                                       text=f"the closest match being incident "
+                                            f"{the_earlier_incident}",
+                                       names_incident=the_earlier_incident, label="T1")]
+        }),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            the_page_says(f'<a href="http://testserver/incidents/{the_earlier_incident}" '
+                          f'target="_blank" rel="noopener noreferrer">{the_earlier_incident}</a>')
+        )
+
+
+@pytest.mark.component
 def test_a_step_and_a_line_of_the_timeline_show_the_label_they_are_cited_by() -> None:
     # Every other row a citation lands on says its label, and a reader running
     # an eye down the timeline for T1 finds it there too.

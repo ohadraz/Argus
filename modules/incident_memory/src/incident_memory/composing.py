@@ -15,9 +15,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from argus_core.models import Alert, TakenAction, Verdict, the_identity_recorded
+from argus_core.models import (
+    Alert,
+    TakenAction,
+    Verdict,
+    WhatWasTried,
+    the_identity_recorded,
+)
 
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 
 # The two outcomes that say something about the action that was taken. The
 # other two members of `Verdict` say only that nothing was learned: an action

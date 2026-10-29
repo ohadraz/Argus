@@ -34,6 +34,7 @@ from argus_core.models import (
     FlagChange,
     Hypothesis,
     IncidentStatus,
+    RecalledIncident,
     ServiceDependency,
     ThreadMessage,
 )
@@ -222,7 +223,9 @@ def investigator_node(
         publish(
             SimilarIncidentsRecalled(
                 incident_id=state.incident_id,
-                incident_ids=[remembered.incident_id for remembered in recalled]
+                recalled=[RecalledIncident(incident_id=remembered.incident_id,
+                                           tried=remembered.tried)
+                          for remembered in recalled]
             ),
             publisher
         )

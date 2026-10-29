@@ -92,6 +92,7 @@ from argus_core.models import (
     OpenedPullRequest,
     Ownership,
     PodPlacement,
+    RecalledIncident,
     RecordedPlacement,
     Reference,
     Refusal,
@@ -104,6 +105,7 @@ from argus_core.models import (
     Standing,
     Undone,
     Verdict,
+    WhatWasTried,
     the_actions_through,
     why_it_was_refused,
 )
@@ -2380,7 +2382,7 @@ def test_what_memory_recalled_says_how_many_and_which_was_nearest() -> None:
 
     what_memory_found = SimilarIncidentsRecalled(
         incident_id=new_id(),
-        incident_ids=[the_nearest_incident, the_one_behind_it]
+        recalled=[_recalled(the_nearest_incident), _recalled(the_one_behind_it)]
     )
 
     Scenario() \
@@ -2402,7 +2404,7 @@ def test_a_recalled_line_names_the_nearest_incident_for_a_destination_to_link() 
 
     what_memory_found = SimilarIncidentsRecalled(
         incident_id=new_id(),
-        incident_ids=[the_nearest_incident, some_incident_behind_it]
+        recalled=[_recalled(the_nearest_incident), _recalled(some_incident_behind_it)]
     )
 
     Scenario() \
@@ -2421,7 +2423,7 @@ def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
 
     what_memory_found = SimilarIncidentsRecalled(
         incident_id=new_id(),
-        incident_ids=[the_only_incident_like_it]
+        recalled=[_recalled(the_only_incident_like_it)]
     )
 
     Scenario() \
@@ -2430,6 +2432,84 @@ def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
         .then(all_of(
             _the_only_line_marks("1 earlier incident"),
             _no_line_mentions("earlier incidents")))
+
+
+@pytest.mark.unit
+def test_what_memory_recalled_says_what_the_nearest_incident_tried_and_what_came_of_it() -> None:
+    # An id alone sends a reader off to look the incident up, and what they
+    # would find there is an action and whether it helped - here a revert this
+    # incident may be about to try again, refuted there. Said in the words the
+    # line that filed it used, so the two read as one fact.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled(the_nearest_incident,
+                            (REVERT_FEATURE_FLAG, "checkout", Verdict.REFUTED))]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_the_only_line_mentions(
+            f"incident {the_nearest_incident}, which tried reverting checkout (refuted)"))
+
+
+@pytest.mark.unit
+def test_what_memory_recalled_says_each_action_the_nearest_incident_tried() -> None:
+    # Every action, in the order the record holds them, each with what it came
+    # to: one refuted and one confirmed are different evidence, and a reader
+    # needs both.
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled("3f2b1a09-0000-4000-8000-00000000000a",
+                            (REVERT_FEATURE_FLAG, "checkout", Verdict.REFUTED),
+                            (RESTART_SERVICE, "io-shop", Verdict.CONFIRMED))]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_the_only_line_mentions(
+            "which tried reverting checkout (refuted), restarting io-shop (confirmed)"))
+
+
+@pytest.mark.unit
+def test_what_memory_recalled_says_what_only_the_nearest_incident_tried() -> None:
+    # The line names the nearest incident alone, so it says what that one
+    # tried; another incident's actions beside it would read as the nearest's.
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled("3f2b1a09-0000-4000-8000-00000000000a",
+                            (REVERT_FEATURE_FLAG, "checkout", Verdict.REFUTED)),
+                  _recalled("3f2b1a09-0000-4000-8000-00000000000b",
+                            (RESTART_SERVICE, "io-shop", Verdict.CONFIRMED))]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(_no_line_mentions("restarting io-shop"))
+
+
+@pytest.mark.unit
+def test_an_incident_recalled_with_nothing_tried_is_named_alone() -> None:
+    # A record is filed only for an incident that tried something, but the
+    # line is read back from rows, and one saying "which tried" of nothing
+    # would be a sentence with no end.
+    the_nearest_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    what_memory_found = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[_recalled(the_nearest_incident)]
+    )
+
+    Scenario() \
+        .given(what_memory_found) \
+        .when(lambda: build_narration([what_memory_found])) \
+        .then(all_of(
+            _the_only_line_mentions(f"the closest match being incident {the_nearest_incident}"),
+            _no_line_mentions("which tried")))
 
 
 @pytest.mark.unit
@@ -3898,3 +3978,12 @@ def _the_only_line_does_not_say(*unwanted: str) -> Assertion[list[NarrationLine]
         return True
 
     return assertion
+
+
+def _recalled(incident_id: str,
+              *tried: tuple[ActionType, str, Verdict]) -> RecalledIncident:
+    """An incident memory found, with each action it tried and what that came to."""
+    return RecalledIncident(incident_id=incident_id, tried=[
+        WhatWasTried(identity=ActionIdentity(action_type=action_type, subject=subject),
+                     verdict=verdict)
+        for action_type, subject, verdict in tried])

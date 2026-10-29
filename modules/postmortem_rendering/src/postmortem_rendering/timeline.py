@@ -8,7 +8,7 @@ backwards.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 from argus_core import said_as_a_time, said_short
 from argus_core.models import PostmortemDocument
@@ -44,7 +44,8 @@ class TimelineSection(BaseModel):
     absent: str | None
 
 
-def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
+def the_timeline(postmortem: PostmortemDocument,
+                 address_of: Callable[[str], str]) -> TimelineSection:
     """The account as the agent laid it out, its markers already in place.
 
     A line naming the candidates it formed cites each one with a row among the
@@ -64,6 +65,10 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
     address is written out once, under the supporting information. A fix the
     walk proposed and then superseded keeps its address: the name is defined
     only by that row, and the superseded one has none.
+
+    A line about another incident - an earlier one memory found - names it by
+    a whole id, and leads to its page (`address_of`), as the dashboard's line
+    does: an id is no name to look up by hand.
     """
     candidates = {label for hypothesis in postmortem.hypotheses
                   for label in (hypothesis.label, *hypothesis.also) if label}
@@ -84,9 +89,11 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
         if entry.outside_the_walk:
             said = _said(entry.text, candidates, {})
         else:
+            other = ({entry.names_incident: address_of(entry.names_incident)}
+                     if entry.names_incident else {})
             said = _said(as_shown(said_short(_by_name(entry.text, named), shorts),
                                   bare=frozenset(shorts.values())),
-                         candidates, addresses)
+                         candidates, addresses | other)
         rows.append(TimelineRow(label=entry.label,
                                 at=at,
                                 marker=entry.marker.value.upper() if entry.marker else None,

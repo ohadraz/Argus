@@ -164,6 +164,12 @@ def a_deploy_read(label: str = "P1") -> CitedChange:
         short_reference=SOME_DEPLOYED_REVISION[:7])
 
 
+def the_page_of(incident_id: str) -> str:
+    """Where an incident's page is, by its id, as the server showing a document
+    addresses it - this incident's own, or an earlier one a line is about."""
+    return f"http://argus.example/incidents/{incident_id}"
+
+
 def a_person_resolved_it(by: str,
                          at: datetime = DONT_CARE_MOMENT,
                          channel: ReportChannel = ReportChannel.ARGUS_UI,

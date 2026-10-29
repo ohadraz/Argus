@@ -45,9 +45,9 @@ from postmortem_rendering_test.framework.builders import (
     a_person_resolved_it,
     a_postmortem,
     an_alert,
+    the_page_of,
 )
 
-SOME_ADDRESS = "http://argus.example/incidents/0b1c"
 SOME_MOMENT = datetime(2026, 10, 11, 14, 3, 7, tzinfo=UTC)
 
 EVERY_HEADING = ("Summary", "Impact", "Root cause and contributing factors",
@@ -63,7 +63,7 @@ def test_an_incident_people_wrote_in_has_every_section_in_google_s_order() -> No
             some_postmortem := a_postmortem(leads=[_a_lead()])
         ) \
         .when(
-            lambda: tuple(render(some_postmortem, an_alert(), [], SOME_ADDRESS).headings.values())
+            lambda: tuple(render(some_postmortem, an_alert(), [], the_page_of).headings.values())
         ) \
         .then(
             the_answer_was(EVERY_HEADING))
@@ -78,7 +78,7 @@ def test_an_incident_nobody_wrote_in_has_no_section_for_what_people_said() -> No
             some_postmortem := a_postmortem(leads=[])
         ) \
         .when(
-            lambda: tuple(render(some_postmortem, an_alert(), [], SOME_ADDRESS).headings.values())
+            lambda: tuple(render(some_postmortem, an_alert(), [], the_page_of).headings.values())
         ) \
         .then(
             the_answer_was(tuple(heading for heading in EVERY_HEADING
@@ -92,7 +92,7 @@ def test_the_summary_is_the_model_s_prose() -> None:
             some_postmortem := a_postmortem(executive_summary="Account pages failed, per C1.")
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).summary
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).summary
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text="Account pages failed, per C1.",
@@ -109,7 +109,7 @@ def test_a_name_the_summary_quotes_is_said_as_code() -> None:
                 executive_summary="Argus did not test C3: [io-shop] has no revision.")
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).summary
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).summary
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text="Argus did not test C3: `io-shop` has no revision.",
@@ -128,7 +128,7 @@ def test_a_revision_the_summary_quotes_is_said_short_and_bare() -> None:
                 executive_summary=f"Argus rolled [io-shop] back off [{SOME_DEPLOYED_REVISION}].")
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).summary
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).summary
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -143,7 +143,7 @@ def test_a_document_with_no_summary_says_none_was_written() -> None:
             some_postmortem := a_postmortem(executive_summary=None)
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).summary_absent
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).summary_absent
         ) \
         .then(
             the_answer_was("No summary was written."))
@@ -165,7 +165,7 @@ def test_below_the_head_a_moment_of_the_incident_s_day_says_its_time_alone() -> 
         ) \
         .when(
             lambda: render(some_postmortem, an_alert("HighErrorRate", "io-shop"), [],
-                           SOME_ADDRESS)
+                           the_page_of)
         ) \
         .then(
             all_of(
@@ -193,7 +193,7 @@ def test_where_the_logs_were_read_up_to_is_said_by_its_time_on_the_incident_s_da
         ) \
         .when(
             lambda: render(some_postmortem, an_alert("HighErrorRate", "io-shop"), [],
-                           SOME_ADDRESS)
+                           the_page_of)
         ) \
         .then(
             _the_logs_in_the_gap_read("No log line read reaches into the stretch the metrics "
@@ -208,7 +208,7 @@ def test_the_document_is_titled_and_names_its_incident() -> None:
             some_postmortem := a_postmortem(symptom=None)
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert("HighErrorRate", "io-shop"), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert("HighErrorRate", "io-shop"), [], the_page_of)
         ) \
         .then(all_of(
             _it_is_about(some_postmortem.incident_id),
@@ -224,7 +224,7 @@ def test_a_person_s_resolution_on_the_record_reaches_the_head_and_the_resolution
             some_events := [a_person_resolved_it("Kuki Buki")]
         ) \
         .when(
-            lambda: render(a_postmortem(), an_alert(), some_events, SOME_ADDRESS)
+            lambda: render(a_postmortem(), an_alert(), some_events, the_page_of)
         ) \
         .then(
             _it_was_ended_everywhere_by("Kuki Buki"))
@@ -240,7 +240,7 @@ def test_argus_s_escalation_on_the_record_reaches_the_head() -> None:
         ) \
         .when(
             lambda: render(a_postmortem(resolution=[]), an_alert(), some_events,
-                           SOME_ADDRESS).head.ended_by_whom
+                           the_page_of).head.ended_by_whom
         ) \
         .then(
             the_answer_was("Argus"))
@@ -248,15 +248,17 @@ def test_argus_s_escalation_on_the_record_reaches_the_head() -> None:
 
 @pytest.mark.unit
 def test_the_incident_s_address_is_what_the_document_links_it_by() -> None:
+    # Its own page, of all the pages `the_page_of` can give: a document read
+    # away from the screen it came from leads back to this incident.
     Scenario() \
         .given(
-            SOME_ADDRESS
+            some_postmortem := a_postmortem()
         ) \
         .when(
-            lambda: render(a_postmortem(), an_alert(), [], SOME_ADDRESS).supporting.links[0].said
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).supporting.links[0].said
         ) \
         .then(
-            the_answer_was(f"The incident's walk: {SOME_ADDRESS}"))
+            the_answer_was(f"The incident's walk: {the_page_of(some_postmortem.incident_id)}"))
 
 
 @pytest.mark.unit
@@ -284,7 +286,7 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
                 leads=[_a_lead()])
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).labels
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).labels
         ) \
         .then(
             the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "S1", "L1"})))
@@ -301,7 +303,7 @@ def test_every_label_a_row_goes_by_may_be_cited() -> None:
                                                  result="dont care", label="C1", also=["C2"])])
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).labels
+            lambda: render(some_postmortem, an_alert(), [], the_page_of).labels
         ) \
         .then(
             the_answer_was(frozenset({"C1", "C2"})))
@@ -320,7 +322,7 @@ def test_a_cited_line_of_the_timeline_reads_as_its_row() -> None:
                 causal_chain=_a_step_citing("T1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on(
@@ -337,7 +339,7 @@ def test_a_cited_line_of_the_timeline_nobody_is_named_for_reads_as_its_row() -> 
                 causal_chain=_a_step_citing("T1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("T1 Oct 11 14:03:07 The flag went on"))
@@ -354,7 +356,7 @@ def test_a_cited_step_taken_reads_as_its_row() -> None:
                 causal_chain=_a_step_citing("M1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("M1 14:03:07 Turned the flag off: recovered"))
@@ -384,7 +386,7 @@ def test_a_cited_row_says_its_day_where_it_is_not_the_head_s(after: timedelta, l
                 causal_chain=_a_step_citing(label))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on(rests_on))
@@ -402,7 +404,7 @@ def test_a_cited_candidate_reads_as_its_row_under_whichever_label_it_goes_by() -
                 causal_chain=_a_step_citing("C1", "C2"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("C1 A flag change - confirmed",
@@ -422,7 +424,7 @@ def test_a_cited_candidate_quoting_code_reads_as_its_row_without_the_backticks()
                 causal_chain=_a_step_citing("C1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("C1 Ports are named <protocol>. - confirmed"))
@@ -441,7 +443,7 @@ def test_a_cited_candidate_whose_result_quotes_a_name_reads_as_its_row() -> None
                 causal_chain=_a_step_citing("C1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("C1 A rollback - action not taken: io-shop is new"))
@@ -461,7 +463,7 @@ def test_a_cited_change_log_message_lead_and_action_item_read_as_their_rows() ->
                 causal_chain=_a_step_citing("P1", "G3fa2", "L1", "AI-1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on(
@@ -483,7 +485,7 @@ def test_a_cited_diff_is_named_by_its_first_line() -> None:
                 causal_chain=_a_step_citing("D1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("D1 Deployment of revision x."))
@@ -501,7 +503,7 @@ def test_a_cited_file_as_it_ran_is_named_by_its_path_at_the_revision() -> None:
                 causal_chain=_a_step_citing("S1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("S1 deploy/scrape.yaml at 53f02e9"))
@@ -521,7 +523,7 @@ def test_a_cited_use_outside_the_patch_is_named_by_its_row() -> None:
                 causal_chain=_a_step_citing("U1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on("U1 total_this_month_cents at "
@@ -540,7 +542,7 @@ def test_what_code_fix_read_is_named_by_its_heading_when_cited() -> None:
                 causal_chain=_a_step_citing("F1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(
             _the_first_step_rests_on(
@@ -560,7 +562,7 @@ def test_what_the_alert_said_may_be_cited_and_reads_as_its_row() -> None:
                 causal_chain=_a_step_citing("AL1"))
         ) \
         .when(
-            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
         ) \
         .then(all_of(
             _it_may_cite("AL1"),
@@ -584,7 +586,7 @@ def test_an_alert_s_own_finding_said_under_impact_may_still_be_cited() -> None:
                            Alert(alert_name="dont care", service="dont care",
                                  summary="240 totals are off",
                                  claim=AlarmClaim.ITS_OWN_FINDING),
-                           [], SOME_ADDRESS)
+                           [], the_page_of)
         ) \
         .then(all_of(
             _it_may_cite("AL1"),

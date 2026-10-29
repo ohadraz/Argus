@@ -201,6 +201,10 @@ class TimelineEntry(BaseModel):
     # The candidate this line acted for, where it names one - an action taken
     # or reached for, a refusal, a recommendation. `None` on every other line.
     for_candidate: ForCandidate | None = None
+    # The other incident this line is about, where it is about one - an earlier
+    # one memory found - so the document can lead a reader there as the walk
+    # page does. Named by a whole id, which is no name to look up by hand.
+    names_incident: str | None = None
     # The label the document's prose cites this line by (`T1`). `None` on a
     # marker: code placed it among the lines, and no prose was shown it to cite.
     label: str | None = None

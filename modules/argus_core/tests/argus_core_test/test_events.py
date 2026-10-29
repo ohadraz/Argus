@@ -54,17 +54,21 @@ from argus_core.models import (
     PIN_AUTOSCALER,
     PIN_TO_ACCELERATOR,
     RESTART_SERVICE,
+    REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
+    ActionIdentity,
     DeploymentComparison,
     IncidentStatus,
     Meaning,
     PodPlacement,
+    RecalledIncident,
     RecordedPlacement,
     Reference,
     Report,
     ReportChannel,
     Standing,
+    WhatWasTried,
     the_actions_through,
 )
 from argus_core.models.action import Verdict
@@ -364,15 +368,32 @@ def test_a_recall_that_names_no_incident_is_refused() -> None:
     # because the narrator reads the nearest incident off the front of the list:
     # a row read back through `parse_event` with an empty one raises on the
     # incident page and in the postmortem, a long way from whoever wrote it.
-    no_incidents_at_all: list[str] = []
+    no_incidents_at_all: list[RecalledIncident] = []
 
     Scenario() \
         .given(no_incidents_at_all) \
         .when(attempting(lambda: SimilarIncidentsRecalled.model_validate({
             "incident_id": new_id(),
-            "incident_ids": no_incidents_at_all
+            "recalled": no_incidents_at_all
         }))) \
         .then(_it_was_refused())
+
+
+@pytest.mark.unit
+def test_a_recall_read_back_says_what_each_incident_tried() -> None:
+    # What the walk was shown is the line's whole content beyond an id: read
+    # back without it, the line names an incident and nothing a reader can use.
+    published = SimilarIncidentsRecalled(
+        incident_id=new_id(),
+        recalled=[RecalledIncident(incident_id=new_id(), tried=[
+            WhatWasTried(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                                 subject="some-flag"),
+                         verdict=Verdict.REFUTED)])])
+
+    Scenario() \
+        .given(published) \
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(the_answer_was(published))
 
 
 @pytest.mark.unit

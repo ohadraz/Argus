@@ -190,7 +190,7 @@ def _the_walk_said_it_recalled(incident_id: str) -> Assertion[httpx2.Response]:
                 f"it said {sorted({event.kind for event in recorded})}"
             )
 
-        found = [one for event in said for one in event.incident_ids]
+        found = [one.incident_id for event in said for one in event.recalled]
 
         if incident_id not in found:
             raise AssertionError(

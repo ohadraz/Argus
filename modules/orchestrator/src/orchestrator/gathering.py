@@ -522,7 +522,8 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
     counting: that list holds every round's candidates, and a line forms only
     its own round's. And a line acting for a candidate says where that one sits,
     and in what words the line names it, so the document can say it by its
-    label.
+    label; a line about another incident names it, so the document can lead
+    there.
     """
     return [
         TimelineEntry(at=line.at,
@@ -532,6 +533,7 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
                                   for candidate in line.candidates
                                   if candidate.hypothesis_id in considered],
                       for_candidate=_the_candidate_it_acted_for(line, considered),
+                      names_incident=line.names_incident or None,
                       outside_the_walk=line.outside_the_walk)
         for line in told
     ]

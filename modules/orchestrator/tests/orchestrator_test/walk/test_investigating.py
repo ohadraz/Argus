@@ -56,6 +56,7 @@ from argus_core.models import (
     IncidentStatus,
     Ownership,
     Reading,
+    RecalledIncident,
     RecordedPlacement,
     RetrievalChannel,
     ServiceDependency,
@@ -63,6 +64,7 @@ from argus_core.models import (
     ThreadMessage,
     Verdict,
     Weighing,
+    WhatWasTried,
 )
 from argus_incidents import IsStillWanted
 from argus_testkit import (
@@ -73,7 +75,7 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 from orchestrator.walk import ports
 from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -1213,7 +1215,8 @@ def test_what_memory_recalled_is_said_on_the_timeline(
     # model's to decide - so a timeline carrying only `CandidatesReordered` is
     # silent about memory on every walk where memory was read and did find
     # something. One candidate here, so nothing can move and the recall is the
-    # only thing there is to say.
+    # only thing there is to say. Each incident with what it tried and what came
+    # of it, nearest first: an id alone says nothing a reader can use.
     an_investigating_incident = _an_investigating_incident()
     the_nearest = "3f2b1a09-0000-4000-8000-00000000000a"
     the_one_behind_it = "3f2b1a09-0000-4000-8000-00000000000b"
@@ -1238,7 +1241,11 @@ def test_what_memory_recalled_is_said_on_the_timeline(
                 fetch_dependencies=fetch_dependencies,
                 publisher=published.take)
         ) \
-        .then(_the_recall_said(published, [the_nearest, the_one_behind_it]))
+        .then(_the_recall_said(published, [
+            RecalledIncident(incident_id=the_nearest, tried=[
+                WhatWasTried(identity=reverting(ANOTHER_FLAG), verdict=Verdict.REFUTED)]),
+            RecalledIncident(incident_id=the_one_behind_it, tried=[
+                WhatWasTried(identity=reverting(ANOTHER_FLAG), verdict=Verdict.REFUTED)])]))
 
 
 @pytest.mark.unit
@@ -2017,7 +2024,7 @@ def _no_reordering_was_said(published: Kept[IncidentEvent]) -> Assertion[StateDe
 
 
 def _the_recall_said(published: Kept[IncidentEvent],
-                     expected: list[str]) -> Assertion[StateDelta]:
+                     expected: list[RecalledIncident]) -> Assertion[StateDelta]:
     def assertion(dont_care_delta: StateDelta) -> bool:
         said = [
             event for event in published.taken
@@ -2030,10 +2037,10 @@ def _the_recall_said(published: Kept[IncidentEvent],
                 f"{[event.kind for event in published.taken]}."
             )
 
-        if said[0].incident_ids != expected:
+        if said[0].recalled != expected:
             raise AssertionError(
                 f"Expected the recall to name {expected} nearest first, got "
-                f"{said[0].incident_ids}."
+                f"{said[0].recalled}."
             )
 
         return True

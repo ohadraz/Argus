@@ -157,6 +157,7 @@ from argus_core.models.reference import (
     the_place_of,
 )
 from argus_core.models.refusal import Refusal, why_it_was_refused
+from argus_core.models.remembered import RecalledIncident, WhatWasTried
 from argus_core.models.report import Report, ReportChannel
 from argus_core.models.rollout import RolloutAccount, RolloutProgress
 from argus_core.models.service_dependency import Ownership, ServiceDependency
@@ -318,6 +319,7 @@ __all__ = [
     "PublishedRates",
     "RatesUnavailable",
     "Reading",
+    "RecalledIncident",
     "changes_not_listed",
     "no_logs_listed",
     "ALERT_FIRING",
@@ -372,6 +374,7 @@ __all__ = [
     "UndoDescriptor",
     "Undone",
     "Weighing",
+    "WhatWasTried",
     "WhatWouldBeTried",
     "WorseWhen",
     # Public because `ClaimedAction` names it in an annotation a consumer has

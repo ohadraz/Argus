@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from argus_core import get_settings
 from argus_core.embedding import an_embedder
-from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict
+from argus_core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from incident_memory.keeping import kept_in
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 from qdrant_client import QdrantClient
 
 from tests.e2e.framework.argus import THE_SERVICE_NAME

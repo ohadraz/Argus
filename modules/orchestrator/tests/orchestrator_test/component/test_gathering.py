@@ -54,6 +54,7 @@ from argus_core.events import (
     ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    SimilarIncidentsRecalled,
     StatusChanged,
 )
 from argus_core.llm import ClientFor, LLMClient
@@ -84,6 +85,7 @@ from argus_core.models import (
     ModelPolicy,
     OpenedPullRequest,
     PostmortemDocument,
+    RecalledIncident,
     Reference,
     Refusal,
     Report,
@@ -337,6 +339,34 @@ def test_a_line_acting_for_a_candidate_says_where_it_sits_and_how_the_line_names
             ) \
             .then(
                 the_answer_was([ForCandidate(place=1, said_as="candidate cause #2")])
+            )
+
+
+@pytest.mark.component
+def test_a_line_about_an_earlier_incident_names_it_for_the_document_to_lead_there(
+    a_clean_database: None
+) -> None:
+    # The walk page leads a reader to the earlier incident memory found, and the
+    # document can only if its line says which incident it is about: the id in
+    # the sentence is no name to look up by hand.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                some_recall := SimilarIncidentsRecalled(
+                    incident_id=incident_id,
+                    recalled=[RecalledIncident(incident_id=the_earlier_incident, tried=[])])
+            ) \
+            .when(
+                lambda: [entry.names_incident for entry in
+                         _the_evidence_after_publishing(conn, incident_id, some_recall).timeline
+                         if entry.names_incident is not None]
+            ) \
+            .then(
+                the_answer_was([the_earlier_incident])
             )
 
 

@@ -30,6 +30,7 @@ from argus_core.models import (
     FixOutcome,
     IncidentStatus,
     OpenedPullRequest,
+    RecalledIncident,
     Verdict,
 )
 from argus_narration import NarrationLine, a_narration_line, shown
@@ -268,7 +269,8 @@ def test_an_earlier_incident_a_line_names_leads_to_that_incident_s_page() -> Non
         .given(
             the_recall := a_narration_line(
                 SimilarIncidentsRecalled(
-                    incident_id=new_id(), incident_ids=[some_earlier_incident]
+                    incident_id=new_id(),
+                    recalled=[RecalledIncident(incident_id=some_earlier_incident, tried=[])]
                 )
             ).model_copy(update={"links": {some_revision: where_it_was_committed}})
         ) \

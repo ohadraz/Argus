@@ -24,6 +24,7 @@ from postmortem_rendering_test.framework.builders import (
     SOME_REPOSITORY_ADDRESS,
     a_deploy_read,
     a_postmortem,
+    the_page_of,
 )
 
 SOME_MOMENT = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
@@ -39,7 +40,7 @@ def test_a_line_carries_its_time_its_marker_who_said_it_and_the_narration() -> N
                               marker=TimelineMarker.IMPACT_BEGINS, label="E1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows
+            lambda: the_timeline(some_postmortem, the_page_of).rows
         ) \
         .then(
             the_answer_was((TimelineRow(label="E1", at="Oct 11 14:03",
@@ -66,7 +67,7 @@ def test_a_line_naming_the_candidates_it_formed_cites_each_one_s_row() -> None:
                                         label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -91,7 +92,7 @@ def test_a_candidate_the_line_names_by_a_label_its_row_also_goes_by_cites_that_r
                                         label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -118,7 +119,7 @@ def test_a_revision_a_line_names_whole_is_said_short_and_leads_where_it_opens() 
                     label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -143,7 +144,7 @@ def test_a_name_a_line_of_the_walk_quotes_is_said_as_code() -> None:
                                         label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -172,7 +173,7 @@ def test_a_revision_a_line_names_by_a_start_of_it_is_said_short_and_leads_where_
                     label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -199,7 +200,7 @@ def test_the_fix_a_line_names_by_its_address_is_said_as_the_document_names_it() 
                     label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -227,7 +228,7 @@ def test_a_fix_the_document_does_not_carry_keeps_its_address() -> None:
                     label="T1")])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -246,7 +247,7 @@ def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
                               label="XW1", outside_the_walk=True)])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text="the [checkout] flag again?",
@@ -266,7 +267,7 @@ def test_code_a_person_quotes_is_set_apart_and_their_brackets_kept() -> None:
                               label="XW1", outside_the_walk=True)])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(
@@ -288,10 +289,56 @@ def test_a_revision_a_person_wrote_is_said_as_they_wrote_it() -> None:
                                         label="XW1", outside_the_walk=True)])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).rows[0].text
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
         ) \
         .then(
             the_answer_was(Line(runs=(Run(text=f"was it {SOME_DEPLOYED_REVISION}?",
+                                          role=Role.NARRATION),))))
+
+
+@pytest.mark.unit
+def test_an_earlier_incident_a_line_names_leads_to_its_page() -> None:
+    # Named by a whole id, which is no name to look up by hand. The walk page
+    # leads there, and so does the document, by the full address a page read
+    # away from the screen needs.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[TimelineEntry(
+                at=SOME_MOMENT, who="Argus",
+                text=f"Found 1 earlier incident like this one in memory, the closest match "
+                     f"being incident {the_earlier_incident}",
+                names_incident=the_earlier_incident, label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Found 1 earlier incident like this one in memory, the closest match "
+                         "being incident ", role=Role.NARRATION),
+                Run(text=the_earlier_incident, role=Role.LINK,
+                    address=the_page_of(the_earlier_incident))))))
+
+
+@pytest.mark.unit
+def test_a_line_a_person_wrote_leads_to_no_incident() -> None:
+    # A person's words are shown as they wrote them, with nothing in them a
+    # link - an incident id among them.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[TimelineEntry(
+                at=SOME_MOMENT, who="kuki", text=f"like {the_earlier_incident}?",
+                names_incident=the_earlier_incident, label="XW1", outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem, the_page_of).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text=f"like {the_earlier_incident}?",
                                           role=Role.NARRATION),))))
 
 
@@ -307,7 +354,7 @@ def test_the_date_is_said_where_the_day_changes_and_only_there() -> None:
                 TimelineEntry(at=SOME_MOMENT + timedelta(days=1), who=None, text="dont care")])
         ) \
         .when(
-            lambda: tuple(row.at for row in the_timeline(some_postmortem).rows)
+            lambda: tuple(row.at for row in the_timeline(some_postmortem, the_page_of).rows)
         ) \
         .then(
             the_answer_was(("Oct 11 14:03", "14:04", "Oct 12 14:03")))
@@ -324,7 +371,7 @@ def test_a_line_on_a_second_says_its_time_to_that_second() -> None:
                               text="dont care")])
         ) \
         .when(
-            lambda: tuple(row.at for row in the_timeline(some_postmortem).rows)
+            lambda: tuple(row.at for row in the_timeline(some_postmortem, the_page_of).rows)
         ) \
         .then(
             the_answer_was(("Oct 11 14:03:07",)))
@@ -338,8 +385,8 @@ def test_a_line_without_a_marker_or_a_speaker_carries_neither() -> None:
                 TimelineEntry(at=SOME_MOMENT, who=None, text="dont care")])
         ) \
         .when(
-            lambda: (the_timeline(some_postmortem).rows[0].marker,
-                     the_timeline(some_postmortem).rows[0].who)
+            lambda: (the_timeline(some_postmortem, the_page_of).rows[0].marker,
+                     the_timeline(some_postmortem, the_page_of).rows[0].who)
         ) \
         .then(
             the_answer_was((None, None)))
@@ -352,7 +399,7 @@ def test_the_timeline_says_its_zone_once() -> None:
             dont_care_postmortem := a_postmortem()
         ) \
         .when(
-            lambda: the_timeline(dont_care_postmortem).zone
+            lambda: the_timeline(dont_care_postmortem, the_page_of).zone
         ) \
         .then(
             the_answer_was("(UTC)"))
@@ -365,7 +412,7 @@ def test_no_timeline_says_none_was_recorded() -> None:
             some_postmortem := a_postmortem(timeline=[])
         ) \
         .when(
-            lambda: the_timeline(some_postmortem).absent
+            lambda: the_timeline(some_postmortem, the_page_of).absent
         ) \
         .then(
             the_answer_was("No timeline was recorded."))

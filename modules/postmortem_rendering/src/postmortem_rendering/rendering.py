@@ -8,7 +8,7 @@ is read here, once, and handed to every part that says it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from typing import Any, Final
 
@@ -121,18 +121,19 @@ class RenderedPostmortem(BaseModel):
 def render(postmortem: Postmortem,
            alert: Alert,
            events: Sequence[IncidentEvent],
-           incident_address: str) -> RenderedPostmortem:
+           address_of: Callable[[str], str]) -> RenderedPostmortem:
     """A written postmortem as it is read, with a person's resolution taken
-    from the incident's `events` and every link to the incident written from
-    `incident_address`, its page's full address."""
+    from the incident's `events` and every link to an incident written from
+    `address_of`, which gives an incident's page by its full address - this
+    one's, and any earlier one a line of its timeline is about."""
     resolution = the_reported_resolution(events)
     leads = the_leads(postmortem)
     day = the_day_it_is_dated_by(postmortem)
     hypotheses = the_hypotheses(postmortem, day)
     actions_taken = the_actions_taken(postmortem, resolution, day)
     action_items = the_action_items(postmortem)
-    timeline = the_timeline(postmortem)
-    supporting = the_supporting_information(postmortem, incident_address)
+    timeline = the_timeline(postmortem, address_of)
+    supporting = the_supporting_information(postmortem, address_of(postmortem.incident_id))
     detection = the_detection(postmortem, alert)
     impact = the_impact(postmortem, alert)
     rows = _the_rows(hypotheses, actions_taken, action_items, timeline, leads, supporting,

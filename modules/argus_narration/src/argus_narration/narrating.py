@@ -79,6 +79,7 @@ from argus_core.models import (
     IncidentStatus,
     Meaning,
     PodPlacement,
+    RecalledIncident,
     RecordedPlacement,
     Reference,
     ReportChannel,
@@ -602,10 +603,11 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # something anybody can go and do: "revert a feature flag" is a
             # category, and the flag's name is the instruction.
             emphasis = event.subject or ""
-            # The gerund the demotion line and the tried-and-filed line share,
-            # rather than a third spelling of the same action. This is a third
-            # place the same fact is said - Argus would have done this - and a
-            # reader matching the three should not have to read three tenses.
+            # The gerund the demotion line, the tried-and-filed line and the
+            # recall share, rather than another spelling of the same action.
+            # This is one more place the same fact is said - Argus would have
+            # done this - and a reader matching them should not have to read
+            # two tenses.
             text = (
                 f"Left for a person to do - "
                 f"{what_the_action_does(event.action_type, emphasis)}"
@@ -662,11 +664,19 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # Named as the closest match rather than as the head of an order. One
             # match is the ordinary case, and "nearest first" is a claim about a
             # sequence that a single incident does not have.
-            found = len(event.incident_ids)
+            #
+            # With what the closest one tried and what came of each, because
+            # that is what a reader can use: an id alone sends them to look it
+            # up, and an action this incident is about to take again, refuted
+            # there, is a recurrence - the evidence that bears most on whether
+            # the cause it answers is the cause at all. Said in the words the
+            # line that filed it used, so the two read as one fact.
+            found = len(event.recalled)
+            closest = event.recalled[0]
             emphasis = f"{found} earlier incident{'s' if found != 1 else ''}"
             text = (
                 f"Found {emphasis} like this one in memory, the closest match "
-                f"being incident {event.incident_ids[0]}"
+                f"being incident {closest.incident_id}{_what_it_tried(closest)}"
             )
         case CandidatesReordered():
             who = _ARGUS
@@ -1076,9 +1086,28 @@ def _the_incident_it_names(event: IncidentEvent) -> str:
     reader can only use where a destination leads them to it.
     """
     if isinstance(event, SimilarIncidentsRecalled):
-        return event.incident_ids[0]
+        return event.recalled[0].incident_id
 
     return ""
+
+
+def _what_it_tried(recalled: RecalledIncident) -> str:
+    """What an incident memory found tried, and what each came to - ", which
+    tried reverting checkout (refuted)" - or nothing where it tried nothing.
+
+    Each action as `what_the_action_does` says it, the gerund the line filing
+    it used; each verdict as the record has it, which is only ever one that was
+    reached."""
+    if not recalled.tried:
+        return ""
+
+    said = ", ".join(
+        f"{what_the_action_does(attempt.identity.action_type, attempt.identity.subject)} "
+        f"({attempt.verdict.value})"
+        for attempt in recalled.tried
+    )
+
+    return f", which tried {said}"
 
 
 def _what_the_look_settled(event: RecoveryChecked) -> str:
@@ -1390,15 +1419,16 @@ def what_the_action_does(action_type: ActionType, subject: str) -> str:
     """An action named as the thing it does, whenever it was done.
 
     A gerund rather than the past tense `_an_action_said` opens with, and the
-    tense is the reason two lines share this. One is about an action Argus is
-    declining to take again, the other about actions it took and filed: past
+    tense is the reason several lines share this. Among them, one is about an
+    action Argus is declining to take again, one about actions it took and
+    filed, and one about what an earlier incident memory found had tried: past
     tense would make the first say the restart happened on this incident, and
-    the gerund leaves both free to say when in their own words.
+    the gerund leaves each free to say when in its own words.
 
-    It also keeps them saying an action the same way. The line that demotes a
-    candidate and the line that files what was tried are the same fact a
-    record apart, and a reader matching them up should not have to read two
-    spellings.
+    It also keeps them saying an action the same way. The line that files what
+    was tried, the line that recalls it on a later incident and the line that
+    demotes a candidate on the strength of it are the same fact a record apart,
+    and a reader matching them up should not have to read two spellings.
 
     Exhaustive on the tag, and with no fallback, for the reason that one is:
     a kind nobody has written words for rendering as its own identifier reads

@@ -9,7 +9,7 @@ would be the beginning of a second opinion about what an incident is.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import psycopg
 from argus_incidents.repository import (
@@ -115,19 +115,19 @@ def read_story(conn: psycopg.Connection, incident_id: str) -> Story:
 
 def read_postmortem(conn: psycopg.Connection,
                     incident: IncidentDetail,
-                    incident_address: str) -> RenderedPostmortem | None:
+                    address_of: Callable[[str], str]) -> RenderedPostmortem | None:
     """The postmortem as it is read, where one has been written.
 
     Rendered here, from the row and the incident's events, so the page and the
-    PDF are handed the same document. `incident_address` is the incident
-    page's full address, which only the request knows.
+    PDF are handed the same document. `address_of` gives an incident's page by
+    its full address, which only the request knows.
     """
     postmortem = postmortems.get_by_incident(conn, incident.id)
     if postmortem is None:
         return None
 
     return render(postmortem, incident.alert, events.get_by_incident(conn, incident.id),
-                  incident_address)
+                  address_of)
 
 
 def read_resolution(conn: psycopg.Connection, incident_id: str) -> ReportedResolution | None:

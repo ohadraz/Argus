@@ -42,6 +42,7 @@ from argus_core.models import (
     UndoDescriptor,
     Verdict,
     Weighing,
+    WhatWasTried,
 )
 from argus_incidents.publishing import events_into_connection
 from argus_incidents.repository import (
@@ -53,7 +54,7 @@ from argus_incidents.repository import (
 )
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from incident_memory.filing import get_undelivered
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 from orchestrator.records import Records
 from orchestrator.walk.ports import ClaimedAction
 

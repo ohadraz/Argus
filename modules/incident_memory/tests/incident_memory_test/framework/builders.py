@@ -25,8 +25,9 @@ from argus_core.models import (
     Hypothesis,
     TakenAction,
     Verdict,
+    WhatWasTried,
 )
-from incident_memory.records import RememberedIncident, WhatWasTried
+from incident_memory.records import RememberedIncident
 
 SOME_INCIDENT = "0f5c4d6e-3a1b-4c2d-8e9f-1a2b3c4d5e6f"
 
