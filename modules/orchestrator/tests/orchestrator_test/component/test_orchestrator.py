@@ -271,7 +271,7 @@ def test_a_walk_with_no_action_left_to_try_ends_at_code_fix_and_a_human(
 def test_a_round_naming_only_what_was_refuted_ends_at_code_fix_and_a_human(
     collaborators: Collaborators
 ) -> None:
-    # The second round is told the flag was put back and did not help, and names
+    # The second round is told the flag was reverted and did not help, and names
     # it again anyway. Changing it again would run an experiment already run, so
     # the walk passes over it - and a round with nothing new on it has spent the
     # list rather than found nothing. What remains is a permanent fix, as for any
@@ -956,7 +956,7 @@ def _the_action_recommended_was(flag: str) -> Assertion[Walked]:
 
         if not isinstance(final.recommended_action, RevertFeatureFlag):
             raise AssertionError(
-                f"Expected the incident to recommend putting a flag back, it "
+                f"Expected the incident to recommend reverting a flag, it "
                 f"recommends [{final.recommended_action!r}]."
             )
 

@@ -94,10 +94,10 @@ def test_a_restart_refuted_before_demotes_a_candidate_worded_nothing_like_it() -
 @pytest.mark.unit
 def test_the_same_subject_done_a_different_way_keeps_its_place() -> None:
     # Both halves of the identity, or the key answers a question nobody asked.
-    # A service restarted and a flag of the same name put back are different
+    # A service restarted and a flag of the same name reverted are different
     # experiments, and a record of one is no evidence at all about the other.
     restarting_the_shop = an_identity("io-shop", RESTART_SERVICE)
-    putting_the_flag_back = an_identity("io-shop")
+    reverting_the_flag = an_identity("io-shop")
     a_flag_nobody_has_tried = an_identity("payments-fallback")
 
     Scenario() \
@@ -108,13 +108,13 @@ def test_the_same_subject_done_a_different_way_keeps_its_place() -> None:
         ) \
         .when(lambda: demoting_what_was_refuted(
             [
-                _a_candidate_answered_by(putting_the_flag_back, 0.9),
+                _a_candidate_answered_by(reverting_the_flag, 0.9),
                 _a_candidate_answered_by(a_flag_nobody_has_tried, 0.4)
             ],
             what_happened_before
         )) \
         .then(all_of(
-            _the_order_is([putting_the_flag_back, a_flag_nobody_has_tried]),
+            _the_order_is([reverting_the_flag, a_flag_nobody_has_tried]),
             _nothing_was_reordered()
         ))
 

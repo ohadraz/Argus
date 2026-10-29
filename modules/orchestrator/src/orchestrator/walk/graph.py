@@ -198,7 +198,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                 publisher=collaborators.publisher)
     )
     # Stopped only by a withdrawal. A person who reported the incident resolved
-    # is owed the write-up; the person who took it back is not waiting to be
+    # is owed the write-up; the person who withdrew it is not waiting to be
     # told what Argus made of it.
     step(
         POSTMORTEM_NODE, Actor.POSTMORTEM,

@@ -194,7 +194,7 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     the only one that can be costed. The tests about its absence say so.
 
     No pull request by default, because most incidents end without one - a flag
-    put back is the whole fix as often as not, and a bundle that always carried
+    reverted is the whole fix as often as not, and a bundle that always carried
     a proposal would make the exception look like the rule.
 
     Nothing recommended by default either, and for the stronger version of that

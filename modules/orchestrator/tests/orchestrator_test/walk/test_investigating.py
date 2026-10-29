@@ -102,8 +102,8 @@ from orchestrator_test.framework.builders import (
     an_undetermined_hypothesis,
     discarding,
     holding_to_a_card,
-    putting_back,
     restarting,
+    reverting,
     rolling_back,
 )
 
@@ -370,7 +370,7 @@ def test_an_incident_whose_minutes_nothing_read_asks_the_flag_history_for_the_pr
     # instead the last reading there was - and what ended the readings is the
     # change, so the change lies at or after that minute and a window ending
     # there holds none of it. Mitigation is then handed an empty history and
-    # proposes nothing, on the one incident whose only mitigation is putting back
+    # proposes nothing, on the one incident whose only mitigation is reverting
     # the flag that blinded it.
     a_stated_onset = datetime(2026, 9, 22, 14, 10, tzinfo=UTC)
     an_incident_nothing_saw = an_incident_state(
@@ -789,7 +789,7 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
     a_window_already_read = Reading(channel=RetrievalChannel.LOGS,
                                     window_start="2026-08-20T10:30:00Z",
                                     window_end="2026-08-20T11:08:00Z")
-    a_refuted_attempt = _an_attempt_to(putting_back(SOME_FLAG))
+    a_refuted_attempt = _an_attempt_to(reverting(SOME_FLAG))
     a_second_round = _an_investigating_incident().model_copy(
         update={"already_read": [a_window_already_read],
                 "attempts": [a_refuted_attempt]}
@@ -824,7 +824,7 @@ def test_a_round_keeps_how_many_attempts_it_was_handed(
     # refuted after it began - and so whether another round would be handed
     # anything this one was not.
     a_second_round = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(putting_back(SOME_FLAG))]}
+        update={"attempts": [_an_attempt_to(reverting(SOME_FLAG))]}
     )
 
     Scenario() \
@@ -921,7 +921,7 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     # and does not report nothing worth trying - the fact that sends a round
     # naming no cause to a human, where this one goes on to a fix.
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(putting_back(SOME_FLAG))]}
+        update={"attempts": [_an_attempt_to(reverting(SOME_FLAG))]}
     )
     the_same_explanation_again = a_candidate_blaming(
         a_round_after_that_flag_was_tried.incident_id, SOME_FLAG
@@ -984,7 +984,7 @@ def test_a_round_that_spent_the_list_says_so_in_the_walks_words(
     # candidates, for the same reason, so it is said in the same words. Said as
     # "hypothesis formed", it reached the timeline, Slack and the postmortem as
     # the reason the incident went to a human.
-    the_attempts = [_an_attempt_to(putting_back(SOME_FLAG))]
+    the_attempts = [_an_attempt_to(reverting(SOME_FLAG))]
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
         update={"attempts": the_attempts}
     )
@@ -1048,7 +1048,7 @@ def test_an_action_an_earlier_incident_refuted_is_tried_last(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
@@ -1141,7 +1141,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
     # A walk that tried its second-best candidate first, with nothing saying
     # why, is a walk a human reading the incident back cannot account for. What
     # is said is the action, because "moved kuki-service down the list" is true
-    # of a service restarted and of a flag put back.
+    # of a service restarted and of a flag reverted.
     an_investigating_incident = _an_investigating_incident()
     the_incident_that_moved_it = "3f2b1a09-0000-4000-8000-00000000000a"
     published: Kept[IncidentEvent] = Kept()
@@ -1160,7 +1160,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
                 an_investigating_incident,
                 investigate=investigate,
                 recall_similar=_an_earlier_incident_that_refuted(
-                    putting_back(SOME_FLAG), incident_id=the_incident_that_moved_it
+                    reverting(SOME_FLAG), incident_id=the_incident_that_moved_it
                 ),
                 record_hypothesis=record_hypothesis,
                 fetch_flag_changes=fetch_flag_changes,
@@ -1168,7 +1168,7 @@ def test_an_order_memory_changed_is_said_on_the_timeline(
                 publisher=published.take)
         ) \
         .then(_it_was_said_that(published,
-                                putting_back(SOME_FLAG),
+                                reverting(SOME_FLAG),
                                 the_incident_that_moved_it))
 
 
@@ -1919,7 +1919,7 @@ def _earlier_incidents_nearest_first(*incident_ids: str) -> ports.RecallSimilar:
                 alert_name="HighErrorRate",
                 tried=[
                     WhatWasTried(
-                        identity=putting_back(ANOTHER_FLAG), verdict=Verdict.REFUTED
+                        identity=reverting(ANOTHER_FLAG), verdict=Verdict.REFUTED
                     )
                 ]
             )

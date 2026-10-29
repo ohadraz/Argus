@@ -271,7 +271,7 @@ def test_a_change_made_after_the_onset_is_not_in_the_window() -> None:
 def test_changes_argus_made_itself_are_left_out() -> None:
     # Once Argus can act more than once on an incident its own revert lands in
     # this window, and a window carrying it turns the unambiguous case - one
-    # flag changed, so that is the one to put back - into two, and refuses.
+    # flag changed, so that is the one to revert - into two, and refuses.
     somebody_elses = _a_change_by("some-human")
 
     Scenario() \

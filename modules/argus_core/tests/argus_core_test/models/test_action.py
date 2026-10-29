@@ -111,7 +111,7 @@ def test_the_same_thing_done_twice_is_the_same_identity() -> None:
 
 @pytest.mark.unit
 def test_two_kinds_of_action_on_one_name_are_different_identities() -> None:
-    # A service restarted and a flag put back are different experiments that
+    # A service restarted and a flag reverted are different experiments that
     # happen to share a name in the record. An identity that was the subject
     # alone would let a refuted restart demote a flag revert, and would let the
     # cap on one kind spend the other's budget.

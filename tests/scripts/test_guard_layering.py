@@ -85,7 +85,7 @@ def test_a_way_to_the_writing_side_through_the_reading_side_is_refused() -> None
 
 @pytest.mark.unit
 def test_a_walk_module_importing_the_chat_platforms_sdk_is_refused() -> None:
-    # A message posted is a change nothing can take back, and the walk tells
+    # A message posted is a change nothing can undo, and the walk tells
     # people through the event log the relay reads - never by posting itself.
     Scenario() \
         .given(a_graph := _a_graph_with(("orchestrator.walk.mitigating", "slack_sdk"))) \

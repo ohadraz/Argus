@@ -102,7 +102,7 @@ class MitigationStrategy(Protocol):
 
 
 class RevertFeatureFlagStrategy:
-    """Answering a flag that was toggled by putting it back.
+    """Answering a flag that was toggled by reverting it.
 
     Which flag comes from the hypothesis, confirmed against what the provider
     recorded as changing - never from Argus's configuration and never from
@@ -393,7 +393,7 @@ class DiscardCacheEntriesStrategy:
     that, as it was unchanged by the one that adds and the one that stops: what
     admits an action unasked is membership of the declared set, never the kind of
     change it makes. This is the member most likely to be read as a weakening,
-    because removing data sounds heavier than putting a value back - and it is
+    because removing data sounds heavier than reverting a value - and it is
     not, because what it removes was derived from records it never touches.
 
     It is also the one strategy whose action is addressed by something the
@@ -589,7 +589,7 @@ DEFAULT_STRATEGIES: Strategies = {
     # The fourth mode returning a deployment, and the only one where what comes
     # back is the sight of the service rather than its behaviour. Nothing about
     # the service got worse; a revision changed what reaches the scrape, and
-    # returning it is what puts the readings back. So what confirms this action
+    # returning it is what restores the readings. So what confirms this action
     # is the rows existing again rather than a level coming down, which is the
     # one place in this table where the action and what judges it come apart.
     FailureMode.MONITORING_BLIND_SPOT: RollBackDeploymentStrategy(),
@@ -601,7 +601,7 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.STATE_DIVERGENCE: DiscardCacheEntriesStrategy(),
     # The fifth mode returning a deployment, and the one whose requests never
     # failed: the revision made the answers worse while every request still
-    # succeeded as fast as before. Returning it puts the answers back, and what
+    # succeeded as fast as before. Returning it restores the answers, and what
     # confirms that is the rule that paged - whose series is the only one that
     # moved.
     FailureMode.OUTPUT_QUALITY_DEGRADATION: RollBackDeploymentStrategy(),
@@ -669,8 +669,8 @@ def _the_change_to_undo(subject: str | None,
     evidence does not identify one.
 
     A flag toggled more than once counts once, and it is its *latest* change
-    that is undone: the incident is happening now, so the state to put back is
-    the one the service is in now, not whatever it was at the far edge of the
+    that is reverted: the incident is happening now, so the state to revert
+    from is the one the service is in now, not whatever it was at the far edge of the
     window. `flag_changes` arrives oldest first, so the last mention of a flag
     is the current one.
 

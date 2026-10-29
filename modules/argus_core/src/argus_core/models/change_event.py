@@ -82,7 +82,7 @@ def as_a_change(toggle: FlagChange) -> ChangeEvent:
     """One flag toggle, as the change channel's own shape.
 
     The direction is spelled out rather than left to the reader of a boolean:
-    both are real - a feature is put back by switching it off, a withdrawn
+    both are real - a feature is reverted by switching it off, a withdrawn
     fallback by switching it on - and "the flag changed" leaves the model
     unable to say which state is now in effect.
 

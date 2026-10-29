@@ -513,7 +513,7 @@ def withdraw(incident_id: str,
              connections: UsingConnections,
              publisher: Publishing,
              tracer: Tracing) -> dict[str, str]:
-    """Takes an incident back from Argus, at somebody's say-so.
+    """Withdraws an incident from Argus, at somebody's say-so.
 
     The one thing this application exposes that changes an incident, and it is
     one because it is the human's own act rather than Argus's: it stops the
@@ -526,7 +526,7 @@ def withdraw(incident_id: str,
 
     A refusal is a `409` rather than a quiet success. An incident that has
     already ended cannot be stopped, and answering as though it had been would
-    have somebody believe they had taken back a mitigation that is still
+    have somebody believe they had undone a mitigation that is still
     holding the service up.
 
     Done inside the incident's own trace, since a person stopping the response

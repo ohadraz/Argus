@@ -730,7 +730,7 @@ def _the_pair_is_told_apart_by_the_rollout() -> Assertion[
 def _the_pair_is_told_apart_by_what_the_change_left_behind() -> Assertion[
     tuple[FailureMode, FailureMode]
 ]:
-    """Each meaning has to say whether putting the change back ends it.
+    """Each meaning has to say whether reverting the change ends it.
 
     Naming the other mode is not enough, for the reason it is not enough of any
     pair above - and here the evidence agrees on the one thing a model looks at
@@ -738,8 +738,8 @@ def _the_pair_is_told_apart_by_what_the_change_left_behind() -> Assertion[
     history describes the two identically: somebody turned something on, and the
     shop went wrong from that minute.
 
-    What separates them is what the flag left behind. Put it back and a toggle
-    is over; put it back here and the drift stops while every value already
+    What separates them is what the flag left behind. Revert it and a toggle
+    is over; revert it here and the drift stops while every value already
     written stays wrong. So a meaning that does not send the model to what the
     service has already written leaves it reading a mode whose damage outlives
     its cause as one whose damage ends with it - and the cost of that reading is

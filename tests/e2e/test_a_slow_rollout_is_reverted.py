@@ -90,7 +90,7 @@ A_CALM_ERROR_RATE = 0.05
 
 
 @pytest.mark.e2e
-def test_a_rollout_slow_for_a_few_percent_is_ended_by_putting_the_flag_back() -> None:
+def test_a_rollout_slow_for_a_few_percent_is_ended_by_reverting_the_flag() -> None:
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,
                                             alert_name=A_LATENCY_ALERT,

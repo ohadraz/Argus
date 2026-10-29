@@ -150,7 +150,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "response_cost_basis": ["Working year: annual pay bands divided by 2080 hours"],
         "tokens_spent": 48210,
         "assumptions": ["the published rate for the day the incident opened"],
-        "recommended_action": "putting monthly-spend-feature back",
+        "recommended_action": "reverting monthly-spend-feature",
         "leads": [_a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted")],
         "deploys_reading": ChannelReading.READ,
         "flags_reading": ChannelReading.READ,

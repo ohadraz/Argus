@@ -1310,7 +1310,7 @@ def test_an_action_no_verdict_was_reached_on_says_so() -> None:
 @pytest.mark.unit
 def test_an_action_a_person_s_ending_stopped_was_not_judged() -> None:
     # Nothing was measured, so nothing was judged - and "withdrawn" said a
-    # person took back an incident they may have resolved.
+    # person withdrew an incident they may have resolved.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(actions=[

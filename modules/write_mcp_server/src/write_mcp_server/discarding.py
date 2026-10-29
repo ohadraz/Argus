@@ -15,7 +15,7 @@ downstream could tell a derived key from a real one.
 
 The count is the point of the module. Every other action in this tier answers with
 a platform's acknowledgement and then has to go and look at something - a process's
-start time, a revision put back - because "the request was accepted" says nothing
+start time, a deployment rolled back - because "the request was accepted" says nothing
 about whether it took effect. A store answering how many of the named keys existed
 and are now gone has made a statement about the world, and it is the only thing in
 a position to make it. So nothing is read back afterwards: asking the same store

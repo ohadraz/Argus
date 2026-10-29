@@ -32,18 +32,18 @@ from incident_memory_test.framework.builders import (
 def test_an_incident_resolved_by_one_action_remembers_that_action() -> None:
     # The cheerful half of the record, and the less useful one: it says a thing
     # worked once. The ordering rule reads it to leave a subject where it is.
-    the_flag_that_was_put_back = "new-checkout-flow"
+    the_flag_that_was_reverted = "new-checkout-flow"
 
     Scenario() \
-        .given(an_action(the_flag_that_was_put_back, Verdict.CONFIRMED)) \
+        .given(an_action(the_flag_that_was_reverted, Verdict.CONFIRMED)) \
         .when(lambda: a_memory_of(
             SOME_INCIDENT,
             an_alert(),
-            [an_action(the_flag_that_was_put_back, Verdict.CONFIRMED)],
+            [an_action(the_flag_that_was_reverted, Verdict.CONFIRMED)],
             described_as=DONT_CARE_DESCRIPTION
         )) \
         .then(all_of(
-            _it_remembers_trying(the_flag_that_was_put_back),
+            _it_remembers_trying(the_flag_that_was_reverted),
             _it_remembers_the_verdict(Verdict.CONFIRMED)
         ))
 
@@ -148,7 +148,7 @@ def test_a_record_keeps_what_was_done_as_well_as_what_it_was_done_to() -> None:
     # Half a key is a key that is sometimes right. A later walk asks what it
     # would do about a candidate and matches the answer here, and a record
     # saying only that io-shop was tried cannot tell it whether io-shop was a
-    # service somebody restarted or a flag somebody put back.
+    # service somebody restarted or a flag somebody reverted.
     the_service_that_was_restarted = "io-shop"
 
     Scenario() \

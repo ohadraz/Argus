@@ -96,7 +96,7 @@ def test_a_run_whose_lease_ran_out_is_taken_up_again() -> None:
 def test_a_run_still_being_walked_is_not_taken_from_its_worker() -> None:
     # The other half of the same rule, and the half that costs something when
     # it is wrong: an investigation legitimately takes minutes, and a run
-    # reclaimed while its worker is still walking it is the duplicate walk the
+    # taken back while its worker is still walking it is the duplicate walk the
     # claim exists to prevent.
     dont_care_alert = Alert(service="buki-service", alert_name="HighErrorRate")
     the_worker_still_walking_it = "worker-that-is-still-working"
@@ -1030,7 +1030,7 @@ def _the_run_is_for(incident_id: str) -> Assertion[Any]:
     def assertion(claimed: Any) -> bool:
         if claimed.incident_id != incident_id:
             raise AssertionError(
-                f"Expected the reclaimed run to be for incident "
+                f"Expected the run taken back to be for incident "
                 f"[{incident_id}], got [{claimed.incident_id}]."
             )
 
@@ -1043,7 +1043,7 @@ def _the_run_is_held_by(worker: str) -> Assertion[Any]:
     def assertion(claimed: Any) -> bool:
         if claimed.claimed_by != worker:
             raise AssertionError(
-                f"Expected the reclaimed run to be held by [{worker}], got "
+                f"Expected the run taken back to be held by [{worker}], got "
                 f"[{claimed.claimed_by}]."
             )
 

@@ -867,7 +867,7 @@ def test_a_running_incident_can_be_withdrawn_from_its_page() -> None:
 
 @pytest.mark.component
 def test_a_finished_incident_offers_no_way_to_withdraw_it() -> None:
-    # Nothing to stop. Offering it would invite somebody to take back a
+    # Nothing to stop. Offering it would invite somebody to undo a
     # mitigation that is holding the service up, and the answer would be a 409
     # they had no reason to expect.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")

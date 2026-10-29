@@ -88,7 +88,7 @@ class FailureMode(StrEnum):
     # A deployment's configuration was changed into a broken state, with
     # nothing wrong in the code and nothing wrong in whatever the
     # configuration points at. Distinct from a flag toggle, which is answered by
-    # putting one value back through a provider built for it, and distinct from
+    # reverting one value through a provider built for it, and distinct from
     # a bad deployment in what it tells a reader and in what is left to fix
     # afterwards - a values file here, the service's source there - though a
     # deployment rollback answers both, since one revision carries the code and
@@ -124,7 +124,7 @@ class FailureMode(StrEnum):
     #
     # Not one mode with the flag toggle or the bad deployment it may well have
     # been caused by, and the split is by what removing the change does. There
-    # putting the flag back or returning the revision ends the incident; here it
+    # reverting the flag or returning the revision ends the incident; here it
     # stops the drift and repairs nothing, because the damage is in rows that
     # outlive whatever wrote them. That difference is the whole of the response:
     # what is left afterwards is not only a patch but a repair of what the fault

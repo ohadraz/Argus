@@ -640,7 +640,7 @@ def test_an_incident_argus_recommended_a_move_for_was_ended_by_the_recommendatio
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                recommended_action="Put monthly-spend-feature back",
+                recommended_action="Revert monthly-spend-feature",
                 resolution=[
                     ResolutionStep(at=SOME_ONSET - timedelta(minutes=5),
                                    action="Restarted io-shop", by="Argus",
@@ -653,8 +653,8 @@ def test_an_incident_argus_recommended_a_move_for_was_ended_by_the_recommendatio
             lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
         ) \
         .then(
-            _it_reads("Argus: recommended to a person, Oct 11, 2026, 14:03 UTC - put "
-                      "monthly-spend-feature back"))
+            _it_reads("Argus: recommended to a person, Oct 11, 2026, 14:03 UTC - revert "
+                      "monthly-spend-feature"))
 
 
 @pytest.mark.unit

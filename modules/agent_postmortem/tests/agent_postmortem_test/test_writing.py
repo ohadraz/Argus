@@ -1329,7 +1329,7 @@ def test_the_action_nobody_took_is_carried_onto_the_document() -> None:
     # link still describes an incident somebody can act on; one that omits this
     # describes an incident that is over, and it is not over - the flag is
     # still on and the shop is still writing wrong totals.
-    what_somebody_should_do = "put the monthly-spend-feature flag back"
+    what_somebody_should_do = "revert the monthly-spend-feature flag"
 
     Scenario() \
         .given(

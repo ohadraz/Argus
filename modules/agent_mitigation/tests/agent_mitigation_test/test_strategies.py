@@ -174,7 +174,7 @@ def test_a_leak_whose_cause_describes_nothing_is_still_answered_with_a_restart()
 @pytest.mark.unit
 def test_a_flag_that_moved_during_a_leak_does_not_change_what_is_proposed() -> None:
     # No toggle causes a heap to grow. A flag that happened to move during the
-    # climb is a coincidence, and an agent that reached for it would put back a
+    # climb is a coincidence, and an agent that reached for it would revert a
     # change nobody had any reason to suspect and leave the leak running.
     some_alerting_service = "kuki-service"
 
@@ -219,7 +219,7 @@ def test_the_registry_argus_ships_answers_a_leak_with_a_restart() -> None:
 @pytest.mark.unit
 def test_nothing_answers_an_upstream_dependency_failure() -> None:
     # The absence is the decision, not an omission. Argus's mitigations reach
-    # its own deployment - a flag it can put back, a process it can restart -
+    # its own deployment - a flag it can revert, a process it can restart -
     # and another company's service is outside all of them. A strategy
     # registered here would be Argus claiming it could do something about an
     # outage it cannot reach.
@@ -371,7 +371,7 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
     # for.
     #
     # The action is the flag toggle's exactly, because the cause is a flag that
-    # moved and putting it back is what stops the drift. What differs is
+    # moved and reverting it is what stops the drift. What differs is
     # everything after: it repairs nothing already written, and nothing can
     # confirm it inside the time Argus waits.
     Scenario() \
@@ -389,7 +389,7 @@ def test_silent_data_corruption_a_deployment_caused_is_answered_by_rolling_it_ba
     # The mode names the damage and not the change, so the action follows the
     # record rather than the mode. A walk that read a flat window and reached
     # for a flag would have learned the flag scenario rather than the mode, and
-    # here it would find no flag to put back and recommend nothing at all.
+    # here it would find no flag to revert and recommend nothing at all.
     Scenario() \
         .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
         .when(lambda: propose_action(
@@ -478,7 +478,7 @@ def test_a_monitoring_blind_spot_is_answered_by_rolling_the_deployment_back() ->
     # A flag is handed in and must not be acted on. The blind spot is staged by
     # a revision that stopped the rows reaching the scrape, and a flag that
     # happened to move while that revision was running is a coincidence: a
-    # revert would put back something that was never the cause, and would then
+    # revert would reverse something that was never the cause, and would then
     # be judged against readings that are still absent.
     #
     # Registered rather than left out, for the reason silent data corruption is:
@@ -662,7 +662,7 @@ def test_the_registry_argus_ships_answers_an_internal_dependency_failure() -> No
 def test_demand_saturation_is_answered_by_scaling_the_deployment_out() -> None:
     # The fourth generic mitigation, and the first that adds something rather
     # than restoring something. What a saturated deployment needs is headroom it
-    # never had, which none of the three that put something back can buy.
+    # never had, which none of the three that revert something can buy.
     Scenario() \
         .given(
             a_deployment_that_outgrew_its_size := a_hypothesis_blaming(

@@ -138,7 +138,7 @@ def escalate_unless_ended(conn: psycopg.Connection, incident_id: str, *, at: dat
 
 
 def withdraw(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool:
-    """Takes an incident back from Argus, and says whether it took effect.
+    """Withdraws an incident from Argus, and says whether it took effect.
 
     `at` is the moment of the `StatusChanged` that says so, as `transition`'s
     is.

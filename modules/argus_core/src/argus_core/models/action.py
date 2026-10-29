@@ -127,7 +127,7 @@ _THE_SPELLINGS_OF_A_VERDICT: Final = frozenset(verdict.value for verdict in Verd
 
 
 class RevertFeatureFlag(BaseModel):
-    """Putting one feature flag back where it was (spec §7.3, §13).
+    """Reverting one feature flag to where it was (spec §7.3, §13).
 
     Here rather than in `agent_mitigation` for the same reason `Hypothesis` is
     here: it crosses agent boundaries. Mitigation proposes one, the
@@ -302,7 +302,7 @@ class DiscardCacheEntries(BaseModel):
     again, and saying so a third time is the point: what admits an action unasked
     is membership of the declared set (spec §13), never the kind of change it
     makes - and this is the member most likely to be mistaken for a weakening,
-    because removing data sounds heavier than putting a value back and is not.
+    because removing data sounds heavier than reverting a value and is not.
 
     Nothing is lost. What is discarded was derived from a store this never
     touches, the service recomputes from that store on the next read, and what is
@@ -444,7 +444,7 @@ class CacheEntriesDiscarded(BaseModel):
 
     The one action whose own answer is evidence rather than an acknowledgement.
     Every other result in this module records something the tier had to go and
-    look at afterwards - a process's start time, a revision put back - because a
+    look at afterwards - a process's start time, a deployment rolled back - because a
     platform accepting a request says nothing about whether the request took
     effect. A store answering "these many of the keys you named existed and are
     now gone" is a statement about the world, made by the only thing that could
@@ -591,7 +591,7 @@ class ActionIdentity(BaseModel, frozen=True):
     compare one type.
 
     Both halves, because either alone answers something else. The subject alone
-    cannot tell a flag put back from a service restarted, and those are
+    cannot tell a flag reverted from a service restarted, and those are
     different evidence about the same cause. The kind alone says nothing about
     blast radius: restarting one service is no licence to restart another.
 

@@ -144,7 +144,7 @@ class Hypothesis(BaseModel):
 
         The same incoherence `_a_subject_is_something_a_cause_names` refuses,
         and the worst of the three to let past. A subject reaches Mitigation as
-        a value to put back; this reaches it as a process to bring down, and an
+        a value to revert; this reaches it as a process to bring down, and an
         undetermined verdict that still named a service would have Argus restart
         something on no diagnosis at all.
 

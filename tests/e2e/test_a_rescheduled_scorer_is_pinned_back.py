@@ -20,7 +20,7 @@ on the record before the first action - a read made afterwards would be of a
 fleet the walk may already have moved.
 
 **Mitigated by a pin the rule agreed with.** Holding the deployment to the card
-the earlier pods ran on puts every replica back where the scorer answers as it
+the earlier pods ran on returns every replica to where the scorer answers as it
 always did, and the share recovers. The scorer still allows TF32 wherever it
 runs, which is why a fix is proposed afterwards.
 

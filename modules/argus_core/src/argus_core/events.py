@@ -869,7 +869,7 @@ class CandidatesReordered(_Event):
     # The action that was tried before, not the candidate that would take it
     # again. Both halves, because the subject alone does not say what was done
     # to it: "moved checkout down the list" is true of a service somebody
-    # restarted and of a flag somebody put back, and a reader cannot tell from
+    # restarted and of a flag somebody reverted, and a reader cannot tell from
     # the line which experiment this incident is being spared.
     action_type: ActionType
     subject: str
@@ -886,7 +886,7 @@ class IncidentRemembered(_Event):
     Each as its identity rather than as the subject it acted on, because the
     subject alone is half of what was filed: "filed what was tried: io-shop"
     says nothing about whether io-shop was a service somebody restarted or a
-    flag somebody put back, and a reader cannot tell one incident's record
+    flag somebody reverted, and a reader cannot tell one incident's record
     from the other's. It is the same halving `CandidatesReordered` carries the
     kind to avoid.
 

@@ -998,7 +998,7 @@ def test_an_onset_that_is_only_a_lower_bound_is_read_past() -> None:
 def test_data_that_went_wrong_silently_is_told_from_a_flag_that_broke_the_service() -> None:
     # The fourth matched pair, and the one whose halves share the most. Its twin
     # is `test_a_flag_that_was_toggled_on_is_identified`: both stage a flag
-    # switched on, both are answered by putting the same flag back, and a model
+    # switched on, both are answered by reverting the same flag, and a model
     # that reads "flag on, then trouble" gets both wrong in the same breath.
     #
     # Two things separate them, and both are readable. The window holds no
@@ -1722,7 +1722,7 @@ def an_incident_where_the_cache_fell_behind_the_ledger() -> Incident:
     The alert says which side disagreed. A ledger that agrees with itself and
     copies that do not is a stale copy; a stored total that disagrees with the
     purchases behind it is a wrong record. The mitigations are opposites -
-    throw the copies away, or put back whatever started writing the wrong
+    throw the copies away, or revert whatever started writing the wrong
     number - so the wrong answer here reaches an action that repairs nothing.
 
     And the change channel holds no flag. The twin's cause is a toggle a week
@@ -2184,7 +2184,7 @@ def _a_window_where_the_capacity_kept_moving() -> list[MetricBucket]:
     one number the load outgrew, and here it takes two - the controller adds
     replicas on a saturated minute, the minute after is still served at the old
     size while they warm, and the third runs at the larger size and reports a
-    fraction of its target, which the controller answers by taking them back.
+    fraction of its target, which the controller answers by scaling them back down.
 
     So the traffic ramps exactly as its twin's does and stops at the same place.
     What a reader has to notice is that `cpu_limit_cores` is not the same number in

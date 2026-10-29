@@ -264,13 +264,13 @@ class NarrationLine(BaseModel):
     # endings take it away again.
     offers_to_end_as: IncidentStatus | None = None
     # Whether, after this line, the incident can no longer be resolved -
-    # resolved already, taken back, or found to be no incident. Not the same
+    # resolved already, withdrawn, or found to be no incident. Not the same
     # as an ending: `mitigated` ends Argus's part and still takes a person's
     # resolution, so a destination closing an offer on every ending would take
     # a button away while it could still do what it says.
     leaves_nothing_to_resolve: bool = False
     # Whether, after this line, the incident can no longer be withdrawn - which
-    # is every ending, `mitigated` included: there is no work left to take back
+    # is every ending, `mitigated` included: there is no work left to take over
     # once Argus has stopped. A destination holding an offer to withdraw closes
     # it on this, and one holding an offer to resolve does not.
     leaves_nothing_to_withdraw: bool = False

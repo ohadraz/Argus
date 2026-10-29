@@ -144,8 +144,8 @@ def renew(conn: psycopg.Connection, held: Run, lease: timedelta) -> bool:
     whether it still holds it.
 
     An investigation legitimately takes minutes, so a lease set once at claim
-    time would either be long enough to make a dead worker's run unreclaimable
-    for as long, or short enough to let a live worker's run be taken from it.
+    time would either be long enough to keep a dead worker's run from being
+    taken back for as long, or short enough to let a live worker's run be taken from it.
     Renewing is what lets it be short.
 
     Only the claim that holds the run renews it: one whose run was taken back,

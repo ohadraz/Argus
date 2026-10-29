@@ -202,7 +202,7 @@ def test_no_more_than_what_was_asked_for_comes_back(store: QdrantClient) -> None
 
 
 def _what_was_tried(subject: str, verdict: Verdict) -> WhatWasTried:
-    """One remembered attempt, spelled as a flag put back.
+    """One remembered attempt, spelled as a flag reverted.
 
     These cases are about a record surviving the store and coming back the
     same, so the kind is fixed: which of them was done is what the ordering

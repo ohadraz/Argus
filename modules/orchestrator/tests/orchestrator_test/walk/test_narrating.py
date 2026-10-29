@@ -113,7 +113,7 @@ def test_a_node_that_moved_nothing_writes_no_transition(
 ) -> None:
     # The guarantee the whole change exists for. A status set here and
     # overwritten one node later is a claim about the incident that the timeline
-    # cannot take back, so it is never written in the first place.
+    # cannot retract, so it is never written in the first place.
     Scenario() \
         .given(
             a_gate_refusing_an_action := _a_node_returning(
@@ -320,7 +320,7 @@ def test_the_node_that_runs_after_a_resolution_runs_on_a_resolved_incident(
 def test_the_node_that_runs_after_a_resolution_still_stops_for_a_withdrawal(
     transition_incident: MagicMock
 ) -> None:
-    # The person who took the incident back is not waiting to be told what
+    # The person who withdrew the incident is not waiting to be told what
     # Argus made of it.
     ran: list[str] = []
 

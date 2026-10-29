@@ -177,7 +177,7 @@ def a_world_each_case_leaves_as_it_found_it() -> Iterator[None]:
 
 
 def _every_live_incident_was_withdrawn() -> None:
-    """Takes back whatever Argus is still working on, at the human's own door.
+    """Withdraws whatever Argus is still working on, at the human's own door.
 
     Over HTTP rather than by calling the Orchestrator in-process: the walk to
     be stopped is running in the worker, and the endpoint is the seam that was

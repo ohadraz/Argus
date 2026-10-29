@@ -20,7 +20,7 @@ class WhatWasTried(BaseModel):
     """One action Argus took, and what taking it turned out to be worth.
 
     The action's identity rather than the subject alone, because the subject
-    alone is only half of what was done. A flag put back and a service
+    alone is only half of what was done. A flag reverted and a service
     restarted are different experiments, and a later incident told that
     "checkout" was tried and did not help learns nothing it can act on - it
     has to know which thing was done to it. The pair is also what the record

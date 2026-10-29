@@ -640,7 +640,7 @@ def test_candidates_formed_in_two_rounds_are_two_lines() -> None:
 
 @pytest.mark.unit
 def test_an_action_a_person_s_ending_stopped_is_said_as_never_judged() -> None:
-    # A person resolved or took the incident back while the service was watched,
+    # A person resolved or withdrew the incident while the service was watched,
     # so nothing was judged. "Judged the action WITHDRAWN" read as a verdict
     # reached, and as a withdrawal of an incident a person had resolved.
     a_stopped_judgement = VerdictReached(
@@ -1966,7 +1966,7 @@ def test_an_offer_says_which_ending_its_press_brings_about(
                                     IncidentStatus.WITHDRAWN,
                                     IncidentStatus.DISPROVEN])
 def test_a_move_past_any_resolution_says_so(ending: IncidentStatus) -> None:
-    # Resolved, taken back, or found to be no incident: whatever was still
+    # Resolved, withdrawn, or found to be no incident: whatever was still
     # asking whether it is resolved has its answer. A destination holding an
     # offer to resolve closes it with this line.
     the_incident_ending = StatusChanged(incident_id=new_id(), to_status=ending)
@@ -2005,7 +2005,7 @@ def test_a_move_that_still_takes_a_resolution_does_not(move: IncidentStatus) -> 
                                     IncidentStatus.WITHDRAWN])
 def test_a_move_to_any_ending_leaves_nothing_to_withdraw(ending: IncidentStatus) -> None:
     # Mitigated among them, where a resolution is still taken: there is no work
-    # left to take back once Argus has stopped, and a withdrawal's unwind would
+    # left to take over once Argus has stopped, and a withdrawal's unwind would
     # put back the change holding the service up. A destination holding an
     # offer to withdraw closes it with this line.
     the_incident_ending = StatusChanged(incident_id=new_id(), to_status=ending)
@@ -2436,7 +2436,7 @@ def test_a_single_recalled_incident_is_not_said_in_the_plural() -> None:
 def test_an_order_memory_changed_names_a_restart_as_a_restart() -> None:
     # Why the event carries a kind at all. Said as its subject alone the line
     # read "moved io-shop down the list" whether io-shop was a service
-    # somebody restarted or a flag somebody put back - and those are not the
+    # somebody restarted or a flag somebody reverted - and those are not the
     # same evidence about the candidate being moved. Said as a gerund, because
     # the action is the one thing on this line that did not happen here.
     the_service_that_was_moved_down = "io-shop"

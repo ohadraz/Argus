@@ -341,7 +341,7 @@ def test_restarting_one_service_does_not_spend_another_services_allowance(
 def test_a_mitigation_of_another_kind_on_the_same_subject_does_not_spend_it(
     record_outcome: MagicMock
 ) -> None:
-    # A flag put back and a service restarted are different experiments that
+    # A flag reverted and a service restarted are different experiments that
     # happen to name the same thing. Counted together, a flag that had already
     # been tried would refuse the first restart the incident ever asked for.
     some_leaking_service = "kuki-service"

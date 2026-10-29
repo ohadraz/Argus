@@ -55,8 +55,8 @@ from orchestrator_test.framework.builders import (
     a_random_id,
     an_undetermined_hypothesis,
     discarding,
-    putting_back,
     restarting,
+    reverting,
     rolling_back,
 )
 
@@ -116,7 +116,7 @@ def test_a_candidate_naming_no_cause_is_passed_over() -> None:
 
 @pytest.mark.unit
 def test_an_action_already_taken_disqualifies_the_candidate_that_would_repeat_it() -> None:
-    # The same flag was put back earlier in this incident and the service did
+    # The same flag was reverted earlier in this incident and the service did
     # not recover. Doing it again would be running the experiment that has
     # already been run, against a world that answered once.
     some_incident_id = a_random_id()
@@ -128,15 +128,15 @@ def test_an_action_already_taken_disqualifies_the_candidate_that_would_repeat_it
             some_candidates := [
                 _a_candidate_answered_by(
                     a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 ),
                 _a_candidate_answered_by(some_candidate_blaming_something_else,
-                                         putting_back(ANOTHER_FLAG))
+                                         reverting(ANOTHER_FLAG))
             ]
         ) \
         .when(
             lambda: the_next_worth_trying(some_candidates,
-                                          [_an_attempt_to(putting_back(SOME_FLAG))],
+                                          [_an_attempt_to(reverting(SOME_FLAG))],
                                           start=0)
         ) \
         .then(all_of(
@@ -176,7 +176,7 @@ def test_a_restart_already_taken_disqualifies_a_candidate_worded_nothing_like_it
 def test_the_same_subject_done_a_different_way_is_still_worth_trying() -> None:
     # Both halves of the identity, or the cap answers a question nobody asked.
     # Restarting io-shop says nothing about whether a flag of the same name may
-    # be put back: they are different experiments about the same cause.
+    # be reverted: they are different experiments about the same cause.
     some_incident_id = a_random_id()
     some_only_candidate = a_candidate_blaming(some_incident_id, SOME_SERVICE)
 
@@ -184,7 +184,7 @@ def test_the_same_subject_done_a_different_way_is_still_worth_trying() -> None:
         .given(
             some_candidates := [
                 _a_candidate_answered_by(some_only_candidate,
-                                         putting_back(SOME_SERVICE))
+                                         reverting(SOME_SERVICE))
             ]
         ) \
         .when(
@@ -205,11 +205,11 @@ def test_an_attempt_on_something_nobody_proposed_disqualifies_nothing() -> None:
     Scenario() \
         .given(
             some_candidates := [
-                _a_candidate_answered_by(some_only_candidate, putting_back(SOME_FLAG))
+                _a_candidate_answered_by(some_only_candidate, reverting(SOME_FLAG))
             ]
         ) \
         .when(lambda: the_next_worth_trying(
-            some_candidates, [_an_attempt_to(putting_back(ANOTHER_FLAG))], start=0
+            some_candidates, [_an_attempt_to(reverting(ANOTHER_FLAG))], start=0
         )) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
 
@@ -226,7 +226,7 @@ def test_a_candidate_nothing_would_be_done_about_is_still_offered() -> None:
     Scenario() \
         .given(some_candidates := [_a_candidate_answered_by(some_only_candidate, None)]) \
         .when(lambda: the_next_worth_trying(
-            some_candidates, [_an_attempt_to(putting_back(SOME_FLAG))], start=0
+            some_candidates, [_an_attempt_to(reverting(SOME_FLAG))], start=0
         )) \
         .then(_the_candidate_taken_up_is(some_only_candidate))
 
@@ -283,7 +283,7 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
             every_candidate_tried := [
                 _a_candidate_answered_by(
                     a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 ),
                 _a_candidate_answered_by(
                     an_undetermined_hypothesis(some_incident_id), None
@@ -291,7 +291,7 @@ def test_a_list_with_nothing_left_on_it_is_spent() -> None:
             ]
         ) \
         .when(lambda: the_next_worth_trying(
-            every_candidate_tried, [_an_attempt_to(putting_back(SOME_FLAG))], start=0
+            every_candidate_tried, [_an_attempt_to(reverting(SOME_FLAG))], start=0
         )) \
         .then(_nothing_is_worth_trying())
 
@@ -317,7 +317,7 @@ def test_a_candidate_whose_platform_is_unreachable_is_passed_over() -> None:
                     rolling_back(SOME_SERVICE)
                 ),
                 _a_candidate_answered_by(
-                    the_flag_is_still_revertible, putting_back(SOME_FLAG)
+                    the_flag_is_still_revertible, reverting(SOME_FLAG)
                 )
             ]
         ) \
@@ -374,7 +374,7 @@ def test_a_candidate_is_not_passed_over_while_its_platform_answers() -> None:
                 ),
                 _a_candidate_answered_by(
                     a_candidate_blaming(some_incident_id, SOME_FLAG),
-                    putting_back(SOME_FLAG)
+                    reverting(SOME_FLAG)
                 )
             ]
         ) \
@@ -429,7 +429,7 @@ def test_a_walk_past_the_end_of_the_list_is_spent() -> None:
 
 
 @pytest.mark.unit
-def test_a_flag_candidate_is_answered_by_putting_that_flag_back() -> None:
+def test_a_flag_candidate_is_answered_by_reverting_that_flag() -> None:
     # Asked of Mitigation rather than guessed at, because which action answers
     # which cause is Mitigation's to say - and the flag has to be one the
     # provider actually recorded moving, not one the model named alone.
@@ -441,7 +441,7 @@ def test_a_flag_candidate_is_answered_by_putting_that_flag_back() -> None:
             [a_candidate_blaming(some_incident_id, SOME_FLAG)],
             Circumstances(service=SOME_SERVICE, flag_changes=the_flag_that_moved)
         )) \
-        .then(_each_would_do([putting_back(SOME_FLAG)]))
+        .then(_each_would_do([reverting(SOME_FLAG)]))
 
 
 @pytest.mark.unit
@@ -673,12 +673,12 @@ def _a_candidate_answered_by(candidate: Hypothesis,
 def _answered_by_a_flag_each(candidates: list[Hypothesis]) -> list[WhatWouldBeTried]:
     """Candidates whose actions are all distinct, for a case about neither.
 
-    Each is answered by putting back a flag named after where it sits, so no
+    Each is answered by reverting a flag named after where it sits, so no
     two of them collide and nothing is skipped for a reason the case is not
     about.
     """
     return [
-        _a_candidate_answered_by(candidate, putting_back(f"some-flag-{index}"))
+        _a_candidate_answered_by(candidate, reverting(f"some-flag-{index}"))
         for index, candidate in enumerate(candidates)
     ]
 

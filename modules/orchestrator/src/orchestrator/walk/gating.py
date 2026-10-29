@@ -331,7 +331,7 @@ def _times_already_tried(action: Action, attempts: Sequence[Attempt]) -> int:
     Both halves matter, which is why the comparison is against an identity
     rather than against two fields. Per subject, because restarting one service
     says nothing about whether another may be restarted - the blast radius of a
-    mitigation is the thing it acts on. And per kind, because a flag put back
+    mitigation is the thing it acts on. And per kind, because a flag reverted
     and a service restarted are different experiments that happen to share a
     name in the record. Written as two comparisons, either half could be
     dropped by an edit and the cap would go on looking like a cap.

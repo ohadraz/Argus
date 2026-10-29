@@ -1,4 +1,4 @@
-"""How an incident is taken back - and nothing about how one is walked.
+"""How an incident is withdrawn - and nothing about how one is walked.
 
 The Orchestrator's second entrypoint, beside `intake`, and in this package for
 its reason rather than for tidiness: `argus_web` calls this, and anything

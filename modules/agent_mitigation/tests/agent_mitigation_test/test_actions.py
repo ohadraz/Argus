@@ -110,7 +110,7 @@ def test_undoing_a_switch_off_records_that_the_flag_had_been_off() -> None:
 
 
 @pytest.mark.unit
-def test_a_flag_toggled_more_than_once_is_put_back_to_its_state_before_the_latest_change() -> None:
+def test_a_flag_toggled_more_than_once_is_reverted_to_its_state_before_the_latest_change() -> None:
     # The incident is live, so the state to undo is the one the service is in
     # now - not whatever it was at the far edge of the window.
     some_flag = "shuki-flag"

@@ -2135,7 +2135,7 @@ def test_an_action_on_the_service_that_alerted_is_announced_as_nobodys_dependenc
 
 
 @pytest.mark.unit
-def test_a_flag_put_back_is_announced_as_nobodys_dependency(
+def test_a_flag_reverted_is_announced_as_nobodys_dependency(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -2153,11 +2153,11 @@ def test_a_flag_put_back_is_announced_as_nobodys_dependency(
     Scenario() \
         .given(
             calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
-            an_incident_putting_a_flag_back := _a_mitigating_incident(
+            an_incident_reverting_a_flag := _a_mitigating_incident(
                 proposing=_an_action_with_an_undo_descriptor()
             )
         ) \
-        .when(lambda: mitigation_node(an_incident_putting_a_flag_back,
+        .when(lambda: mitigation_node(an_incident_reverting_a_flag,
                                       take=take,
                                       change_landed=_nothing_landed(),
                                       advance_action=_an_advance_nobody_checks(),

@@ -430,7 +430,7 @@ def _somebody_will_write_while_the_first_turn_is_held() -> None:
 
     Held here rather than through the e2e framework's `the_model_is_held`,
     which resets the double first: by now it is armed to record, and a reset
-    would take that back.
+    would undo that.
     """
     the_intent_agent_answers_from(RECORDED_INTENT_INFORMATION)()
     the_chat_platform_knows(_A_PERSON_ID, _A_PERSON)()

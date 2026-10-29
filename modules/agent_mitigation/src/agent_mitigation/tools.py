@@ -693,7 +693,7 @@ def fetch_recent_flag_changes(
     every caller wants the same thing: what somebody *else* did. Once Argus can
     act more than once on an incident, its own revert lands in this window, and
     a window carrying it makes the unambiguous case - one flag changed, so that
-    is the one to put back - report two flags and refuse to act.
+    is the one to revert - report two flags and refuse to act.
 
     `onset` moves the window back to end where the incident began, and is left
     out by almost every caller. Ending it at the present asks what somebody

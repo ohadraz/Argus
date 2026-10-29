@@ -1148,7 +1148,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             ))
 
         # Asked before the recovery is acted on, and it outranks it: an incident
-        # somebody took back is over whichever way this minute reads, and
+        # somebody withdrew is over whichever way this minute reads, and
         # claiming a confirmation on the pass the walk was stopped would credit
         # Argus with an ending it did not reach.
         if not still_wanted():

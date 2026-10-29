@@ -96,7 +96,7 @@ def with_status(
     `stops_for` is which endings stop this node, and it is every person's
     ending for every node but one. The postmortem stops only for a withdrawal:
     a person who reported the incident resolved is owed the write-up, and the
-    person who took it back is not waiting to be told what Argus made of it.
+    person who withdrew it is not waiting to be told what Argus made of it.
     A node that runs on an incident a person already ended moves it nowhere -
     the row says how it ended, and nothing the node did changes that.
 

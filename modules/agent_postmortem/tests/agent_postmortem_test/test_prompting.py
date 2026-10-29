@@ -2788,7 +2788,7 @@ def test_an_action_nobody_can_account_for_is_listed_apart_from_both(
         .given(
             evidence := an_evidence_bundle(actions=[
                 an_action("Reverted the feature flag some-flag", verdict=Verdict.CONFIRMED),
-                an_action("Putting other-flag back",
+                an_action("Reverting other-flag",
                           standing="not known whether it was made").model_copy(
                     update={"progress": progress})])
         ) \
@@ -2798,7 +2798,7 @@ def test_an_action_nobody_can_account_for_is_listed_apart_from_both(
         .then(all_of(
             _says("Actions it took:\n  - [M1] Reverted the feature flag some-flag"),
             _says("Actions it reached for that nobody can say were taken:\n"
-                  "  - [M2] Putting other-flag back (can be put back) - no verdict recorded, "
+                  "  - [M2] Reverting other-flag (can be put back) - no verdict recorded, "
                   "not known whether it was made"),
             _does_not_say("did not take")))
 
@@ -2813,7 +2813,7 @@ def test_an_incident_whose_only_action_nobody_can_account_for_is_not_said_to_hav
     Scenario() \
         .given(
             evidence := an_evidence_bundle(actions=[
-                an_action("Putting other-flag back").model_copy(update={"progress": progress})])
+                an_action("Reverting other-flag").model_copy(update={"progress": progress})])
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())
@@ -2821,7 +2821,7 @@ def test_an_incident_whose_only_action_nobody_can_account_for_is_not_said_to_hav
         .then(all_of(
             _does_not_say("Actions it took:"),
             _says("Actions it reached for that nobody can say were taken:\n"
-                  "  - [M1] Putting other-flag back")))
+                  "  - [M1] Reverting other-flag")))
 
 
 @pytest.mark.unit

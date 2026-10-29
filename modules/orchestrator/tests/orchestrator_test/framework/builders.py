@@ -95,7 +95,7 @@ def an_identity(action_type: ActionType, subject: str) -> ActionIdentity:
     return ActionIdentity(action_type=action_type, subject=subject)
 
 
-def putting_back(flag: str) -> ActionIdentity:
+def reverting(flag: str) -> ActionIdentity:
     """Reverting a flag, as the walk identifies it."""
     return an_identity(REVERT_FEATURE_FLAG, flag)
 

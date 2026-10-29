@@ -19,7 +19,7 @@ difference between "somebody work out what to do" and "somebody go and do this".
 
 Two cases, one per kind of change that writes wrong data. The mode names the
 damage rather than its cause, so which change to undo is read off the record: a
-flag that moved at the onset is put back, and a revision that went out at the
+flag that moved at the onset is reverted, and a revision that went out at the
 onset is rolled back. Both end the same way, which is why they are one file.
 """
 
@@ -90,7 +90,7 @@ def test_an_incident_nothing_could_confirm_is_recommended_rather_than_acted_on()
                     cause_identified_as(FailureMode.SILENT_DATA_CORRUPTION),
                     argus_ended_with_status(IncidentStatus.RECOMMENDED),
                     argus_wrote_a_postmortem(),
-                    # The teeth. Argus proposed putting this flag back, the
+                    # The teeth. Argus proposed reverting this flag, the
                     # gate declined to let it, and the world is as it found it
                     # - which is what "recommended" has to mean or the status
                     # is a label on an action that quietly happened anyway.
@@ -142,7 +142,7 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
 def _argus_recommended_a_rollback_of(application: str) -> Assertion[httpx2.Response]:
     """What the incident hands on, read from its own account.
 
-    The status alone would pass on a walk that recommended putting back a flag
+    The status alone would pass on a walk that recommended reverting a flag
     that never moved - the same ending, addressed to a change that did not
     happen. What a reader is told to go and do is the whole of this ending, so
     the kind and the subject are what is asserted.

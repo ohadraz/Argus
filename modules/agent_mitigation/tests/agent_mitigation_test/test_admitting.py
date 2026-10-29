@@ -98,7 +98,7 @@ def test_holding_a_deployment_to_one_card_may_be_taken_unasked() -> None:
 @pytest.mark.unit
 def test_discarding_cache_entries_may_be_taken_unasked() -> None:
     # The sixth kind, and the one most likely to be mistaken for a weakening of
-    # the criterion: removing data sounds heavier than putting a value back, and
+    # the criterion: removing data sounds heavier than reverting a value, and
     # is not. What is discarded was derived from a store the action never
     # touches, and the service recomputes it on the next read - so nothing is
     # lost, and there is nothing for an undo to put back either.
