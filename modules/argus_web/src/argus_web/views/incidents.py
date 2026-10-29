@@ -86,8 +86,9 @@ class Candidate(BaseModel):
     tested: bool
     result: str | None
     attempts: list[Attempt]
-    # Each revision its claim, subject and findings name, by the short form
-    # they say it by, and where it opens - as a line of the timeline leads.
+    # Each revision its claim, subject, move, findings and reason name, by the
+    # short form they say it by, and where it opens - as a line of the timeline
+    # leads.
     links: dict[str, str] = Field(default_factory=dict)
 
 
@@ -237,6 +238,8 @@ def _a_candidate(hypothesis: Hypothesis,
                if hypothesis.subject is not None else None)
     moved_from = said_as_shown(said_as_a_state(hypothesis.from_state), revisions)
     moved_to = said_as_shown(said_as_a_state(hypothesis.to_state), revisions)
+    result = (said_as_shown(hypothesis.result, revisions)
+              if hypothesis.result is not None else None)
     evidence = [finding.model_copy(update={"text": said_as_shown(finding.text, revisions)})
                 for finding in (a_finding(cited, minutes, logged, beside=opened)
                                 for cited in hypothesis.supporting_evidence)]
@@ -251,8 +254,8 @@ def _a_candidate(hypothesis: Hypothesis,
         moved_to=moved_to,
         evidence=evidence,
         tested=hypothesis.tested,
-        result=hypothesis.result,
+        result=result,
         attempts=attempts,
-        links=the_links_in([summary, subject or "", moved_from, moved_to,
+        links=the_links_in([summary, subject or "", moved_from, moved_to, result or "",
                             *(finding.text for finding in evidence)], revisions)
     )

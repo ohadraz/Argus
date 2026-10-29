@@ -308,16 +308,18 @@ def test_an_incident_page_says_a_candidate_whose_action_a_tier_could_not_take_wa
 ) -> None:
     # The gate let the test through and the tier had nowhere to take the
     # action, writing why on the row. The write-up says "action not taken", and
-    # the page says the same fact in the same words - not the gate's.
+    # the page says the same fact in the same words - not the gate's - with the
+    # brackets around a name left off, as every line shown leaves them off.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-    some_reason = "[io-shop] has no revision before the one it is running"
+    reason_quoting_a_name = "[io-shop] has no revision before the one it is running"
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
         not_taken = _a_candidate_recorded_for(conn, incident_id, subject="not taken", rank=1)
         _an_attempt_taken_for(conn, incident_id, not_taken, outcome=Verdict.NOT_ATTEMPTED,
                               performed=False)
-        hypotheses.record_outcome(conn, not_taken, tested=False, result=some_reason)
+        hypotheses.record_outcome(conn, not_taken, tested=False,
+                                  result=reason_quoting_a_name)
 
     Scenario() \
         .given(
@@ -327,7 +329,8 @@ def test_an_incident_page_says_a_candidate_whose_action_a_tier_could_not_take_wa
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(all_of(
-            the_page_says(f"action not taken: {some_reason}"),
+            the_page_says("action not taken: io-shop has no revision before the one it is "
+                          "running"),
             _the_page_does_not_say("test held back")
         ))
 
@@ -2805,6 +2808,46 @@ def test_a_revision_a_candidate_names_opens_its_commit_in_the_timeline_and_the_w
             the_page_says(f"{linked} rewrote the history"),
             the_page_says(f"<code>{linked}</code>")
         ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("attempted", "lead_in"), [
+    (False, "test held back"),
+    (True, "action not taken")
+], ids=["held-back", "not-taken"])
+def test_a_revision_the_reason_a_candidate_went_untested_names_opens_its_commit_in_the_walk(
+        attempted: bool, lead_in: str
+) -> None:
+    # Named whole and leading nowhere in why the candidate went untested,
+    # beside its subject and findings naming the same revision short and
+    # opening it. With an attempt the reason is the tier's, without one the
+    # gate's, and each is said on a line of its own.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_repository = "https://github.com/acme/shop"
+    linked = (f'<a href="{some_repository}/commit/{some_revision}" target="_blank" '
+              f'rel="noopener noreferrer">{some_revision[:7]}</a>')
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
+        untested = _a_candidate_recorded_for(conn, incident_id, subject="dont care", rank=1)
+        if attempted:
+            _an_attempt_taken_for(conn, incident_id, untested, outcome=Verdict.NOT_ATTEMPTED,
+                                  performed=False)
+        hypotheses.record_outcome(conn, untested, tested=False,
+                                  result=f"nothing runs before {some_revision}")
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            the_page_says(f"{lead_in}: nothing runs before {linked}")
+        )
 
 
 @pytest.mark.component
