@@ -1,0 +1,56 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "The causal chain of a postmortem, its steps numbered as written:\n1. Shoppers' account page requests failed. The share of requests answered with server errors rose from 0.9% before the onset to 30.4% on average, peaking at 41.5%. The service's own account page error-rate warnings were at their highest at 13:44 UTC.\n2. From 13:37 UTC, account page requests failed with ZeroDivisionError: division by zero at line 47 of src/io_shop/spend_summary.py. Before that minute, the only account page failures logged were shoppers closing the connection, and pages were logged as rendering normally.\n3. The spend-summary code ran because admin switched on the feature flag monthly-spend-feature at 13:37 UTC. Before then the service evaluated the flag as off for every request. In the minute of the switch it evaluated the flag as on for part of its requests, and in each later minute over 13:38\u201313:45 UTC it evaluated it as on for all of them. The ZeroDivisionError failures began in that same minute.\n4. With the flag on, account page requests reach `average_spend_per_item_this_month`. It divides the month's total spend by the number of purchases marked as in the current month. For a shopper who has bought before but not this month, that list is empty, and the division raises ZeroDivisionError at line 47. The failure reaches the account page. With the flag off, this path is not taken.\n\nPut the steps in the order in which each step answers why the step directly before it happened - the first and the last stay where they are. Call order_chain with the steps' numbers in that order.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Give the order the causal chain's steps should be read in, as their numbers. Change nothing else.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "order": {
+            "description": "Every step's number, each once, in the order that makes each step answer why the step directly before it happened. The first and the last stay where they are.",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "type": "object"
+      },
+      "name": "order_chain",
+      "strict": true
+    }
+  ]
+}
