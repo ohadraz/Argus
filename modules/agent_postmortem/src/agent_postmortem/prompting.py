@@ -286,7 +286,7 @@ class SubmittedPostmortem(BaseModel):
     lessons: Lessons | None = None
     # Never `None`: an answer that did not say reads as a chain that stopped at
     # the change, which unticks one box of the review. So `checking`, which
-    # names a required field that is `None`, never puts it back - a retry spent
+    # names a required field that is `None`, never sends it back - a retry spent
     # on it would ask every answer recorded before the question for a turn more.
     reaches_a_cause: bool = False
     # `None` where unanswered, which a live call never is: only an answer
