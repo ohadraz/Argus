@@ -345,7 +345,7 @@ def _missing_fields(answer: SubmittedPostmortem) -> _Placed:
 
 
 # Required fields whose absence means an answer recorded before the question
-# existed - a live call always sends them - and so is never put back: a retry
+# existed - a live call always sends them - and so is never sent back: a retry
 # would ask each such recording for a turn it does not hold.
 _UNANSWERED_BEFORE_IT_WAS_ASKED: Final = frozenset({CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD})
 

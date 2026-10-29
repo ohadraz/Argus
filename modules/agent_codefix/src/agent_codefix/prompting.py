@@ -341,7 +341,7 @@ class SubmittedFix(BaseModel):
     """What the model submitted, said as fields rather than as a mapping.
 
     Every field is optional, because finding out what is missing is the point: a
-    field the model left out is a fault to put back to it, not an answer that
+    field the model left out is a fault to send back to it, not an answer that
     failed to arrive. `None` means unanswered.
 
     An empty `files` is a real answer and not a malformed one - "I looked and
@@ -349,7 +349,7 @@ class SubmittedFix(BaseModel):
     different from a submission that could not be read. Whoever reads this has
     to be able to tell those apart, so both parse.
 
-    It parses, and it is put back once before it is believed. The same call
+    It parses, and it is sent back once before it is believed. The same call
     also arrives from a model that described the change it wanted and attached
     nothing, and no amount of reading the prose separates the two - a verdict
     carries an explanation as readily as a proposal does. So the loop asks, and
@@ -618,8 +618,8 @@ NOT_AN_ANSWER: Final = (
 )
 NOT_RUN_WHILE_ASKED: Final = "Not run: answer the question first."
 
-# What every other call in a turn whose submission was put back is told.
-NOT_RUN_WHILE_PUT_BACK: Final = "Not run: your submission was put back - submit again first."
+# What every other call in a turn whose submission was sent back is told.
+NOT_RUN_WHILE_SENT_BACK: Final = "Not run: your submission was sent back - submit again first."
 
 
 class AnswerToTheQuestion(BaseModel):

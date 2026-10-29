@@ -8,7 +8,7 @@ real revision, short or whole, is written short. One a few characters off is the
 revision it starts like, and is written as that: code knows which one it was,
 and asking the model again would pay twice to put back a character. One that
 starts like none of them, or like more than one, is left as written for the
-check to put back to the model (`checking`), because nothing here can know
+check to send back to the model (`checking`), because nothing here can know
 what it meant.
 """
 
@@ -178,7 +178,7 @@ def test_a_revision_sharing_less_than_that_is_left_for_the_check() -> None:
 @pytest.mark.unit
 def test_a_revision_starting_like_two_is_left_for_the_check() -> None:
     # Nothing says which of the two it meant, and a guess written in as the
-    # revision is worse than the question put back.
+    # revision is worse than the question sent back.
     some_revision = "abcde123" + "0" * 32
     some_twin = "abcde456" + "0" * 32
 

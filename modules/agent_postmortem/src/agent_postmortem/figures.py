@@ -182,7 +182,7 @@ _OPERATIONS: Final = {"-": "minus", "+": "plus", "/": "divided by"}
 
 # How each operation on two kinds is worked out, from the two figures as the
 # model was shown them, into what the page writes. One missing works out to
-# nothing, and is put back to the model.
+# nothing, and is sent back to the model.
 #
 # A difference of two shares is in points rather than a share: "rose by 32.7%"
 # reads as a share of where it started. A difference of two levels is a level,
@@ -640,7 +640,7 @@ def with_figures_written(answer: SubmittedPostmortem,
                          figures: dict[str, Figure]) -> SubmittedPostmortem:
     """The answer with every figure it names written in.
 
-    A name no figure has is left as written, for the check to put back to the
+    A name no figure has is left as written, for the check to send back to the
     model (`checking`): nothing here can know which figure it meant, and a
     guess written in would be a number nobody measured. So is a working that
     cannot be worked out.

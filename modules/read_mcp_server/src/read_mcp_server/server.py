@@ -359,7 +359,7 @@ def build_server(endpoint: ReadMcpEndpoint,
         patch's files.
 
         Read by Code-Fix before its submission is asked anything: a sentence
-        about several pieces of code outside the patch is put back with these
+        about several pieces of code outside the patch is sent back with these
         rows, because what each of those lines does is the syntax tree's to say
         and not the model's. Not offered to a model. A source that could not be
         read raises rather than answering that nothing uses what changed. The

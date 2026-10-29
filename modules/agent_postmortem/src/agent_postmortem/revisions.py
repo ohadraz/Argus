@@ -10,7 +10,7 @@ What code holds it to is being one. A real revision, short or whole, is written
 short. One a few characters off is the revision it starts like, and is written
 as that: code knows which one it was, and asking the model again would pay
 twice to put back a character. One that starts like none of them, or like more
-than one, is left as written for the check to put back to the model
+than one, is left as written for the check to send back to the model
 (`checking`), because nothing here can know what it meant.
 """
 

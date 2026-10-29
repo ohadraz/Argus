@@ -816,7 +816,7 @@ def test_a_revision_the_incident_never_read_is_asked_for_again_naming_it() -> No
 @pytest.mark.unit
 def test_a_root_cause_naming_the_deploy_that_set_it_off_is_asked_for_again() -> None:
     # What the answer is held to includes the trigger the document states: a
-    # root cause opening with that deploy's revision is put back, naming it.
+    # root cause opening with that deploy's revision is sent back, naming it.
     the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
     asks: Kept[Transcript] = Kept()
 

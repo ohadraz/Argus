@@ -6,7 +6,7 @@ was said right on its own, and then the sentence about them together - "those
 readers keep trusting it" - counted among them the one reader that compares
 the figure with the purchases to catch it being wrong. What a line outside the
 patch does is the syntax tree's to say, so a sentence like that is found here
-and put back with what the tree says.
+and sent back with what the tree says.
 
 A piece is a file of the repository the patch does not touch, a module of one
 written as code by its bare name, or a function or class defined only outside

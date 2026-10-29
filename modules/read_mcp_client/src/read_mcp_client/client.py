@@ -395,7 +395,7 @@ def get_code_outside_the_patch(files: dict[str, str],
 
     For Code-Fix rather than for its model: what each line outside a patch does
     with what the patch changes is the syntax tree's to say, so a submission
-    speaking of several of those pieces at once is put back with these rows.
+    speaking of several of those pieces at once is sent back with these rows.
 
     Raises rather than answering that nothing uses what changed when the source
     could not be read - the silent answer says the patch touches nothing anybody

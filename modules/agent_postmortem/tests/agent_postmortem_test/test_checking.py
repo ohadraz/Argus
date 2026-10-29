@@ -713,7 +713,7 @@ def test_a_working_between_two_instants_the_evidence_states_is_accepted() -> Non
 @pytest.mark.unit
 def test_a_working_that_makes_no_sense_is_named() -> None:
     # Two instants have a span between them and no sum. Left in, it would reach
-    # the page in braces - so it is put back to the model instead.
+    # the page in braces - so it is sent back to the model instead.
     Scenario() \
         .given(
             an_answer_adding_two_instants := _an_answer(
@@ -2134,7 +2134,7 @@ def test_a_step_of_the_cause_saying_what_the_evidence_does_not_reach_is_accepted
         limit_of_the_evidence: str) -> None:
     # Where the evidence stops is no safeguard missing. The first two are steps
     # of recorded write-ups, and the third is the hedge an F-only step is asked
-    # for: a check the rule refused in any of them would put back an answer
+    # for: a check the rule refused in any of them would send back an answer
     # that said what it was told to.
     Scenario() \
         .given(

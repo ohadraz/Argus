@@ -253,7 +253,7 @@ class SubmittedPostmortem(BaseModel):
     in all four rather than a key that quietly returns nothing in three.
 
     Every field is optional, because finding out what is missing is the point:
-    a required field the model left out is a fault to put back to it (see
+    a required field the model left out is a fault to send back to it (see
     `checking`), not an answer that failed to arrive. `None` means unanswered,
     and reaches the document as an absent column rather than an empty one.
 
@@ -290,7 +290,7 @@ class SubmittedPostmortem(BaseModel):
     # on it would ask every answer recorded before the question for a turn more.
     reaches_a_cause: bool = False
     # `None` where unanswered, which a live call never is: only an answer
-    # recorded before the question was asked. Never put back for the reason
+    # recorded before the question was asked. Never sent back for the reason
     # `reaches_a_cause` is not, and read as that answer's own root cause and the
     # review's older rule already say it (`reviewing`).
     cause_rests_on_an_unrun_reading: bool | None = None

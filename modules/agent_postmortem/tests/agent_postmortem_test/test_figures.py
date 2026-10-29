@@ -825,7 +825,7 @@ def test_a_span_said_in_days_and_hours_is_worked_with_in_full() -> None:
 @pytest.mark.unit
 def test_a_ratio_to_a_span_of_less_than_a_second_is_left_for_the_check() -> None:
     # Shown as "less than a second", it is nothing to divide by - and a
-    # working with no result is the check's to put back, never a guess.
+    # working with no result is the check's to send back, never a guess.
     some_spans = {
         HELD_FIGURE: Figure(given="30 minutes", written="dont care"),
         DURATION_FIGURE: Figure(given="less than a second", written="dont care")

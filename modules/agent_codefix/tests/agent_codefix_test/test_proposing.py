@@ -165,12 +165,12 @@ NOT_RUN_UNTIL_ANSWERED = "answer the question first"
 # words.
 SPOKEN_OF_TOGETHER = "speaks of several pieces of code outside your patch"
 
-# What a call sent beside a submission put back is told - words rather than
+# What a call sent beside a submission sent back is told - words rather than
 # sentences, for the reason the warning above pins words.
 NOT_RUN_UNTIL_SUBMITTED_AGAIN = "submit again first"
 
-# What a walk that ran out with its last submission put back says it ended on.
-WHAT_A_WALK_ENDING_ON_A_PUT_BACK_SAYS = "last submission was put back"
+# What a walk that ran out with its last submission sent back says it ended on.
+WHAT_A_WALK_ENDING_ON_A_SENT_BACK_SAYS = "last submission was sent back"
 
 # How the adapter says a turn that ran out of room, in its own words - which
 # are the vendor's stop reason and nothing a reader of the incident can use.
@@ -2485,7 +2485,7 @@ def test_an_empty_patch_sent_twice_is_never_read_as_a_verdict() -> None:
 
 
 @pytest.mark.unit
-def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -> None:
+def test_a_patch_whose_content_is_not_source_is_sent_back_for_another_attempt() -> None:
     # What a live run did: the model wrote the whole new module into its
     # explanation and then put "(see above)" where the file's content belongs.
     # The submission is schema-valid - a string is a string - so nothing refused
@@ -2498,7 +2498,7 @@ def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -
     # the one thing that can be checked before a branch exists. It catches a
     # truncation as well, which nothing currently catches.
     #
-    # Put back rather than raised, as an empty patch is: the model has already
+    # Sent back rather than raised, as an empty patch is: the model has already
     # decided what to write and is one turn from writing it properly.
     repository = a_repository()
     model = a_model_that(
@@ -2525,7 +2525,7 @@ def test_a_patch_whose_content_is_not_source_is_put_back_for_another_attempt() -
 
 
 @pytest.mark.unit
-def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_put_back() -> None:
+def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_sent_back() -> None:
     # What every slip of this kind was: each reader said right on its own, then
     # one sentence about all of them that counted among them the one checking
     # the figure. What the code outside the patch does is said by its syntax
@@ -2574,9 +2574,9 @@ def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_put_back(
 
 
 @pytest.mark.unit
-def test_a_submission_put_back_once_is_asked_its_question_the_second_time() -> None:
-    # Put back once before it is believed, as an empty patch is. A rewrite that
-    # still trips the check was put back until the budget ran out, and the fix
+def test_a_submission_sent_back_once_is_asked_its_question_the_second_time() -> None:
+    # Sent back once before it is believed, as an empty patch is. A rewrite that
+    # still trips the check was sent back until the budget ran out, and the fix
     # was lost to a sentence about it.
     some_reader = "src/io_shop/spend_report.py"
     some_checker = "src/io_shop/spend_reconciliation.py"
@@ -2608,10 +2608,10 @@ def test_a_submission_put_back_once_is_asked_its_question_the_second_time() -> N
 
 
 @pytest.mark.unit
-def test_a_submission_put_back_on_the_last_call_is_still_rewritten_and_asked() -> None:
+def test_a_submission_sent_back_on_the_last_call_is_still_rewritten_and_asked() -> None:
     # The rewrite is part of the submission, not another read, as the answer to
     # its question is. The last call is where the warning makes a model submit,
-    # and a patch put back there ended the walk "without submitting a fix".
+    # and a patch sent back there ended the walk "without submitting a fix".
     one_call = 1
     some_reader = "src/io_shop/spend_report.py"
     some_checker = "src/io_shop/spend_reconciliation.py"
@@ -2651,10 +2651,10 @@ def test_a_submission_put_back_on_the_last_call_is_still_rewritten_and_asked() -
     ([{"path": SOME_PATH, "content": A_PLACEHOLDER_WHERE_SOURCE_BELONGS}], "an explanation"),
     ([], "an explanation")
 ], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-files"])
-def test_a_read_sent_with_a_submission_put_back_is_answered_not_run(
+def test_a_read_sent_with_a_submission_sent_back_is_answered_not_run(
         files: list[dict[str, str]], explanation: str) -> None:
     # The API takes one result for every call in a turn, and refuses the next
-    # request otherwise. A submission put back was the only call answered, so a
+    # request otherwise. A submission sent back was the only call answered, so a
     # read sent beside it left the walk one request from an error.
     repository = a_repository(holding=[
         SOME_PATH, "src/io_shop/spend_report.py", "src/io_shop/spend_reconciliation.py"
@@ -2698,7 +2698,7 @@ def test_a_read_sent_with_a_submission_put_back_is_answered_not_run(
 
 
 @pytest.mark.unit
-def test_a_submission_put_back_in_the_room_for_its_answer_gets_no_room_for_a_rewrite() -> None:
+def test_a_submission_sent_back_in_the_room_for_its_answer_gets_no_room_for_a_rewrite() -> None:
     # Each stretch is given once. A rewrite past the room for an answer is a
     # call that cannot end in a fix: it is written, and never asked about.
     one_call = 1
@@ -2741,7 +2741,7 @@ def test_a_submission_put_back_in_the_room_for_its_answer_gets_no_room_for_a_rew
     ([{"path": SOME_PATH, "content": A_PLACEHOLDER_WHERE_SOURCE_BELONGS}], "an explanation"),
     ([], "an explanation")
 ], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-files"])
-def test_a_walk_ending_on_a_submission_put_back_says_so(
+def test_a_walk_ending_on_a_submission_sent_back_says_so(
         files: list[dict[str, str]], explanation: str) -> None:
     # A submission was made. Told that none was, a reader goes looking at an
     # agent that never got as far as a fix, when it got one and was sent back.
@@ -2773,14 +2773,14 @@ def test_a_walk_ending_on_a_submission_put_back_says_so(
         .then(
             all_of(
                 an_error_was_raised(FixNotAnswered),
-                the_error_mentioned(WHAT_A_WALK_ENDING_ON_A_PUT_BACK_SAYS)
+                the_error_mentioned(WHAT_A_WALK_ENDING_ON_A_SENT_BACK_SAYS)
             )
         )
 
 
 @pytest.mark.unit
-def test_a_submission_put_back_withdraws_the_one_asked_before_it() -> None:
-    # A second submission replaces the first, put back or not. Left asked, the
+def test_a_submission_sent_back_withdraws_the_one_asked_before_it() -> None:
+    # A second submission replaces the first, sent back or not. Left asked, the
     # first was opened on an answer given after another had been sent.
     three_calls = 3
     some_reader = "src/io_shop/spend_report.py"
@@ -3065,14 +3065,14 @@ def test_a_scripted_conversation_never_reaches_the_real_client() -> None:
 
 
 @pytest.mark.unit
-def test_a_submission_with_no_files_is_put_back_rather_than_read_as_a_verdict() -> None:
+def test_a_submission_with_no_files_is_sent_back_rather_than_read_as_a_verdict() -> None:
     # The schema forbids an empty patch, so one arriving here is a submission
     # whose every entry was dropped as unreadable - see the leniency in
     # `SubmittedFix`. That is a model that meant to attach a patch, not one
     # reaching a verdict: the verdict has a tool of its own, and a model that
     # wanted it would have called that.
     #
-    # Put back once, because the model has already decided what to write and
+    # Sent back once, because the model has already decided what to write and
     # needs the turn rather than the judgement. Ending here instead would throw
     # away every file it had read correctly and report it as a conclusion
     # about the code - which is what a live run did, recording "Argus looked
@@ -4086,7 +4086,7 @@ def test_an_answer_cut_short_is_logged_as_a_warning(caplog: pytest.LogCaptureFix
 def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Put back and usually corrected, so a turn paid for and thrown away shows
+    # Sent back and usually corrected, so a turn paid for and thrown away shows
     # nowhere but here.
     repository = a_repository()
     model = a_model_that(
