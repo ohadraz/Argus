@@ -2642,7 +2642,7 @@ def test_an_incident_never_back_to_normal_is_given_as_a_lower_bound_to_its_close
 
 
 @pytest.mark.unit
-def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
+def test_an_incident_whose_metrics_are_still_missing_is_not_said_to_have_closed() -> None:
     # Where Argus stopped is not where the incident did. An escalated incident
     # whose blind stretch was still running was told to the model as "still
     # unobserved when the incident closed", and the write-up said the incident
@@ -2967,7 +2967,7 @@ def test_a_service_back_after_the_action_credited_with_it_is_not_given_as_back_b
 
 
 @pytest.mark.unit
-def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserved() -> None:
+def test_an_incident_whose_metrics_stopped_at_its_onset_is_written_up_as_a_metrics_gap() -> None:
     # The lower bound above is true and not enough. Where the rows stop at the
     # onset, the stretch it bounds is not one the service spent in trouble - it is
     # one the metrics did not cover at all - and a write-up that said only "had not
@@ -2985,7 +2985,7 @@ def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserve
 
 
 @pytest.mark.unit
-def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> None:
+def test_an_incident_its_metrics_covered_says_nothing_of_a_metrics_gap() -> None:
     Scenario() \
         .given(
             an_incident_still_broken := a_measured_incident(back_to_normal_at=None)
@@ -2997,7 +2997,7 @@ def test_an_incident_its_metrics_covered_says_nothing_of_being_unobserved() -> N
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> None:
+def test_a_metrics_gap_names_the_log_lines_read_that_reach_into_it() -> None:
     # The metrics stopping is not nobody seeing. Told the stretch was one
     # "nobody could see", and the service "unobserved", a model holding the
     # shop's own warned rate through it wrote that the record could not say how
@@ -3084,7 +3084,7 @@ def test_a_metrics_gap_leaves_each_rate_shown_to_say_what_it_covers() -> None:
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_no_log_line_reaches_into_is_said_to_have_none() -> None:
+def test_a_metrics_gap_no_log_line_reaches_into_is_said_to_have_none() -> None:
     # Said rather than left out, since a list that is absent reads the same as
     # one nobody looked for.
     some_line_before = f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"
@@ -3103,7 +3103,7 @@ def test_an_unobserved_stretch_no_log_line_reaches_into_is_said_to_have_none() -
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_of_a_walk_that_read_no_logs_is_said_to_have_read_none() -> None:
+def test_a_metrics_gap_of_a_walk_that_read_no_logs_is_said_to_have_read_none() -> None:
     # Told that no line read reaches into the stretch, a model is told logs were
     # looked at and said nothing of it - which a walk that read none never did.
     Scenario() \
@@ -3120,7 +3120,7 @@ def test_an_unobserved_stretch_of_a_walk_that_read_no_logs_is_said_to_have_read_
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_of_a_walk_whose_log_read_came_back_empty_is_said_to_have_read(
+def test_a_metrics_gap_of_a_walk_whose_log_read_came_back_empty_is_said_to_have_read(
 ) -> None:
     # A read with no lines is a finding about the service, not a read nobody
     # made: where the metrics stopped, the service gone quiet in its logs too.
@@ -3139,7 +3139,7 @@ def test_an_unobserved_stretch_of_a_walk_whose_log_read_came_back_empty_is_said_
 
 
 @pytest.mark.unit
-def test_the_log_lines_reaching_into_an_unobserved_stretch_are_the_service_s_account_of_it(
+def test_the_log_lines_reaching_into_a_metrics_gap_are_the_service_s_account_of_it(
 ) -> None:
     # Told which lines reach in and how far, a model still wrote that the shop's
     # health could not be seen for the whole stretch - and in the next sentence
@@ -3191,7 +3191,7 @@ def test_the_error_rate_line_names_the_log_rows_whose_figures_reach_into_the_str
 
 
 @pytest.mark.unit
-def test_the_service_is_said_to_be_seen_through_the_log_lines_reaching_into_an_unobserved_stretch(
+def test_the_service_is_said_to_be_seen_through_the_log_lines_reaching_into_a_metrics_gap(
 ) -> None:
     # Told the lines are the service's own account of the stretch, a write-up
     # still said the shop kept serving "while it went unobserved", citing those
@@ -3223,7 +3223,7 @@ def test_an_error_rate_the_metrics_did_not_measure_over_a_gap_points_to_the_logs
     # "Not measured by the metrics" alone, and a model wrote that the error rate
     # over the gap could not be measured - of a gap the shop's own logged rate
     # covered. Pointed to only where a line does reach in.
-    an_unobserved_stretch = a_measured_incident(
+    a_metrics_gap = a_measured_incident(
         error_rates=None, back_to_normal_at=None, metrics_stopped_at=ONSET
     ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
 
@@ -3232,7 +3232,7 @@ def test_an_error_rate_the_metrics_did_not_measure_over_a_gap_points_to_the_logs
             evidence := an_evidence_bundle(log_lines=log_lines)
         ) \
         .when(
-            lambda: opening_ask(evidence, an_unobserved_stretch)
+            lambda: opening_ask(evidence, a_metrics_gap)
         ) \
         .then(
             _says_on_one_line("Error rate: not measured by the metrics",
@@ -3247,7 +3247,7 @@ def test_an_error_rate_the_metrics_did_not_measure_over_a_gap_points_to_the_logs
     (timedelta(0), "when the alert was raised - nothing after that was read"),
     (timedelta(minutes=2), " - nothing after that was read")
 ], ids=["at-the-alert", "past-the-alert"])
-def test_an_unobserved_stretch_says_where_the_reading_of_the_logs_ended(
+def test_a_metrics_gap_says_where_the_reading_of_the_logs_ended(
         read_past_the_alert: timedelta, said: str) -> None:
     # The lines read reached 20:45, and the write-up said the shop's health was
     # not known after that point - as though the shop went quiet, where the
@@ -3270,7 +3270,7 @@ def test_an_unobserved_stretch_says_where_the_reading_of_the_logs_ended(
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_read_past_the_alert_is_not_said_to_end_at_it() -> None:
+def test_a_metrics_gap_read_past_the_alert_is_not_said_to_end_at_it() -> None:
     some_evidence = an_evidence_bundle(
         log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"])
 
@@ -3289,7 +3289,7 @@ def test_an_unobserved_stretch_read_past_the_alert_is_not_said_to_end_at_it() ->
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_with_no_reading_recorded_says_nothing_of_where_one_ended(
+def test_a_metrics_gap_with_no_reading_recorded_says_nothing_of_where_one_ended(
 ) -> None:
     Scenario() \
         .given(

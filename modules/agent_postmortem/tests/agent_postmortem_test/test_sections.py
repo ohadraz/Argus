@@ -2396,7 +2396,7 @@ def test_impact_still_running_when_the_metrics_ran_out_is_a_lower_bound() -> Non
 
 
 @pytest.mark.unit
-def test_impact_whose_metrics_stopped_is_unobserved() -> None:
+def test_impact_whose_metrics_stopped_is_metrics_missing() -> None:
     # Not a stretch the service is known to have spent broken - a stretch
     # nobody could see, which a lower bound would misdescribe.
     Scenario() \

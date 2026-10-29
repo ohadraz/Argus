@@ -1987,7 +1987,7 @@ _NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
 
 def _what_the_error_rate_did(rates: ErrorRates | None,
                              unmeasured: Unmeasured | None,
-                             unobserved: bool,
+                             metrics_stopped: bool,
                              logs_reaching_in: Sequence[str],
                              figures: Mapping[str, Figure]) -> list[str]:
     """The error rate at every level worth reporting, each named for itself.
@@ -2007,8 +2007,8 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     Said as the metrics' gap rather than the record's. Told the error rate was
     not known, a model that had cited the shop's own warned rate from its logs
     wrote that no error rate existed, and asked for the logs it had already read
-    to be reviewed. And where the stretch was unobserved, its minutes are not
-    called the ones the service was broken in: nothing says it was. The
+    to be reviewed. And where the metrics had stopped, the stretch after is not
+    called the minutes the service was broken in: nothing says it was. The
     log lines reaching into it are pointed to: told only that the metrics did
     not measure it, a model wrote that the error rate over the stretch could
     not be measured, of one the shop's own logged rate covered. And by label:
@@ -2022,7 +2022,7 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     if rates is None:
         reason = (
             _NONE_AFTER_THE_METRICS_STOPPED
-            if unobserved and unmeasured is Unmeasured.NO_MINUTE_WHILE_BROKEN
+            if metrics_stopped and unmeasured is Unmeasured.NO_MINUTE_WHILE_BROKEN
             else _WHY_UNMEASURED[unmeasured] if unmeasured is not None
             else None
         )

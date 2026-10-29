@@ -1371,19 +1371,18 @@ def test_where_the_reading_of_the_logs_ended_is_a_figure_beside_a_metrics_gap() 
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("logs_read_until", "unobserved_from"), [
-    (None, ONSET),
+@pytest.mark.parametrize(("log_reading_ended", "metrics_stopped_at"), [    (None, ONSET),
     (ONSET + timedelta(minutes=5), None)
 ], ids=["no-reading-recorded", "no-metrics-gap"])
 def test_where_the_reading_of_the_logs_ended_is_no_figure_without_a_reading_and_a_gap(
-        logs_read_until: datetime | None, unobserved_from: datetime | None) -> None:
+        log_reading_ended: datetime | None, metrics_stopped_at: datetime | None) -> None:
     # Only beside a gap, where how far the lines reach is said: elsewhere the
     # metrics say how the service was doing, and the end of a read says nothing.
     Scenario() \
         .given(
             evidence := an_evidence_bundle().model_copy(
-                update={"log_reading_ended": logs_read_until}),
-            measured := a_measured_incident(metrics_stopped_at=unobserved_from)
+                update={"log_reading_ended": log_reading_ended}),
+            measured := a_measured_incident(metrics_stopped_at=metrics_stopped_at)
         ) \
         .when(
             lambda: figures_of(evidence, measured)

@@ -282,7 +282,7 @@ def test_the_logs_reaching_into_the_stretch_the_metrics_missed_are_named_with_ho
     # often where the reading did.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(impact=_unobserved(LogsInTheGap(
+            some_postmortem := a_postmortem(impact=_metrics_missing(LogsInTheGap(
                 read=True, labels=["G46bc", "Gbac1"], reach_until=SOME_MINUTE,
                 read_until=SOME_MINUTE + timedelta(seconds=55), read_until_the_alert=True)))
         ) \
@@ -309,7 +309,7 @@ def test_whether_the_logs_show_the_service_serving_as_before_follows_how_far_the
     # write-up bounded it in one sentence and said it unbounded in the next.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(impact=_unobserved(LogsInTheGap(
+            some_postmortem := a_postmortem(impact=_metrics_missing(LogsInTheGap(
                 read=True, labels=["G46bc"], reach_until=SOME_MINUTE,
                 read_until=SOME_MINUTE + timedelta(seconds=55), read_until_the_alert=True,
                 serving_as_before=serving_as_before)))
@@ -330,7 +330,7 @@ def test_logs_reaching_as_far_as_they_were_read_say_the_instant_once() -> None:
     # one instant reads as two facts, as it did in the summary.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(impact=_unobserved(LogsInTheGap(
+            some_postmortem := a_postmortem(impact=_metrics_missing(LogsInTheGap(
                 read=True, labels=["G46bc"], reach_until=SOME_MINUTE, read_until=SOME_MINUTE,
                 read_until_the_alert=True)))
         ) \
@@ -360,7 +360,7 @@ def test_logs_that_show_nothing_of_the_stretch_the_metrics_missed_say_so(logs: L
     # one whose logs nobody looked at.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(impact=_unobserved(logs))
+            some_postmortem := a_postmortem(impact=_metrics_missing(logs))
         ) \
         .when(
             lambda: the_impact(some_postmortem, an_alert()).logs_in_the_gap
@@ -587,7 +587,7 @@ def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:
     return assertion
 
 
-def _unobserved(logs: LogsInTheGap) -> Impact:
+def _metrics_missing(logs: LogsInTheGap) -> Impact:
     """An incident whose metrics stopped at the onset, with these logs read."""
     return Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                   peak_error_rate=None, logs_in_the_gap=logs)

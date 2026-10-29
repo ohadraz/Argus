@@ -652,7 +652,7 @@ def _metrics_noisier_hours_before_the_onset() -> Metrics:
 
 
 @pytest.mark.unit
-def test_metrics_that_stopped_hours_before_the_onset_were_unobserved_from_it() -> None:
+def test_metrics_that_stopped_hours_before_the_onset_leave_a_metrics_gap_from_it() -> None:
     # The calm is read back further than the hour, so a source whose rows
     # stopped two hours before the onset answers with them: it was read, and
     # collected nothing from the onset on - which is not a source that could
@@ -666,7 +666,7 @@ def test_metrics_that_stopped_hours_before_the_onset_were_unobserved_from_it() -
                             some_sources(metrics=_metrics_that_stopped_hours_before_the_onset()))
         ) \
         .then(
-            _it_was_unobserved_from(ONSET)
+            _the_metrics_stopped_at(ONSET)
         )
 
 
@@ -686,7 +686,7 @@ def _metrics_that_stopped_hours_before_the_onset() -> Metrics:
 
 
 @pytest.mark.unit
-def test_an_incident_whose_metrics_stop_at_the_onset_was_unobserved_from_it() -> None:
+def test_an_incident_whose_metrics_stop_at_the_onset_has_a_metrics_gap_from_it() -> None:
     # A lower bound is not the whole of it. "Still broken when the metrics ran
     # out" and "nothing was collected from the onset on" both leave no recovery,
     # and they are different facts: the first measured a service in trouble to
@@ -703,7 +703,7 @@ def test_an_incident_whose_metrics_stop_at_the_onset_was_unobserved_from_it() ->
         ) \
         .then(all_of(
             _it_never_recovered(),
-            _it_was_unobserved_from(ONSET)
+            _the_metrics_stopped_at(ONSET)
         ))
 
 
@@ -716,11 +716,11 @@ def test_an_incident_whose_metrics_went_on_was_observed_throughout() -> None:
         .when(
             lambda: measure(evidence, some_sources(metrics=metrics_that_recovered()))
         ) \
-        .then(_it_was_observed_throughout())
+        .then(_the_metrics_never_stopped())
 
 
 @pytest.mark.unit
-def test_metrics_that_could_not_be_read_say_nothing_of_being_unobserved() -> None:
+def test_metrics_that_could_not_be_read_are_not_said_to_have_stopped() -> None:
     # An empty read is a source that did not answer, not a shop nobody collected
     # from. Saying it went unobserved would be a claim about the service drawn
     # from a failure of the read.
@@ -732,11 +732,11 @@ def test_metrics_that_could_not_be_read_say_nothing_of_being_unobserved() -> Non
             lambda: measure(evidence,
                             some_sources(metrics=metrics_that_answer_with_nothing()))
         ) \
-        .then(_it_was_observed_throughout())
+        .then(_the_metrics_never_stopped())
 
 
 @pytest.mark.unit
-def test_an_incident_closed_before_its_first_minute_could_be_reported_was_not_unobserved() -> None:
+def test_an_incident_closed_before_its_first_minute_could_be_reported_has_no_metrics_gap() -> None:
     # A read holds no minute the source has not reported yet, and the newest it
     # can hold by the close is the close's own minute less the source's lag. An
     # incident closed sooner than its first minute is reported finds no row after
@@ -759,7 +759,7 @@ def test_an_incident_closed_before_its_first_minute_could_be_reported_was_not_un
                                 metrics=metrics_that_stop_at_the_onset(),
                                 metrics_reporting_lag_minutes=a_source_a_minute_late))
         ) \
-        .then(_it_was_observed_throughout())
+        .then(_the_metrics_never_stopped())
 
 
 @pytest.mark.unit
@@ -1572,11 +1572,11 @@ def _it_never_recovered() -> Assertion[Measurements]:
     return assertion
 
 
-def _it_was_unobserved_from(expected: datetime) -> Assertion[Measurements]:
+def _the_metrics_stopped_at(expected: datetime) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
         if measured.metrics_stopped_at != expected:
             raise AssertionError(
-                f"Expected the service to be unobserved from [{expected}], got "
+                f"Expected the metrics to have stopped at [{expected}], got "
                 f"[{measured.metrics_stopped_at}].")
 
         return True
@@ -1584,12 +1584,12 @@ def _it_was_unobserved_from(expected: datetime) -> Assertion[Measurements]:
     return assertion
 
 
-def _it_was_observed_throughout() -> Assertion[Measurements]:
+def _the_metrics_never_stopped() -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
         if measured.metrics_stopped_at is not None:
             raise AssertionError(
-                f"Expected the metrics to cover the incident, and the service "
-                f"was measured as unobserved from [{measured.metrics_stopped_at}].")
+                f"Expected the metrics to cover the incident, and they stopped at "
+                f"[{measured.metrics_stopped_at}].")
 
         return True
 

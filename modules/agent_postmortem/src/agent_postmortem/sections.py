@@ -208,7 +208,7 @@ def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -
     bad it got - in failed requests, and in the series its rule pages on
     where that got worse - and what the logs show where the metrics stopped.
 
-    Unobserved before a lower bound: metrics that stopped also never show a
+    Metrics missing before a lower bound: metrics that stopped also never show a
     recovery, and a stretch the metrics carry nothing of is not one the
     service is known to have spent broken.
 
