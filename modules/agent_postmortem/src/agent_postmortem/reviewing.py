@@ -264,8 +264,18 @@ def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str], *,
             *(["the causal chain stops at the symptom"] if len(document.causal_chain) <= 1
               else []),
             *([_why_nothing_was_confirmed(results)] if Verdict.CONFIRMED not in results else []),
-            *(["the chain does not reach a cause beyond the change that set it off"]
-              if not reaches_a_cause else [])]
+            *([_where_the_chain_stops(document)] if not reaches_a_cause else [])]
+
+
+def _where_the_chain_stops(document: PostmortemDocument) -> str:
+    """That the chain reaches no cause - past the change that set the incident
+    off, where the document established one. Where it established none there is
+    no such change to reach past, and a line naming one would contradict the
+    trigger section saying so."""
+    if document.trigger is None:
+        return "the chain does not reach a cause"
+
+    return "the chain does not reach a cause beyond the change that set it off"
 
 
 def _why_nothing_was_confirmed(results: list[str]) -> str:

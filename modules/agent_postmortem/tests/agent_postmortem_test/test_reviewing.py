@@ -531,7 +531,7 @@ def test_an_analysis_that_stops_at_the_change_that_set_it_off_is_not_complete() 
     # trigger found, not a cause, and the model's own answer is what says so.
     Scenario() \
         .given(
-            a_complete_document := _a_document()
+            a_complete_document := _a_document(trigger=_a_trigger())
         ) \
         .when(
             lambda: review_of(a_complete_document, faults=[], reaches_a_cause=False)
@@ -547,10 +547,29 @@ def test_an_analysis_that_stops_at_the_change_that_set_it_off_is_not_complete() 
 
 
 @pytest.mark.unit
+def test_an_analysis_with_no_trigger_established_names_no_change_it_stops_at() -> None:
+    # Nothing established what set the incident off, and the trigger section
+    # says so. A line about a cause beyond "the change that set it off" would
+    # name a change the same document has just said it does not have.
+    Scenario() \
+        .given(
+            a_document_with_no_trigger := _a_document(trigger=None)
+        ) \
+        .when(
+            lambda: review_of(a_document_with_no_trigger, faults=[], reaches_a_cause=False)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="the chain does not reach a cause")
+        )
+
+
+@pytest.mark.unit
 def test_an_analysis_short_in_several_ways_says_each_in_the_order_checked() -> None:
     Scenario() \
         .given(
             a_document_short_every_way := _a_document(
+                trigger=_a_trigger(),
                 causal_chain=[_a_step("account pages failed")],
                 hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
                                                  result="never tried", label="C1")])
@@ -797,3 +816,10 @@ def _a_document(**overrides: Unpack[_WhatADocumentHolds]) -> PostmortemDocument:
     }
 
     return PostmortemDocument(**(complete | overrides))
+
+
+def _a_trigger() -> Trigger:
+    """A change the document established as what set the incident off. Only
+    that there is one is read here."""
+    return Trigger(subject="dont-care-flag", from_state="off", to_state="on",
+                   changed_at=None)
