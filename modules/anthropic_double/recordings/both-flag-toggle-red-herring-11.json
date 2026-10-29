@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS1QYKEAgTGAI4AUIIdGhpbmtpbmcSDIwOwRl+ikvPMbxAXhoMfmSymMAN/9a0Isk3IjB/nypM7L7r+eYsLmpqQFsC9Y4YOCB4LPn93tE3/lBQ1BnEccnSWjClwyWn06kP+MMq8gVGLdfKlKsCj/13c+ZJJWuY0eG3q5yqGXxnv/jSrkqGtOkzAKAvMtqEXxdPiZnvXd2IcmH5PzB406W5VgRO5vWzV4tLbs6V8qqKUagvAhlzRUj3A8kd+puJ5lkEcw0PWACeN+8E8P8WbmNkSCRS4tn7HbJNQTL53LLTVTiJcf7Hyltmha3hFsq6stbuWF11j7386m7zlT3Fnlh4BFbiZSUNt2f8gMLQyxKp/OFft+jZNSBTyWzFtUVDFmsn5QNeIRILu+w3IohS49jiKdEl0lNwW2+Zdkwa+i/N6RfLV3YTJI9Yp0LrlPxdEfU4iupTa71t8DY3/Uxn14MzTQg8zjcAusgn9fAf3F9UP9yDjxY3SQadZVDwxDzo61O1QS29qBr3XPV5hAPhPyV7rCQoLsUlRojn5Bq1/7r9mc9gTzbQq2nbfblmoksgER+ngaRRi8KgELNtSBWNWtlZbhFSSTo0z060xXGe6nDN3f52ZHJDWa9BNZ3O3eLsnkk5t2FpNjd6Yg5L3ASgATvo2goJGi9Mu8P9pOKHnpTmE8KYkLP3Tc8U1puE5nBh4jR2SdSpijJ0HP4yhGzbXrTNHXVZrqd1LqSLnUFUk1RTidQxpj62XieQVx2dF+FmRfs0DYoLBn8jZG+g7dx1aTPg2ZD9Nk1qux6rWNijD/kLmtGr5/zzS6Umb1o1II5aLkienDctDtaJe0Jzf+UvVszpdL9OGGBVRZKuYEfUmeNIGxA+yuxy0Pv0GMP4TLmn63NlVjArIzV2/pX+aFBHRMQMiHdqoAcpd9ABMgFH2a8TLC9hzukYRg/1illdaIHPhakoQdWlXMbluISs2yzHYjw85BfOicpMOjFdjXdowXbCdQILY2MYjEisZmQPK1fy/oiKpXQUr+gL28tXBggG93aWOGY7i2lCRE/zOxJxares9OENM0xqGVLAwdFyfSMnMxMq7I2wA++GWzFE7SIFvNXknk6i1Icd+O47FtAHpntpyBLr7BT7fIq3GAE=",
+      "thinking": "I'm checking the ordering: symptom, error, then why the error occurred, then the underlying mechanism \u2014 that progression already flows logically, so the sequence 1,2,3,4 holds as is.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01NSNJu7C1N7219nHDod66xU",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgVe7Hoif5C4gPW19Lqgy",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1350
+    },
+    "cache_creation_input_tokens": 1350,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 185,
+    "output_tokens_details": {
+      "thinking_tokens": 127
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
