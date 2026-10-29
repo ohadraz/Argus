@@ -1,6 +1,7 @@
 """What the investigation considered: every candidate it ranked, how confident
 it was, and what became of each - each revision it names said short, as the
-rest of the document says it, and leading to its commit.
+rest of the document says it, and leading to its commit, and every other name
+it quotes in brackets said as code.
 
 Each case is one postmortem and the table the section says it as.
 """
@@ -39,9 +40,9 @@ def test_each_candidate_is_a_row_with_its_confidence_to_two_places() -> None:
         .then(
             the_answer_was((
                 HypothesisRow(label="C1", summary=_said("a flag change on account pages"),
-                              confidence="0.80", result="confirmed"),
+                              confidence="0.80", result=_said("confirmed")),
                 HypothesisRow(label="C2", summary=_said("a bad deploy"),
-                              confidence="-", result="never tried"))))
+                              confidence="-", result=_said("never tried")))))
 
 
 @pytest.mark.unit
@@ -60,7 +61,7 @@ def test_a_row_standing_for_several_candidates_goes_by_each_of_their_labels() ->
         .then(
             the_answer_was((
                 HypothesisRow(label="C1", also=("C2",), summary=_said("the model was upgraded"),
-                              confidence="0.80", result="confirmed"),)))
+                              confidence="0.80", result=_said("confirmed")),)))
 
 
 @pytest.mark.unit
@@ -91,9 +92,10 @@ def test_candidates_merged_in_the_record_are_each_a_row_of_their_own() -> None:
         .then(
             the_answer_was((
                 HypothesisRow(label="C1", summary=_said("The model was upgraded."),
-                              confidence="0.70", result="confirmed"),
+                              confidence="0.70", result=_said("confirmed")),
                 HypothesisRow(label="C2", summary=_said("The values file was changed."),
-                              confidence="0.20", result="confirmed, as tested for C1"))))
+                              confidence="0.20",
+                              result=_said("confirmed, as tested for C1")))))
 
 
 @pytest.mark.unit
@@ -225,6 +227,78 @@ def test_a_ranked_investigation_says_nothing_of_absence() -> None:
             the_answer_was(None))
 
 
-def _said(summary: str) -> Line:
-    """A candidate's words that name nothing that opens, as its row says them."""
-    return Line(runs=(Run(text=summary),))
+@pytest.mark.unit
+def test_a_name_a_candidate_quotes_is_said_as_code() -> None:
+    # The Investigator quotes a name as the walk does, for a model reading the
+    # record; the timeline beside the table says it as code.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(summary="[io-shop] ran out of memory", confidence=0.8,
+                                     result="dont care", label="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" ran out of memory")))))
+
+
+@pytest.mark.unit
+def test_a_result_says_a_name_it_quotes_as_code_and_a_revision_short_leading_to_its_commit(
+) -> None:
+    # The result is the walk's own words - a tier's reason for not taking an
+    # action among them - and reads as its timeline line does: a name as code,
+    # a revision short and opening its commit.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                changes_read=[a_deploy_read("P2")],
+                hypotheses=[HypothesisConsidered(
+                    summary="dont care", confidence=None, label="C1",
+                    result=f"action not taken: [io-shop] runs [{SOME_DEPLOYED_REVISION}]")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].result
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="action not taken: "),
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" runs "),
+                Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK,
+                    address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}")))))
+
+
+@pytest.mark.unit
+def test_the_result_of_a_merged_candidate_says_a_name_it_quotes_as_code() -> None:
+    # Each candidate the record merged is a row of its own, with its own
+    # result, said alike.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(hypotheses=[
+                HypothesisConsidered(
+                    summary="dont care", confidence=None, label="C1", also=["C2"],
+                    result="action not taken: [io-shop] has nowhere to go",
+                    members=[CandidateConsidered(label="C1", summary="dont care",
+                                                 confidence=None, failure_mode=None),
+                             CandidateConsidered(label="C2", summary="dont care",
+                                                 confidence=None, failure_mode=None)],
+                    decided_by="C1")])
+        ) \
+        .when(
+            lambda: the_hypotheses(some_postmortem).rows[0].result
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="action not taken: "),
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" has nowhere to go")))))
+
+
+def _said(words: str) -> Line:
+    """A candidate's words, or what became of it, naming nothing that opens or
+    is code - as its row says them."""
+    return Line(runs=(Run(text=words),))

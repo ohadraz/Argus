@@ -229,8 +229,8 @@ def _the_chat_line(line: NarrationLine,
     that open somewhere of their own.
 
     The split is the narration's, made once for every view, so that the page
-    and the chat mark the same word - and shown as the page shows it, without
-    the brackets the walk quotes a name in for its model, each revision the
+    and the chat mark the same word - and shown as the page shows it, each name
+    the walk quotes in brackets for its model said as code, each revision the
     incident read said by its short form, leading to its commit (`revisions`),
     and each pull request it opened by its name, leading to it
     (`pull_requests`).

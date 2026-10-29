@@ -12,8 +12,10 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any, Final
 
+from argus_core import said_short
 from argus_core.events import IncidentEvent
 from argus_core.models import Alert, Postmortem
+from argus_narration import as_shown
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.action_items import ActionItemsSection, the_action_items
@@ -35,7 +37,11 @@ from postmortem_rendering.lessons import LessonList, the_lessons
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import the_escalation, the_reported_resolution
 from postmortem_rendering.review import ReviewSection, the_review
-from postmortem_rendering.supporting import SupportingSection, the_supporting_information
+from postmortem_rendering.supporting import (
+    SupportingSection,
+    the_short_forms,
+    the_supporting_information,
+)
 from postmortem_rendering.timeline import TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
@@ -142,8 +148,7 @@ def render(postmortem: Postmortem,
         head=a_head(postmortem, alert, resolution, the_escalation(events)),
         headings={key: heading for key, heading in _HEADINGS.items()
                   if key != "leads" or leads},
-        summary=(Line(runs=(Run(text=postmortem.executive_summary, role=Role.PROSE),))
-                 if postmortem.executive_summary else None),
+        summary=_the_summary(postmortem),
         summary_absent=None if postmortem.executive_summary else "No summary was written.",
         impact=impact,
         cause=the_cause(postmortem, rows),
@@ -200,6 +205,21 @@ def _said_on(value: Any, day: date) -> Any:
     return value
 
 
+def _the_summary(postmortem: Postmortem) -> Line | None:
+    """The summary as prose, every name it quotes in brackets said as code - a
+    candidate's result it carries is the walk's words, quoted as the walk
+    quotes them - and a revision said short and bare, as the timeline says it.
+    `None` where none was written."""
+    if not postmortem.executive_summary:
+        return None
+
+    shorts = the_short_forms(postmortem.changes_read)
+    said = as_shown(said_short(postmortem.executive_summary, shorts),
+                    bare=frozenset(shorts.values()))
+
+    return Line(runs=(Run(text=said, role=Role.PROSE),))
+
+
 def _the_rows(hypotheses: HypothesesSection,
               actions_taken: ActionsTakenSection,
               action_items: ActionItemsSection,
@@ -220,8 +240,7 @@ def _the_rows(hypotheses: HypothesesSection,
     heading: each row can run to pages, and the label leads to it."""
     rows: dict[str, Line] = {}
     for candidate in hypotheses.rows:
-        said = Line(runs=(*candidate.summary.runs, Run(text=" - "),
-                          Run(text=candidate.result)))
+        said = Line(runs=(*candidate.summary.runs, Run(text=" - "), *candidate.result.runs))
         rows |= {label: said for label in (candidate.label, *candidate.also)}
 
     rows |= {step.label: Line(runs=(Run(text=step.at), Run(text=" "), *step.action.runs,

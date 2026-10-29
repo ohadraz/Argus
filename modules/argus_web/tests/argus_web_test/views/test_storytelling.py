@@ -260,9 +260,9 @@ def test_a_change_channel_nobody_asked_is_not_reported_as_read() -> None:
 
 
 @pytest.mark.unit
-def test_a_name_the_walk_quoted_is_shown_without_its_brackets() -> None:
-    # The brackets mark a name off for a model reading the record; on the page
-    # they are clutter around a word. The marked word is shown alike.
+def test_a_name_the_walk_quoted_is_shown_as_code() -> None:
+    # The brackets mark a name off for a model reading the record, and a reader
+    # of the page needs it marked off too. The marked word is shown alike.
     Scenario() \
         .given(
             a_candidate_quoting_names := [
@@ -270,8 +270,8 @@ def test_a_name_the_walk_quoted_is_shown_without_its_brackets() -> None:
         ) \
         .when(lambda: build_story(a_candidate_quoting_names)) \
         .then(_the_narration_shown_is([
-            ("Moving on to categoriser.model went from v1 to v2",
-             "categoriser.model went from v1 to v2")
+            ("Moving on to `categoriser.model` went from `v1` to `v2`",
+             "`categoriser.model` went from `v1` to `v2`")
         ]))
 
 

@@ -1239,7 +1239,7 @@ def _the_hypotheses_table(rendered: RenderedPostmortem) -> _Table:
     hypotheses = rendered.hypotheses
     return _Table(hypotheses.headings,
                   [[(", ".join(row.labels), _NUMBER, None), row.summary,
-                    (row.confidence, _TIME, None), (row.result, None, None)]
+                    (row.confidence, _TIME, None), row.result]
                    for row in hypotheses.rows],
                   widths=(18, 86, 26, 44), landings=[row.labels for row in hypotheses.rows])
 

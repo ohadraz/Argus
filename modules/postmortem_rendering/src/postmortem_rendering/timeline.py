@@ -54,7 +54,8 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
 
     A line of the walk names a revision whole, or by as much of it as the
     model liked; either is said by the change's short form, as the dashboard
-    and the channel say it. A line from outside the walk - a person's among
+    and the channel say it, and every other name it quotes in brackets is said
+    as code, as they say it too. A line from outside the walk - a person's among
     them - is said as it was written: its brackets, its revisions whole, and
     nothing in it a link, which is how the dashboard shows it too.
 
@@ -83,7 +84,8 @@ def the_timeline(postmortem: PostmortemDocument) -> TimelineSection:
         if entry.outside_the_walk:
             said = _said(entry.text, candidates, {})
         else:
-            said = _said(as_shown(said_short(_by_name(entry.text, named), shorts)),
+            said = _said(as_shown(said_short(_by_name(entry.text, named), shorts),
+                                  bare=frozenset(shorts.values())),
                          candidates, addresses)
         rows.append(TimelineRow(label=entry.label,
                                 at=at,
@@ -106,9 +108,15 @@ def _by_name(text: str, named: Mapping[str, str]) -> str:
 
 def _said(text: str, candidates: Collection[str],
           addresses: Mapping[str, str]) -> tuple[Run, ...]:
-    """A line of the narration cut at every candidate it cites and every
-    revision in `addresses` it names."""
+    """A line of the narration cut at the code it quotes, and its words between
+    at every candidate they cite and every revision in `addresses` they name.
+
+    Code first, as the page's prose sets it: a name the line says as code is
+    the code's text, and a label or a revision inside it neither cited nor
+    linked."""
     return tuple(run
-                 for cited in Run(text=text, role=Role.NARRATION).with_citations(candidates)
+                 for quoted in Run(text=text, role=Role.NARRATION).with_code_set_apart()
+                 for cited in ((quoted,) if quoted.role is Role.CODE
+                               else quoted.with_citations(candidates))
                  for run in (cited.with_links(addresses) if cited.role is Role.NARRATION
                              else (cited,)))

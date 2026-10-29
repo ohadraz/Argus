@@ -5,7 +5,9 @@ since what was ruled out is half of what a reader is owed.
 A candidate names a revision as the model wrote it - whole, mostly, or by as
 much of it as the model liked - and the trigger and the timeline beside it say
 it short. So it is said short here too, and leads to its commit: one document
-naming one revision two ways reads as naming two.
+naming one revision two ways reads as naming two. Every other name it quotes in
+brackets is said as code, as the timeline says it - in what it said and in what
+became of it alike, the result being the walk's own words.
 
 An instant it names is said as a moment, for the same reason: the model writes
 it in the wire format its tools speak, and the rest of the document does not.
@@ -21,7 +23,7 @@ from typing import Final
 
 from argus_core import said_short
 from argus_core.models import HypothesisConsidered, PostmortemDocument
-from argus_narration import the_instants_in
+from argus_narration import as_shown, the_instants_in
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
@@ -41,7 +43,7 @@ class HypothesisRow(BaseModel):
     label: str
     summary: Line
     confidence: str
-    result: str
+    result: Line
     also: tuple[str, ...] = ()
 
     @property
@@ -78,10 +80,12 @@ def the_hypotheses(postmortem: PostmortemDocument,
     """
     shorts = the_short_forms(postmortem.changes_read)
     addresses = the_revision_addresses(postmortem.changes_read)
+    bare = frozenset(shorts.values())
 
-    def said(summary: str) -> tuple[Run, ...]:
+    def said(words: str) -> tuple[Run, ...]:
+        shown = as_shown(said_short(words, shorts), bare=bare)
         return tuple(said
-                     for quoted in Run(text=said_short(summary, shorts)).with_code_set_apart()
+                     for quoted in Run(text=shown).with_code_set_apart()
                      for linked in ((quoted,) if quoted.role is Role.CODE
                                     else quoted.with_links(addresses))
                      for said in _with_moments(linked, day))
@@ -92,7 +96,7 @@ def the_hypotheses(postmortem: PostmortemDocument,
                              else (HypothesisRow(label=hypothesis.label,
                                                  summary=Line(runs=said(hypothesis.summary)),
                                                  confidence=_to_two_places(hypothesis.confidence),
-                                                 result=hypothesis.result,
+                                                 result=Line(runs=said(hypothesis.result)),
                                                  also=tuple(hypothesis.also)),)))
 
     return HypothesesSection(headings=_HEADINGS,
@@ -108,7 +112,7 @@ def _the_rows_of_several(hypothesis: HypothesisConsidered,
         HypothesisRow(label=member.label,
                       summary=Line(runs=said(member.summary)),
                       confidence=_to_two_places(member.confidence),
-                      result=hypothesis.result_of(member))
+                      result=Line(runs=said(hypothesis.result_of(member))))
         for member in hypothesis.members)
 
 

@@ -1,17 +1,19 @@
-"""A line of the account as it is shown: the square brackets Argus and its
-model quote a name in, left off, a revision the incident read said short and
+"""A line of the account as it is shown: a name Argus and its model quote in
+square brackets said as code, a revision the incident read said short and
 leading to its commit, and a pull request it opened said by its name and
 leading to its address.
 
 The brackets are how a name is marked off in what a model reads - "[io-shop]",
-"[7c3ca00]" - and a reader of the page or the channel reads them as clutter
-around a word. A revision is said whole in the record, and forty characters in
-a sentence read as noise. So both are re-said where a line is shown, and only
-there: the record, and what a model is told of it, keep them as written. A
-revision said short is a name a reader cannot look up by hand, so where it is
-shown it opens where it was committed. A pull request is said by its address
-in the record, and where a line is shown by Argus's one name for it, "PR #7",
-which opens the address.
+"[3] replicas" - and a reader of the page or the channel needs it marked off
+too: which words read as a sentence and which are a name to look up. So a shown
+line says it as code, which every destination draws as code. A revision is said
+whole in the record, and forty characters in a sentence read as noise. So both
+are re-said where a line is shown, and only there: the record, and what a model
+is told of it, keep them as written. A revision said short is a name a reader
+cannot look up by hand, so where it is shown it opens where it was committed -
+bare, since a link inside code is drawn nowhere. A pull request is said by its
+address in the record, and where a line is shown by Argus's one name for it,
+"PR #7", which opens the address.
 
 Only the brackets that quote a name. An index in code keeps its brackets, as a
 phrase with spaces in it and a link do, and a line a person wrote is shown as
@@ -62,17 +64,30 @@ SOME_PULL_REQUESTS: Mapping[str, str] = {SOME_PULL_REQUEST: "PR #7"}
 
 
 @pytest.mark.unit
-def test_a_quoted_name_is_shown_without_its_brackets() -> None:
+def test_a_quoted_name_is_shown_as_code() -> None:
+    # A count is a name too: "[3] replicas" is a figure to look up, not a word.
     Scenario() \
         .when(
             lambda: as_shown("Rolled [io-shop] back to [7c3ca00], which was [3] replicas")
         ) \
         .then(
-            the_answer_was("Rolled io-shop back to 7c3ca00, which was 3 replicas"))
+            the_answer_was("Rolled `io-shop` back to `7c3ca00`, which was `3` replicas"))
 
 
 @pytest.mark.unit
-def test_a_quoted_name_beside_code_is_still_shown_without_its_brackets() -> None:
+def test_a_quoted_name_shown_as_a_link_is_shown_bare() -> None:
+    # A revision's short form opens its commit, and a link inside code is drawn
+    # by no destination - so it loses its brackets and gains no backticks.
+    Scenario() \
+        .when(
+            lambda: as_shown("Rolled [io-shop] back off [7c3ca00]", bare={"7c3ca00"})
+        ) \
+        .then(
+            the_answer_was("Rolled `io-shop` back off 7c3ca00"))
+
+
+@pytest.mark.unit
+def test_a_quoted_name_beside_code_is_still_shown_as_code() -> None:
     # Code keeps its brackets, and only code: a name quoted outside it on the
     # same line is still a name.
     Scenario() \
@@ -80,7 +95,7 @@ def test_a_quoted_name_beside_code_is_still_shown_without_its_brackets() -> None
             lambda: as_shown("[io-shop] renamed its ports to `<protocol>[-<purpose>]`")
         ) \
         .then(
-            the_answer_was("io-shop renamed its ports to `<protocol>[-<purpose>]`"))
+            the_answer_was("`io-shop` renamed its ports to `<protocol>[-<purpose>]`"))
 
 
 @pytest.mark.unit
@@ -104,7 +119,7 @@ def test_brackets_that_quote_no_name_are_shown_as_written(said: str) -> None:
 
 
 @pytest.mark.unit
-def test_a_line_of_the_walk_is_shown_without_brackets_in_any_part_of_it() -> None:
+def test_a_line_of_the_walk_is_shown_with_its_names_as_code_in_every_part_of_it() -> None:
     # The marked word and the words either side of it are the same sentence
     # split for a destination that sets the word apart, and are shown alike.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="action-taken", who="Mitigation",
@@ -121,9 +136,9 @@ def test_a_line_of_the_walk_is_shown_without_brackets_in_any_part_of_it() -> Non
         ) \
         .then(
             the_answer_was(some_line.model_copy(update={
-                "text": "Rolled io-shop back to 7c3ca00",
-                "emphasis": "io-shop",
-                "after_emphasis": " back to 7c3ca00"})))
+                "text": "Rolled `io-shop` back to `7c3ca00`",
+                "emphasis": "`io-shop`",
+                "after_emphasis": " back to `7c3ca00`"})))
 
 
 @pytest.mark.unit
@@ -143,8 +158,8 @@ def test_a_revision_the_incident_read_is_shown_short_in_every_part_of_a_line() -
         ) \
         .then(
             the_answer_was(some_line.model_copy(update={
-                "text": f"Rolled io-shop back off revision {SOME_REVISION[:7]}",
-                "emphasis": "io-shop",
+                "text": f"Rolled `io-shop` back off revision {SOME_REVISION[:7]}",
+                "emphasis": "`io-shop`",
                 "after_emphasis": f" back off revision {SOME_REVISION[:7]}",
                 "links": {SOME_REVISION[:7]: _the_commit_of(SOME_REVISION)}})))
 
@@ -210,8 +225,9 @@ def test_a_revision_named_by_a_start_of_it_is_shown_short_and_leads_to_its_commi
 
 
 @pytest.mark.unit
-def test_a_start_two_revisions_share_is_shown_as_written() -> None:
-    # It names neither, so nothing here can say which.
+def test_a_start_two_revisions_share_is_shown_as_code_leading_nowhere() -> None:
+    # It names neither, so nothing here can say which: a name like any other,
+    # and opening nowhere.
     some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="candidate-selected",
                               who="Investigator",
                               text=f"[{SOME_REVISION[:7]}] made every page slow")
@@ -228,7 +244,7 @@ def test_a_start_two_revisions_share_is_shown_as_written() -> None:
         ) \
         .then(
             the_answer_was(some_line.model_copy(update={
-                "text": f"{SOME_REVISION[:7]} made every page slow"})))
+                "text": f"`{SOME_REVISION[:7]}` made every page slow"})))
 
 
 @pytest.mark.unit

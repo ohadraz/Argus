@@ -1,12 +1,16 @@
-"""A line of the account as it is shown: the square brackets a name is quoted
-in, left off, and a revision the incident read said short, leading to its
-commit.
+"""A line of the account as it is shown: a name quoted in square brackets said
+as code, and a revision the incident read said short, leading to its commit.
 
-Argus and its model mark a name off in brackets - "[io-shop]", "[7c3ca00]" -
-which is how a model reading the record tells a name from the words around
-it. A reader of the page or the channel reads them as clutter around a word.
-So they are left off where a line is shown, and only there: the narration a
-model is told keeps them, and so does the record.
+Argus and its model mark a name off in brackets - "[io-shop]", "[3] replicas"
+- which is how a model reading the record tells a name from the words around
+it. A reader needs the same: which words read as a sentence and which are a
+service, a flag or a count to look up. So where a line is shown the name is
+set apart as code, between backticks, which every destination draws as code -
+the page, the channel and the postmortem alike. Only there: the narration a
+model is told keeps the brackets, and so does the record.
+
+A revision the incident read is the exception. Said short, it is a link to its
+commit, and a link inside code is drawn by none of them, so it is shown bare.
 
 Only the brackets that quote a name: a run with no space in it, at the start
 of a word, outside a span of code. An index in code (`prices[0]`) keeps its
@@ -32,7 +36,7 @@ it, "PR #7", as the postmortem says it, and the name opens the address.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Final
 
 from argus_core import said_short, short_form
@@ -59,11 +63,19 @@ class ShownRevision(BaseModel):
     address: str
 
 
-def as_shown(text: str) -> str:
-    """`text` with the brackets around each name it quotes left off - outside
-    code alone: a bracket in a span of code is the code's, and taken for a
-    name's, "`<protocol>[-<purpose>]`" read as a purpose no longer optional."""
-    return "".join(part if _A_CODE_SPAN.fullmatch(part) else _A_QUOTED_NAME.sub(r"\1", part)
+def as_shown(text: str, bare: Collection[str] = frozenset()) -> str:
+    """`text` with each name it quotes in brackets said as code instead, and
+    each in `bare` - a revision's short form, which is shown as a link - with
+    its brackets left off and nothing in their place.
+
+    Outside code alone: a bracket in a span of code is the code's, and taken
+    for a name's, "`<protocol>[-<purpose>]`" read as a purpose no longer
+    optional."""
+    def said(quoted: re.Match[str]) -> str:
+        name = quoted.group(1)
+        return name if name in bare else f"`{name}`"
+
+    return "".join(part if _A_CODE_SPAN.fullmatch(part) else _A_QUOTED_NAME.sub(said, part)
                    for part in _A_CODE_SPAN.split(text))
 
 
@@ -140,12 +152,17 @@ def _the_names_said_in(parts: Iterable[str], pull_requests: Mapping[str, str]) -
 
 def said_as_shown(text: str, revisions: Mapping[str, ShownRevision]) -> str:
     """Words of the walk as a shown line says them: each revision in
-    `revisions` by its short form, and the brackets quoting a name left off.
+    `revisions` by its short form and bare, and every other name quoted in
+    brackets as code.
+
+    Shortened first: a revision quoted whole is said as code otherwise, before
+    it is a short form `bare` knows.
 
     Public, with `the_links_in`, for what is shown off the page's own rows
     rather than off its lines - the walk's candidates - and says them alike."""
     return as_shown(said_short(text, {whole: revision.short
-                                      for whole, revision in revisions.items()}))
+                                      for whole, revision in revisions.items()}),
+                    bare=frozenset(revision.short for revision in revisions.values()))
 
 
 def the_revisions(events: Sequence[IncidentEvent]) -> dict[str, ShownRevision]:

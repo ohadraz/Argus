@@ -38,7 +38,9 @@ from postmortem_rendering.rendering import RenderedPostmortem, render
 
 from postmortem_rendering_test.framework.builders import (
     DONT_CARE_MOMENT,
+    SOME_DEPLOYED_REVISION,
     a_change_read,
+    a_deploy_read,
     a_marker,
     a_person_resolved_it,
     a_postmortem,
@@ -95,6 +97,43 @@ def test_the_summary_is_the_model_s_prose() -> None:
         .then(
             the_answer_was(Line(runs=(Run(text="Account pages failed, per C1.",
                                           role=Role.PROSE),))))
+
+
+@pytest.mark.unit
+def test_a_name_the_summary_quotes_is_said_as_code() -> None:
+    # The summary carries a candidate's result in the walk's own words - a
+    # tier's reason among them - and says a name in it as the timeline does.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                executive_summary="Argus did not test C3: [io-shop] has no revision.")
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="Argus did not test C3: `io-shop` has no revision.",
+                                          role=Role.PROSE),))))
+
+
+@pytest.mark.unit
+def test_a_revision_the_summary_quotes_is_said_short_and_bare() -> None:
+    # Shortened before its brackets go, as every shown line does: a revision
+    # quoted whole is a link to its commit, and a link inside code is drawn
+    # nowhere.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                changes_read=[a_deploy_read("P2")],
+                executive_summary=f"Argus rolled [io-shop] back off [{SOME_DEPLOYED_REVISION}].")
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS).summary
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text=f"Argus rolled `io-shop` back off {SOME_DEPLOYED_REVISION[:7]}.",
+                    role=Role.PROSE),))))
 
 
 @pytest.mark.unit
@@ -270,8 +309,9 @@ def test_every_label_a_row_goes_by_may_be_cited() -> None:
 
 @pytest.mark.unit
 def test_a_cited_line_of_the_timeline_reads_as_its_row() -> None:
-    # Its time as the timeline says it, who said it, and the line without the
-    # narration's brackets.
+    # Its time as the timeline says it, who said it, and the line as the
+    # timeline says it - a name the narration quotes said as code, its
+    # brackets gone.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -386,6 +426,25 @@ def test_a_cited_candidate_quoting_code_reads_as_its_row_without_the_backticks()
         ) \
         .then(
             _the_first_step_rests_on("C1 Ports are named <protocol>. - confirmed"))
+
+
+@pytest.mark.unit
+def test_a_cited_candidate_whose_result_quotes_a_name_reads_as_its_row() -> None:
+    # The row's result says the name as code, and so does the line a citation
+    # of the row shows.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                hypotheses=[HypothesisConsidered(summary="A rollback", confidence=None,
+                                                 result="action not taken: [io-shop] is new",
+                                                 label="C1")],
+                causal_chain=_a_step_citing("C1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], SOME_ADDRESS)
+        ) \
+        .then(
+            _the_first_step_rests_on("C1 A rollback - action not taken: io-shop is new"))
 
 
 @pytest.mark.unit

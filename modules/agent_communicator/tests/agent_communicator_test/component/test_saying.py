@@ -285,10 +285,10 @@ def test_an_answer_written_in_markdown_is_said_in_slack_s_own_markup(
 
 
 @pytest.mark.component
-def test_a_name_the_walk_quoted_is_said_without_its_brackets(
+def test_a_name_the_walk_quoted_is_said_as_code(
         slack: str, a_clean_database: None) -> None:
-    # The brackets mark a name off for a model reading the record; in a channel
-    # they are clutter around a word - the marked word most of all.
+    # The brackets mark a name off for a model reading the record, and a reader
+    # of the channel needs it marked off too - in the marked word as well.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
@@ -303,7 +303,7 @@ def test_a_name_the_walk_quoted_is_said_without_its_brackets(
                                   a_narration_line(_a_candidate_quoting_names_on(incident_id)),
                                   Register.ANNOUNCED)) \
             .then(
-                _that_message_marks(slack, "categoriser.model went from v1 to v2")
+                _that_message_marks(slack, "`categoriser.model` went from `v1` to `v2`")
             )
 
 

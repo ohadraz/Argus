@@ -309,7 +309,7 @@ def test_an_incident_page_says_a_candidate_whose_action_a_tier_could_not_take_wa
     # The gate let the test through and the tier had nowhere to take the
     # action, writing why on the row. The write-up says "action not taken", and
     # the page says the same fact in the same words - not the gate's - with the
-    # brackets around a name left off, as every line shown leaves them off.
+    # name it quotes set as code, as every line shown sets it.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
     reason_quoting_a_name = "[io-shop] has no revision before the one it is running"
 
@@ -329,8 +329,8 @@ def test_an_incident_page_says_a_candidate_whose_action_a_tier_could_not_take_wa
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(all_of(
-            the_page_says("action not taken: io-shop has no revision before the one it is "
-                          "running"),
+            the_page_says("action not taken: <code>io-shop</code> has no revision before "
+                          "the one it is running"),
             _the_page_does_not_say("test held back")
         ))
 
@@ -697,6 +697,46 @@ def test_a_postmortem_is_shown_on_its_own_page() -> None:
         .then(
             the_page_says(a_root_cause)
         )
+
+
+@pytest.mark.component
+def test_a_postmortem_page_shows_a_name_its_candidates_and_summary_quote_as_code() -> None:
+    # A candidate's result is the walk's own words, and the summary carries it;
+    # the page says the name in either as its timeline does.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(
+            conn,
+            incident_id,
+            PostmortemDocument(
+                root_cause=None,
+                executive_summary="Argus did not test C1: [io-shop] is new.",
+                customer_loss_estimate=None,
+                estimate_currency=None,
+                engineer_minutes=None,
+                responders=None,
+                tokens_spent=None,
+                assumptions=[],
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="action not taken: [io-shop] is old",
+                                                 label="C1")]
+            ),
+            at=utc_now()
+        )
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_says("action not taken: <code>io-shop</code> is old"),
+            the_page_says("<code>io-shop</code> is new.")
+        ))
 
 
 @pytest.mark.component

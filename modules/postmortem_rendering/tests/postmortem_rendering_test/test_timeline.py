@@ -122,8 +122,37 @@ def test_a_revision_a_line_names_whole_is_said_short_and_leads_where_it_opens() 
         ) \
         .then(
             the_answer_was(Line(runs=(
-                Run(text="rolled io-shop back off revision ", role=Role.NARRATION),
+                Run(text="rolled ", role=Role.NARRATION),
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" back off revision ", role=Role.NARRATION),
                 Run(text=SOME_DEPLOYED_REVISION[:7], role=Role.LINK, address=commit)))))
+
+
+@pytest.mark.unit
+def test_a_name_a_line_of_the_walk_quotes_is_said_as_code() -> None:
+    # The brackets mark a name off for a model reading the record, and a reader
+    # of the document needs it marked off too - a count among them. The words
+    # either side still cite the candidates they name.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="dont care", label="C1")],
+                timeline=[TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent",
+                                        text="Scaled [io-shop] to [6] replicas for C1",
+                                        label="T1")])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="Scaled ", role=Role.NARRATION),
+                Run(text="io-shop", role=Role.CODE),
+                Run(text=" to ", role=Role.NARRATION),
+                Run(text="6", role=Role.CODE),
+                Run(text=" replicas for ", role=Role.NARRATION),
+                Run(text="C1", role=Role.CITATION, address="C1")))))
 
 
 @pytest.mark.unit
@@ -208,8 +237,8 @@ def test_a_fix_the_document_does_not_carry_keeps_its_address() -> None:
 
 @pytest.mark.unit
 def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
-    # The walk's brackets quote a name for the model and are left off where a
-    # line is shown; a person's are theirs.
+    # The walk's brackets quote a name for the model and are said as code where
+    # a line is shown; a person's are theirs.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(timeline=[
@@ -222,6 +251,28 @@ def test_a_line_a_person_wrote_keeps_its_brackets() -> None:
         .then(
             the_answer_was(Line(runs=(Run(text="the [checkout] flag again?",
                                           role=Role.NARRATION),))))
+
+
+@pytest.mark.unit
+def test_code_a_person_quotes_is_set_apart_and_their_brackets_kept() -> None:
+    # Their backticks are Markdown, drawn as code wherever a line is shown -
+    # the dashboard sets the same line's code apart - while their brackets are
+    # theirs, and not Argus's way of quoting a name.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT, who="kuki",
+                              text="try `kubectl rollout undo` on [checkout]",
+                              label="XW1", outside_the_walk=True)])
+        ) \
+        .when(
+            lambda: the_timeline(some_postmortem).rows[0].text
+        ) \
+        .then(
+            the_answer_was(Line(runs=(
+                Run(text="try ", role=Role.NARRATION),
+                Run(text="kubectl rollout undo", role=Role.CODE),
+                Run(text=" on [checkout]", role=Role.NARRATION)))))
 
 
 @pytest.mark.unit
