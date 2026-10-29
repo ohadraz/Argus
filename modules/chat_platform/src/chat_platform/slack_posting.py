@@ -38,6 +38,9 @@ _LINK: Final = "<{url}|{label}>"
 _MARKDOWN_BOLD: Final = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*")
 _MARKDOWN_ITALIC: Final = re.compile(r"(?<!\*)\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?!\*)")
 
+# A span of code, between backticks, which `mrkdwn` reads as Markdown does.
+_A_CODE_SPAN: Final = re.compile(r"(`[^`]*`)")
+
 # The three characters Slack reads as its own markup, and what each is written
 # as where it is only text (docs.slack.dev, "Formatting text for app
 # surfaces"). The ampersand first, or the others' entities would be escaped
@@ -139,15 +142,22 @@ def _escaped(text: str) -> str:
 
 def _linked(text: str, links: Mapping[str, str]) -> str:
     """`text` with each word of `links` it says, matched whole, linked to
-    where it opens."""
+    where it opens - outside code alone. Slack draws nothing inside code but
+    the code, a link included, so one written there is printed as its markup:
+    the page leaves the same word unlinked for the same reason."""
     if not links:
         return text
 
     named = "|".join(re.escape(word) for word in sorted(links, key=len, reverse=True))
 
-    return re.sub(rf"(?<![\w-])({named})(?![\w-])",
-                  lambda found: _LINK.format(url=links[found.group(1)], label=found.group(1)),
-                  text)
+    def outside_code(part: str) -> str:
+        return re.sub(rf"(?<![\w-])({named})(?![\w-])",
+                      lambda found: _LINK.format(url=links[found.group(1)],
+                                                 label=found.group(1)),
+                      part)
+
+    return "".join(part if _A_CODE_SPAN.fullmatch(part) else outside_code(part)
+                   for part in _A_CODE_SPAN.split(text))
 
 
 def a_line_with_a_button(said: str,

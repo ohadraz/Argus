@@ -134,6 +134,19 @@ def test_a_linked_word_inside_another_is_not_linked() -> None:
 
 
 @pytest.mark.unit
+def test_a_linked_word_inside_code_is_not_linked() -> None:
+    # Slack draws nothing inside code but the code (docs.slack.dev, "Formatting
+    # text for app surfaces"), so a link written there is printed as its
+    # markup. The same word outside the code still opens.
+    some_line = Line(who=SOME_AGENT, text="`git revert 26f1d7e` undoes 26f1d7e",
+                     links={"26f1d7e": SOME_COMMIT})
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: `git revert 26f1d7e` undoes <{SOME_COMMIT}|26f1d7e>"))
+
+
+@pytest.mark.unit
 def test_what_slack_reads_as_markup_is_said_as_text() -> None:
     # Slack reads &, < and > as its own markup; a model's "error rate > 5%" is
     # neither a tag nor the start of a link (docs.slack.dev, "Formatting text
