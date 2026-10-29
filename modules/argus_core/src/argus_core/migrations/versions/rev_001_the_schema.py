@@ -134,12 +134,13 @@ CREATE TABLE IF NOT EXISTS action (
     -- both are `not-performed`, both may carry no descriptor, and only the first
     -- may be written up as having changed nothing.
     left_behind_known BOOLEAN NOT NULL DEFAULT false,
-    -- What the walk's own putting back did, after a refutation (`Undone`):
-    -- `restored`; `left-as-found` where somebody changed the subject since
-    -- Argus set it; `not-established` where what it holds could not be read,
-    -- and the action escalated; `no-undo-was-owed` for a change nothing puts
-    -- back. NULL where the walk attempted no undo. The cleanup after the
-    -- incident puts back NULL and `not-established`, and passes over the rest.
+    -- What putting the change back did (`Undone`) - the walk's own undo after
+    -- a refutation, or the cleanup after the incident: `restored`;
+    -- `left-as-found` where somebody changed the subject since Argus set it;
+    -- `not-established` where what it holds could not be read; `no-undo-was-owed`
+    -- for a change nothing puts back. NULL where nothing attempted an undo. The
+    -- cleanup puts back NULL and `not-established`, passes over the rest, and
+    -- writes here what it did.
     undone TEXT,
     -- When the claim was written, on the walk's clock: no default, because the
     -- database's is a clock nothing else in the incident is dated by. Before

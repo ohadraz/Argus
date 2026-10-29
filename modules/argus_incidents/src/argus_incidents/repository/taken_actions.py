@@ -207,6 +207,23 @@ def advance(
         )
 
 
+def record_undone(conn: psycopg.Connection, action_id: str, undone: Undone) -> None:
+    """What the cleanup after an incident did with one change, on the change's
+    own row.
+
+    The row's `undone` is what the walk page shows, and what a second cleanup
+    asks before putting a change back again. Written by the walk's own undo
+    through `complete`; this is the same fact from the other thing that puts
+    changes back, so a change a withdrawal put back reads as put back rather
+    than as the step that stopped.
+
+    By the row's own id, since the cleanup reads the rows it puts back and
+    holds each one. Committing is the caller's.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute("UPDATE action SET undone = %s WHERE id = %s", (undone, action_id))
+
+
 def settle_claims(conn: psycopg.Connection, incident_id: str) -> None:
     """Every claim of the incident's still open becomes `unknown`.
 

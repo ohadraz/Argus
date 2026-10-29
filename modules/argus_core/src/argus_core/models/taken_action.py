@@ -58,12 +58,12 @@ class TakenAction(BaseModel):
     # row is from its claim: a worker that stopped after claiming may have made
     # the change.
     left_behind_known: bool = False
-    # What the walk's own putting back did, after a refutation: restored; left
-    # as found, because somebody changed it since; not established, where what
-    # it holds could not be read; or no undo owed. `None` where the walk
-    # attempted no undo. The cleanup after the incident puts back `None` and
-    # not established - a change that may still be out there - and passes over
-    # the rest.
+    # What putting the change back did - the walk's own undo after a
+    # refutation, or the cleanup after the incident: restored; left as found,
+    # because somebody changed it since; not established, where what it holds
+    # could not be read; or no undo owed. `None` where nothing attempted an
+    # undo. The cleanup puts back `None` and not established - a change that
+    # may still be out there - passes over the rest, and keeps here what it did.
     undone: Undone | None = None
 
     @field_validator("outcome", mode="before")

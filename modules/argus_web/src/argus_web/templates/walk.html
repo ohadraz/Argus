@@ -117,9 +117,10 @@
           {% else %}
             <span class="verdict {{ attempt.outcome }}">{{ attempt.outcome }}</span>
           {% endif %}
-          {# What the walk's own undo did, as the row records it: a refuted
-             change it restored, or one somebody had changed since and it left
-             as they set it. Nothing for any other - a refuted restart put
+          {# What putting the change back did, as the row records it - the
+             walk's own undo after a refutation, or the cleanup after a
+             withdrawal or a failed run: restored, or left as somebody else had
+             set it since. Nothing for any other - a refuted restart put
              nothing back. #}
           {% if attempt.undone == "restored" %}<span class="undone">put back</span>
           {% elif attempt.undone == "left-as-found" %}<span class="undone">left as found</span>

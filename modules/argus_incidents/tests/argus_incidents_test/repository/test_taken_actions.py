@@ -265,6 +265,34 @@ def test_a_completed_action_says_what_its_own_putting_back_did(
 
 
 @pytest.mark.integration
+def test_what_the_cleanup_did_with_a_change_is_kept_on_its_row() -> None:
+    # The cleanup after a withdrawn or failed incident puts changes back too,
+    # and the walk page shows a change by its row. Said only on the timeline, a
+    # change a withdrawal put back read on the page as the step that stopped.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .given(
+                action_id := _a_change_recorded(conn, incident_id, dont_care_hypothesis_id)
+            ) \
+            .when(
+                lambda: taken_actions.record_undone(conn, action_id, Undone.RESTORED)
+            ) \
+            .then(
+                _what_was_undone_is_read_back_as(conn, incident_id, Undone.RESTORED)
+            )
+
+
+@pytest.mark.integration
 def test_an_action_only_claimed_is_not_known_to_have_left_nothing() -> None:
     # A worker that stopped after its claim may have made the change, so the
     # row says nothing is known until something more is written.
@@ -988,6 +1016,27 @@ def _what_it_left_is_read_back_as_known(conn: psycopg.Connection,
         return True
 
     return assertion
+
+
+def _a_change_recorded(conn: psycopg.Connection,
+                       incident_id: str,
+                       hypothesis_id: str) -> str:
+    """A flag change a withdrawn walk made and stopped before judging, and the
+    id of its row - which is how the cleanup holds it."""
+    some_flag = "kuki-flag"
+    taken_actions.record(
+        conn,
+        incident_id,
+        hypothesis_id=hypothesis_id,
+        action_type="revert-feature-flag",
+        subject=some_flag,
+        outcome=Verdict.STOPPED,
+        undo_descriptor=FlagUndo(flag=some_flag, was_enabled=True),
+        at=DONT_CARE_INSTANT,
+        left_behind_known=True
+    )
+
+    return taken_actions.get_by_incident(conn, incident_id)[0].id
 
 
 def _what_was_undone_is_read_back_as(conn: psycopg.Connection,

@@ -50,7 +50,6 @@ from argus_core.telemetry import ARGUS_RUN_ID
 from argus_incidents import (
     EndedByAPerson,
     ended_by_a_person_via,
-    events_into,
     events_into_connection,
     inside_the_incidents_trace,
 )
@@ -65,7 +64,11 @@ from write_mcp_client import write_mcp
 
 from orchestrator.entrypoint import CHECKPOINTER_CONNECTIONS, graph_for, run_incident
 from orchestrator.renewing import between_renewals, keep_renewing
-from orchestrator.unwinding import taken_actions_from, unwind_incident
+from orchestrator.unwinding import (
+    taken_actions_from,
+    undone_recorded_through,
+    unwind_incident,
+)
 from orchestrator.walk.assembling import IncidentMemorySettings, the_store_for
 
 logger = logging.getLogger(__name__)
@@ -637,7 +640,7 @@ def main() -> None:
                            # copy had not heard about.
                            undo=an_undo_over(write, mitigation),
                            taken_actions_of=taken_actions_from(connections),
-                           publisher=events_into(connections)),
+                           record_undone=undone_recorded_through(connections)),
             ended_by_a_person=ended_by_a_person_via(connections),
             holding=holding
         )

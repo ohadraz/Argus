@@ -48,9 +48,9 @@ class Attempt(BaseModel):
 
     action_type: str
     outcome: str | None
-    # What the walk's own putting back did, as the row records it - restored,
-    # or left as somebody else had since set it - and `None` where it put
-    # nothing back.
+    # What putting the change back did, as the row records it - the walk's own
+    # undo or the cleanup after the incident: restored, or left as somebody
+    # else had since set it - and `None` where nothing put it back.
     undone: Undone | None
     taken_at: datetime
     # Whether a verdict may still come: none is recorded and the incident is
@@ -200,10 +200,11 @@ def _an_attempt(taken_action: TakenAction,
     over it is the opposite: no verdict is coming, because the worker taking it
     stopped - and "yet" would promise one.
 
-    What putting it back did is the row's own record of the walk's undo, not
-    an inference from the verdict: a refuted restart put nothing back, and a
-    refuted flag somebody changed since was left as they set it - both
-    `REFUTED`, and neither put back.
+    What putting it back did is the row's own record of it - the walk's undo
+    or the cleanup's - not an inference from the verdict: a refuted restart put
+    nothing back, and a refuted flag somebody changed since was left as they
+    set it - both `REFUTED`, and neither put back. Nor from the verdict the
+    other way: a change a withdrawal put back is `STOPPED`, and was put back.
 
     The outcome is shown as the page was handed it, which is the spelling the
     column holds even where no verdict spells it. A row an older version wrote
