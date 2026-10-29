@@ -1207,8 +1207,10 @@ def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
         case FixOutcome.DECLINED:
             # Neither an outage nor a verdict. Said plainly so that nobody
             # goes looking for something to repair: the model was asked and
-            # said no, and the same question would be declined again.
-            return "", f"The model declined to propose a fix - {event.detail}"
+            # said no, and the same question would be declined again. A
+            # refusal comes with no reason, so there is usually none to add.
+            declined = "The model declined to propose a fix"
+            return "", f"{declined} - {event.detail}" if event.detail else declined
         case FixOutcome.NOT_OPENED:
             # Neither a proposal nor a verdict: a fix exists, and what else it
             # needs is the reason it is not on a branch.

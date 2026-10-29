@@ -19,6 +19,7 @@ from argus_core.llm.client import (
     ModelDidNotAnswer,
     ModelRefused,
     ModelUnavailable,
+    RequestRejected,
     TurnPaused,
 )
 from argus_core.llm.conversing import Conversations, a_conversation_recorded_for
@@ -37,6 +38,7 @@ __all__ = [
     "ModelRefused",
     "ModelUnavailable",
     "RecordedLLMClient",
+    "RequestRejected",
     "TracedLLMClient",
     "TurnPaused",
     "a_conversation_recorded_for",

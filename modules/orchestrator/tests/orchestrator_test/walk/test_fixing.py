@@ -492,6 +492,64 @@ def test_a_model_that_declined_is_not_reported_as_a_repository_that_refused() ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("error", "reason"), [
+    (RuntimeError("could not create branch: 403 Forbidden"),
+     "could not create branch: 403 Forbidden"),
+    (FixNotAnswered("read for 12 turns without submitting a fix"),
+     "read for 12 turns without submitting a fix"),
+    (FixDeclined("the model declined to write a fix"), "")
+], ids=["not-possible", "not-answered", "declined"])
+def test_a_fix_that_failed_says_why_once_on_its_own_line(error: Exception,
+                                                         reason: str) -> None:
+    # The attempt's own line opens by saying what happened - "Could not propose
+    # a fix" - so the attempt carries the reason alone. Handed the move's words
+    # as well, it read "Could not propose a fix - the fix could not be proposed:
+    # ...", saying the one thing twice. A refusal has no reason to carry: the
+    # sentence that the model declined is all there is.
+    published: list[IncidentEvent] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_failed := _an_agent_raising(error)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_failed,
+                                 publisher=published.append)
+        ) \
+        .then(
+            _the_attempt_says_only(reason, published)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("error", "the_move_says"), [
+    (RuntimeError("could not create branch: 403 Forbidden"),
+     "the fix could not be proposed: could not create branch: 403 Forbidden"),
+    (FixNotAnswered("read for 12 turns without submitting a fix"),
+     "the agent did not finish looking: read for 12 turns without submitting a fix"),
+    (FixDeclined("the model declined to write a fix"), "the model declined to write one")
+], ids=["not-possible", "not-answered", "declined"])
+def test_the_move_after_a_failed_fix_says_what_failed_and_why(error: Exception,
+                                                              the_move_says: str) -> None:
+    # The move's line has no sentence of its own about the fix - "Moved the
+    # incident to ESCALATED" - so it carries both: what failed, and why, where
+    # there is a why.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_failed := _an_agent_raising(error)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent_that_failed)
+        ) \
+        .then(
+            _the_move_says(the_move_says)
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_stopped_because_nobody_wants_it_any_more_says_nothing() -> None:
     # Not an attempt that ended in any of its outcomes - somebody said stop.
     # Announcing one would put a line on the timeline about a fix nobody asked
@@ -1129,6 +1187,36 @@ def _the_attempt_says_why(reason: str,
         if not any(reason in detail for detail in said):
             raise AssertionError(
                 f"Expected an attempt mentioning [{reason}], got {said}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_move_says(expected: str) -> Assertion[StateDelta]:
+    """What the move after this step says of it, whole: a reason after the
+    words saying what failed is the reason, and anything more is noise."""
+    def assertion(updates: StateDelta) -> bool:
+        said = updates.narration.detail if updates.narration is not None else None
+
+        if said != expected:
+            raise AssertionError(f"Expected the move to say [{expected}], it said [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_says_only(reason: str,
+                           published: list[IncidentEvent]) -> Assertion[StateDelta]:
+    """The reason and nothing before it: the attempt's line says the rest."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        said = [event.detail for event in published if isinstance(event, FixAttempted)]
+
+        if said != [reason]:
+            raise AssertionError(
+                f"Expected the one attempt to say [{reason}] and nothing more, got {said}."
             )
 
         return True

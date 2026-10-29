@@ -2591,6 +2591,23 @@ def test_a_model_that_declined_is_not_read_as_a_repository_that_refused() -> Non
 
 
 @pytest.mark.unit
+def test_a_model_that_declined_for_no_reason_given_says_nothing_after_it() -> None:
+    # A refusal comes with no words, so the attempt carries no reason - and a
+    # line that went on to one anyway would end on a dash with nothing after it.
+    declined = FixAttempted(
+        incident_id=new_id(),
+        outcome=FixOutcome.DECLINED,
+        pull_request=None,
+        detail=""
+    )
+
+    Scenario() \
+        .given(declined) \
+        .when(lambda: build_narration([declined])) \
+        .then(_the_only_line_reads("The model declined to propose a fix"))
+
+
+@pytest.mark.unit
 def test_a_fix_that_stopped_says_which_bound_stopped_it() -> None:
     # It said "ran out of turns" while turns were the only way to run out.
     # There are three now, they are widened in three different places, and a

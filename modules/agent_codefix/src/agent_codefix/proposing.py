@@ -527,7 +527,12 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         except ModelRefused as declined:
             # Final, and final for its own reason: the evidence would be
             # declined again, so the turns left are not worth spending.
-            raise FixDeclined(f"the model declined to write a fix: {declined}") from declined
+            #
+            # Without the refusal's own account, which is the adapter's - a stop
+            # reason - and nothing the model wrote: a refusal comes with no
+            # words, and that one reached the walk, Slack and the postmortem as
+            # "(stop_reason=refusal)". Kept as the cause, for the log.
+            raise FixDeclined("the model declined to write a fix") from declined
         except AnswerTruncated as cut_short:
             # A bound was too small, which is what `FixNotAnswered` already
             # means - but room rather than turns, and that difference is the
@@ -535,11 +540,13 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # model's entire output ceiling, so an answer that still did not
             # fit is a fix too large to write as whole files, and neither a
             # wider budget nor another attempt changes that.
+            #
+            # Said without the truncation's own account, the adapter's stop
+            # reason, for the reason a refusal is. Kept as the cause.
             logger.warning("answer truncated")
 
             raise FixNotAnswered(
-                "the fix did not fit in the room the model had to write it: "
-                f"{cut_short}"
+                "the fix did not fit in the room the model had to write it"
             ) from cut_short
 
         spend.record(turn)

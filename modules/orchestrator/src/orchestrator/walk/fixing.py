@@ -104,21 +104,26 @@ def codefix_node(state: IncidentState,
             outcome=FixOutcome.NOT_ANSWERED,
             proposal=None,
             action="no code-level fix was proposed",
-            detail=f"the agent did not finish looking: {error}",
+            detail=str(error),
+            lead_in="the agent did not finish looking"
         )
-    except FixDeclined as declined:
+    except FixDeclined:
         # Above the broad clause for the same reason as the one above it,
         # and for a different failure: this one says nothing about the
         # repository. The model was asked and said no, which is neither an
         # outage to repair nor a budget to widen, and it read as the first
         # of those for as long as it fell through to the clause below.
+        #
+        # With no reason after it: a refusal comes with none, and the
+        # sentence that it declined is the whole of what there is to say.
         return _said(
             narrator,
             found=False,
             outcome=FixOutcome.DECLINED,
             proposal=None,
             action="no code-level fix was proposed",
-            detail=f"the model declined to write one: {declined}",
+            detail="",
+            lead_in="the model declined to write one"
         )
     except Exception as error:
         # Caught deliberately, and caught broadly. What opens a pull request is
@@ -144,7 +149,8 @@ def codefix_node(state: IncidentState,
             outcome=FixOutcome.NOT_POSSIBLE,
             proposal=None,
             action="no code-level fix could be proposed",
-            detail=f"the fix could not be proposed: {_what_went_wrong(error)}",
+            detail=_what_went_wrong(error),
+            lead_in="the fix could not be proposed"
         )
 
     if proposed.needs_code_outside:
@@ -231,6 +237,7 @@ def _said(narrator: Narrator,
           proposal: OpenedPullRequest | None,
           action: str,
           detail: str,
+          lead_in: str | None = None,
           read: ProposedFix | None = None) -> StateDelta:
     """The one account of this step, published and handed up in one place -
     with what Code-Fix answered, where it answered at all: what it said of the
@@ -242,6 +249,13 @@ def _said(narrator: Narrator,
     does; the event is what says so when it does not. Written once so the two
     cannot disagree about what happened - which is the failure that would be
     hardest to see, because each would look right on its own.
+
+    `lead_in` is what the move needs said before the reason and the event's
+    own line already says: "Could not propose a fix" is the event's sentence,
+    and handed the lead-in as well it read "Could not propose a fix - the fix
+    could not be proposed: ...". So the event carries the reason alone, and
+    the move the two together - or the lead-in alone, where there is no
+    reason to give.
     """
     narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail,
                  explanation=read.explanation if read is not None else None,
@@ -254,7 +268,9 @@ def _said(narrator: Narrator,
     })
 
     return StateDelta(
-        fix_found=found, narration=Narration(action=action, detail=detail)
+        fix_found=found,
+        narration=Narration(action=action,
+                            detail=": ".join(part for part in (lead_in, detail) if part))
     )
 
 

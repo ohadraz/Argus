@@ -8,11 +8,16 @@ having, and not worth losing the write-up over. A caller can only decide that
 about an error it can name without importing the vendor, so the adapter
 translates these into one.
 
-Only these. A request the API refused as asked - a 400 - is not the model
+Only these. A request the API rejected as asked - a 400 - is not the model
 being unavailable: in a replay it is a recording that no longer matches, and it
 has to stay loud. Nor is the account's spending cap, though the API says it as a
 429 like any rate limit: it answers the same until somebody raises it, and a
-caller told the model is unavailable for now would ask again.
+caller told the model is unavailable for now would ask again. Both are said as
+rejected instead, and loud all the same.
+
+Either way in the API's own words: the message its body gave. The SDK's display
+of the error is a status code and the whole body, and that is what reached the
+walk, Slack and the postmortem wherever a step said why it stopped.
 
 A streamed answer can fail after its 200 has arrived, as an error event inside
 the stream, and the SDK raises that with the status the response already had -
@@ -26,7 +31,7 @@ from unittest.mock import Mock
 import anthropic
 import httpx2
 import pytest
-from argus_core.llm import ModelUnavailable
+from argus_core.llm import ModelUnavailable, RequestRejected
 from argus_core.llm.adapters.anthropic_adapter import AnthropicLLMClient
 from argus_core.models.model_policy import LARGEST_UNSTREAMED_ANSWER
 from argus_core.models.tool_definition import ToolDefinition
@@ -39,9 +44,11 @@ SOME_REQUEST = httpx2.Request("POST", "https://api.invalid/v1/messages")
 
 # What the API's body says a spending cap with, as its rate-limits page gives
 # it: a rate limit's type, and a code in the details that tells the two apart.
+SOME_WORDS_THE_CAP_IS_SAID_IN = "This request would exceed your organization's spend limit."
 A_SPEND_CAP = {"type": "error",
-               "error": {"type": "rate_limit_error", "message": "dont care",
+               "error": {"type": "rate_limit_error", "message": SOME_WORDS_THE_CAP_IS_SAID_IN,
                          "details": {"error_code": "enforced_spend_limit_reached"}}}
+SOME_WORDS_A_REJECTION_IS_SAID_IN = "messages: at least one message is required"
 
 
 @pytest.mark.unit
@@ -72,9 +79,10 @@ def test_a_model_that_could_not_be_reached_for_now_is_said_as_unavailable(
 
 
 @pytest.mark.unit
-def test_a_request_the_api_refused_as_asked_is_not_said_as_unavailable() -> None:
+def test_a_request_the_api_rejected_as_asked_is_not_said_as_unavailable() -> None:
     a_bad_request = anthropic.BadRequestError(
-        "dont care", response=httpx2.Response(400, request=SOME_REQUEST), body=None)
+        "dont care", response=httpx2.Response(400, request=SOME_REQUEST),
+        body=_a_body_saying("invalid_request_error", SOME_WORDS_A_REJECTION_IS_SAID_IN))
 
     Scenario() \
         .given(
@@ -85,7 +93,48 @@ def test_a_request_the_api_refused_as_asked_is_not_said_as_unavailable() -> None
             lambda: _what_was_raised_by(client)
         ) \
         .then(
-            _the_failure_was_left_as(a_bad_request)
+            _the_failure_was_rejected_saying(SOME_WORDS_A_REJECTION_IS_SAID_IN, a_bad_request)
+        )
+
+
+@pytest.mark.unit
+def test_a_rejection_the_api_gave_no_words_for_is_said_in_the_sdks() -> None:
+    # A body with no message - a proxy's page, say - leaves the SDK's own
+    # account of the error as the only one there is.
+    a_bad_request = anthropic.BadRequestError(
+        "some account of a request rejected", response=httpx2.Response(400, request=SOME_REQUEST),
+        body=None)
+
+    Scenario() \
+        .given(
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         client=_an_api_failing_with(a_bad_request))
+        ) \
+        .when(
+            lambda: _what_was_raised_by(client)
+        ) \
+        .then(
+            _the_failure_was_rejected_saying("some account of a request rejected", a_bad_request)
+        )
+
+
+@pytest.mark.unit
+def test_a_model_unavailable_for_now_is_said_in_the_apis_words() -> None:
+    some_words = "Overloaded"
+    overloaded = anthropic.OverloadedError(
+        "dont care", response=httpx2.Response(529, request=SOME_REQUEST),
+        body=_a_body_saying("overloaded_error", some_words))
+
+    Scenario() \
+        .given(
+            client := AnthropicLLMClient(settings_that_reach_no_api(),
+                                         client=_an_api_failing_with(overloaded))
+        ) \
+        .when(
+            lambda: _what_was_raised_by(client)
+        ) \
+        .then(
+            _the_failure_was_unavailable_saying(some_words)
         )
 
 
@@ -103,7 +152,7 @@ def test_a_spending_cap_is_not_said_as_unavailable() -> None:
             lambda: _what_was_raised_by(client)
         ) \
         .then(
-            _the_failure_was_left_as(a_spend_cap)
+            _the_failure_was_rejected_saying(SOME_WORDS_THE_CAP_IS_SAID_IN, a_spend_cap)
         )
 
 
@@ -121,7 +170,7 @@ def test_a_stream_stopped_by_a_spending_cap_after_it_answered_is_not_said_as_una
             lambda: _what_was_raised_by(client, streamed=True)
         ) \
         .then(
-            _the_failure_was_left_as(a_spend_cap)
+            _the_failure_was_rejected_saying(SOME_WORDS_THE_CAP_IS_SAID_IN, a_spend_cap)
         )
 
 
@@ -146,8 +195,9 @@ def test_a_stream_that_failed_for_now_after_it_answered_is_said_as_unavailable(
 
 
 @pytest.mark.unit
-def test_a_stream_refused_as_asked_after_it_answered_is_not_said_as_unavailable() -> None:
-    failure = _an_error_event_in_a_stream("invalid_request_error")
+def test_a_stream_rejected_as_asked_after_it_answered_is_not_said_as_unavailable() -> None:
+    failure = _an_error_event_in_a_stream("invalid_request_error",
+                                          SOME_WORDS_A_REJECTION_IS_SAID_IN)
 
     Scenario() \
         .given(
@@ -158,17 +208,23 @@ def test_a_stream_refused_as_asked_after_it_answered_is_not_said_as_unavailable(
             lambda: _what_was_raised_by(client, streamed=True)
         ) \
         .then(
-            _the_failure_was_left_as(failure)
+            _the_failure_was_rejected_saying(SOME_WORDS_A_REJECTION_IS_SAID_IN, failure)
         )
 
 
-def _an_error_event_in_a_stream(error_type: str) -> anthropic.APIStatusError:
+def _a_body_saying(error_type: str, message: str) -> dict[str, object]:
+    """An error's body as the API sends it: its type, and what it says."""
+    return {"type": "error", "error": {"type": error_type, "message": message}}
+
+
+def _an_error_event_in_a_stream(error_type: str,
+                                message: str = "dont care") -> anthropic.APIStatusError:
     """What the SDK raises for an error event in a stream that answered 200: a
     plain status error carrying the event's body."""
     return anthropic.APIStatusError(
         "dont care",
         response=httpx2.Response(200, request=SOME_REQUEST),
-        body={"type": "error", "error": {"type": error_type, "message": "dont care"}})
+        body=_a_body_saying(error_type, message))
 
 
 def _what_was_raised_by(client: AnthropicLLMClient,
@@ -203,11 +259,30 @@ def _the_failure_was_unavailable_for(cause: Exception) -> Assertion[Exception | 
     return assertion
 
 
-def _the_failure_was_left_as(expected: Exception) -> Assertion[Exception | None]:
+def _the_failure_was_unavailable_saying(words: str) -> Assertion[Exception | None]:
+    """Unavailable, in the API's words and not the SDK's display of the error."""
     def assertion(raised: Exception | None) -> bool:
-        if raised is not expected:
-            raise AssertionError(f"Expected the turn to raise [{expected!r}] as it was, "
-                                 f"got [{raised!r}].")
+        if not isinstance(raised, ModelUnavailable) or not str(raised).endswith(words):
+            raise AssertionError(
+                f"Expected the turn to raise [ModelUnavailable] ending [{words}], got "
+                f"[{raised!r}].")
+
+        return True
+
+    return assertion
+
+
+def _the_failure_was_rejected_saying(words: str,
+                                     cause: Exception) -> Assertion[Exception | None]:
+    """Rejected, in the API's own words, with the vendor's error kept as its
+    cause for whoever reads the log."""
+    def assertion(raised: Exception | None) -> bool:
+        if (not isinstance(raised, RequestRejected) or raised.__cause__ is not cause
+                or not str(raised).endswith(words)):
+            raise AssertionError(
+                f"Expected the turn to raise [RequestRejected] ending [{words}] from "
+                f"[{cause!r}], got [{raised!r}] from "
+                f"[{getattr(raised, '__cause__', None)!r}].")
 
         return True
 

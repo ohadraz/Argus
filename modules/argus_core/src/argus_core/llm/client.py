@@ -97,8 +97,23 @@ class ModelUnavailable(Exception):
     billed, and a caller that treats a refusal as final would be wrong to
     treat this so. Its own type so that a caller able to go on without the
     answer can say so without naming a vendor's errors - and only these: a
-    request refused as asked is not the model being unavailable, and stays
-    whatever the implementation raised.
+    request rejected as asked is not the model being unavailable, and is
+    `RequestRejected`.
+    """
+
+
+class RequestRejected(Exception):
+    """The model's API rejected the request as asked - a request it would not
+    take, or an account it would not serve - said in the API's own words.
+
+    Not `ModelUnavailable`: asking again gets the same answer, so a caller
+    told it was for now would ask again. And not a `ModelRefused`, which is the
+    model reading the request and declining to answer it; nothing here reached
+    the model. Its own type because the vendor's says the failure in its own
+    display form, a status and the whole response body, and that form is what
+    reached the walk, Slack and the postmortem wherever a step said why it
+    stopped. Loud all the same: in a replay it is a recording that no longer
+    matches.
     """
 
 

@@ -36,6 +36,7 @@ from argus_core.llm.client import (
     ModelDidNotAnswer,
     ModelRefused,
     ModelUnavailable,
+    RequestRejected,
     TurnPaused,
 )
 from argus_core.llm.escapes import with_escapes_resolved
@@ -187,8 +188,8 @@ _STOP_REASON_ERRORS: dict[str, type[ModelDidNotAnswer]] = {
 # The SDK's errors that mean the model could not be reached for now, raised
 # once its own retries are spent: 429, 529, any other 5xx, and a connection
 # that failed or timed out (`APITimeoutError` is one). Each is said as
-# `ModelUnavailable`; anything else - a 400 above all - is left as raised, and
-# so is the one 429 that is not for now, the account's spending cap.
+# `ModelUnavailable`; any other status - a 400 above all - is `RequestRejected`,
+# and so is the one 429 that is not for now, the account's spending cap.
 _UNAVAILABLE_FOR_NOW: Final = (anthropic.RateLimitError,
                                anthropic.OverloadedError,
                                anthropic.InternalServerError,
@@ -218,6 +219,28 @@ def _is_the_spend_cap(failed: anthropic.APIStatusError) -> bool:
     details = error.get("details") if isinstance(error, dict) else None
 
     return isinstance(details, dict) and details.get("error_code") == SPEND_CAP_ERROR_CODE
+
+
+def _in_the_apis_words(failed: anthropic.APIError) -> str:
+    """What the API said went wrong: the message in the error's body, where it
+    gave one, and the SDK's own words otherwise.
+
+    Not `str` of the error, which for a status is the SDK's display form - a
+    status code and the whole body as a Python dict - and that form reached
+    every line a step said why it stopped on, Slack and the postmortem among
+    them.
+    """
+    body = failed.body
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+
+    return message if isinstance(message, str) and message else failed.message
+
+
+def _rejected(failed: anthropic.APIStatusError) -> RequestRejected:
+    """A request the API would not take, said in its words. Without the status:
+    an error inside a stream arrives with the 200 the stream answered first."""
+    return RequestRejected(f"the model's API rejected the request: {_in_the_apis_words(failed)}")
 
 
 def to_messages(transcript: Transcript) -> list[MessageParam]:
@@ -594,16 +617,16 @@ class AnthropicLLMClient:
                 return cast(Message, streamed.get_final_message())
         except _UNAVAILABLE_FOR_NOW as unavailable:
             if isinstance(unavailable, anthropic.APIStatusError) and _is_the_spend_cap(unavailable):
-                raise
+                raise _rejected(unavailable) from unavailable
 
             raise ModelUnavailable(f"the model could not be reached for now: "
-                                   f"{unavailable}") from unavailable
+                                   f"{_in_the_apis_words(unavailable)}") from unavailable
         except anthropic.APIStatusError as failed:
             if failed.type not in _UNAVAILABLE_ERROR_TYPES or _is_the_spend_cap(failed):
-                raise
+                raise _rejected(failed) from failed
 
             raise ModelUnavailable(f"the model could not be reached for now: "
-                                   f"{failed}") from failed
+                                   f"{_in_the_apis_words(failed)}") from failed
 
     def _request(self,
                  transcript: Transcript,

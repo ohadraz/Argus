@@ -172,6 +172,10 @@ NOT_RUN_UNTIL_SUBMITTED_AGAIN = "submit again first"
 # What a walk that ran out with its last submission put back says it ended on.
 WHAT_A_WALK_ENDING_ON_A_PUT_BACK_SAYS = "last submission was put back"
 
+# How the adapter says a turn that ran out of room, in its own words - which
+# are the vendor's stop reason and nothing a reader of the incident can use.
+WHAT_A_TURN_CUT_SHORT_IS_SAID_AS = "the model did not complete its turn (stop_reason=max_tokens)"
+
 
 @pytest.mark.unit
 def test_the_model_is_told_what_the_investigation_concluded() -> None:
@@ -2260,6 +2264,59 @@ def test_a_model_that_declines_says_so_rather_than_looking_like_a_broken_reposit
 
 
 @pytest.mark.unit
+def test_a_declined_fix_carries_none_of_the_adapters_words() -> None:
+    # A refusal comes with no words of the model's, only the adapter's stop
+    # reason - and that reached the walk, Slack and the postmortem as
+    # "(stop_reason=refusal)".
+    some_adapters_words = "the model did not complete its turn (stop_reason=refusal)"
+    repository = a_repository()
+    model = _Model([ModelRefused(some_adapters_words)])
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(all_of(
+            an_error_was_raised(FixDeclined),
+            _the_error_did_not_mention(some_adapters_words)
+        ))
+
+
+@pytest.mark.unit
+def test_an_answer_cut_short_carries_none_of_the_adapters_words() -> None:
+    # The bound that ran out is the one thing to say, and the adapter's stop
+    # reason after it said that again in the vendor's vocabulary.
+    repository = a_repository()
+    model = a_model_that_is_cut_short()
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(all_of(
+            an_error_was_raised(FixNotAnswered),
+            the_error_mentioned("the fix did not fit in the room the model had to write it"),
+            _the_error_did_not_mention(WHAT_A_TURN_CUT_SHORT_IS_SAID_AS)
+        ))
+
+
+@pytest.mark.unit
 def test_an_answer_cut_short_is_a_fix_that_did_not_finish() -> None:
     # Reported as not having finished rather than as not having been
     # possible, because that is what it is: a bound was too small. The bound
@@ -3325,6 +3382,16 @@ def _wanted_for(turns: int) -> StillWanted:
     return still_wanted
 
 
+def _the_error_did_not_mention(unwanted: str) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        if error is not None and unwanted in str(error):
+            raise AssertionError(f"Expected the error not to mention [{unwanted}], got [{error}].")
+
+        return True
+
+    return assertion
+
+
 def _no_branch_was_written(repository: _Repository) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         if repository.write_branch.call_args_list:
@@ -3764,7 +3831,7 @@ def a_model_that_is_cut_short() -> _Model:
     """
     return _Model([
         AnswerTruncated(
-            "the model ran out of room before finishing its turn",
+            WHAT_A_TURN_CUT_SHORT_IS_SAID_AS,
             billed=Turn(
                 text="", tool_calls=[], input_tokens=0, output_tokens=128_000
             )
