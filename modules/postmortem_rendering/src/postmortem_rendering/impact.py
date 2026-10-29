@@ -29,7 +29,7 @@ from postmortem_rendering.lines import Line, Role, Run
 # Said under a duration the metrics carry no minute of: what was missing is
 # the metrics, not sight of the service - its logs and its takings may well
 # cover the stretch, and the cause and the loss say what they saw.
-_UNOBSERVED: Final = ("The metrics stop at the onset, so the duration is how long they had "
+_METRICS_MISSING: Final = ("The metrics stop at the onset, so the duration is how long they had "
                       "been missing by the close - not a stretch the service is known to "
                       "have spent broken.")
 
@@ -71,7 +71,7 @@ class ImpactSection(BaseModel):
 
     cards: tuple[Card, ...]
     finding: str | None
-    unobserved: str | None
+    metrics_missing: str | None
     finding_label: str | None = None
     # What the service's own logs show where the metrics stopped, beside the
     # note on what the duration measures; `None` where they never stopped.
@@ -93,7 +93,7 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     """
     impact = postmortem.impact
     a_lower_bound = impact is not None and impact.extent in (ImpactExtent.AT_LEAST,
-                                                             ImpactExtent.UNOBSERVED)
+                                                             ImpactExtent.METRICS_MISSING)
     found = the_alert_s_own_finding(alert)
     said = postmortem.detection.said if postmortem.detection else None
 
@@ -103,7 +103,8 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
                *_the_rules_series(impact),
                _the_loss(postmortem, a_lower_bound)),
         finding=f"What the alert found: {found}" if found else None,
-        unobserved=_UNOBSERVED if impact and impact.extent is ImpactExtent.UNOBSERVED else None,
+        metrics_missing=(_METRICS_MISSING
+                         if impact and impact.extent is ImpactExtent.METRICS_MISSING else None),
         finding_label=said.label if found and said else None,
         logs_in_the_gap=_the_logs_in_the_gap(impact))
 
@@ -134,7 +135,7 @@ def _the_duration(impact: Impact | None) -> Card:
             return Card(value=span, label="onset until reported resolved")
         case ImpactExtent.AT_LEAST:
             return Card(value=f"at least {span}", label="since onset, still not back to normal")
-        case ImpactExtent.UNOBSERVED:
+        case ImpactExtent.METRICS_MISSING:
             return Card(value=f"at least {span}", label="since onset, metrics missing")
 
 

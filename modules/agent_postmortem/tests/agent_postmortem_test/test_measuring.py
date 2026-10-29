@@ -1574,10 +1574,10 @@ def _it_never_recovered() -> Assertion[Measurements]:
 
 def _it_was_unobserved_from(expected: datetime) -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.unobserved_from != expected:
+        if measured.metrics_stopped_at != expected:
             raise AssertionError(
                 f"Expected the service to be unobserved from [{expected}], got "
-                f"[{measured.unobserved_from}].")
+                f"[{measured.metrics_stopped_at}].")
 
         return True
 
@@ -1586,10 +1586,10 @@ def _it_was_unobserved_from(expected: datetime) -> Assertion[Measurements]:
 
 def _it_was_observed_throughout() -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
-        if measured.unobserved_from is not None:
+        if measured.metrics_stopped_at is not None:
             raise AssertionError(
                 f"Expected the metrics to cover the incident, and the service "
-                f"was measured as unobserved from [{measured.unobserved_from}].")
+                f"was measured as unobserved from [{measured.metrics_stopped_at}].")
 
         return True
 

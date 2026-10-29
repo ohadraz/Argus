@@ -33,9 +33,9 @@ from agent_postmortem.figures import (
     ERRORS_WHILE_BROKEN_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    METRICS_STOPPED_AT_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
-    UNOBSERVED_FROM_FIGURE,
     figures_of,
     the_day_said_off_the_page,
     with_every_day_said,
@@ -83,7 +83,7 @@ def the_executive_summary(evidence: IncidentEvidence,
 
     return " ".join([
         *_when_and_for_how_long(measured,
-                                bool(evidence.log_lines) or evidence.logs_read_until is not None,
+                                bool(evidence.log_lines) or evidence.log_reading_ended is not None,
                                 written, written_if_any),
         *_how_bad(measured, written),
         _what_customers_lost(measured, written),
@@ -126,9 +126,9 @@ def _when_and_for_how_long(measured: Measurements,
     onset = measured.onset_at is not None
     said = [] if onset else [f"No onset was measured; the alert came at {written(BEGAN_FIGURE)}."]
 
-    if measured.unobserved_from is not None:
+    if measured.metrics_stopped_at is not None:
         return [*said,
-                f"No metrics were collected from {written(UNOBSERVED_FROM_FIGURE)} on, and "
+                f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} on, and "
                 f"they had not resumed by {written(ARGUS_STOPPED_FIGURE)}, "
                 f"{written(DURATION_FIGURE)} later.",
                 _what_the_logs_show(read, written_if_any)]

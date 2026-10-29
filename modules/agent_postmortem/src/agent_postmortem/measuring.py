@@ -147,7 +147,7 @@ class Measurements(BaseModel):
     # the end of the window, and this one measured nothing after the onset - so
     # the duration above is how long the metrics had been missing by the close,
     # not a stretch of trouble.
-    unobserved_from: datetime | None = None
+    metrics_stopped_at: datetime | None = None
     # What the paging rule's own series did, at the error rate's levels, or
     # `None` where the metrics carry no such series. Told to the model beside
     # the error rate and resting no figure, as that does.
@@ -302,7 +302,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         engaged=engaged,
         cost=_what_the_response_cost(engaged, bands, sources.working_hours_a_year),
         bands=bands,
-        unobserved_from=_when_the_sight_was_lost(
+        metrics_stopped_at=_when_the_sight_was_lost(
             metrics, began, evidence.ended_at, sources.metrics_reporting_lag_minutes),
         # Over the same stretch as the error rate, for the same reason.
         rule_series=rule_series_over(metrics, began, back_to_normal_at),

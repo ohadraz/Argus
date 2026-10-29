@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 ALERT_RAISED_FIGURE: Final = "alert_raised"
 BEGAN_FIGURE: Final = "began"
 BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
-UNOBSERVED_FROM_FIGURE: Final = "metrics_stopped_at"
+METRICS_STOPPED_AT_FIGURE: Final = "metrics_stopped_at"
 LOGS_REACH_UNTIL_FIGURE: Final = "logs_reach_until"
 LOG_READING_ENDED_FIGURE: Final = "log_reading_ended"
 CUSTOMER_LOSS_FIGURE: Final = "customer_loss"
@@ -153,7 +153,7 @@ _KINDS: Final = {
     ALERT_RAISED_FIGURE: _Kind.INSTANT,
     BEGAN_FIGURE: _Kind.INSTANT,
     BACK_TO_NORMAL_FIGURE: _Kind.INSTANT,
-    UNOBSERVED_FROM_FIGURE: _Kind.INSTANT,
+    METRICS_STOPPED_AT_FIGURE: _Kind.INSTANT,
     LOGS_REACH_UNTIL_FIGURE: _Kind.INSTANT,
     LOG_READING_ENDED_FIGURE: _Kind.INSTANT,
     ARGUS_STOPPED_FIGURE: _Kind.INSTANT,
@@ -295,23 +295,23 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     if measured.back_to_normal_at is not None:
         figures[BACK_TO_NORMAL_FIGURE] = _an_instant(measured.back_to_normal_at, day)
 
-    if measured.unobserved_from is not None:
-        figures[UNOBSERVED_FROM_FIGURE] = _an_instant(measured.unobserved_from, day)
+    if measured.metrics_stopped_at is not None:
+        figures[METRICS_STOPPED_AT_FIGURE] = _an_instant(measured.metrics_stopped_at, day)
 
         # How far the logs read reach into the stretch the metrics did not
         # cover. Told only which lines reached in, a model wrote that nothing
         # was known after the onset; given the instant by name, saying so
         # contradicts a figure it was handed.
         logged_until = the_last_minute_logged_inside(evidence.log_lines,
-                                                     measured.unobserved_from)
+                                                     measured.metrics_stopped_at)
         if logged_until is not None:
             figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until, day)
 
         # And where the reading of them ended, which is as often where the
         # lines stop as the service is: told only how far they reach, a model
         # wrote that nothing was known of minutes nobody had read.
-        if evidence.logs_read_until is not None:
-            figures[LOG_READING_ENDED_FIGURE] = _an_instant(evidence.logs_read_until, day)
+        if evidence.log_reading_ended is not None:
+            figures[LOG_READING_ENDED_FIGURE] = _an_instant(evidence.log_reading_ended, day)
 
     figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)

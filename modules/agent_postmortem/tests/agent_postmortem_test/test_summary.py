@@ -146,8 +146,8 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
         .given(
             evidence := an_evidence_bundle(
                 log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"],
-                logs_read_until=ONSET + timedelta(minutes=20)),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET,
+                log_reading_ended=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET,
                                             duration_in_hours=0.5)
         ) \
         .when(
@@ -170,8 +170,8 @@ def test_logs_reaching_as_far_as_their_reading_ended_say_the_instant_once() -> N
         .given(
             evidence := an_evidence_bundle(
                 log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"],
-                logs_read_until=ONSET + timedelta(minutes=4)),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET,
+                log_reading_ended=ONSET + timedelta(minutes=4)),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET,
                                             duration_in_hours=0.5)
         ) \
         .when(
@@ -200,8 +200,8 @@ def test_logs_that_show_nothing_of_the_unseen_stretch_are_said_to_show_nothing(
     # is not nobody having looked.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=log_lines, logs_read_until=read_until),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET,
+            evidence := an_evidence_bundle(log_lines=log_lines, log_reading_ended=read_until),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET,
                                             duration_in_hours=0.5)
         ) \
         .when(

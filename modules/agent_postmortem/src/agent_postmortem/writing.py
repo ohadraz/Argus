@@ -197,7 +197,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # Ending at the measured recovery, where the duration beside it ends.
         timeline=timeline_of(evidence, measured.back_to_normal_at,
                              back_before_the_action=measured.back_before_the_action,
-                             metrics_stopped_at_onset=measured.unobserved_from is not None,
+                             metrics_stopped_at_onset=measured.metrics_stopped_at is not None,
                              ended_by_a_report=measured.reported_by is not None),
         # The model's sections. Each empty where unanswered - a section of many
         # has no list to be absent from - and the review says what that costs.
@@ -211,7 +211,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # Under the labels the model was shown them by, so the prose that cites
         # one has a row to lead to.
         changes_read=the_changes_labelled(evidence),
-        log_messages_read=grouped(evidence.log_lines, measured.unobserved_from,
+        log_messages_read=grouped(evidence.log_lines, measured.metrics_stopped_at,
                                   the_day_it_began(evidence, measured)),
         deployment_changes_read=the_deployment_changes_labelled(evidence),
         code_read=the_code_reading_labelled(evidence),

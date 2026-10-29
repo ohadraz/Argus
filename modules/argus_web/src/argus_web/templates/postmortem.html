@@ -164,8 +164,8 @@ document.addEventListener('DOMContentLoaded', function () {
 {% endfor %}
 </div>
 {% if impact.finding %}<p class="alert-finding"{% if impact.finding_label %} id="{{ impact.finding_label }}"{% endif %}>{{ impact.finding }}</p>{% endif %}
-{% if impact.unobserved %}<p class="unobserved">{{ impact.unobserved }}</p>{% endif %}
-{% if impact.logs_in_the_gap %}<p class="unobserved" data-logs-in-the-gap>{{ said(impact.logs_in_the_gap) }}</p>{% endif %}
+{% if impact.metrics_missing %}<p class="metrics-missing">{{ impact.metrics_missing }}</p>{% endif %}
+{% if impact.logs_in_the_gap %}<p class="metrics-missing" data-logs-in-the-gap>{{ said(impact.logs_in_the_gap) }}</p>{% endif %}
 </section>
 
 {% set cause = postmortem.cause %}

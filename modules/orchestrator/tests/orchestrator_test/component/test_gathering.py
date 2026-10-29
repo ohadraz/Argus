@@ -3080,10 +3080,10 @@ def _carries_the_log_lines(expected: list[str]) -> Assertion[IncidentEvidence]:
 
 def _the_logs_were_read_until(expected: datetime | None) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
-        if evidence.logs_read_until != expected:
+        if evidence.log_reading_ended != expected:
             raise AssertionError(
                 f"Expected the logs to have been read until {expected}, and the evidence "
-                f"says {evidence.logs_read_until}.")
+                f"says {evidence.log_reading_ended}.")
 
         return True
 

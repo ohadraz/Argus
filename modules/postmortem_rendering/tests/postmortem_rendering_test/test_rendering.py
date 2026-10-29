@@ -144,7 +144,7 @@ def test_where_the_logs_were_read_up_to_is_said_by_its_time_on_the_incident_s_da
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                               peak_error_rate=None,
                               logs_in_the_gap=LogsInTheGap(
                                   read=True, labels=[], reach_until=None,

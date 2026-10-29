@@ -552,7 +552,7 @@ def test_an_incident_nobody_is_recorded_ending_says_so() -> None:
 
 
 @pytest.mark.unit
-def test_an_incident_argus_escalated_with_a_fix_waiting_was_ended_by_the_escalation() -> None:
+def test_an_incident_argus_escalated_with_a_draft_fix_opened_was_ended_by_the_escalation() -> None:
     # Nothing was done to the service and nobody resolved it, but how it ended
     # is on the record: Argus handed it to a person, with a fix to merge.
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",

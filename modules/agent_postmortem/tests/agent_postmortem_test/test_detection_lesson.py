@@ -119,7 +119,7 @@ def test_where_the_metrics_stopped_at_the_onset_the_alert_is_weighed_from_their_
             measured := a_measured_incident(rule_waits=timedelta(0),
                                             rule_looks_back=timedelta(minutes=5),
                                             rule_evaluated_every=timedelta(minutes=1),
-                                            unobserved_from=ONSET)
+                                            metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: the_detection_lesson(evidence, measured)
@@ -142,7 +142,7 @@ def test_an_onset_the_alert_stated_where_the_metrics_stopped_keeps_its_lesson() 
             measured := a_measured_incident(rule_waits=timedelta(0),
                                             rule_looks_back=timedelta(minutes=5),
                                             rule_evaluated_every=timedelta(minutes=1),
-                                            unobserved_from=ONSET)
+                                            metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: the_detection_lesson(evidence, measured)

@@ -41,12 +41,12 @@ from agent_postmortem.figures import (
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    METRICS_STOPPED_AT_FIGURE,
     RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
-    UNOBSERVED_FROM_FIGURE,
     Figure,
     figures_of,
     named,
@@ -1293,14 +1293,14 @@ def test_metrics_that_stopped_are_dated_from_where_they_stopped() -> None:
         .given(
             evidence := an_evidence_bundle(),
             measured := a_measured_incident(back_to_normal_at=None,
-                                            unobserved_from=some_minute_they_stopped)
+                                            metrics_stopped_at=some_minute_they_stopped)
         ) \
         .when(
             lambda: figures_of(evidence, measured)
         ) \
         .then(
             _the_figures_include({
-                UNOBSERVED_FROM_FIGURE: Figure(given=to_iso(some_minute_they_stopped),
+                METRICS_STOPPED_AT_FIGURE: Figure(given=to_iso(some_minute_they_stopped),
                                                written="12:00 UTC")
             })
         )
@@ -1316,7 +1316,7 @@ def test_how_far_the_logs_read_reach_into_a_metrics_gap_is_a_figure() -> None:
         .given(
             evidence := an_evidence_bundle(log_lines=[
                 f"{to_iso(some_minute_logged_inside)} WARN io-shop: some warning"]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: figures_of(evidence, measured)
@@ -1335,7 +1335,7 @@ def test_a_metrics_gap_no_log_line_reaches_into_names_no_reach() -> None:
         .given(
             evidence := an_evidence_bundle(log_lines=[
                 f"{to_iso(ONSET - timedelta(minutes=10))} WARN io-shop: some warning"]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: figures_of(evidence, measured)
@@ -1356,8 +1356,8 @@ def test_where_the_reading_of_the_logs_ended_is_a_figure_beside_a_metrics_gap() 
     Scenario() \
         .given(
             evidence := an_evidence_bundle().model_copy(
-                update={"logs_read_until": some_end_of_the_reading}),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+                update={"log_reading_ended": some_end_of_the_reading}),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: figures_of(evidence, measured)
@@ -1382,8 +1382,8 @@ def test_where_the_reading_of_the_logs_ended_is_no_figure_without_a_reading_and_
     Scenario() \
         .given(
             evidence := an_evidence_bundle().model_copy(
-                update={"logs_read_until": logs_read_until}),
-            measured := a_measured_incident(unobserved_from=unobserved_from)
+                update={"log_reading_ended": logs_read_until}),
+            measured := a_measured_incident(metrics_stopped_at=unobserved_from)
         ) \
         .when(
             lambda: figures_of(evidence, measured)

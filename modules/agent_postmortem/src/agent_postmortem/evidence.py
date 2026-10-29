@@ -244,7 +244,7 @@ class IncidentEvidence(BaseModel):
     # the investigation picks its own windows. What the lines cannot say of
     # themselves: where they stop is where the reading stopped as often as
     # where the service did. `None` where no read is recorded.
-    logs_read_until: datetime | None = None
+    log_reading_ended: datetime | None = None
     # What changed on the service, as the investigation read it - what dates
     # the change the confirmed candidate blamed.
     changes: list[ChangeEvent] = []

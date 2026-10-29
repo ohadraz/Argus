@@ -1790,7 +1790,7 @@ def test_a_suspected_trigger_stays_out_of_the_title() -> None:
 @pytest.mark.parametrize(("extent", "said"), [
     (ImpactExtent.MEASURED, "measured"),
     (ImpactExtent.AT_LEAST, "a lower bound"),
-    (ImpactExtent.UNOBSERVED, "a lower bound")
+    (ImpactExtent.METRICS_MISSING, "a lower bound")
 ])
 def test_a_loss_over_an_incident_that_never_ended_is_said_to_be_at_least(
         extent: ImpactExtent, said: str) -> None:
@@ -1824,7 +1824,7 @@ def test_a_loss_over_an_incident_that_never_ended_is_said_to_be_at_least(
 @pytest.mark.parametrize(("extent", "read"), [
     (ImpactExtent.MEASURED, "none"),
     (ImpactExtent.AT_LEAST, "none so far"),
-    (ImpactExtent.UNOBSERVED, "none so far")
+    (ImpactExtent.METRICS_MISSING, "none so far")
 ])
 def test_no_loss_is_said_as_none_rather_than_as_an_amount(extent: ImpactExtent,
                                                           read: str) -> None:
@@ -2094,7 +2094,7 @@ def test_the_impact_names_the_log_rows_that_reach_into_the_stretch_the_metrics_m
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with(impact=Impact(
-            duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+            duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
             peak_error_rate=None,
             logs_in_the_gap=LogsInTheGap(read=True, labels=["G46bc"],
                                          reach_until=datetime(2026, 10, 21, 19, 12, tzinfo=UTC),

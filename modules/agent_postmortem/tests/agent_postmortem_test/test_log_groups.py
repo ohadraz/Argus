@@ -428,8 +428,9 @@ def test_a_name_that_held_within_a_part_is_said_as_that_name() -> None:
     [f"2026-10-11T23:41:00Z {SOME_ERROR}", f"2026-10-11T23:43:00Z {SOME_ERROR}"],
     [f"2026-10-11T23:37:00Z {SOME_ERROR}", f"2026-10-11T23:38:00Z {SOME_ERROR}"],
     [f"2026-10-11T23:37:00Z {SOME_ERROR}", SOME_ERROR, f"2026-10-11T23:41:00Z {SOME_ERROR}"]
-], ids=["only-after", "only-before", "one-line-undated"])
-def test_a_message_not_logged_both_sides_of_the_stop_is_said_whole(some_lines: list[str]) -> None:
+], ids=["only-after", "only-before", "both-sides-one-undated"])
+def test_a_message_is_said_whole_unless_all_its_lines_are_dated_and_fall_both_sides_of_the_stop(
+        some_lines: list[str]) -> None:
     # Two parts only where there are two sides to compare. A line with no
     # stamp belongs to neither, and a part that dropped it would miscount.
     Scenario() \

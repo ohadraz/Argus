@@ -656,7 +656,7 @@ def test_an_incident_whose_logs_reach_where_the_metrics_stopped_is_asked_how_the
             lambda: answer_worth_writing(
                 a_model_noting_its_tools,
                 an_evidence_bundle(log_lines=[A_LINE_INSIDE_THE_GAP]),
-                a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET))
+                a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET))
         ) \
         .then(
             _was_offered_a_place_for(offered, LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
@@ -678,7 +678,7 @@ def test_an_answer_silent_on_how_the_logs_show_the_service_is_asked_for_again_na
             lambda: answer_worth_writing(
                 a_model_that_left_it_out,
                 an_evidence_bundle(log_lines=[A_LINE_INSIDE_THE_GAP]),
-                a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET))
+                a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET))
         ) \
         .then(
             all_of(

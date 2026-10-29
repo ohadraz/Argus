@@ -2269,8 +2269,8 @@ def test_the_logs_in_a_stretch_the_metrics_missed_are_carried_with_how_far_they_
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=some_lines, alerted_at=the_alert,
-                                           logs_read_until=the_alert),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+                                           log_reading_ended=the_alert),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: logs_in_the_gap_of(evidence, measured)
@@ -2292,8 +2292,8 @@ def test_whether_the_logs_show_the_service_serving_as_before_is_carried_beside_t
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=some_lines, logs_read_until=None),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            evidence := an_evidence_bundle(log_lines=some_lines, log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: logs_in_the_gap_of(evidence, measured, serving_as_before=False)
@@ -2316,8 +2316,8 @@ def test_no_line_reaching_in_carries_no_reading_of_how_the_service_was_serving()
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=some_lines, logs_read_until=None),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            evidence := an_evidence_bundle(log_lines=some_lines, log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: logs_in_the_gap_of(evidence, measured, serving_as_before=True)
@@ -2335,8 +2335,8 @@ def test_logs_nobody_read_are_carried_as_unread() -> None:
     # in its logs too is not nobody having looked.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=[], logs_read_until=None),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            evidence := an_evidence_bundle(log_lines=[], log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: logs_in_the_gap_of(evidence, measured)
@@ -2353,7 +2353,7 @@ def test_metrics_that_never_stopped_leave_no_stretch_for_the_logs_to_reach_into(
         .given(
             evidence := an_evidence_bundle(
                 log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"]),
-            measured := a_measured_incident(unobserved_from=None)
+            measured := a_measured_incident(metrics_stopped_at=None)
         ) \
         .when(
             lambda: logs_in_the_gap_of(evidence, measured)
@@ -2401,13 +2401,13 @@ def test_impact_whose_metrics_stopped_is_unobserved() -> None:
     # nobody could see, which a lower bound would misdescribe.
     Scenario() \
         .given(
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: impact_of(measured, logs_in_the_gap=None).extent
         ) \
         .then(
-            the_answer_was(ImpactExtent.UNOBSERVED)
+            the_answer_was(ImpactExtent.METRICS_MISSING)
         )
 
 

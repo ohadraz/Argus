@@ -429,7 +429,7 @@ class ImpactExtent(StrEnum):
     MEASURED = "measured"
     REPORTED = "reported"
     AT_LEAST = "at least"
-    UNOBSERVED = "unobserved"
+    METRICS_MISSING = "metrics missing"
 
 
 class ErrorRateLevels(BaseModel):

@@ -221,7 +221,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         actions=_what_was_done(conn, incident_id, account, told,
                                [hypothesis.id for hypothesis in considered]),
         log_lines=_what_was_read(conn, incident_id),
-        logs_read_until=_how_far_the_logs_were_read(account),
+        log_reading_ended=_how_far_the_logs_were_read(account),
         changes=_what_changed(conn, incident_id),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),

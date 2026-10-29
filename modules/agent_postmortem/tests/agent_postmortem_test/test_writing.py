@@ -513,8 +513,8 @@ def test_the_impact_is_the_incident_as_measured_with_the_logs_in_what_the_metric
         .given(
             evidence := an_evidence_bundle(
                 log_lines=[f"{to_iso(ONSET + timedelta(minutes=4))} WARN io-shop: dont care"],
-                logs_read_until=ONSET + timedelta(minutes=20)),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+                log_reading_ended=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: write_postmortem(evidence,
@@ -827,7 +827,7 @@ def test_a_step_citing_a_log_split_where_the_metrics_stopped_carries_the_split_t
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
                                          a_measured_incident(back_to_normal_at=None,
-                                                             unobserved_from=ONSET)),
+                                                             metrics_stopped_at=ONSET)),
                                      ask=_asking_that_answers(
                                          a_submitted_answer().model_copy(update={
                                              "causal_chain": [SubmittedStep(
@@ -975,7 +975,7 @@ def test_the_log_messages_published_are_split_where_the_metrics_stopped_as_shown
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(
                                          a_measured_incident(back_to_normal_at=None,
-                                                             unobserved_from=ONSET)),
+                                                             metrics_stopped_at=ONSET)),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=_disclosing_that_returns([]))
         ) \

@@ -49,7 +49,7 @@ def the_detection_lesson(evidence: IncidentEvidence,
     time: that gap is its own, and weighed.
     """
     dated_only_by_the_alert = (measured.onset_at == evidence.onset_stated_by_the_alert
-                               and measured.unobserved_from is None)
+                               and measured.metrics_stopped_at is None)
     if (measured.onset_at is None or dated_only_by_the_alert
             or measured.rule_waits is None
             or measured.rule_looks_back is None or measured.rule_evaluated_every is None):
@@ -68,7 +68,7 @@ def the_detection_lesson(evidence: IncidentEvidence,
     else:
         began = measured.onset_at
         measured_from = (DetectionMeasuredFrom.METRICS_STOPPED
-                         if measured.unobserved_from is not None
+                         if measured.metrics_stopped_at is not None
                          else DetectionMeasuredFrom.ONSET)
         looks_back = measured.rule_looks_back
 

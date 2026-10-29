@@ -186,11 +186,11 @@ def logs_in_the_gap_of(evidence: IncidentEvidence,
     And `serving_as_before`, the model's reading of those rows - only where a
     row reaches in, since with none there is nothing for it to be a reading of.
     """
-    since = measured.unobserved_from
+    since = measured.metrics_stopped_at
     if since is None:
         return None
 
-    read_until = evidence.logs_read_until
+    read_until = evidence.log_reading_ended
     labels = labels_reaching_into(evidence.log_lines, since)
 
     return LogsInTheGap(
@@ -215,8 +215,8 @@ def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -
     `logs_in_the_gap` is asked for rather than defaulted: left off, a gap the
     logs reach into would be said with nothing of them.
     """
-    if measured.unobserved_from is not None:
-        extent = ImpactExtent.UNOBSERVED
+    if measured.metrics_stopped_at is not None:
+        extent = ImpactExtent.METRICS_MISSING
     elif measured.reported_by is not None:
         extent = ImpactExtent.REPORTED
     elif measured.back_to_normal_at is None:

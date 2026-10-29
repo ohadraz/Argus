@@ -93,8 +93,9 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
     (ImpactExtent.REPORTED, Card(value="40m 0s", label="onset until reported resolved")),
     (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
                                  label="since onset, still not back to normal")),
-    (ImpactExtent.UNOBSERVED, Card(value="at least 40m 0s", label="since onset, metrics missing"))],
-    ids=["measured", "reported", "at-least", "unobserved"])
+    (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
+                                        label="since onset, metrics missing"))],
+    ids=["measured", "reported", "at-least", "metrics-missing"])
 def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
     # Labelled "until back to normal", a duration that never got back names an
     # end the incident never had - and a blind spell still going when the
@@ -138,7 +139,7 @@ def test_a_lower_bound_on_the_loss_is_said_to_be_one() -> None:
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                               peak_error_rate=None),
                 customer_loss_estimate=Decimal("500"),
                 estimate_currency="usd")
@@ -260,11 +261,11 @@ def test_an_incident_whose_metrics_stopped_says_what_its_duration_measures() -> 
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                               peak_error_rate=None))
         ) \
         .when(
-            lambda: the_impact(some_postmortem, an_alert()).unobserved
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
         ) \
         .then(
             the_answer_was("The metrics stop at the onset, so the duration is how long they had "
@@ -393,7 +394,7 @@ def test_a_measured_incident_carries_no_note_on_its_duration() -> None:
                               peak_error_rate=None))
         ) \
         .when(
-            lambda: the_impact(some_postmortem, an_alert()).unobserved
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
         ) \
         .then(
             the_answer_was(None))
@@ -588,7 +589,7 @@ def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:
 
 def _unobserved(logs: LogsInTheGap) -> Impact:
     """An incident whose metrics stopped at the onset, with these logs read."""
-    return Impact(duration=timedelta(minutes=40), extent=ImpactExtent.UNOBSERVED,
+    return Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
                   peak_error_rate=None, logs_in_the_gap=logs)
 
 

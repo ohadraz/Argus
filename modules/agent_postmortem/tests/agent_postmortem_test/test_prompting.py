@@ -2276,7 +2276,7 @@ def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
     Scenario() \
         .given(
             an_incident_nobody_could_see := a_measured_incident(
-                error_rates=None, back_to_normal_at=None, unobserved_from=ONSET
+                error_rates=None, back_to_normal_at=None, metrics_stopped_at=ONSET
             ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
         ) \
         .when(
@@ -2650,7 +2650,7 @@ def test_an_incident_still_unobserved_is_not_said_to_have_closed() -> None:
     Scenario() \
         .given(
             an_incident_nobody_could_see := a_measured_incident(
-                back_to_normal_at=None, unobserved_from=ONSET)
+                back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
@@ -2976,7 +2976,7 @@ def test_an_incident_nobody_could_see_after_its_onset_is_written_up_as_unobserve
     Scenario() \
         .given(
             an_incident_nobody_could_see := a_measured_incident(
-                back_to_normal_at=None, unobserved_from=ONSET)
+                back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), an_incident_nobody_could_see)
@@ -3008,7 +3008,7 @@ def test_an_unobserved_stretch_names_the_log_lines_read_that_reach_into_it() -> 
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=[some_line_inside]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3031,7 +3031,7 @@ def test_a_message_logged_both_sides_of_where_the_metrics_stopped_is_shown_in_tw
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=some_lines),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3055,7 +3055,7 @@ def test_every_figure_a_brief_with_a_split_log_names_is_one_the_answer_may_name(
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=some_lines),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: (opening_ask(evidence, measured), figures_shown(evidence, measured))
@@ -3066,14 +3066,14 @@ def test_every_figure_a_brief_with_a_split_log_names_is_one_the_answer_may_name(
 
 
 @pytest.mark.unit
-def test_an_unobserved_stretch_is_not_said_to_be_covered_by_no_error_rate() -> None:
+def test_a_metrics_gap_leaves_each_rate_shown_to_say_what_it_covers() -> None:
     # The metrics' own line already says they measured nothing after they
     # stopped. Said of every rate shown below, it was false of the shop's own
     # logged rate - which covered the stretch - and a model told it wrote that
     # nothing said how the shop was doing.
     Scenario() \
         .given(
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(an_evidence_bundle(), measured)
@@ -3092,7 +3092,7 @@ def test_an_unobserved_stretch_no_log_line_reaches_into_is_said_to_have_none() -
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=[some_line_before]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3109,7 +3109,7 @@ def test_an_unobserved_stretch_of_a_walk_that_read_no_logs_is_said_to_have_read_
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=[]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3127,8 +3127,8 @@ def test_an_unobserved_stretch_of_a_walk_whose_log_read_came_back_empty_is_said_
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=[],
-                                           logs_read_until=ONSET + timedelta(minutes=20)),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+                                           log_reading_ended=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3150,7 +3150,7 @@ def test_the_log_lines_reaching_into_an_unobserved_stretch_are_the_service_s_acc
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=[some_line_inside]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3178,7 +3178,7 @@ def test_the_error_rate_line_names_the_log_rows_whose_figures_reach_into_the_str
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=some_lines_inside),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3202,7 +3202,7 @@ def test_the_service_is_said_to_be_seen_through_the_log_lines_reaching_into_an_u
     Scenario() \
         .given(
             evidence := an_evidence_bundle(log_lines=[some_line_inside]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3224,7 +3224,7 @@ def test_an_error_rate_the_metrics_did_not_measure_over_a_gap_points_to_the_logs
     # over the gap could not be measured - of a gap the shop's own logged rate
     # covered. Pointed to only where a line does reach in.
     an_unobserved_stretch = a_measured_incident(
-        error_rates=None, back_to_normal_at=None, unobserved_from=ONSET
+        error_rates=None, back_to_normal_at=None, metrics_stopped_at=ONSET
     ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
 
     Scenario() \
@@ -3258,8 +3258,8 @@ def test_an_unobserved_stretch_says_where_the_reading_of_the_logs_ended(
     Scenario() \
         .given(
             evidence := some_evidence.model_copy(
-                update={"logs_read_until": some_evidence.alerted_at + read_past_the_alert}),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+                update={"log_reading_ended": some_evidence.alerted_at + read_past_the_alert}),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3277,8 +3277,8 @@ def test_an_unobserved_stretch_read_past_the_alert_is_not_said_to_end_at_it() ->
     Scenario() \
         .given(
             evidence := some_evidence.model_copy(
-                update={"logs_read_until": some_evidence.alerted_at + timedelta(minutes=2)}),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+                update={"log_reading_ended": some_evidence.alerted_at + timedelta(minutes=2)}),
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3295,7 +3295,7 @@ def test_an_unobserved_stretch_with_no_reading_recorded_says_nothing_of_where_on
         .given(
             evidence := an_evidence_bundle(
                 log_lines=[f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]),
-            measured := a_measured_incident(back_to_normal_at=None, unobserved_from=ONSET)
+            measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
             lambda: opening_ask(evidence, measured)
@@ -3749,7 +3749,7 @@ def test_the_brief_says_the_document_says_how_the_service_did_where_a_log_line_r
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
-                                                              unobserved_from=ONSET))
+                                                              metrics_stopped_at=ONSET))
         ) \
         .then(
             _says_on_one_line("How the service did over that stretch is said by the document "
@@ -3773,7 +3773,7 @@ def test_the_brief_says_to_cite_the_log_lines_reaching_in_for_nobody_seeing_anyt
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
-                                                              unobserved_from=ONSET))
+                                                              metrics_stopped_at=ONSET))
         ) \
         .then(
             _says_on_one_line("say nothing of it anywhere else.",
@@ -3793,7 +3793,7 @@ def test_the_brief_never_names_an_answer_an_incident_whose_logs_reach_nowhere_is
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
-                                                              unobserved_from=ONSET))
+                                                              metrics_stopped_at=ONSET))
         ) \
         .then(
             _does_not_say("logs_show_serving_as_before")
@@ -3812,11 +3812,11 @@ def test_the_brief_says_nothing_is_known_of_the_service_where_no_log_line_reache
     # shop kept serving - unbounded, which is what the bound was there to stop.
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(log_lines=log_lines, logs_read_until=None)
+            evidence := an_evidence_bundle(log_lines=log_lines, log_reading_ended=None)
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
-                                                              unobserved_from=ONSET))
+                                                              metrics_stopped_at=ONSET))
         ) \
         .then(
             _says_on_one_line("Nothing is known of how the service did over that stretch: "
@@ -3833,7 +3833,7 @@ def test_the_brief_never_says_nothing_is_known_where_a_log_line_reaches_in() -> 
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident(back_to_normal_at=None,
-                                                              unobserved_from=ONSET))
+                                                              metrics_stopped_at=ONSET))
         ) \
         .then(
             _does_not_say("Nothing is known of how the service did")
