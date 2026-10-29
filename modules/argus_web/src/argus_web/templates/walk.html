@@ -131,7 +131,16 @@
       </ul>
     </li>
   {% else %}
+    {# "Yet" only while one can still come: on an ended incident it promises
+       an explanation nothing will form, and of a disproven alarm there was
+       nothing to explain. #}
+    {% if incident.status == "disproven" %}
+    <li class="empty">None: the alarm was disproven.</li>
+    {% elif incident.status.is_terminal() %}
+    <li class="empty">No explanation was formed.</li>
+    {% else %}
     <li class="empty">No explanation has been formed yet.</li>
+    {% endif %}
   {% endfor %}
   </ul>
 

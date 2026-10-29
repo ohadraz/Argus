@@ -420,20 +420,26 @@ class Detection(BaseModel):
 
 class ImpactExtent(StrEnum):
     """What a duration is: a measurement, one ended by a person's report, a
-    floor, or a stretch the metrics carry nothing of.
+    floor, a stretch the metrics carry nothing of - or none at all, the alarm
+    having been disproven.
 
-    Four rather than a flag, because the two ways a duration falls short of a
+    Five rather than a flag, because the two ways a duration falls short of a
     measurement are different facts: a service still failing when the metrics
     ran out, and a service whose metrics stopped at the onset - which says
     nothing of whether it was failing at all. And an end a person reported is
     not one the metrics showed: their report is the fact (spec §16), and said
     as the metrics', it is credited to what never measured it.
+
+    A disproven alarm is the ending for an incident there was none of: no
+    minute departed, so there is no stretch to measure, and measured from the
+    alert to the close it read as a service broken for seconds and never back.
     """
 
     MEASURED = "measured"
     REPORTED = "reported"
     AT_LEAST = "at least"
     METRICS_MISSING = "metrics missing"
+    DISPROVEN = "disproven"
 
 
 class ErrorRateLevels(BaseModel):
@@ -476,6 +482,28 @@ class RuleSeriesHarm(BaseModel):
     while_broken: float
     at_its_worst: float
     worse_when: WorseWhen
+    line: float | None = None
+    unit: str | None = None
+    is_the_error_rate: bool = False
+
+
+class RuleSeriesBeforeTheAlert(BaseModel):
+    """What the series the paging rule evaluates read over the minutes the rule
+    looked at before it fired - its wait, and how far its condition looks
+    back: the lowest and the highest, and the first and last minute read.
+
+    The grounds of a disproof, in figures. The alarm claims its condition held,
+    and these are the minutes it claims it held in: given only that no minute
+    departed, a reader takes the disproof on trust.
+
+    `line`, `unit` and `is_the_error_rate` as on `RuleSeriesHarm`, so the two
+    say a level alike.
+    """
+
+    lowest: float
+    highest: float
+    first_minute: datetime
+    last_minute: datetime
     line: float | None = None
     unit: str | None = None
     is_the_error_rate: bool = False
@@ -527,6 +555,11 @@ class Impact(BaseModel):
     `logs_in_the_gap` is what the logs show where the metrics stopped, and
     `None` where they never did - or on a document written before it was
     carried.
+
+    `before_the_alert` is the rule's series over the minutes it looked at
+    before firing, on a disproven alarm - its grounds in figures - and `None`
+    on any other ending, or where no minute there carried the series. A
+    disproven alarm's duration is nothing: there was no stretch to measure.
     """
 
     duration: timedelta
@@ -536,6 +569,7 @@ class Impact(BaseModel):
     error_rates: ErrorRateLevels | None = None
     rule_series_harm: RuleSeriesHarm | None = None
     logs_in_the_gap: LogsInTheGap | None = None
+    before_the_alert: RuleSeriesBeforeTheAlert | None = None
 
 
 class Trigger(BaseModel):

@@ -33,6 +33,7 @@ from argus_core.models import (
     ImpactExtent,
     LogsInTheGap,
     ResolutionStep,
+    RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
@@ -203,7 +204,10 @@ def logs_in_the_gap_of(evidence: IncidentEvidence,
     )
 
 
-def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -> Impact:
+def impact_of(measured: Measurements,
+              *,
+              logs_in_the_gap: LogsInTheGap | None,
+              disproven: bool) -> Impact:
     """How long the service was broken, what kind of figure that is, and how
     bad it got - in failed requests, and in the series its rule pages on
     where that got worse - and what the logs show where the metrics stopped.
@@ -213,8 +217,18 @@ def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -
     service is known to have spent broken.
 
     `logs_in_the_gap` is asked for rather than defaulted: left off, a gap the
-    logs reach into would be said with nothing of them.
+    logs reach into would be said with nothing of them. So is `disproven`:
+    left off, an alarm there was none of is measured as an incident.
+
+    A `disproven` alarm first: no stretch, no figure of one, and what the
+    rule's series read over the minutes it claimed its condition held in.
     """
+    if disproven:
+        return Impact(duration=timedelta(0),
+                      extent=ImpactExtent.DISPROVEN,
+                      peak_error_rate=None,
+                      before_the_alert=_the_rule_series_before_the_alert(measured))
+
     if measured.metrics_stopped_at is not None:
         extent = ImpactExtent.METRICS_MISSING
     elif measured.reported_by is not None:
@@ -245,6 +259,22 @@ def impact_of(measured: Measurements, *, logs_in_the_gap: LogsInTheGap | None) -
                                                       measured.rule_series_is_the_error_rate))
                   if series is not None and series.got_worse else None,
                   logs_in_the_gap=logs_in_the_gap)
+
+
+def _the_rule_series_before_the_alert(measured: Measurements) -> RuleSeriesBeforeTheAlert | None:
+    """What the rule's series read before the alert, in the unit its levels are
+    said in elsewhere - `None` where it went unread."""
+    read = measured.rule_series_before_the_alert
+    if read is None:
+        return None
+
+    return RuleSeriesBeforeTheAlert(lowest=read.lowest,
+                                    highest=read.highest,
+                                    first_minute=read.first_minute,
+                                    last_minute=read.last_minute,
+                                    line=read.line,
+                                    unit=measured.rule_series_unit,
+                                    is_the_error_rate=measured.rule_series_is_the_error_rate)
 
 
 def trigger_of(evidence: IncidentEvidence) -> Trigger | None:

@@ -19,6 +19,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     LogsInTheGap,
+    RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     WorseWhen,
 )
@@ -94,13 +95,15 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
     (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
                                  label="since onset, still not back to normal")),
     (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
-                                        label="since onset, metrics missing"))],
-    ids=["measured", "reported", "at-least", "metrics-missing"])
+                                        label="since onset, metrics missing")),
+    (ImpactExtent.DISPROVEN, Card(value="none", label="the alarm was disproven"))],
+    ids=["measured", "reported", "at-least", "metrics-missing", "disproven"])
 def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
     # Labelled "until back to normal", a duration that never got back names an
     # end the incident never had - and a blind spell still going when the
     # incident closed is no more over than a failure still going. An end a
     # person reported is theirs: back to normal is the metrics showing it.
+    # And of a disproven alarm there was no stretch to end.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -112,6 +115,49 @@ def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -
         ) \
         .then(
             the_answer_was(expected))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_shows_there_was_none_and_the_minutes_its_claim_was_judged_on() -> None:
+    # No failure rate, count or loss: of an incident that never happened they
+    # read as figures nobody measured. In their place, what the rule's series
+    # read over the minutes the alarm claimed its condition held in, beside its
+    # line - the grounds of the disproof, which a reader otherwise takes on
+    # trust - said as the series' card of harm says a level.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(0), extent=ImpactExtent.DISPROVEN,
+                              peak_error_rate=None,
+                              before_the_alert=RuleSeriesBeforeTheAlert(
+                                  lowest=0.0, highest=0.015, first_minute=SOME_MINUTE,
+                                  last_minute=SOME_MINUTE + timedelta(minutes=6), line=0.1,
+                                  unit="percentunit", is_the_error_rate=True)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards
+        ) \
+        .then(
+            the_answer_was((Card(value="none", label="the alarm was disproven"),
+                            Card(value="0.0% to 1.5%",
+                                 label="what the alert watches, 19:12 to 19:18",
+                                 note="the rule's line is 10%"))))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_whose_rules_series_went_unread_says_only_that_there_was_none(
+) -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(0), extent=ImpactExtent.DISPROVEN,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards
+        ) \
+        .then(
+            the_answer_was((Card(value="none", label="the alarm was disproven"),)))
 
 
 @pytest.mark.unit

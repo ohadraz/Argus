@@ -314,6 +314,13 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- and watched: a sentence here would send somebody to repeat a change
     -- already made.
     recommended_action TEXT,
+    -- When Argus closed the incident as disproven - there was no incident to
+    -- measure - and null on every other ending. Stored rather than read off the
+    -- incident's status when shown, because the document's own sections were
+    -- written from it: the impact, the summary and the review say what they
+    -- say of a disproven alarm, and a page reading the ending elsewhere could
+    -- disagree with the document it shows.
+    disproven_at TIMESTAMPTZ,
     -- What people told the incident in its thread, each with what the
     -- investigation made of it and the one sentence on whether it changed what
     -- was done. Copied out of `thread_message` rather than joined to it: the

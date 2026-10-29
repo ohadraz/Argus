@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import cast
 from unittest.mock import MagicMock, create_autospec
@@ -106,6 +106,7 @@ from agent_postmortem_test.framework.assertions import (
     states_the_estimate_is_in,
 )
 from agent_postmortem_test.framework.builders import (
+    ENDED_AT,
     ONSET,
     RECOVERED_AT,
     SOME_CURRENCY,
@@ -527,8 +528,10 @@ def test_the_impact_is_the_incident_as_measured_with_the_logs_in_what_the_metric
         ) \
         .then(
             _publishes("the impact", lambda document: document.impact,
-                       impact_of(measured, logs_in_the_gap=logs_in_the_gap_of(
-                           evidence, measured, serving_as_before=True)))
+                       impact_of(measured,
+                                 logs_in_the_gap=logs_in_the_gap_of(
+                                     evidence, measured, serving_as_before=True),
+                                 disproven=False))
         )
 
 
@@ -1369,6 +1372,52 @@ def test_an_incident_argus_acted_on_itself_owes_nobody_an_action() -> None:
         ) \
         .then(
             _it_says_what_is_still_owed(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("disproven", "disproven_at"), [(True, ENDED_AT), (False, None)],
+                         ids=["disproven", "any-other-ending"])
+def test_a_disproven_alarm_is_published_as_closed_at_the_incident_s_close(
+        disproven: bool, disproven_at: datetime | None) -> None:
+    # Every part that says how an incident ended reads it. The close is the
+    # disproof's moment: nothing moves an incident on from disproven.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(disproven=disproven)
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("when it was disproven", lambda document: document.disproven_at,
+                       disproven_at)
+        )
+
+
+@pytest.mark.unit
+def test_the_impact_of_a_disproven_alarm_is_published_as_no_incident() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            measured := a_measured_incident(onset_at=None, back_to_normal_at=None)
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the impact", lambda document: document.impact,
+                       impact_of(measured, logs_in_the_gap=None, disproven=True))
         )
 
 

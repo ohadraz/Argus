@@ -358,6 +358,48 @@ def rule_series_over(buckets: list[MetricBucket],
     )
 
 
+class RuleSeriesSpan(BaseModel):
+    """What the series the paging rule evaluates read over a stretch of
+    minutes: its lowest and its highest, the first and last minute carrying a
+    reading, and the line the rule pages past - `None` where it went unread."""
+
+    lowest: float
+    highest: float
+    first_minute: datetime
+    last_minute: datetime
+    line: float | None = None
+
+
+def rule_series_before(buckets: list[MetricBucket],
+                       alerted_at: datetime,
+                       looked_over: timedelta) -> RuleSeriesSpan | None:
+    """What the rule's series read over the `looked_over` before the alert -
+    the minutes its condition is claimed to have held in.
+
+    From the minute that stretch began inside, read whole, as a wait is read
+    (`rule_held_before_the_onset`), to the alert's own minute. `None` where no
+    minute there carries a reading.
+    """
+    began = (alerted_at - looked_over).replace(second=0, microsecond=0)
+    read = sorted(((parse_iso(bucket.bucket_id), bucket.rule_reading)
+                   for bucket in buckets
+                   if bucket.rule_reading is not None
+                   and began <= parse_iso(bucket.bucket_id) <= alerted_at),
+                  key=lambda minute: minute[0])
+
+    if not read:
+        return None
+
+    values = [reading.value for _, reading in read]
+    line = next((reading.line for _, reading in read if reading.line is not None), None)
+
+    return RuleSeriesSpan(lowest=min(values),
+                          highest=max(values),
+                          first_minute=read[0][0],
+                          last_minute=read[-1][0],
+                          line=line.at if line is not None else None)
+
+
 def rule_held_before_the_onset(buckets: list[MetricBucket],
                                onset_at: datetime,
                                alerted_at: datetime,

@@ -45,6 +45,7 @@ from argus_core.models import (
 from argus_core.replay import Recorder
 from argus_core.replay import nobody as records_nothing
 from argus_incidents import IsStillWanted
+from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
 from incident_memory.describing import what_it_looked_like
 from incident_memory.ordering import demoting_what_was_refuted
 
@@ -531,8 +532,9 @@ def _the_alarm_was_disproven(state: IncidentState,
             # timeline shows it beside the disproof event, which carries the
             # grounds; the channel announcement shows it as the whole reason
             # the incident ended, with nothing else beside it. So it says what
-            # was found rather than naming the finding.
-            action="the alarm's own claim was not in the window"
+            # was found rather than naming the finding - in the words the
+            # postmortem's head says the ending in.
+            action=THE_CLAIM_WAS_NOT_IN_THE_WINDOW
         )
     )
 

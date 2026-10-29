@@ -51,6 +51,7 @@ from agent_postmortem.estimate import (
     BASELINE_WINDOW,
     ErrorRates,
     RuleSeriesLevels,
+    RuleSeriesSpan,
     Unmeasured,
     a_line_was_read,
     beyond_the_variation,
@@ -60,6 +61,7 @@ from agent_postmortem.estimate import (
     first_minute_past_its_line,
     in_the_reporting_currency,
     rule_held_before_the_onset,
+    rule_series_before,
     rule_series_over,
     weeks_back_for,
     why_no_error_rates,
@@ -199,6 +201,12 @@ class Measurements(BaseModel):
     # passed from one never read. `None` and `False` without an onset.
     rule_past_its_line_at: datetime | None = None
     rule_line_read: bool = False
+    # What the paging rule's series read over the minutes the rule looked at
+    # before it fired - its wait and how far its condition looks back - on a
+    # disproven alarm: the disproof's grounds in figures. `None` on any other
+    # ending, where no rule paged or it went unread, or where no minute there
+    # carried the series.
+    rule_series_before_the_alert: RuleSeriesSpan | None = None
 
 
 def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
@@ -248,14 +256,20 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # mark: absent, and every figure below is a lower bound.
     measured_until = back_to_normal_at or evidence.ended_at
     duration = duration_in_hours(began, measured_until)
-    rates = sources.rates()
     # Like with like: the incident against its own clock hours whole weeks
     # earlier, so a shop's day and week cancel out - and those against the same
     # hours as far back again, for how much the shop varies on its own.
+    #
+    # Nothing is read without an onset, since no loss is counted from the alert:
+    # takings read for nothing were disclosed as converted at a rate no figure
+    # was converted at.
+    dated = evidence.onset_at is not None
+    rates = sources.rates() if dated else None
     back = weeks_back_for(measured_until - began)
-    taken_earlier = sources.revenue(began - 2 * back, measured_until - 2 * back)
-    taken_before = sources.revenue(began - back, measured_until - back)
-    taken_during = sources.revenue(began, measured_until)
+    taken_earlier = (sources.revenue(began - 2 * back, measured_until - 2 * back)
+                     if dated else None)
+    taken_before = sources.revenue(began - back, measured_until - back) if dated else None
+    taken_during = sources.revenue(began, measured_until) if dated else None
     earlier_revenue, _ = _as_one_figure(
         taken_earlier, rates, sources.reporting_currency)
     baseline_revenue, left_out = _as_one_figure(
@@ -266,8 +280,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
                  if baseline_revenue is not None and earlier_revenue is not None else None)
     shortfall = (baseline_revenue - revenue_during
                  if baseline_revenue is not None and revenue_during is not None else None)
-    loss = (_loss(shortfall, variation)
-            if evidence.onset_at is not None else None)
+    loss = _loss(shortfall, variation) if dated else None
     engaged = sources.engagement(evidence.incident_id)
     bands = sources.bands()
     alert_rule = sources.alert_rule(evidence.rule) if evidence.rule is not None else None
@@ -325,7 +338,12 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
             first_minute_past_its_line(metrics, evidence.onset_at, evidence.alerted_at)
             if evidence.onset_at is not None else None),
         rule_line_read=(evidence.onset_at is not None
-                        and a_line_was_read(metrics, evidence.onset_at, evidence.alerted_at))
+                        and a_line_was_read(metrics, evidence.onset_at, evidence.alerted_at)),
+        rule_series_before_the_alert=(
+            rule_series_before(metrics, evidence.alerted_at,
+                               timedelta(seconds=alert_rule.pending_seconds
+                                         + alert_rule.range_seconds))
+            if evidence.disproven and alert_rule is not None else None)
     )
 
 

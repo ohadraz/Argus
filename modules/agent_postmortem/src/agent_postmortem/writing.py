@@ -167,6 +167,9 @@ def write_postmortem(evidence: IncidentEvidence,
         # lose the address on any run whose prose read well without one.
         pull_request=evidence.pull_request,
         recommended_action=evidence.recommended_action,
+        # The close, where the incident ended disproven: the ending is
+        # terminal, so it is the disproof's moment.
+        disproven_at=evidence.ended_at if evidence.disproven else None,
         # The record's facts carried across, and the model's sentence beside
         # each. A lead the model said nothing of is reported with nothing said,
         # never dropped: the person who wrote it is owed the line either way.
@@ -186,8 +189,10 @@ def write_postmortem(evidence: IncidentEvidence,
         response_cost_basis=response_cost_basis(measured, sources.working_hours_a_year),
         # Written by code from the record - and, of how the service did where
         # the metrics stopped, from the model's yes or no, never its prose.
-        impact=impact_of(measured, logs_in_the_gap=logs_in_the_gap_of(
-            evidence, measured, answer.logs_show_serving_as_before)),
+        impact=impact_of(measured,
+                         logs_in_the_gap=logs_in_the_gap_of(
+                             evidence, measured, answer.logs_show_serving_as_before),
+                         disproven=evidence.disproven),
         detection=detection_of(evidence, measured.rule_waits,
                                rule_wait_unread=measured.rule_wait_unread,
                                held_before_the_onset=measured.rule_held_before_the_onset),

@@ -24,6 +24,7 @@ from argus_core.models import ActionProgress, ResolutionStep, whether_it_can_be_
 from agent_postmortem.evidence import ActionRecord, IncidentEvidence
 from agent_postmortem.figures import (
     ACTED_FIGURE,
+    ALERT_RAISED_FIGURE,
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
@@ -81,6 +82,20 @@ def the_executive_summary(evidence: IncidentEvidence,
 
     def written_if_any(name: str) -> str | None:
         return figures[name].written if name in figures else None
+
+    # No stretch, no harm and no loss to say of an alarm there was nothing
+    # behind: said as one, it read as a service broken from the alert and
+    # never back. The model's cause sentence says why it was disproven, and
+    # whatever Argus did before it found so is still said.
+    if evidence.disproven:
+        return " ".join([
+            f"The alert came at {written(ALERT_RAISED_FIGURE)}, and Argus closed it as "
+            f"disproven at {written(ARGUS_STOPPED_FIGURE)}.",
+            *([cause] if cause else []),
+            *_what_argus_did(evidence, measured, written),
+            *_what_it_left_to_a_person(evidence),
+            *([still_at_risk] if still_at_risk else [])
+        ])
 
     return " ".join([
         *_when_and_for_how_long(measured,

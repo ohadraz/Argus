@@ -152,6 +152,13 @@ class PostmortemDocument(BaseModel):
     # and watched. Prose here would send somebody to repeat a change already
     # made.
     recommended_action: str | None = None
+    # When Argus closed the incident as disproven - the ending for an incident
+    # there was none of: the window held none of what the alarm claimed. Every
+    # part that says how an incident ended reads it, since measured as an
+    # incident, a disproven alarm reads as a service broken from the alert and
+    # never back. `None` on every other ending, and on a document written
+    # before it was carried.
+    disproven_at: datetime | None = None
     # What people told the incident in its thread, and what each changed. Empty
     # where nobody wrote, which is an answer: the question of what people said
     # was asked of the record, and the record held nothing.

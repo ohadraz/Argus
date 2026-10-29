@@ -1484,6 +1484,28 @@ def test_an_incident_argus_escalated_is_said_to_have_been_handed_to_a_person(
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("ending", "disproven"), [
+    (IncidentStatus.DISPROVEN, True),
+    (IncidentStatus.ESCALATED, False)
+], ids=["disproven", "any-other-ending"])
+def test_an_incident_argus_closed_as_disproven_is_said_to_have_been(
+        ending: IncidentStatus, disproven: bool, a_clean_database: None) -> None:
+    # How the incident ended, off its row: measured as an incident, an alarm
+    # there was none of read as a service broken from the alert and never back.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, ending=ending)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _was_disproven(disproven)
+            )
+
+
+@pytest.mark.component
 def test_an_incident_argus_never_escalated_is_not_said_to_have_been_handed_over(
         a_clean_database: None) -> None:
     with connect_from_env() as conn:
@@ -2421,7 +2443,11 @@ def test_a_postmortem_is_written_from_the_sources_it_was_handed(
         incident_id = _an_incident_that_ended(conn)
         incident = incidents.get(conn, incident_id)
         assert incident is not None and incident.ended_at is not None
-        the_incidents_own_window = (incident.created_at, incident.ended_at)
+        # From an onset, since without one no loss is counted and the takings
+        # are never asked for.
+        some_onset = (incident.created_at - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M")
+        events.record(conn, OnsetDetected(incident_id=incident_id, onset=some_onset))
+        the_incidents_own_window = (parse_iso(some_onset), incident.ended_at)
 
     Scenario() \
         .given(
@@ -2916,6 +2942,19 @@ def _was_escalated(expected: bool) -> Assertion[IncidentEvidence]:
     return assertion
 
 
+def _was_disproven(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.disproven != expected:
+            raise AssertionError(
+                f"Expected the evidence to say Argus {'' if expected else 'never '}closed the "
+                f"incident as disproven, and it says it "
+                f"{'did' if evidence.disproven else 'did not'}.")
+
+        return True
+
+    return assertion
+
+
 def _recommends(expected: str) -> Assertion[IncidentEvidence]:
     def assertion(evidence: IncidentEvidence) -> bool:
         if evidence.recommended_action != expected:
@@ -3244,8 +3283,10 @@ def _an_incident_that_ended(conn: psycopg.Connection,
                             rule: str | None = None,
                             summary: str | None = None,
                             started_at: datetime | None = None,
-                            stated_onset: datetime | None = None) -> str:
-    """An incident with both a row and an account of itself.
+                            stated_onset: datetime | None = None,
+                            ending: IncidentStatus = IncidentStatus.RESOLVED) -> str:
+    """An incident with both a row and an account of itself, ended as
+    `ending` - resolved, unless a test says otherwise.
 
     The events as well as the rows, because the document is written from the
     account now rather than from the status column: an incident whose rows
@@ -3259,12 +3300,12 @@ def _an_incident_that_ended(conn: psycopg.Connection,
     incidents.transition(
         conn,
         incident_id,
-        IncidentStatus.RESOLVED,
+        ending,
         at=utc_now(),
     )
     events.record(
         conn,
-        StatusChanged(incident_id=incident_id, to_status=IncidentStatus.RESOLVED)
+        StatusChanged(incident_id=incident_id, to_status=ending)
     )
 
     return incident_id

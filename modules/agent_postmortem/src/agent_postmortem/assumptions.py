@@ -120,7 +120,9 @@ def assumptions_of(answer: SubmittedPostmortem,
     # The takings rather than the figure they became: a figure is also absent
     # where the money was read and no rate could be, and that is a partial
     # estimate disclosed a currency at a time rather than an unread provider.
-    if measured.baseline_takings is None:
+    # Only where there was an onset to count a loss from: without one the
+    # takings are never asked for, which the line above says.
+    if measured.onset_at is not None and measured.baseline_takings is None:
         assumptions.append(REVENUE_UNAVAILABLE_ASSUMPTION)
     if measured.engaged is None:
         assumptions.append(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
@@ -160,7 +162,12 @@ def _currencies_left_out_of(measured: Measurements) -> list[str]:
     a currency is left out because the provider prices nothing for it; with no
     table, every currency is left out for the same reason, and it is not the
     currency's.
+
+    Only where there is a figure for them to be missing from.
     """
+    if measured.loss is None:
+        return []
+
     reason = (RATES_UNAVAILABLE_REASON if measured.rates is None
               else NO_RATE_PUBLISHED_REASON)
 
@@ -191,10 +198,11 @@ def _rates_applied(measured: Measurements) -> list[str]:
     Only the currencies actually taken, so a document about a service trading
     in dollars does not recite thirty rates it never used. A window needing no
     conversion says nothing, which is correct: there is no assumption to
-    disclose.
+    disclose. And only where a loss was computed: takings read with no figure
+    made of them were converted into nothing.
     """
     taken, rates = measured.baseline_takings, measured.rates
-    if taken is None or rates is None:
+    if taken is None or rates is None or measured.loss is None:
         return []
 
     return [

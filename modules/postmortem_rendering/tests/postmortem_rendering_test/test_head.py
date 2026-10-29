@@ -366,6 +366,24 @@ def test_an_incident_with_no_onset_is_dated_by_its_alert() -> None:
 
 
 @pytest.mark.unit
+def test_a_disproven_alarm_is_dated_by_its_alert_and_when_argus_closed_it() -> None:
+    # Not "onset unknown": the window was read, and there was no onset to be
+    # unknown.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[], disproven_at=SOME_ONSET + timedelta(seconds=5),
+                detection=Detection(alerted_at=SOME_ONSET, rule="dont care", onset_at=None,
+                                    gap=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("alerted Oct 11, 2026, 14:03 UTC, disproven at 14:03:05 UTC"))
+
+
+@pytest.mark.unit
 def test_an_incident_is_dated_by_its_onset_s_day() -> None:
     # The alert came past midnight; the incident began the day before.
     Scenario() \
@@ -549,6 +567,34 @@ def test_an_incident_nobody_is_recorded_ending_says_so() -> None:
         ) \
         .then(
             _it_reads("Not recorded."))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_was_ended_by_argus_closing_it() -> None:
+    # Said "Not recorded.", though the record holds Argus ending it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[], disproven_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by
+        ) \
+        .then(
+            _it_reads("Argus: closed it as disproven, Oct 11, 2026, 14:03 UTC - the alarm's own "
+                      "claim was not in the window"))
+
+
+@pytest.mark.unit
+def test_argus_is_named_as_who_ended_a_disproven_alarm() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[], disproven_at=SOME_ONSET)
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).ended_by_whom
+        ) \
+        .then(
+            the_answer_was("Argus"))
 
 
 @pytest.mark.unit

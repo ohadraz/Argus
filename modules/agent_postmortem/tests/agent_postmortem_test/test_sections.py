@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord, RefusalRecord
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
     detection_of,
@@ -48,6 +48,7 @@ from argus_core.models import (
     Refusal,
     ReportChannel,
     ResolutionStep,
+    RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     TimelineEntry,
     TimelineMarker,
@@ -2229,7 +2230,7 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
                                        usual_ceiling=0.02, usual_worst=0.04))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None)
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False)
         ) \
         .then(
             the_answer_was(Impact(duration=timedelta(minutes=30),
@@ -2237,6 +2238,40 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
                                   peak_error_rate=0.42,
                                   error_rates=ErrorRateLevels(before=0.01, while_broken=0.3,
                                                               rose=True)))
+        )
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_has_no_impact_but_the_rules_series_it_was_judged_on() -> None:
+    # There was no incident: no stretch, no failed requests, no harm - measured
+    # from the alert to the close, it read as a service broken for seconds and
+    # never back. In place of the figures, what the rule's series read over the
+    # minutes the alarm claimed its condition held in, in the unit the rest of
+    # the page says the series in.
+    some_minute = ONSET - timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                onset_at=None, back_to_normal_at=None, loss=None,
+                error_rates=ErrorRates(baseline=0.01, while_broken=0.01, at_its_worst=0.015,
+                                       usual_ceiling=0.02, usual_worst=0.04),
+                rule_series_unit="percentunit", rule_series_is_the_error_rate=True,
+                rule_series_before_the_alert=RuleSeriesSpan(lowest=0.0, highest=0.015,
+                                                            first_minute=some_minute,
+                                                            last_minute=ONSET, line=0.1))
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=True)
+        ) \
+        .then(
+            the_answer_was(Impact(duration=timedelta(0),
+                                  extent=ImpactExtent.DISPROVEN,
+                                  peak_error_rate=None,
+                                  before_the_alert=RuleSeriesBeforeTheAlert(
+                                      lowest=0.0, highest=0.015, first_minute=some_minute,
+                                      last_minute=ONSET, line=0.1, unit="percentunit",
+                                      is_the_error_rate=True)))
         )
 
 
@@ -2250,7 +2285,7 @@ def test_an_impact_a_person_reported_the_end_of_is_said_to_end_at_their_report()
             measured := a_measured_incident(reported_by="Some Person")
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.REPORTED)
@@ -2373,7 +2408,7 @@ def test_impact_carries_how_many_requests_failed() -> None:
                                        failed_requests=4210))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).requests_failed
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).requests_failed
         ) \
         .then(
             the_answer_was(4210)
@@ -2388,7 +2423,7 @@ def test_impact_still_running_when_the_metrics_ran_out_is_a_lower_bound() -> Non
             measured := a_measured_incident(back_to_normal_at=None)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.AT_LEAST)
@@ -2404,7 +2439,7 @@ def test_impact_whose_metrics_stopped_is_metrics_missing() -> None:
             measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.METRICS_MISSING)
@@ -2418,7 +2453,7 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
             measured := a_measured_incident(error_rates=None)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).peak_error_rate
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).peak_error_rate
         ) \
         .then(
             the_answer_was(None)
@@ -2442,7 +2477,7 @@ def test_impact_carries_the_error_rate_before_and_while_broken_and_whether_it_ro
             measured := a_measured_incident(error_rates=error_rates)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).error_rates
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).error_rates
         ) \
         .then(
             the_answer_was(ErrorRateLevels(before=error_rates.baseline,
@@ -2460,7 +2495,7 @@ def test_impact_carries_no_error_rate_levels_where_the_metrics_could_not_be_read
             measured := a_measured_incident(error_rates=None)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).error_rates
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).error_rates
         ) \
         .then(
             the_answer_was(None)
@@ -2480,7 +2515,7 @@ def test_impact_carries_the_rules_series_where_it_got_worse() -> None:
                                              line=0.8))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=0.899, while_broken=0.459,
@@ -2499,7 +2534,7 @@ def test_impact_carries_the_unit_of_the_rules_series() -> None:
                 rule_series_unit="ms")
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=120.0, while_broken=640.0,
@@ -2519,7 +2554,7 @@ def test_impact_carries_that_the_rules_series_is_the_error_rate() -> None:
                 rule_series_is_the_error_rate=True)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=0.01, while_broken=0.28, at_its_worst=0.38,
@@ -2538,7 +2573,7 @@ def test_impact_carries_no_rules_series_that_held() -> None:
                                              at_its_worst=0.91, worse_when="below"))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(None)

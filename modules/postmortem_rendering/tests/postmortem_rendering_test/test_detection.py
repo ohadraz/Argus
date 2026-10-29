@@ -169,6 +169,29 @@ def test_detection_says_the_rules_wait_beside_the_gap(
 
 
 @pytest.mark.unit
+def test_a_disproven_alarm_says_there_was_no_onset_rather_than_that_it_is_unknown() -> None:
+    # The window was read, and no minute of it departed: "unknown" says nobody
+    # could tell.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                disproven_at=SOME_ALERT + timedelta(seconds=5),
+                detection=Detection(alerted_at=SOME_ALERT, rule="dont care", onset_at=None,
+                                    gap=None, rule_waits=timedelta(minutes=5)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="There was no onset: no minute departed from the "
+                                               "baseline. HighErrorRate fired at "),
+                                      Run.a_moment(SOME_ALERT),
+                                      Run(text=" - its rule fires only once its condition has "
+                                               "held for 5 minutes"),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
 def test_detection_with_no_onset_still_says_the_rules_wait() -> None:
     # No gap to weigh it against, and still the one thing the page can say of
     # how long the condition held before the alert.

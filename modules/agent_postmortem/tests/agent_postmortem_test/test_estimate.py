@@ -19,6 +19,7 @@ import pytest
 from agent_postmortem.estimate import (
     ErrorRates,
     RuleSeriesLevels,
+    RuleSeriesSpan,
     Unmeasured,
     a_line_was_read,
     beyond_the_variation,
@@ -26,6 +27,7 @@ from agent_postmortem.estimate import (
     error_rates_over,
     first_minute_past_its_line,
     rule_held_before_the_onset,
+    rule_series_before,
     rule_series_over,
     why_no_error_rates,
 )
@@ -1015,10 +1017,61 @@ def test_a_line_was_read_where_a_minute_from_the_onset_to_the_alert_carries_one(
         )
 
 
+@pytest.mark.unit
+def test_the_rules_series_before_the_alert_runs_from_the_minute_its_look_began_inside_to_the_alerts(
+) -> None:
+    # What the rule looked at before it fired, for a disproof's grounds. A
+    # minute is the finest the series comes in, so the one the stretch began
+    # part-way through is read whole, as a wait is; a minute before it, and one
+    # after the alert, are no part of what the rule looked at.
+    alert_at = INCIDENT_START + timedelta(minutes=6, seconds=22)
+    looked_over = timedelta(minutes=6)
+    first_minute = (alert_at - looked_over).replace(second=0)
+    last_minute = alert_at.replace(second=0)
+    inside = {first_minute: 0.95, first_minute + timedelta(minutes=3): 0.85, last_minute: 0.9}
+    outside = {first_minute - timedelta(minutes=1): 0.5, last_minute + timedelta(minutes=1): 0.2}
+
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=at, rule_reading=_a_reading(value))
+                        for at, value in {**inside, **outside}.items()]
+        ) \
+        .when(
+            lambda: rule_series_before(buckets, alert_at, looked_over)
+        ) \
+        .then(
+            the_answer_was(RuleSeriesSpan(lowest=min(inside.values()),
+                                          highest=max(inside.values()),
+                                          first_minute=first_minute,
+                                          last_minute=last_minute,
+                                          line=_THE_LINE))
+        )
+
+
+@pytest.mark.unit
+def test_a_stretch_before_the_alert_carrying_no_reading_of_the_rules_series_reads_nothing(
+) -> None:
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START)]
+        ) \
+        .when(
+            lambda: rule_series_before(buckets, INCIDENT_START + timedelta(seconds=22),
+                                       timedelta(minutes=6))
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+# The line `_a_reading`'s share pages under.
+_THE_LINE = 0.8
+
+
 def _a_reading(value: float) -> RuleReading:
-    """A minute of a share that pages under 0.8."""
+    """A minute of a share that pages under `_THE_LINE`."""
     return RuleReading(value=value, worse_when="below",
-                       line=RuleLine(at=0.8, fires_on_it=False))
+                       line=RuleLine(at=_THE_LINE, fires_on_it=False))
 
 
 def _estimates(expected: Decimal) -> Assertion[Decimal]:

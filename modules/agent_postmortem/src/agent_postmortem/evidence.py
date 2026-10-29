@@ -227,6 +227,12 @@ class IncidentEvidence(BaseModel):
     # incident ended, which a summary saying only what Argus did would leave
     # reading as one it closed. Argus's own move, never a person's report.
     escalated: bool = False
+    # That Argus closed the incident as disproven: the window held none of what
+    # the alarm claimed, so there was no incident - which the document says
+    # instead of measuring one from the alert to the close, where it read as a
+    # service broken for seconds and never back. The close is the disproof's
+    # moment, since the ending is terminal.
+    disproven: bool = False
     # The alert rule that paged, as the alert addressed it. `measure` reads the
     # metrics again over the whole incident, and read for this rule they carry its
     # own series - the one a fault in what the service answers departs in alone.

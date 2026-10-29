@@ -294,6 +294,21 @@ def test_nothing_done_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_a_disproven_alarm_says_nothing_needed_doing() -> None:
+    # "Nothing was done to end it" reads as an incident left running.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[], pull_request=None,
+                                            disproven_at=SOME_MOMENT)
+        ) \
+        .when(
+            lambda: the_actions_taken(some_postmortem, resolution=None, day=None).absent
+        ) \
+        .then(
+            the_answer_was("Nothing needed doing: the alarm was disproven."))
+
+
+@pytest.mark.unit
 def test_an_incident_only_a_person_ended_is_not_one_where_nothing_was_done() -> None:
     some_resolution = ReportedResolution(by="dont care", channel="dont care",
                                          at=SOME_MOMENT, note=None)

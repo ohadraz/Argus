@@ -147,7 +147,8 @@ def _the_item_saying(document: PostmortemDocument, text: str | None) -> str | No
 
 
 def _the_impact_assessed(document: PostmortemDocument) -> ReviewCriterion:
-    """Impact assessed: met where the loss is estimated and the end measured;
+    """Impact assessed: met where the loss is estimated and the end measured,
+    or where the alarm was disproven and there was none;
     left to a person where the loss is and the end could not be - nothing
     measured the service back, and nothing will until a person reports it or
     the metrics resume; and not met, saying why, otherwise."""
@@ -238,7 +239,13 @@ def _what_the_key_data_lacks(document: PostmortemDocument) -> list[str]:
 
 def _what_the_impact_lacks(document: PostmortemDocument) -> list[str]:
     """What it cost, and when it stopped costing. A duration with no end is a
-    lower bound, and a lower bound is impact not yet measured."""
+    lower bound, and a lower bound is impact not yet measured.
+
+    Nothing, for a disproven alarm: there was no incident to cost or to see
+    end, and that is the assessment."""
+    if document.disproven_at is not None:
+        return []
+
     ended = any(entry.marker is TimelineMarker.IMPACT_ENDS for entry in document.timeline)
     # Where the metrics stopped, the end is unknown because nothing measured
     # it - not because the service was seen staying broken.

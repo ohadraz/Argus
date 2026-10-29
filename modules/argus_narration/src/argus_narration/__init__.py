@@ -25,6 +25,7 @@ from argus_narration.flags import (
 from argus_narration.logs import LogLine, a_log_line, the_minutes_logged
 from argus_narration.metrics import BucketRow, a_bucket_row
 from argus_narration.narrating import (
+    THE_CLAIM_WAS_NOT_IN_THE_WINDOW,
     CandidateLine,
     CandidateNamed,
     NarrationLine,
@@ -61,6 +62,7 @@ __all__ = [
     "LogLine",
     "NarrationLine",
     "ShownRevision",
+    "THE_CLAIM_WAS_NOT_IN_THE_WINDOW",
     "a_bucket_row",
     "a_candidate_cause",
     "a_finding",

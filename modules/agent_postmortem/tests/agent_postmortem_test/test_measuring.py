@@ -25,9 +25,22 @@ from decimal import Decimal
 from math import isclose
 
 import pytest
-from agent_postmortem.estimate import RuleSeriesLevels, Unmeasured, calm_to_read_for
+from agent_postmortem import IncidentEvidence
+from agent_postmortem.estimate import (
+    RuleSeriesLevels,
+    RuleSeriesSpan,
+    Unmeasured,
+    calm_to_read_for,
+)
 from agent_postmortem.measuring import Measurements, measure
-from agent_postmortem.sources import EngagedResponder, EngagementAnswer, Metrics, PayBand, Revenue
+from agent_postmortem.sources import (
+    AlertRule,
+    EngagedResponder,
+    EngagementAnswer,
+    Metrics,
+    PayBand,
+    Revenue,
+)
 from argus_core.models import MetricBucket, RuleLine, RuleReading, Verdict
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 
@@ -85,6 +98,13 @@ SOME_BAND = PayBand(
 )
 
 A_WEEK = timedelta(weeks=1)
+A_MINUTE = timedelta(minutes=1)
+
+# How long the paging rule waits and how far back its condition looks, and
+# the line it pages above.
+SOME_WAIT = timedelta(minutes=5)
+SOME_LOOK_BACK = timedelta(minutes=1)
+SOME_LINE = 0.1
 
 
 @pytest.mark.unit
@@ -259,6 +279,86 @@ def test_an_incident_with_no_onset_runs_from_its_sender_s_alert_not_its_opening(
         ) \
         .then(
             _ran_for(hours_between(some_alert_before_the_opening, ENDED_AT))
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_reads_no_takings() -> None:
+    # No loss is counted from the alert, so there is nothing to read the takings
+    # or the rates for - and takings read for nothing were disclosed as
+    # converted at a rate no figure was converted at.
+    windows_asked_for: Kept[tuple[datetime, datetime]] = Kept()
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(revenue=_revenue_recording_the_windows_into(
+                                windows_asked_for)))
+        ) \
+        .then(all_of(
+            _asked_for_the_takings_over([], windows_asked_for),
+            _read_no_rates()
+        ))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_is_measured_over_the_minutes_its_rule_looked_at_before_firing(
+) -> None:
+    # The grounds of the disproof, in figures: the alarm claims its condition
+    # held over its wait and how far it looks back, and these are the minutes
+    # it claims it held in - given only that no minute departed, a reader takes
+    # the disproof on trust. From the minute that stretch began inside to the
+    # alert's own; the minute before and the one after are no part of it.
+    alert_at = ONSET + timedelta(minutes=8, seconds=22)
+    first_minute = (alert_at - SOME_WAIT - SOME_LOOK_BACK).replace(second=0)
+    last_minute = alert_at.replace(second=0)
+    inside = {first_minute: 0.0, first_minute + A_MINUTE * 3: 0.015, last_minute: 0.01}
+
+    Scenario() \
+        .given(
+            evidence := _an_alarm_closed_seconds_after_it_fired(alerted_at=alert_at, disproven=True)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_the_rules_series_reading(
+                                             {**inside,
+                                              first_minute - A_MINUTE: 0.5,
+                                              last_minute + A_MINUTE: 0.9}),
+                                         alert_rule=_a_rule_waiting_and_looking_back())
+                            ).rule_series_before_the_alert
+        ) \
+        .then(
+            the_answer_was(RuleSeriesSpan(lowest=min(inside.values()),
+                                          highest=max(inside.values()),
+                                          first_minute=first_minute,
+                                          last_minute=last_minute,
+                                          line=SOME_LINE))
+        )
+
+
+@pytest.mark.unit
+def test_an_alarm_not_disproven_is_not_measured_before_its_alert() -> None:
+    # Only a disproof rests on those minutes; any other ending is measured
+    # over the stretch the service was broken.
+    some_alert_at = ONSET + timedelta(minutes=8, seconds=22)
+
+    Scenario() \
+        .given(
+            evidence := _an_alarm_closed_seconds_after_it_fired(alerted_at=some_alert_at,
+                                                                disproven=False)
+        ) \
+        .when(
+            lambda: measure(evidence,
+                            some_sources(metrics=_the_rules_series_reading(
+                                             {some_alert_at.replace(second=0): 0.01}),
+                                         alert_rule=_a_rule_waiting_and_looking_back())
+                            ).rule_series_before_the_alert
+        ) \
+        .then(
+            the_answer_was(None)
         )
 
 
@@ -1454,6 +1554,52 @@ def _read_no_baseline() -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected no baseline where the source could not answer, got "
                 f"[{measured.baseline_revenue}].")
+
+        return True
+
+    return assertion
+
+
+def _an_alarm_closed_seconds_after_it_fired(alerted_at: datetime,
+                                            disproven: bool) -> IncidentEvidence:
+    """An alarm with no onset, opened and closed seconds after it fired - closed
+    as disproven where `disproven` says so, and on another ending otherwise."""
+    return an_evidence_bundle(onset_at=None,
+                              alerted_at=alerted_at,
+                              started_at=alerted_at + timedelta(seconds=2),
+                              ended_at=alerted_at + timedelta(seconds=5),
+                              rule="dont-care-rule",
+                              disproven=disproven)
+
+
+def _a_rule_waiting_and_looking_back() -> AlertRule:
+    """The rule that paged, waiting `SOME_WAIT` and looking back `SOME_LOOK_BACK`."""
+    return an_alert_rule(int(SOME_WAIT.total_seconds()),
+                         looks_back_seconds=int(SOME_LOOK_BACK.total_seconds()))
+
+
+def _the_rules_series_reading(readings: Mapping[datetime, float]) -> Metrics:
+    """A window whose minutes carry the paging rule's series, each reading as
+    given, against a line the rule pages above at `SOME_LINE`."""
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=at, error_rate=dont_care_error_rate,
+                         rule_reading=RuleReading(value=value, worse_when="above",
+                                                  line=RuleLine(at=SOME_LINE,
+                                                                fires_on_it=False)))
+                for at, value in readings.items()]
+
+    return metrics_between
+
+
+def _read_no_rates() -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        if measured.rates is not None:
+            raise AssertionError(
+                f"Expected no rate table read where no loss is counted, got "
+                f"[{measured.rates}].")
 
         return True
 

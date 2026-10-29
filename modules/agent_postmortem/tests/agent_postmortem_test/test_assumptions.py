@@ -268,6 +268,54 @@ def test_a_revenue_source_that_could_not_be_read_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_an_incident_with_no_onset_owes_no_apology_for_takings_never_asked_for() -> None:
+    # Without an onset no loss is counted, so the takings are never read - and
+    # said to be unreadable, a provider nobody asked reads as one that was down.
+    Scenario() \
+        .given(
+            an_incident_nothing_measured_an_onset_for := a_measured_incident(
+                onset_at=None, loss=None, baseline_revenue=None, takings=None, rates=None)
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_nothing_measured_an_onset_for,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _says_nothing_about(REVENUE_UNAVAILABLE_ASSUMPTION)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("an_incident", "label"), [
+    pytest.param(a_measured_incident(
+        loss=None,
+        takings={SOME_OTHER_CURRENCY: Decimal("800")},
+        rates=RateTable(base=SOME_CURRENCY,
+                        on=ONSET.date(),
+                        per_unit={SOME_OTHER_CURRENCY: Decimal("0.80")})),
+        EXCHANGE_RATE_ASSUMPTION_LABEL, id="a conversion"),
+    pytest.param(a_measured_incident(loss=None, left_out=[SOME_UNPRICED_CURRENCY]),
+                 EXCLUDED_CURRENCY_ASSUMPTION_LABEL, id="a currency left out")
+])
+def test_takings_no_loss_was_made_of_disclose_nothing_of_their_money(an_incident: Measurements,
+                                                                    label: str) -> None:
+    # A rate disclosed beside "no loss estimated" names a conversion no figure
+    # was made by, and a currency left out of a figure nobody computed is left
+    # out of nothing.
+    Scenario() \
+        .given(
+            an_incident
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER, an_incident, DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _says_nothing_about(label)
+        )
+
+
+@pytest.mark.unit
 def test_a_currency_left_out_because_no_table_arrived_says_which() -> None:
     # Two reasons a currency is missing from the figure, and they send a reader
     # to two different places: a provider publishing no rate for a currency is a

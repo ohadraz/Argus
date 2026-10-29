@@ -151,6 +151,7 @@ def test_a_document_with_every_figure_leaves_no_column_of_its_row_empty() -> Non
         "tokens_spent": 48210,
         "assumptions": ["the published rate for the day the incident opened"],
         "recommended_action": "reverting monthly-spend-feature",
+        "disproven_at": utc_now(),
         "leads": [_a_lead_weighed_as(Standing.SUPPORTED, effect="it named the flag reverted")],
         "deploys_reading": ChannelReading.READ,
         "flags_reading": ChannelReading.READ,

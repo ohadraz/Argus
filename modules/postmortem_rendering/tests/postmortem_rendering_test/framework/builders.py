@@ -81,6 +81,7 @@ class _WhatAPostmortemHolds(TypedDict, total=False):
     assumptions: list[str]
     pull_request: OpenedPullRequest | None
     recommended_action: str | None
+    disproven_at: datetime | None
     leads: list[PostmortemLead]
     impact: Impact | None
     detection: Detection | None

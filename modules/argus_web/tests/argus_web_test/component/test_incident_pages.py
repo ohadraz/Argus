@@ -645,6 +645,35 @@ def test_the_polled_fragment_carries_the_walk_on_its_own() -> None:
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("ending", "said"), [
+    (None, "No explanation has been formed yet."),
+    (IncidentStatus.ESCALATED, "No explanation was formed."),
+    (IncidentStatus.DISPROVEN, "None: the alarm was disproven.")
+], ids=["running", "ended", "disproven"])
+def test_an_incident_with_no_candidate_says_whether_one_can_still_come(
+        ending: IncidentStatus | None, said: str) -> None:
+    # "Yet" promises an explanation, which an ended incident will never form -
+    # and of a disproven alarm there was nothing to explain.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        if ending is not None:
+            incidents.transition(conn, incident_id, ending, at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/walk")
+        ) \
+        .then(
+            the_page_says(f'<li class="empty">{said}</li>')
+        )
+
+
+@pytest.mark.component
 def test_an_unknown_incident_is_reported_as_unknown() -> None:
     # An empty page for an id that never existed invents a record.
     a_nonexistent_id = "00000000-0000-0000-0000-000000000000"

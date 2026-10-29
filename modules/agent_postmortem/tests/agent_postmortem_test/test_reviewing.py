@@ -191,6 +191,25 @@ def test_impact_measured_where_the_metrics_stopped_is_left_for_a_person() -> Non
 
 
 @pytest.mark.unit
+def test_impact_of_a_disproven_alarm_is_assessed() -> None:
+    # No loss and no end, and nothing short of either: there was no incident to
+    # cost or to see end, and saying so is the assessment.
+    Scenario() \
+        .given(
+            a_disproven_alarm := _a_document(customer_loss_estimate=None,
+                                             estimate_currency=None,
+                                             timeline=[_a_marker(TimelineMarker.DETECTED)],
+                                             disproven_at=SOME_MOMENT)
+        ) \
+        .when(
+            lambda: review_of(a_disproven_alarm, faults=[], reaches_a_cause=False)
+        ) \
+        .then(
+            _says_because(IMPACT_ASSESSED, met=True, because=None)
+        )
+
+
+@pytest.mark.unit
 def test_impact_short_twice_over_says_both() -> None:
     Scenario() \
         .given(
@@ -776,6 +795,7 @@ class _WhatADocumentHolds(TypedDict, total=False):
     assumptions: list[str]
     pull_request: OpenedPullRequest | None
     recommended_action: str | None
+    disproven_at: datetime | None
     leads: list[PostmortemLead]
     impact: Impact | None
     detection: Detection | None

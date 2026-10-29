@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import assert_never
+from typing import Final, assert_never
 
 from argus_core import to_iso
 from argus_core.events import (
@@ -111,6 +111,11 @@ _INTENT = "Intent Agent"
 # up. Not their platform id: an id is a lookup key, and a reader handed one has
 # been handed a chore rather than a person.
 _A_PERSON = "A person"
+
+# Why an alarm was closed as disproven, said wherever the ending is - the move's
+# own line, the channel's announcement and the postmortem's head - in one set of
+# words, so a reader matching them reads one finding rather than two.
+THE_CLAIM_WAS_NOT_IN_THE_WINDOW: Final = "the alarm's own claim was not in the window"
 
 # How what Code-Fix said of the code is introduced beside its line: a static
 # reading, which no test or run confirmed, and Code-Fix's rather than Argus's.

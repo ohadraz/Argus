@@ -24,7 +24,7 @@ from argus_core.models import (
     PostmortemDocument,
     TimelineMarker,
 )
-from argus_narration import where_a_report_came_from
+from argus_narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW, where_a_report_came_from
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision, on_the_day_and_clock
@@ -151,11 +151,21 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
     a service nobody measured from then on may never have left normal.
 
     With no onset, the alert's moment after it: every moment of that day is
-    said below by its time alone, so the head is where the day is said."""
+    said below by its time alone, so the head is where the day is said. And
+    of a disproven alarm, the alert and when Argus closed it: there was no
+    onset to be unknown."""
     stopped = _the_marker(postmortem, TimelineMarker.METRICS_STOP)
     began = _when_it_began(postmortem)
     if began is None:
         detection = postmortem.detection
+        disproven = postmortem.disproven_at
+        if detection is not None and disproven is not None:
+            return Line(runs=(Run(text="alerted "),
+                              Run.a_moment(detection.alerted_at),
+                              Run(text=", disproven at "),
+                              Run(text=f"{_the_end_said(detection.alerted_at, disproven)} UTC",
+                                  role=Role.MOMENT, at=disproven)))
+
         if detection is None:
             return Line(runs=(Run(text="onset unknown"),))
 
@@ -238,10 +248,12 @@ def _who_was_first_told(postmortem: Postmortem) -> Line | None:
 def _who_ended_it(postmortem: Postmortem,
                   resolution: ReportedResolution | None,
                   escalation: Escalation | None) -> tuple[Line, str | None]:
-    """A person's resolution where there is one; else whichever came latest of
-    Argus's escalation, its recommendation and the last step taken - a walk
-    that acted and then gave up ended by giving up, and one escalated and then
-    walked again ended by what it did then; else that nothing is recorded -
+    """A person's resolution where there is one; else Argus closing it as
+    disproven, an ending nothing moves an incident on from; else whichever
+    came latest of Argus's escalation, its recommendation and the last step
+    taken - a walk that acted and then gave up ended by giving up, and one
+    escalated and then walked again ended by what it did then; else that
+    nothing is recorded -
     with whoever that names. A refusal to act is no step taken: nothing was
     done in it, so it ended nothing, and the step that did is the last action
     before it - unless the refusal is the one that recommended what was
@@ -254,6 +266,12 @@ def _who_ended_it(postmortem: Postmortem,
             runs += [Run(text=" - "), Run(text=resolution.note, role=Role.QUOTE)]
 
         return Line(runs=tuple(runs)), resolution.by
+
+    if postmortem.disproven_at is not None:
+        return Line(runs=(Run(text=_ARGUS),
+                          Run(text=": closed it as disproven, "),
+                          Run.a_moment(postmortem.disproven_at),
+                          Run(text=f" - {THE_CLAIM_WAS_NOT_IN_THE_WINDOW}"))), _ARGUS
 
     last = next((step for step in reversed(postmortem.resolution) if step.refused is None),
                 None)

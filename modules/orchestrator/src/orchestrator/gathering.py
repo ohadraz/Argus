@@ -212,6 +212,9 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         first_told=_when_people_were_first_told(conn, incident_id),
         watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
         escalated=_it_was_handed_to_a_person(account),
+        # Off the row rather than the account: the status is how the incident
+        # ended, and disproven is an ending nothing moves an incident on from.
+        disproven=incident.status is IncidentStatus.DISPROVEN,
         rule=_the_rule_that_paged(incident.alert_payload),
         alert_title=_what_was_alerted(incident.alert_payload),
         alert_finding=_what_the_alert_found(incident.alert_payload),

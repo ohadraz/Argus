@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import level_said_in, said_as_a_share
+from argus_core import level_said_in, said_as_a_share, said_as_a_time
 from argus_core.models import (
     AlarmClaim,
     Alert,
@@ -96,12 +96,18 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
                                                              ImpactExtent.METRICS_MISSING)
     found = the_alert_s_own_finding(alert)
     said = postmortem.detection.said if postmortem.detection else None
+    # Of a disproven alarm, that there was none, and the minutes its claim was
+    # judged on: a failure rate, a count and a loss of an incident that never
+    # happened read as figures nobody measured.
+    disproven = impact is not None and impact.extent is ImpactExtent.DISPROVEN
 
     return ImpactSection(
-        cards=(_the_duration(impact),
-               *_the_errors(impact),
-               *_the_rules_series(impact),
-               _the_loss(postmortem, a_lower_bound)),
+        cards=((_the_duration(impact), *_the_rules_series_before_the_alert(impact))
+               if disproven else
+               (_the_duration(impact),
+                *_the_errors(impact),
+                *_the_rules_series(impact),
+                _the_loss(postmortem, a_lower_bound))),
         finding=f"What the alert found: {found}" if found else None,
         metrics_missing=(_METRICS_MISSING
                          if impact and impact.extent is ImpactExtent.METRICS_MISSING else None),
@@ -137,6 +143,8 @@ def _the_duration(impact: Impact | None) -> Card:
             return Card(value=f"at least {span}", label="since onset, still not back to normal")
         case ImpactExtent.METRICS_MISSING:
             return Card(value=f"at least {span}", label="since onset, metrics missing")
+        case ImpactExtent.DISPROVEN:
+            return Card(value="none", label="the alarm was disproven")
 
 
 _UNTIL_BACK_TO_NORMAL: Final = "onset until back to normal"
@@ -277,6 +285,32 @@ def _the_rules_series(impact: Impact | None) -> tuple[Card, ...]:
     return (Card(value=f"{said_as_measured(harm.before)} to {said_as_measured(harm.while_broken)}",
                  label=f"what the alert watches, {_BEFORE_AND_WHILE_BROKEN}",
                  note="; ".join([*worst, *line]) or None),)
+
+
+def _the_rules_series_before_the_alert(impact: Impact | None) -> tuple[Card, ...]:
+    """What the paging rule's series read over the minutes it looked at before
+    it fired - the grounds a disproof rests on, in figures - from its lowest to
+    its highest, with the line it pages past. None where it went unread.
+
+    Said as the series' card of harm says it: in its unit, as the error rate
+    where it is the error rate, and as what the alert watches. The minutes by
+    their times alone: the head says the day.
+    """
+    read = impact.before_the_alert if impact else None
+
+    if read is None:
+        return ()
+
+    def said(level: float) -> str:
+        return level_said_in(level, read.unit)
+
+    def said_as_measured(level: float) -> str:
+        return said_as_a_share(level) if read.is_the_error_rate else said(level)
+
+    return (Card(value=f"{said_as_measured(read.lowest)} to {said_as_measured(read.highest)}",
+                 label=(f"what the alert watches, {said_as_a_time(read.first_minute)} to "
+                        f"{said_as_a_time(read.last_minute)}"),
+                 note=f"the rule's line is {said(read.line)}" if read.line is not None else None),)
 
 
 def _the_loss(postmortem: PostmortemDocument, a_lower_bound: bool) -> Card:

@@ -26,7 +26,7 @@ from agent_postmortem import (
     ResolutionRecord,
     write_postmortem,
 )
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
@@ -188,7 +188,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        alerted_at: datetime | None = None,
                        log_reading_ended: datetime | None = None,
                        escalated: bool = False,
-                       onset_stated_by_the_alert: datetime | None = None
+                       onset_stated_by_the_alert: datetime | None = None,
+                       disproven: bool = False
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -213,6 +214,9 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
     one whose request must not change because the field exists. No change was
     read by default either: a change is evidence of a cause, and a bundle
     carrying one as standard would hand every test a trigger.
+
+    Not disproven by default: an alarm the window contradicts is the
+    exception, and a bundle closed as one would measure no incident at all.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -240,7 +244,8 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         alerted_at=alerted_at if alerted_at is not None else started_at,
         log_reading_ended=log_reading_ended,
         escalated=escalated,
-        onset_stated_by_the_alert=onset_stated_by_the_alert
+        onset_stated_by_the_alert=onset_stated_by_the_alert,
+        disproven=disproven
     )
 
 
@@ -347,7 +352,9 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         rule_looks_back: timedelta | None = None,
                         rule_evaluated_every: timedelta | None = None,
                         rule_past_its_line_at: datetime | None = None,
-                        rule_line_read: bool = False) -> Measurements:
+                        rule_line_read: bool = False,
+                        rule_series_before_the_alert: RuleSeriesSpan | None = None
+                        ) -> Measurements:
     """An incident every figure could be read for, unless a test says otherwise.
 
     Each default is a question that *was* answered, because every absence has a
@@ -363,7 +370,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
     state anything can produce.
 
     No rule series by default, which is an incident paged by a rule watching
-    none of its own - every incident measured before one could be read.
+    none of its own - every incident measured before one could be read. Nor
+    one before the alert, which only a disproven alarm is measured for.
     """
     return Measurements(
         duration_in_hours=duration_in_hours,
@@ -392,7 +400,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         rule_looks_back=rule_looks_back,
         rule_evaluated_every=rule_evaluated_every,
         rule_past_its_line_at=rule_past_its_line_at,
-        rule_line_read=rule_line_read
+        rule_line_read=rule_line_read,
+        rule_series_before_the_alert=rule_series_before_the_alert
     )
 
 

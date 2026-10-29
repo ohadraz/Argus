@@ -123,7 +123,17 @@ def the_actions_taken(postmortem: PostmortemDocument,
         headings=_HEADINGS,
         steps=steps,
         fix=fix,
-        absent=None if steps or fix or resolution else "Nothing was done to end it.")
+        absent=None if steps or fix or resolution else _why_nothing_was_done(postmortem))
+
+
+def _why_nothing_was_done(postmortem: PostmortemDocument) -> str:
+    """Said in place of the section where nothing was done: of a disproven
+    alarm, that nothing needed doing - "nothing was done to end it" reads as an
+    incident left running."""
+    if postmortem.disproven_at is not None:
+        return "Nothing needed doing: the alarm was disproven."
+
+    return "Nothing was done to end it."
 
 
 def _the_action_of(step: ResolutionStep) -> Line:

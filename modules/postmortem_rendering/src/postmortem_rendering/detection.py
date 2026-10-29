@@ -52,6 +52,10 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
                 Run(text=" stopped at " if stopped else " began at "),
                 Run.a_moment(detection.onset_at),
                 Run(text=f". {alert.alert_name} fired at ")]
+    elif postmortem.disproven_at is not None:
+        # Not unknown: the window was read, and no minute of it departed.
+        runs = [Run(text=f"There was no onset: no minute departed from the baseline. "
+                         f"{alert.alert_name} fired at ")]
     else:
         runs = [Run(text=f"The onset is unknown. {alert.alert_name} fired at ")]
 

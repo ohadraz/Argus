@@ -24,6 +24,7 @@ from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from agent_postmortem_test.framework.builders import (
     ONSET,
     SOME_CURRENCY,
+    STARTED_AT,
     a_candidate,
     a_measured_incident,
     an_action,
@@ -656,6 +657,29 @@ def test_an_incident_argus_escalated_is_said_to_have_been_handed_to_a_person() -
         ) \
         .then(
             _says("Argus handed the incident to a person.")
+        )
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_is_summed_up_as_an_alert_argus_closed_never_as_an_incident() -> None:
+    # Measured as an incident, it read as a service broken from the alert and
+    # never back, with a loss nobody could count. There was no incident: the
+    # alert and when Argus closed it, then why in the model's words.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None,
+                                           ended_at=STARTED_AT + timedelta(seconds=5),
+                                           candidates=[], actions=[], disproven=True),
+            measured := a_measured_incident(onset_at=None, back_to_normal_at=None,
+                                            duration_in_hours=5 / 3600, loss=None,
+                                            baseline_revenue=None, takings=None, rates=None)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, SOME_RISK)
+        ) \
+        .then(
+            the_answer_was(f"The alert came at 12:10 UTC, and Argus closed it as disproven at "
+                           f"12:10:05 UTC. {SOME_CAUSE} {SOME_RISK}")
         )
 
 
