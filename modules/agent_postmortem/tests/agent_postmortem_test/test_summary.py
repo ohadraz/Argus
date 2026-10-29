@@ -18,7 +18,7 @@ import pytest
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.summary import said_off_the_page, the_executive_summary
 from argus_core import level_said_in, to_iso
-from argus_core.models import OpenedPullRequest, Verdict, said_as_money
+from argus_core.models import ActionProgress, OpenedPullRequest, Verdict, said_as_money
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -409,6 +409,79 @@ def test_each_action_is_said_as_the_narration_words_it_after_the_first() -> None
         .then(
             _says("What Argus did: reverted the feature flag checkout-v2 (can be put back) - "
                   "refuted, put back; restarted io-shop - confirmed, nothing to put back.")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_an_earlier_incident_had_tried_says_what_it_came_to_there() -> None:
+    # Told only what this incident did, a revert reads as a fresh experiment
+    # where it repeated one that had already failed - and nothing else a reader
+    # sees first says so.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(SOME_ACTION, verdict=Verdict.REFUTED, standing="put back",
+                          tried_before=[Verdict.REFUTED])])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("On an earlier incident like this one, Argus had also reverted the feature "
+                  "flag checkout-v2, and it was refuted there.")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_several_earlier_incidents_had_tried_says_what_it_came_to_on_each() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(SOME_ACTION, verdict=Verdict.REFUTED, standing="put back",
+                          tried_before=[Verdict.REFUTED, Verdict.REFUTED])])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("On 2 earlier incidents like this one, Argus had also reverted the feature "
+                  "flag checkout-v2, and it was refuted on each.")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_earlier_incidents_judged_differently_says_how_often_each() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action(SOME_ACTION, verdict=Verdict.REFUTED, standing="put back",
+                          tried_before=[Verdict.REFUTED, Verdict.CONFIRMED, Verdict.REFUTED])])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("On 3 earlier incidents like this one, Argus had also reverted the feature "
+                  "flag checkout-v2: it was refuted on 2 and confirmed on 1.")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_never_performed_is_not_said_to_have_been_taken_again() -> None:
+    # Its words say it was not done, and "Argus had also did not revert" says
+    # nothing a reader can use.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not revert the feature flag checkout-v2",
+                          progress=ActionProgress.NOT_PERFORMED,
+                          tried_before=[Verdict.REFUTED])])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _does_not_say("earlier incident")
         )
 
 

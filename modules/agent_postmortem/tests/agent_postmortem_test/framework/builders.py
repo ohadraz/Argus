@@ -67,6 +67,7 @@ from agent_postmortem.sources import (
 from argus_core.anomaly import AnomalyThresholds
 from argus_core.llm import LLMClient
 from argus_core.models import (
+    ActionProgress,
     AlertRuleStanding,
     ChangeEvent,
     Meaning,
@@ -81,6 +82,7 @@ from argus_core.models import (
     ToolDefinition,
     Transcript,
     Turn,
+    Verdict,
     Weighing,
     WorseWhen,
     a_chat_message,
@@ -278,10 +280,14 @@ def an_action(action: str,
               taken_at: datetime = STARTED_AT + timedelta(minutes=2),
               paused_sync_of: str | None = None,
               line: int | None = None,
-              left_behind_known: bool = True) -> ActionRecord:
+              left_behind_known: bool = True,
+              progress: ActionProgress = ActionProgress.PERFORMED,
+              tried_before: list[Verdict] | None = None) -> ActionRecord:
     """One action Argus took - with no verdict, unless a test names one, no
-    line of the account saying it, unless a test says where it sits, and known
-    to have left what it says, unless a test says nobody can tell."""
+    line of the account saying it, unless a test says where it sits, known
+    to have left what it says, unless a test says nobody can tell, performed,
+    unless a test says how far it got, and tried on no earlier incident, unless
+    a test says what it came to on each."""
     return ActionRecord(taken_at=taken_at,
                         action=action,
                         has_a_way_back=has_a_way_back,
@@ -289,7 +295,9 @@ def an_action(action: str,
                         standing=standing,
                         paused_sync_of=paused_sync_of,
                         line=line,
-                        left_behind_known=left_behind_known)
+                        left_behind_known=left_behind_known,
+                        progress=progress,
+                        tried_before=tried_before or [])
 
 
 def a_resolution(at: datetime,

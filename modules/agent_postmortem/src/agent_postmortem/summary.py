@@ -15,12 +15,13 @@ what was done, and what is left.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
-from argus_core.models import ResolutionStep, whether_it_can_be_put_back
+from argus_core.models import ActionProgress, ResolutionStep, whether_it_can_be_put_back
 
-from agent_postmortem.evidence import IncidentEvidence
+from agent_postmortem.evidence import ActionRecord, IncidentEvidence
 from agent_postmortem.figures import (
     ACTED_FIGURE,
     ARGUS_STOPPED_FIGURE,
@@ -235,12 +236,16 @@ def _what_customers_lost(measured: Measurements, written: _Written) -> str:
 def _what_argus_did(evidence: IncidentEvidence,
                     measured: Measurements,
                     written: _Written) -> list[str]:
-    """Each action with what it came to, in the resolution's words - and where
-    the service was back before the action credited with it, that it was, so
-    the action is not read as what brought it back."""
+    """Each action with what it came to, in the resolution's words; each one an
+    earlier incident like this one had already tried, with what it came to
+    there; and where the service was back before the action credited with it,
+    that it was, so the action is not read as what brought it back."""
     taken = [_an_action_taken(step)
              for step in resolution_of(evidence) if step.label is not None]
     said = [f"What Argus did: {'; '.join(taken)}."] if taken else []
+    said.extend(_what_it_came_to_before(action)
+                for action in evidence.actions
+                if action.tried_before and action.progress is ActionProgress.PERFORMED)
 
     credited = evidence.credited_action
     if measured.back_before_the_action and credited is not None:
@@ -258,6 +263,31 @@ def _an_action_taken(step: ResolutionStep) -> str:
     way_back = (f" ({whether_it_can_be_put_back(step.has_a_way_back, step.left_behind_known)})"
                 if step.has_a_way_back else "")
     return f"{inside_a_sentence(step.action)}{way_back} - {step.outcome}"
+
+
+def _what_it_came_to_before(action: ActionRecord) -> str:
+    """That an earlier incident like this one had already taken this action,
+    and what it came to there - on every one that had, where it came to the
+    same, and how often each where it did not.
+
+    Said where a reader looks first because nothing else there says it: told
+    only what this incident did, a revert reads as a fresh experiment where it
+    repeated one that had already failed. Only of an action performed, whose
+    words say what was done: one never performed is said as not done."""
+    verdicts = Counter(action.tried_before)
+    taken = inside_a_sentence(action.action)
+
+    if len(action.tried_before) == 1:
+        return (f"On an earlier incident like this one, Argus had also {taken}, and it "
+                f"was {action.tried_before[0]} there.")
+
+    if len(verdicts) == 1:
+        return (f"On {len(action.tried_before)} earlier incidents like this one, Argus had "
+                f"also {taken}, and it was {action.tried_before[0]} on each.")
+
+    came_to = " and ".join(f"{verdict} on {count}" for verdict, count in verdicts.items())
+    return (f"On {len(action.tried_before)} earlier incidents like this one, Argus had also "
+            f"{taken}: it was {came_to}.")
 
 
 def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:

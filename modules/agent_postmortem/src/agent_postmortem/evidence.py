@@ -99,6 +99,12 @@ class ActionRecord(BaseModel):
     # the place its label counts - and `None` where it was for none the
     # record holds.
     candidate: int | None = None
+    # What this same action - its kind and the thing it was done to - came to
+    # on each earlier incident this one recalled, one verdict per incident, in
+    # the order they were recalled. A reader told only that the incident ran a
+    # revert reads it as a fresh experiment where it was a repeat of one that
+    # had already failed.
+    tried_before: list[Verdict] = []
 
 
 class DeploymentChangesRecord(BaseModel):

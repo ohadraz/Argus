@@ -52,6 +52,7 @@ from argus_core.events import (
     ResolutionOffered,
     RetrievalRequested,
     RetrievalUnanswered,
+    SimilarIncidentsRecalled,
     StatusChanged,
     WithdrawalOffered,
     the_escalations,
@@ -60,6 +61,7 @@ from argus_core.llm import ClientFor
 from argus_core.models import (
     CHAT_THREAD,
     AcceleratorPinUndo,
+    ActionIdentity,
     ActionProgress,
     ActionType,
     Alert,
@@ -84,6 +86,7 @@ from argus_core.models import (
     Undone,
     Verdict,
     as_a_change,
+    the_identity_recorded,
 )
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
@@ -706,10 +709,14 @@ def _what_was_done(conn: psycopg.Connection,
     And which candidate it was for, by its place in `considered`, the
     candidates' ids in the order the document lists them - the place their
     labels count.
+
+    And what the same action came to on each earlier incident this one
+    recalled, off what the recall carried (`_what_each_was_before`).
     """
     announced = [event for event in account if isinstance(event, ActionTaken)]
     said = {event.hypothesis_id: event for event in announced if event.hypothesis_id is not None}
     where = _where_each_is_said(announced, told)
+    before = _what_each_was_before(account)
 
     return [
         ActionRecord(taken_at=when_it_was_taken(taken_action, announced),
@@ -722,9 +729,43 @@ def _what_was_done(conn: psycopg.Connection,
                      progress=taken_action.progress,
                      left_behind_known=_whether_what_it_left_is_known(taken_action),
                      candidate=(considered.index(taken_action.hypothesis_id) + 1
-                                if taken_action.hypothesis_id in considered else None))
+                                if taken_action.hypothesis_id in considered else None),
+                     tried_before=_what_it_was_before(taken_action, before))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
+
+
+def _what_each_was_before(account: list[IncidentEvent]) -> dict[ActionIdentity, list[Verdict]]:
+    """Each action an earlier incident tried, with the verdict it reached on
+    each incident that tried it - off the recalls this incident made, which
+    carry what each earlier incident had tried when it was read.
+
+    Once per earlier incident, by the last recall naming it: a walk recalls
+    again each round, and the same incident found twice is one incident that
+    tried the action, not two.
+    """
+    reached: dict[ActionIdentity, dict[str, Verdict]] = {}
+    for event in account:
+        if not isinstance(event, SimilarIncidentsRecalled):
+            continue
+        for earlier in event.recalled:
+            for tried in earlier.tried:
+                reached.setdefault(tried.identity, {})[earlier.incident_id] = tried.verdict
+
+    return {identity: list(by_incident.values()) for identity, by_incident in reached.items()}
+
+
+def _what_it_was_before(taken_action: TakenAction,
+                        before: Mapping[ActionIdentity, list[Verdict]]) -> list[Verdict]:
+    """What this action came to on the earlier incidents that tried it -
+    matched on its kind and the thing it was done to together, as memory
+    matches it - and nothing for a row this version cannot read the identity
+    of."""
+    identity = the_identity_recorded(taken_action.type, taken_action.subject or "")
+    if identity is None:
+        return []
+
+    return before.get(identity, [])
 
 
 def _where_each_is_said(announced: list[ActionTaken],

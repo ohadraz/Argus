@@ -63,6 +63,7 @@ from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    ActionIdentity,
     ActionProgress,
     ActionType,
     Alert,
@@ -101,6 +102,7 @@ from argus_core.models import (
     Undone,
     Verdict,
     Weighing,
+    WhatWasTried,
     a_chat_message,
     a_chat_thread,
     as_a_change,
@@ -1916,6 +1918,48 @@ def test_an_action_carries_the_candidate_it_was_for(a_clean_database: None) -> N
             ) \
             .then(
                 the_answer_was([2])
+            )
+
+
+@pytest.mark.component
+def test_an_action_carries_what_it_came_to_on_each_earlier_incident_that_tried_it(
+        a_clean_database: None) -> None:
+    # Matched on the kind and the thing it was done to together, as memory
+    # matches it: a service restarted is no repeat of a flag reverted. Once per
+    # earlier incident, though a walk recalls it again each round.
+    the_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000a"
+    another_earlier_incident = "3f2b1a09-0000-4000-8000-00000000000b"
+    this_action = ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG)
+    another_action = ActionIdentity(action_type=ROLL_BACK_DEPLOYMENT, subject=SOME_FLAG)
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        def a_recall() -> SimilarIncidentsRecalled:
+            return SimilarIncidentsRecalled(
+                incident_id=incident_id,
+                recalled=[
+                    RecalledIncident(incident_id=the_earlier_incident,
+                                     tried=[WhatWasTried(identity=this_action,
+                                                         verdict=Verdict.REFUTED)]),
+                    RecalledIncident(incident_id=another_earlier_incident,
+                                     tried=[WhatWasTried(identity=another_action,
+                                                         verdict=Verdict.CONFIRMED)])])
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, REVERT_FEATURE_FLAG, Verdict.REFUTED,
+                    FlagUndo(flag=SOME_FLAG, was_enabled=True))),
+                calling(lambda: events.record(conn, a_recall())),
+                calling(lambda: events.record(conn, a_recall()))
+            ) \
+            .when(
+                lambda: [action.tried_before
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([[Verdict.REFUTED]])
             )
 
 
