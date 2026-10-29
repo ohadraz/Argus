@@ -134,6 +134,57 @@ _A_WORKING: Final = re.compile(rf"\{{\s*({_A_NAME})\s*([-+/])\s*({_A_NAME})\s*\}
 _A_NAMING: Final = re.compile(f"{A_FIGURE_NAME.pattern}|{_A_WORKING.pattern}")
 
 
+class _Measure(StrEnum):
+    """What a unit measures, which decides which other units it can be
+    mistaken for."""
+
+    TIME = "time"
+    SHARE = "share"
+    POINTS = "points"
+    RATIO = "ratio"
+
+
+# Each unit a figure is written in with, by every spelling a sentence says it
+# in, and what it measures. A figure written in carries its unit, and a model
+# reading "215.13 ms {series_before}" writes "{series_before} ms" as often as
+# the name alone - the unit sits outside the name where it is shown. Said again
+# in another spelling it is still the same unit; said as another unit of the
+# same measure it is a misreading of the figure's scale, which only the model
+# can put right.
+_UNITS: Final = {
+    spelling: (unit, measure)
+    for unit, measure, spellings in (
+        ("millisecond", _Measure.TIME,
+         ("ms", "msec", "msecs", "millisecond", "milliseconds")),
+        ("second", _Measure.TIME, ("s", "sec", "secs", "second", "seconds")),
+        ("minute", _Measure.TIME, ("min", "mins", "minute", "minutes")),
+        ("hour", _Measure.TIME, ("h", "hr", "hrs", "hour", "hours")),
+        ("day", _Measure.TIME, ("day", "days")),
+        ("week", _Measure.TIME, ("week", "weeks")),
+        ("percent", _Measure.SHARE, ("%", "percent", "per cent")),
+        ("percentage point", _Measure.POINTS,
+         ("percentage point", "percentage points", "point", "points")),
+        ("times", _Measure.RATIO, ("times",)))
+    for spelling in spellings
+}
+
+# The longest spelling first, so "percentage points" is not read as "points".
+_SPELLINGS_LONGEST_FIRST: Final = sorted(_UNITS, key=len, reverse=True)
+
+# What a sentence says straight after a figure's name or a working, which may
+# be its unit again: a percent sign, with or without a space, a unit `_UNITS`
+# spells, or any other word - a unit as Grafana names it ("bytes", "reqps") is
+# the figure's own where the figure ends in it, and the writer's where not.
+_A_UNIT_AFTER: Final = (
+    r"(?P<after>\s*%|\s+(?:"
+    + "|".join(re.escape(spelling).replace(r"\ ", r"\s+")
+               for spelling in _SPELLINGS_LONGEST_FIRST if spelling != "%")
+    + r")\b|\s+[^\W\d_]+\b)?"
+)
+_A_NAME_AND_A_UNIT: Final = re.compile(A_FIGURE_NAME.pattern + _A_UNIT_AFTER, re.IGNORECASE)
+_A_WORKING_AND_A_UNIT: Final = re.compile(_A_WORKING.pattern + _A_UNIT_AFTER, re.IGNORECASE)
+
+
 class _Kind(StrEnum):
     """What a figure is a measure of, which decides what it can be worked with.
 
@@ -216,8 +267,9 @@ _WORKINGS: Final[dict[tuple[_Kind, str, _Kind],
 }
 
 # A level as the model was shown it: the number, and whatever unit follows it -
-# a space and the unit's name, or a percent sign straight after.
-_A_LEVEL_SHOWN: Final = re.compile(r"^(?P<number>-?[\d.]+)(?P<unit>.*)$")
+# a space and the unit's name, or a percent sign straight after. The number
+# may be one that is none, as Prometheus writes it (`+Inf`, `NaN`).
+_A_LEVEL_SHOWN: Final = re.compile(r"^(?P<number>[-+]?(?:[\d.]+|Inf|NaN))(?P<unit>.*)$")
 _PERCENT_SHOWN: Final = "%"
 
 # A span as `said_as_a_span` says one, a count and its unit at a time.
@@ -662,19 +714,97 @@ def with_figures_written_with_every_day(answer: SubmittedPostmortem,
 def _with_figures_written_in(answer: SubmittedPostmortem, figures: dict[str, Figure],
                              dated: Callable[[str], str]) -> SubmittedPostmortem:
     def written_in(prose: str) -> str:
-        prose = _A_WORKING.sub(
-            lambda working: (dated(result) if (result := _worked_out(working, figures))
+        prose = _A_WORKING_AND_A_UNIT.sub(
+            lambda working: (_with_its_unit_once(dated(result), working["after"])
+                             if (result := _worked_out(working, figures))
                              else working.group(0)),
             prose
         )
 
-        return A_FIGURE_NAME.sub(
-            lambda name: figures[name.group(1)].written if name.group(1) in figures
-            else name.group(0),
+        return _A_NAME_AND_A_UNIT.sub(
+            lambda name: (_with_its_unit_once(figures[name.group(1)].written, name["after"])
+                          if name.group(1) in figures else name.group(0)),
             prose
         )
 
     return answer.with_each_sentence(written_in)
+
+
+def units_against_their_figures(prose: str,
+                                figures: Mapping[str, Figure]) -> list[tuple[str, str]]:
+    """Each figure's name or working a sentence follows with a unit that
+    measures what the one it is written in with does, but is another - as
+    written, and with the unit the figure is written in with - in the order the
+    sentence says them.
+
+    "{series_before} seconds" on a figure written "215 ms" misreads its scale,
+    and nothing here can tell which the sentence meant. A unit said again is
+    not one (`with_figures_written` writes it once), nor is a word after a
+    figure written with no unit: that word is the writer's own.
+    """
+    written_in = [
+        *((said, result) for said in _A_WORKING_AND_A_UNIT.finditer(prose)
+          if (result := _worked_out(said, figures)) is not None),
+        *((said, figures[said.group(1)].written) for said in _A_NAME_AND_A_UNIT.finditer(prose)
+          if said.group(1) in figures)
+    ]
+
+    return [(said.group(0).strip(), _the_unit_ending(written))
+            for said, written in sorted(written_in, key=lambda each: each[0].start())
+            if _contradicts(written, said["after"])]
+
+
+def _with_its_unit_once(written: str, after: str | None) -> str:
+    """A figure written in, and what the sentence said after its name - left
+    out where it is the unit the figure is written with: the word it ends in,
+    or another spelling of that unit."""
+    if after is None:
+        return written
+
+    said = _spelled(after)
+    ends_in = _the_unit_of(written)
+    if said == written.split()[-1].lower() or (ends_in is not None
+                                               and ends_in == _UNITS.get(said)):
+        return written
+
+    return written + after
+
+
+def _contradicts(written: str, after: str | None) -> bool:
+    """Whether a unit said after a figure measures what the figure's own
+    measures, but is another."""
+    ends_in = _the_unit_of(written)
+    said = _UNITS.get(_spelled(after)) if after is not None else None
+    if ends_in is None or said is None:
+        return False
+
+    return said[1] == ends_in[1] and said[0] != ends_in[0]
+
+
+def _the_unit_of(written: str) -> tuple[str, _Measure] | None:
+    """The unit a figure is written in with, and what it measures - `None`
+    where it ends in none this knows."""
+    ending = _the_unit_ending(written)
+
+    return _UNITS[ending] if ending else None
+
+
+def _the_unit_ending(written: str) -> str:
+    """The spelling a figure's written form ends in, as it spells it - nothing
+    where it ends in no unit."""
+    lowered = written.lower()
+
+    for spelling in _SPELLINGS_LONGEST_FIRST:
+        if (lowered.endswith(spelling) if spelling == "%"
+                else lowered.endswith(f" {spelling}")):
+            return spelling
+
+    return ""
+
+
+def _spelled(after: str) -> str:
+    """A unit as said after a name, as `_UNITS` spells it."""
+    return " ".join(after.split()).lower()
 
 
 def workings_that_make_no_sense(prose: str,
@@ -682,8 +812,9 @@ def workings_that_make_no_sense(prose: str,
     """Each working a sentence asks for that works out to nothing, as written
     and with why, in the order it asks for them.
 
-    Two of the reasons are this run's rather than the answer's: a difference
-    below nothing and a division by nothing are read from `figures`. A working
+    Three of the reasons are this run's rather than the answer's: a figure
+    that is no number (a level Prometheus answered `+Inf` or `NaN` for), a
+    difference below nothing and a division by nothing are read from `figures`. A working
     from a figure `figures` lacks is the name check's to refuse, not this.
     """
     return [(working.group(0), why)
@@ -706,6 +837,10 @@ def _why_it_makes_no_sense(first: str, operation: str, second: str,
 
     if kinds[0] is None or kinds[1] is None or first not in figures or second not in figures:
         return None
+
+    for name, kind in ((first, kinds[0]), (second, kinds[1])):
+        if not _magnitude_shown(figures[name], kind).is_finite():
+            return f"{{{name}}} is no number, and nothing can be worked out from it"
 
     if operation == "/" and _magnitude_shown(figures[second], kinds[1]) == 0:
         return f"{{{second}}} is nothing, and nothing divides by it"
@@ -737,13 +872,13 @@ def _said_as_a_kind(name: str, kind: _Kind | None) -> str:
     return str(kind) if kind is not None else f"{{{name}}}, which cannot be worked with,"
 
 
-def _worked_out(working: re.Match[str], figures: dict[str, Figure]) -> str | None:
+def _worked_out(working: re.Match[str], figures: Mapping[str, Figure]) -> str | None:
     """A working as the page writes its result, or `None` where it has none.
 
     From each figure as the model was shown it rather than as it was measured,
     so the result never disagrees with the figures written beside it.
     """
-    first, operation, second = working.groups()
+    first, operation, second = working.group(1, 2, 3)
 
     if (first not in figures or second not in figures
             or _why_it_makes_no_sense(first, operation, second, figures) is not None):

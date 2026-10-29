@@ -102,6 +102,9 @@ SOME_FIGURES = figures_of(an_evidence_bundle(), a_measured_incident())
 SOME_RANGE_FIGURES = {**SOME_FIGURES,
                       "Gbac1.1": Figure(given="21:41–22:01", written="21:41–22:01")}
 
+# The paging rule's series before the incident, written in with its unit.
+SOME_LEVEL_WITH_ITS_UNIT = {"series_before": Figure(given="215.13 ms", written="215 ms")}
+
 DONT_CARE_FIGURE = Figure(given=DONT_CARE_PROSE, written=DONT_CARE_PROSE)
 
 
@@ -800,6 +803,76 @@ def test_a_working_that_comes_out_below_nothing_is_named() -> None:
                 _named("comes out below nothing"),
                 _found(1)
             )
+        )
+
+
+@pytest.mark.unit
+def test_a_working_from_a_level_that_is_no_number_is_named() -> None:
+    # Prometheus answers +Inf for a ratio over nothing but its numerator, and
+    # the series averaged over such a minute is no number to work from.
+    some_levels = {
+        "series_while_broken": Figure(given="+Inf ms", written="+Inf ms"),
+        "series_before": Figure(given="215.13 ms", written="215 ms")
+    }
+
+    Scenario() \
+        .given(
+            an_answer_working_from_no_number := _an_answer(
+                cause_in_plain_words="it rose by {series_while_broken - series_before}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_working_from_no_number,
+                              given=_given_figures("series_while_broken", "series_before",
+                                                   figures=some_levels))
+        ) \
+        .then(
+            all_of(
+                _named("[{series_while_broken - series_before}]"),
+                _named("{series_while_broken} is no number"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_unit_misreading_a_figure_s_scale_is_named() -> None:
+    # Written in, "{series_before} seconds" on a figure of 215 ms reads "215 ms
+    # seconds", and only the model knows which it meant.
+    Scenario() \
+        .given(
+            an_answer_misreading_the_scale := _an_answer(
+                cause_in_plain_words="the slowest took {series_before} seconds")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_misreading_the_scale,
+                              given=_given_figures("series_before",
+                                                   figures=SOME_LEVEL_WITH_ITS_UNIT))
+        ) \
+        .then(
+            all_of(
+                _named("[{series_before} seconds]"),
+                _named("ms"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_figure_s_own_unit_said_again_is_accepted() -> None:
+    # A fair reading of a figure shown with its unit outside its name, and the
+    # document writes the unit once - sending it back would cost a write-up.
+    Scenario() \
+        .given(
+            an_answer_saying_the_unit_again := _an_answer(
+                cause_in_plain_words="the slowest took {series_before} ms")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_the_unit_again,
+                              given=_given_figures("series_before",
+                                                   figures=SOME_LEVEL_WITH_ITS_UNIT))
+        ) \
+        .then(
+            _found_nothing_wrong()
         )
 
 

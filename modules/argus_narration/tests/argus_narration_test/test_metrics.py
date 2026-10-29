@@ -210,6 +210,48 @@ def test_a_minute_carrying_the_rules_reading_shows_its_value() -> None:
 
 
 @pytest.mark.unit
+def test_a_reading_in_the_thousands_is_shown_whole() -> None:
+    # A latency series reads in the thousands of milliseconds on a slow minute,
+    # beside the p95 column showing the same minute in full. Three figures there
+    # was `1.7e+03`: an exponent nobody reads a table in, rounding away digits
+    # the column beside it keeps.
+    some_latency = 1696.4285714285713
+
+    Scenario() \
+        .given(a_slow_minute := _a_bucket(
+            rule_reading=RuleReading(value=some_latency, worse_when="above")
+        )) \
+        .when(lambda: a_bucket_row(a_slow_minute)) \
+        .then(_it_shows_the_rules_reading("1696"))
+
+
+@pytest.mark.unit
+def test_a_small_fraction_keeps_three_figures_without_an_exponent() -> None:
+    # The other end of the same rule: a share far below one keeps its three
+    # figures, written out in zeros rather than as `1.53e-05`.
+    some_small_share = 0.000015342
+
+    Scenario() \
+        .given(a_minute_read_for_a_rare_event := _a_bucket(
+            rule_reading=RuleReading(value=some_small_share, worse_when="above")
+        )) \
+        .when(lambda: a_bucket_row(a_minute_read_for_a_rare_event)) \
+        .then(_it_shows_the_rules_reading("0.0000153"))
+
+
+@pytest.mark.unit
+def test_a_reading_that_is_no_number_is_shown_as_prometheus_wrote_it() -> None:
+    # A ratio over nothing but its numerator answers +Inf, and the page shows
+    # the minute rather than failing on it.
+    Scenario() \
+        .given(a_minute_read_as_no_number := _a_bucket(
+            rule_reading=RuleReading(value=float("inf"), worse_when="above")
+        )) \
+        .when(lambda: a_bucket_row(a_minute_read_as_no_number)) \
+        .then(_it_shows_the_rules_reading("+Inf"))
+
+
+@pytest.mark.unit
 def test_a_minute_carrying_no_rules_reading_shows_none() -> None:
     # A minute read for no rule has no such reading, and none is not a reading
     # of zero.

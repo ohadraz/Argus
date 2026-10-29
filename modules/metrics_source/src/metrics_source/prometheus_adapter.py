@@ -8,6 +8,7 @@ PromQL, Prometheus's envelope, or its errors.
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -188,12 +189,23 @@ def _the_rules_readings(get: Get,
 
 
 def _samples_in(answer: Any) -> list[tuple[datetime, float]]:
-    """Every sample in one answer, each against the minute it describes - the
-    minute that ended at the sample's own time."""
+    """Every sample in one answer that is a number, each against the minute it
+    describes - the minute that ended at the sample's own time.
+
+    One that is no number is no reading. Prometheus's arithmetic is IEEE 754's,
+    so a ratio over a minute with no requests answers `NaN`, and a summary
+    nothing was observed by exports `NaN` for every quantile. Kept, it failed
+    the whole window's read where a latency is rounded to a whole number, and
+    was judged where it was not: `NaN` compares false with every line, so a
+    minute of it was clear of a rule firing above its line and past one firing
+    below. Left out, it is a minute missing that reading, which is dropped
+    where every bucket needs it and absent where not.
+    """
     return [
-        (datetime.fromtimestamp(float(at), UTC) - _A_MINUTE, float(value))
+        (datetime.fromtimestamp(float(at), UTC) - _A_MINUTE, reading)
         for series in answer[_DATA][_RESULT]
         for at, value in series[_VALUES]
+        if math.isfinite(reading := float(value))
     ]
 
 

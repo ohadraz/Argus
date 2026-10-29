@@ -8,6 +8,7 @@ the narration as the onset.
 
 from __future__ import annotations
 
+from argus_core import said_as_a_level
 from argus_core.models import MetricBucket
 from pydantic import BaseModel
 
@@ -68,7 +69,9 @@ class BucketRow(BaseModel):
     # window was read for a rule that watches one - on an incident in what the
     # service answers, the only column that moved. The value alone: which way
     # the rule calls worse is the same on every minute and is not a reading. To
-    # three figures, since a backend's average arrives with sixteen. `None` where
+    # three figures, since a backend's average arrives with sixteen, as the
+    # write-up says a level: never fewer than its whole part has and never in an
+    # exponent, so `1696` beside a p95 column of `1696` is not `1.7e+03`. `None` where
     # the minute carries none, which is not a reading of zero.
     rule_reading: str | None = None
     elevated: bool
@@ -87,7 +90,8 @@ def a_bucket_row(bucket: MetricBucket) -> BucketRow:
         memory=_memory_said(bucket.memory_used_bytes, bucket.memory_limit_bytes),
         cpu=_cpu_said(bucket.cpu_used_cores, bucket.cpu_limit_cores),
         rule_reading=(
-            f"{bucket.rule_reading.value:.3g}" if bucket.rule_reading is not None else None
+            said_as_a_level(bucket.rule_reading.value) if bucket.rule_reading is not None
+            else None
         ),
         elevated=bucket.error_rate >= _ELEVATED_ERROR_RATE
     )

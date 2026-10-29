@@ -60,6 +60,7 @@ from agent_postmortem.figures import (
     Figure,
     is_a_figure,
     names_in,
+    units_against_their_figures,
     workings_that_make_no_sense,
 )
 from agent_postmortem.prompting import (
@@ -273,6 +274,7 @@ def faults_by_check(answer: SubmittedPostmortem,
         partial(_figures_nobody_gave, answer, given),
         partial(_ranges_after_an_opening_or_a_moment, answer, given),
         partial(_workings_that_make_no_sense, answer, given),
+        partial(_units_against_their_figures, answer, given),
         partial(_revisions_nobody_read, answer, given)]
 
     found: dict[str, list[str]] = {}
@@ -882,6 +884,22 @@ def _workings_that_make_no_sense(answer: SubmittedPostmortem, given: Given) -> l
         f"your answer asks for [{written}], but {why}; or name one figure"
         for prose in answer.sentences()
         for written, why in workings_that_make_no_sense(prose, given.figures)
+    ]
+
+
+def _units_against_their_figures(answer: SubmittedPostmortem, given: Given) -> list[str]:
+    """Each figure the prose follows with another unit of what its own measures.
+
+    Written in, "{series_before} seconds" on a figure of 215 ms reads "215 ms
+    seconds": a misreading of the figure's scale, which nothing but the model
+    can settle. The same unit said again is no fault - the document writes it
+    once (`figures`).
+    """
+    return [
+        f"your answer writes [{written}], but the document writes that figure in "
+        f"with its own unit, {unit}: write the name alone"
+        for prose in answer.sentences()
+        for written, unit in units_against_their_figures(prose, given.figures)
     ]
 
 

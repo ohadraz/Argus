@@ -57,6 +57,7 @@ from agent_postmortem.figures import (
     the_finding_named,
     the_log_group_figures,
     the_narration_figures,
+    units_against_their_figures,
     with_every_day_said,
     with_figures_written,
     with_figures_written_with_every_day,
@@ -95,6 +96,16 @@ SOME_FINDING = ("240 of 240 shopper totals do not reconcile with the purchases b
                 "was recorded at 2026-10-05T16:10:00Z.")
 
 SOME_AMOUNT = Figure(given="1,297.31", written="1,297.31")
+
+# Figures written in with their units - a level, a share and two spans - and
+# one a log group gives with none.
+SOME_FIGURES_WITH_UNITS = {
+    SERIES_BEFORE_FIGURE: Figure(given="215.13 ms", written="215 ms"),
+    ERRORS_BEFORE_FIGURE: Figure(given="1.2%", written="1.2%"),
+    HELD_FIGURE: Figure(given="30 minutes", written="30 minutes"),
+    DURATION_FIGURE: Figure(given="10 minutes", written="10 minutes"),
+    "G46bc.2": Figure(given="37", written="37")
+}
 
 # The day the finding's instant falls on, so the alert is read as one that
 # began that day and its instant is said without it.
@@ -327,6 +338,145 @@ def test_a_working_of_two_levels_is_written_in_their_unit(unit: str, before: flo
         ) \
         .then(
             the_answer_was(SubmittedPostmortem(root_cause=f"It was {written}."))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("said", "written"), [
+    ("{series_before} ms", "215 ms"),
+    ("{series_before} milliseconds", "215 ms"),
+    ("{errors_before} percent", "1.2%"),
+    ("{errors_before}%", "1.2%"),
+    ("{held / duration} times", "3.0 times")
+], ids=["the-same-spelling", "another-spelling", "a-share-in-a-word", "a-share-in-a-sign",
+        "a-working"])
+def test_a_unit_said_again_after_a_figure_written_with_it_is_written_once(said: str,
+                                                                          written: str) -> None:
+    # The model is shown a figure with its unit outside the name, "215.13 ms
+    # {series_before}", so "{series_before} ms" is a fair reading of it. The
+    # figure is written in with its unit already, and a bad-deployment write-up
+    # reached the page as "1943 ms ms".
+    Scenario() \
+        .given(
+            an_answer_saying_the_unit_again := SubmittedPostmortem(root_cause=f"It was {said}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_saying_the_unit_again,
+                                         SOME_FIGURES_WITH_UNITS)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause=f"It was {written}."))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("name", "figure", "said", "written"), [
+    (SERIES_BEFORE_FIGURE, Figure(given="1024 bytes", written="1024 bytes"),
+     "{series_before} bytes", "1024 bytes"),
+    (BEGAN_FIGURE, Figure(given="2026-09-02T12:00:00Z", written="12:00 UTC"),
+     "{began} UTC", "12:00 UTC")
+], ids=["a-unit-as-grafana-names-it", "an-instant-s-zone"])
+def test_the_word_a_figure_is_written_ending_in_said_again_is_written_once(
+        name: str, figure: Figure, said: str, written: str) -> None:
+    # A rule's unit is whatever Grafana names it, and no list of spellings
+    # holds them all: the word the figure ends in, said again, is said once.
+    Scenario() \
+        .given(
+            an_answer_saying_it_again := SubmittedPostmortem(root_cause=f"It was {said}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_saying_it_again, {name: figure})
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause=f"It was {written}."))
+        )
+
+
+@pytest.mark.unit
+def test_a_word_after_a_figure_written_with_no_unit_is_the_writers_own() -> None:
+    # A count a log group gives carries no unit, so the word after its name is
+    # the one thing saying what it counts.
+    Scenario() \
+        .given(
+            an_answer_saying_what_it_counts := SubmittedPostmortem(
+                root_cause="It ran for {G46bc.2} minutes.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_saying_what_it_counts,
+                                         SOME_FIGURES_WITH_UNITS)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause="It ran for 37 minutes."))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("working", [
+    "{series_while_broken - series_before}",
+    "{series_at_worst / series_before}"
+], ids=["infinity", "not-a-number"])
+def test_a_working_from_a_level_that_is_no_number_is_left_for_the_check(working: str) -> None:
+    # Prometheus answers +Inf or NaN for a ratio over nothing, and a level
+    # averaged over such a minute is one too. Nothing can be worked out from
+    # it, and working it out raised where it should have been sent back.
+    Scenario() \
+        .given(
+            figures := figures_of(an_evidence_bundle(), a_measured_incident(
+                rule_series=RuleSeriesLevels(baseline=200.0, while_broken=float("inf"),
+                                             at_its_worst=float("nan"), worse_when="above"),
+                rule_series_unit="ms")),
+            an_answer_working_from_it := SubmittedPostmortem(root_cause=f"It was {working}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_working_from_it, figures)
+        ) \
+        .then(
+            the_answer_was(an_answer_working_from_it)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("said", "against"), [
+    ("{series_before} seconds", "ms"),
+    ("{held - duration} seconds", "minutes")
+], ids=["a-figure", "a-working"])
+def test_another_unit_of_what_a_figure_measures_is_found_against_it(said: str,
+                                                                    against: str) -> None:
+    # "215 ms seconds" misreads the figure's scale, and nothing can tell which
+    # of the two the sentence meant - so it goes back to the model.
+    Scenario() \
+        .given(
+            a_sentence_misreading_the_scale := f"The slowest took {said} at worst."
+        ) \
+        .when(
+            lambda: units_against_their_figures(a_sentence_misreading_the_scale,
+                                                SOME_FIGURES_WITH_UNITS)
+        ) \
+        .then(
+            the_answer_was([(said, against)])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("said", [
+    "{series_before} ms",
+    "{G46bc.2} minutes",
+    "{errors_before} times"
+], ids=["the-same-unit", "a-figure-with-no-unit", "a-unit-of-another-measure"])
+def test_a_unit_that_does_not_misread_its_figure_is_not_found(said: str) -> None:
+    # The same unit is written once; a figure with none leaves the word after
+    # it to the writer; a unit of something else is no reading of its scale.
+    nothing_found: list[tuple[str, str]] = []
+
+    Scenario() \
+        .given(
+            a_sentence := f"It was {said}."
+        ) \
+        .when(
+            lambda: units_against_their_figures(a_sentence, SOME_FIGURES_WITH_UNITS)
+        ) \
+        .then(
+            the_answer_was(nothing_found)
         )
 
 

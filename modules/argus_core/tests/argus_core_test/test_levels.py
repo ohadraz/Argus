@@ -85,6 +85,67 @@ def test_a_share_of_requests_is_said_as_a_percentage_to_one_place(rate: float, s
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("level", "said"), [
+    (float("inf"), "+Inf"),
+    (float("-inf"), "-Inf"),
+    (float("nan"), "NaN")
+], ids=["infinity", "below-infinity", "not-a-number"])
+def test_a_level_that_is_no_number_is_said_as_prometheus_writes_it(level: float,
+                                                                   said: str) -> None:
+    # Prometheus answers a ratio over nothing with NaN and one over nothing
+    # but its numerator with +Inf, and a metrics page with such a minute on it
+    # raised where it should have shown one. There are no figures to cut.
+    Scenario() \
+        .when(
+            lambda: said_as_a_level(level)
+        ) \
+        .then(
+            the_answer_was(said)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("level", "unit", "said"), [
+    (float("inf"), "ms", "+Inf ms"),
+    (float("nan"), "percentunit", "NaN%")
+], ids=["in-its-unit", "as-a-share-of-one"])
+def test_a_level_that_is_no_number_is_said_in_its_unit(level: float, unit: str,
+                                                       said: str) -> None:
+    Scenario() \
+        .when(
+            lambda: level_said_in(level, unit)
+        ) \
+        .then(
+            the_answer_was(said)
+        )
+
+
+@pytest.mark.unit
+def test_a_level_that_is_no_number_is_given_to_the_model_as_prometheus_writes_it() -> None:
+    # Not `Infinity`, a spelling the model has seen nowhere in what it reads.
+    Scenario() \
+        .when(
+            lambda: level_given_in(float("inf"), "ms")
+        ) \
+        .then(
+            the_answer_was("+Inf ms")
+        )
+
+
+@pytest.mark.unit
+def test_a_share_that_is_no_number_is_said_as_prometheus_writes_it() -> None:
+    # Not `nan%`, and as a level that is a share of one says it: one share
+    # written two ways is two to a reader.
+    Scenario() \
+        .when(
+            lambda: said_as_a_share(float("nan"))
+        ) \
+        .then(
+            the_answer_was("NaN%")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("level", "unit", "given"), [
     (0.4456789, "percentunit", "44.56789%"),
     (600.0, "ms", "600 ms"),

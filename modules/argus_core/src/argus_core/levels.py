@@ -26,6 +26,12 @@ PERCENT_UNIT: Final = "percent"
 _PERCENT_SIGN: Final = "%"
 _A_HUNDRED: Final = Decimal(100)
 
+# A reading that is no number, as Prometheus writes one: its arithmetic is IEEE
+# 754's, so 0 / 0 answers NaN and 3 / 0 answers +Inf.
+_POSITIVE_INFINITY: Final = "+Inf"
+_NEGATIVE_INFINITY: Final = "-Inf"
+_NOT_A_NUMBER: Final = "NaN"
+
 
 def said_as_a_level(level: float) -> str:
     """A level to three figures, the way a reader compares two levels - and
@@ -38,6 +44,10 @@ def said_as_a_share(rate: float) -> str:
     """A share of requests as the percentage it is, to one place - the error
     rate's own way, and a series that is the error rate's too, so one figure
     is never written two ways on one page."""
+    exact = Decimal(str(rate))
+    if not exact.is_finite():
+        return f"{_plainly(exact)}{_PERCENT_SIGN}"
+
     return f"{rate:.1%}"
 
 
@@ -74,8 +84,13 @@ def _in(number: str, unit: str | None) -> str:
 
 
 def _to_three_figures(exact: Decimal) -> str:
+    """Cut to three figures - a reading that is no number is said as it came,
+    since there are no figures to cut."""
     if exact == 0:
         return "0"
+
+    if not exact.is_finite():
+        return _plainly(exact)
 
     places = max(_LEVEL_FIGURES - exact.adjusted() - 1, 0)
     rounded = exact.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
@@ -84,5 +99,12 @@ def _to_three_figures(exact: Decimal) -> str:
 
 
 def _plainly(exact: Decimal) -> str:
-    """Never in exponent form, and with no trailing zeros."""
+    """Never in exponent form, and with no trailing zeros - and a reading that
+    is no number as Prometheus writes it, never as `Infinity`."""
+    if exact.is_nan():
+        return _NOT_A_NUMBER
+
+    if exact.is_infinite():
+        return _POSITIVE_INFINITY if exact > 0 else _NEGATIVE_INFINITY
+
     return f"{exact.normalize():f}"
