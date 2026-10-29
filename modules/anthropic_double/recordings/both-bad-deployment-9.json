@@ -2,115 +2,126 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQSpAcKEAgSGAI4AUIIdGhpbmtpbmcSDEp+Sa48/b0+8gfNWBoM+oR9dbq/11Lqd7mrIjAXZDFtZpMyCCJtNCA+p7ozXtExSydIVY9t+Cyjvz+5bRFAUpAGaSqZZklhwxZlFmsqwQayjHEo/Gf2klVwBWwEKIrQvg52HhG+hKqLV0jfgOlxOpIQj46LN/n8TEUZ1eq2lpGa7rhMfO6gpnC5sZBNMEu6F1+6XSRY3EQ2Br5LY8JnI1WcJ3d+OsV1n5ohBSm0UqK4cDnn7ohJafW3kA7HjDkPoNn0cHzKXufEcFo+nOMZaskm7Sl6MDGglhVgLwN+AJj/CCzMrxZA2EaxZALboHGTM8H9hg599tqNgopvyHo8V6LxDHf2SU/LBRvG6lncbkd/V/nxdmGybxiTCyjFvseBo5oV5i826Uc75epp/Nf9LtxiYy4CBYBp2mWMrtk6KFiu+Tl+aKvh3InbeFNkrJGXYqhBbI/ffg1f70dNR0fj4rTwH2NdBP4wfFS0SbnlJ+mciZJlYE7FY68Dm5TxEnapUZVUftxkvdA4Ki700+eIxhLS+9PdrBaY5+2GRfh4JrqZIv5Jy/BmMfeui78MGgECLpcKfX2JUS/Ijiv3oJ6EY191DQwqcWvO8NiWB44b+nBn/vwm739ZolIx1rA0Ha/OdhBLkmvNTl6751kMwWstxpCDn17jTEQ3/0BTlENfdkO9S0HMlEFZ1Hn6cY3gUr9PXPDODZ/JUUiFi3nx39blfpWloHk8gW9KlJrEqi6HzVsDOFj7DFdRAx5T3HM3jqauBCDip+nvYmz+pMJa/x8+7ICUqqJbBGzuONZzm8pODnBWz2G9moEgzYl9xEyZUSjY1ho9/RWA71tcwmxKRFm1hY3dFAyZLc3LVsvbgPU0AUWdQpBzDAQiXKDVAV0F1x6OxVeMuk+EwJGs6eT6MdUWPNhh0T1BEBoDeV7Lu6daISpjkqXnrZOEwTwWZX3jhItQl9hbw14sY1f0NbIb9LCbtLujnnIWz7t9nkmorKvmI2yWyOb7EX45DQvJc1TLiCGodXPLEV+xQeGSH4yzArQcROhvlsvNSijT1GZE26Lx60HmY6WgP96pDg+uD3+kVuwxwX/wb/cdKTvzAStmUmd+9gO75dr26GE+unhkrw9P9a3OXV5mWZ1TlOuFuaiMB33BquTnP6Es8ufQVbe7JJKh5v8j4Na7jW6fHAp9w744l70Zgb4ekHCHMBJOmsLhN7uFmhgB",
-      "thinking": "I'm double-checking labels and numbering for consistency\u2014making sure AL1 and figure names like D1 stay distinct, action items get numbered AI-4 and AI-5 after the existing three, and removing any stray digit-containing text like \"index+1\" that could be mistaken for a label name.\n\n",
+      "signature": "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",
+      "thinking": "I'm working out how to phrase the symptom for the postmortem \u2014 trying to pin down whether it's specifically account pages or shop pages generally that slowed down, based on the p95 latency metric and the affected service.\n\nFor the cause, I'm tracing it to account page renders doing quadratic work per request due to the lifetime average spend calculation running on every render with the flags disabled \u2014 I need to verify this mechanism against the actual code that ran to confirm the loop structure matches the claim.\n\nThe next step is pinning down the specific deploy that introduced this: revision 5e07d73 rewrote average_spend_per_item to re-sum the purchase list on each loop iteration instead of using a carried total, deployed across all three replicas. I'm checking whether an earlier deploy could be responsible, but the metrics window covers healthy baseline performance stretching back before that earlier deploy, and the later rollback confirmation rules it out as the cause.\n\nNo other flag changes occurred in that hour, ruling those out too, and dependency checks aren't being pursued further. The real mechanism is that this rewrite made the computation scale quadratically with purchase count, since each render recomputes the full sum from scratch \u2014 and this got through because tests only covered small accounts, letting the quadratic blowup go unnoticed until larger purchase histories triggered it.\n\nThat quadratic code landed with deployment P2 of revision 5e07d73, replacing the prior approach of reading the account's carried total with this per-render loop; every replica ran it starting at T14, and rolling it back restored normal latency, which confirms the causal link. I'm also noting that requests take the default path unless one of the two rollout flags is set, so this issue affects everything outside those rollouts.\n\nFor contributing factors, I'm flagging that the tests covering this revision only checked correctness on accounts with a handful of purchases, never performance on large histories \u2014 had that been tested, the quadratic loop would've been caught pre-deploy. The proposed fix includes a test bounding reads, but I think a broader CI check for render performance on large histories is also worth proposing, and I'm noting the lack of canary/progressive rollout as a second contributing factor.\n\nSince Argus handled the mitigation anyway, I'll classify the no-paging issue as a went_wrong item rather than a contributing factor, paired with an action item for improving detection/paging processes but leaving the specific answers open. On detection timing, I'll note the alert fired after the wait period without commenting on whether that speed was adequate. For action items, I'm proposing a CI check that bounds rendering cost for accounts with large purchase histories, covering all three spend figures rather than just the one already addressed.\n\nI'm also adding a canary-style deployment gate for io-shop that holds promotion while p95 latency exceeds its pre-deploy baseline, and a process fix linking HighLatency alerts to an on-call rotation so someone actually gets paged.\n\nFor lessons learned: things that went well include Argus rolling back after the alert fired and confirming service recovery, the Investigator tying the slowdown to the deploy via the diff, and Code-Fix drafting PR #378 as a fix. What went wrong is that nobody was paged despite the alert \u2014 that's the main gap I'm capturing here.\n\nFor got_lucky, I'm noting that the latency never cascaded into failed requests or revenue loss, which could be luck, but the record doesn't confirm it was chance, so I'll leave that field empty rather than speculate.\n\nThe still_at_risk item is that the faulty revision remains at the head of the repo with automatic sync disabled, meaning the quadratic code is still what would deploy if sync were re-enabled \u2014 that's the lingering risk to flag.\n\nIn plain words: a code change made the account page recompute a shopper's average spend by re-summing their whole purchase history on every loop pass instead of reading a running total, so shoppers with long histories made pages much slower to build. The root cause is revision 5e07d73's rewrite of average_spend_per_item, called by every account-page render outside the two rollout flags, turning a simple sum into quadratic work per render. This reaches a real cause, and it isn't unrun \u2014 though I'm assuming the service-wide p95 is actually being driven by these account page renders.\n\nFor the symptom step I should say \"the slowest requests\" rather than giving a specific fraction. I'm checking which evidence to cite for step one \u2014 the onset and metric logs support it, but the ClientDisconnected log lines span a window before the onset too, with no clear rise, so I shouldn't cite those. I'm also looking at the earlier deploy P1 to confirm it shows latency at baseline, ruling it out as a cause.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_011vFdAdentDV4xnus5NTFp4",
+      "id": "toolu_01EBARfw1uSfbjwE7zRnco9X",
       "input": {
         "action_items": [
           {
-            "item": "Add a performance test for account-page spend functions that runs a very long purchase history and fails if the number of price reads or the run time grows faster than linearly with the number of purchases.",
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a CI test that bounds the work of rendering the account page for an account with a large purchase history, on every spend-figure path, not only the lifetime average.",
             "type": "prevent"
           },
           {
-            "item": "Add a post-deploy check that compares account-page tail latency on the new revision with the previous one, and rolls back or alerts on a rise even when the error rate is flat.",
-            "type": "detect"
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add a canary stage to io-shop deployments that holds promotion while p95 latency is above its level before the deploy.",
+            "type": "prevent"
+          },
+          {
+            "answers": [],
+            "item": "Link the HighLatency alert on io-shop to an on-call rotation so a person is paged when it fires.",
+            "type": "process"
           }
         ],
         "causal_chain": [
           {
             "cites": [
               "AL1",
-              "T1",
-              "T6",
-              "Gbac1",
-              "G46bc"
+              "T5",
+              "T6"
             ],
-            "step": "Shoppers saw slow account pages from {began} to {back_to_normal}. The tail-latency series behind the HighLatency alert went from {series_before} to an average of {series_while_broken} and a worst of {series_at_worst}. Failed requests did not rise: the error rate was {errors_while_broken} while broken against {errors_before} before, and the error log lines were at their usual baseline, so this was slowness rather than failure."
+            "ruled_out": [],
+            "step": "From {began}, shoppers' requests to io-shop slowed down: the slowest requests took {series_while_broken} ms on average while it was broken and {series_at_worst} ms at worst, against {series_before} ms before it began. Failed requests did not rise beyond their normal variation."
+          },
+          {
+            "cites": [
+              "S1",
+              "D1"
+            ],
+            "ruled_out": [],
+            "step": "Every account-page render outside both rollout flags computes the lifetime average spend per item. At the running revision, that computation re-sums the purchase list from its start once for every purchase in it, so its work grows quadratically with the account's purchase count. Only the last pass is kept."
           },
           {
             "cites": [
               "P2",
-              "T6"
-            ],
-            "step": "The slowdown began in the same minute that revision 5e07d73148d0a704b8fefe5f379bc652bb773655 was deployed to io-shop."
-          },
-          {
-            "cites": [
-              "D1"
-            ],
-            "step": "That revision changed average_spend_per_item. It now recomputes the running total inside a loop, re-summing all purchases up to the current one on every pass, and only the last pass's value is used. Before it, the function made a single division using the account's carried total."
-          },
-          {
-            "cites": [
               "D1",
-              "F1"
-            ],
-            "step": "Because each pass re-reads all earlier purchases, the work grows quadratically with purchase history, so shoppers with long histories paid most of the cost on the account page. This is a static reading of the code. No profile or run in the record confirms the exact cost."
-          },
-          {
-            "cites": [
-              "P1",
-              "T15",
+              "T14",
               "T20",
-              "T21",
-              "T22"
+              "T22",
+              "T23"
             ],
-            "step": "The release is the trigger and not something else. The earlier deploy was hours before the onset, and the flag provider showed no recent flag changes. Errors stayed at baseline, which does not point to failures. Rolling back the revision was judged confirmed because the service was no longer at the incident's level from {back_to_normal}."
+            "ruled_out": [
+              {
+                "cites": [
+                  "T5",
+                  "T6",
+                  "T22",
+                  "T23"
+                ],
+                "what": "The earlier deploy P1 of revision 70dbcfde2b549d110a3817d92d60b6dd9786e78b. The metrics read show latency at its baseline with P1 in place up to the onset, and the confirmed rollback, which left the service on P1's revision, brought it back to normal."
+              },
+              {
+                "cites": [
+                  "T17"
+                ],
+                "what": "A feature-flag change. The flag provider showed no flag changes by anyone but Argus in the hour before."
+              }
+            ],
+            "step": "That code arrived with deployment P2 of revision 5e07d73148d0a704b8fefe5f379bc652bb773655 at {P2.1}. The deploy replaced the read of the account's carried total with this loop. As of {T14.1}, all replicas ran that revision. Rolling it back brought the service off the incident's level, which confirmed it as the trigger."
           }
         ],
+        "cause_in_plain_words": "A code change made the shop work out a shopper's average spend by adding up their purchase history again and again, once for each purchase, so account pages for shoppers with long histories took far longer to build.",
+        "cause_rests_on_an_unrun_reading": false,
         "contributing_factors": [
           {
             "addressed_by": [
-              "AI-2",
-              "AI-4"
+              "AI-2"
             ],
-            "factor": "The tests added with the change checked only that the figure was correct (including a drifted-total case). No test or check on cost with a long purchase history was seen in the record, so the quadratic loop passed."
+            "factor": "The tests that came with the revision check only the average's value, and only for accounts with a handful of purchases. No test or check of how much work a render does for a long purchase history was seen before the deploy.",
+            "had_it_been_otherwise": "A check on render cost for a large purchase history would have failed on the quadratic loop before the revision reached production.",
+            "label": "CF-1"
           },
           {
-            "addressed_by": [
-              "AI-5"
-            ],
-            "factor": "No comparison of latency before and after rollout was seen. The slowdown was found only through the paging rule, which waits {rule_waits} before firing, and the alert was raised at {alert_raised}. Error rate did not move, so an error-based signal would not have shown it."
-          },
-          {
-            "addressed_by": [
-              "AI-3"
-            ],
-            "factor": "Automatic sync of io-shop is off, so nothing merged reaches it until it is turned back on. A merged fix would not be deployed, and the rollback stays in place."
+            "addressed_by": [],
+            "factor": "The revision reached every replica at once. No staged rollout and no latency gate on promotion was seen.",
+            "had_it_been_otherwise": "A canary held back on rising latency would have exposed only part of the traffic, and the rollout would have stopped before every shopper was affected.",
+            "label": "CF-2"
           }
         ],
-        "executive_summary": "For a short period after a new version of the shop was released, account pages loaded much more slowly than usual. The slowdown lasted {duration}. The people affected were shoppers who opened account pages. The record shows no extra failed requests, so pages still loaded, only slowly. The tail-latency series that paged us averaged {series_while_broken} while the fault lasted and peaked at {series_at_worst}, against {series_before} before. Argus rolled the release back, and the metrics showed the service back to normal at {back_to_normal}. A draft fix was proposed for review.",
         "lessons": {
-          "got_lucky": [
-            "No more requests failed than before, so the harm was slowness only. The response did not depend on an error-rate alert, which would not have fired."
-          ],
+          "got_lucky": [],
           "went_well": [
-            "Argus tied the onset to the deploy within seconds, using the change history and the diff.",
-            "The rollback was confirmed from the metrics, and the service was back to normal at {back_to_normal}.",
-            "A draft fix pull request was proposed soon after mitigation."
+            "The Investigator read the deployment's diff and named the deploy as the candidate cause {T15.1 - alert_raised} after the alert was raised.",
+            "The Mitigation Agent rolled the deployment back {T20.1 - alert_raised} after the alert was raised.",
+            "Argus confirmed, {T23.1 - alert_raised} after the alert was raised, that the rollback had brought the service off the incident's level.",
+            "Code-Fix opened draft pull request #378 {T25.1 - alert_raised} after the alert was raised."
           ],
           "went_wrong": [
-            "A change made only for correctness added a quadratic cost, and no check on cost was seen before it reached production.",
-            "The alert came only after the paging rule's wait, so shoppers were slowed for part of the time before anyone was paged."
+            "Nobody was paged: no on-call incident was linked to the alert, so no person was brought in."
           ]
         },
         "reaches_a_cause": true,
-        "root_cause": "The deploy of revision 5e07d73148d0a704b8fefe5f379bc652bb773655 rewrote average_spend_per_item to re-sum the growing purchase list inside a loop and keep only the last pass. Work therefore grows quadratically with purchase history, so account pages for shoppers with long histories rendered slowly. This reading comes from the diff and was not profiled. The tests added with the change checked only that the figure was correct, so nothing in the record caught the extra cost before release.",
-        "symptom": "Account pages were slow to load"
+        "root_cause": "Revision 5e07d73 rewrote average_spend_per_item, which every account-page render outside both rollout flags calls. It used to read the total the account carries. Now it re-sums the purchase list from its start on every loop iteration, and each pass is overwritten by the next. A render now does work that grows quadratically with the account's number of purchases, when only a single sum is needed.",
+        "still_at_risk": "The code with the repeated re-summing is still in the repository, so any deploy from it before a fix is merged would bring the slowdown back.",
+        "symptom": "Shop pages loaded slowly for shoppers"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg9wVPfTzGRkPgnMo4kLr",
-  "model": "claude-sonnet-5-5",
+  "id": "msg_011CgWxbDSfpU3TtmiZ331ZH",
+  "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
   "stop_reason": "tool_use",
@@ -119,15 +130,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2221
+      "ephemeral_5m_input_tokens": 12733
     },
-    "cache_creation_input_tokens": 2221,
-    "cache_read_input_tokens": 6950,
+    "cache_creation_input_tokens": 12733,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 1955,
+    "input_tokens": 4,
+    "output_tokens": 5769,
     "output_tokens_details": {
-      "thinking_tokens": 162
+      "thinking_tokens": 3985
     },
     "service_tier": "standard",
     "speed": "standard"

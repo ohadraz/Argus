@@ -1,0 +1,234 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 128000,
+  "messages": [
+    {
+      "content": "An incident has been investigated. Your job is to find what in this service's code let it happen or made it worse, and to fix that permanently.\n\nWhat the investigation concluded: The deployment of revision 5e07d73148d0a704b8fefe5f379bc652bb773655 at 2026-10-29T17:46:00Z rewrote average_spend_per_item so it re-sums the purchase list prefix on every loop iteration, which is quadratic work per account page render. p50 went from about 45ms to about 450ms and p95 from about 215ms to over 2000ms at that minute.\n\nWhat that rests on:\n  - 2026-10-29T17:46:00Z p50_ms 336, p95_ms 1696, p99_ms 2843 (baseline p95 ~215ms), then p95 stays 2070-2200 through 17:52\n  - deploy 5e07d73148d0a704b8fefe5f379bc652bb773655 at 2026-10-29T17:46:00Z modified src/io_shop/spend_summary.py: replaced `account.total_cents // len(account.purchases)` with a loop that recomputes sum(earlier.price_cents for earlier in account.purchases[:index + 1]) for every purchase\n  - Rollout converged: all 3 replicas are running revision 5e07d73148d0a704b8fefe5f379bc652bb773655, so this is not a split-version failure\n  - Error rate, request volume, memory and CPU stay at baseline, and cpu_limit_cores is 3.0 throughout. The logs show only the usual ClientDisconnected errors, so the slowdown sits in the service's own code and not in a dependency or in capacity.\n\nFiles named in the evidence:\n  src/io_shop/spend_summary.py\nThese are what the evidence names, which is not always where the fault lives.\n\nThe repository holds:\n  deploy/scrape.yaml\n  deploy/values-production.yaml\n  src/io_shop/__init__.py\n  src/io_shop/account_page.py\n  src/io_shop/accounts.py\n  src/io_shop/cache_reconciliation.py\n  src/io_shop/categorising.py\n  src/io_shop/endpoints.py\n  src/io_shop/fraud_scoring.py\n  src/io_shop/monthly_statement.py\n  src/io_shop/payment_provider.py\n  src/io_shop/pricing_service.py\n  src/io_shop/purchase_ledger.py\n  src/io_shop/rollout.py\n  src/io_shop/spend_reconciliation.py\n  src/io_shop/spend_summary.py\n  src/io_shop/summary_cache.py\n  src/io_shop/typical_spend.py\n  src/io_shop/visits.py\n  tests/io_shop/test_account_page.py\n  tests/io_shop/test_cache_reconciliation.py\n  tests/io_shop/test_categorising.py\n  tests/io_shop/test_endpoints.py\n  tests/io_shop/test_fraud_scoring.py\n  tests/io_shop/test_monthly_statement.py\n  tests/io_shop/test_pricing_service.py\n  tests/io_shop/test_purchase_ledger.py\n  tests/io_shop/test_spend_reconciliation.py\n  tests/io_shop/test_spend_summary.py\n  tests/io_shop/test_summary_cache.py\n  tests/io_shop/test_typical_spend.py\n  tests/io_shop/test_visits.py\n\nIf the conclusion names no file, search_repository for what it does name - the flag, the function, the message - or, where it describes a behaviour instead, search_repository_by_meaning with that description. Then call submit_fix with every file you are changing, in full.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01Kr1QAspYx2LtKqEda25mKz",
+          "input": {
+            "path": "src/io_shop/spend_summary.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01DhXk3RXA8pE7Xeozd6Qpb8",
+          "input": {
+            "query": "average_spend_per_item"
+          },
+          "name": "search_repository",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_01AvWj2XFXFVxbJyab3SzvbV",
+          "input": {
+            "path": "tests/io_shop/test_spend_summary.py"
+          },
+          "name": "read_repository_file",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "\"\"\"What a shopper has spent, and what that averages to.\n\nThree figures about one history. The lifetime average has been on the account\npage for years; the monthly one narrows it to the current month; the typical\npurchase abandons the average altogether for the middle of the history. The\nlast two are the ones still behind a rollout, and which of them a request gets\nis decided before it reaches here.\n\"\"\"\n\nfrom __future__ import annotations\n\nfrom io_shop.accounts import Account\nfrom io_shop.typical_spend import typical_spend_per_item\n\n\ndef average_spend_per_item(account: Account) -> int:\n    \"\"\"Average spend per item across everything this account has ever bought.\n\n    Live for years. Its divisor is empty only for an account that has never\n    bought anything at all, which no real shopper is.\n\n    Derives the total from the purchases rather than reading the one the account\n    carries, taking each purchase in and recomputing what has been spent by\n    then, so that the figure agrees with the list the shopper is looking at even\n    where the totals the query returned have drifted from it.\n    \"\"\"\n    spent_by_then = 0\n\n    for index, _ in enumerate(account.purchases):\n        spent_by_then = sum(\n            earlier.price_cents for earlier in account.purchases[:index + 1]\n        )\n\n    return spent_by_then // len(account.purchases)\n\n\ndef average_spend_per_item_this_month(account: Account) -> int:\n    \"\"\"Average spend per item this month.\n\n    Narrows the lifetime figure to the current month, so the account page can\n    show what a shopper is spending now rather than what they averaged over\n    three years.\n    \"\"\"\n    bought_this_month = [\n        purchase for purchase in account.purchases if purchase.in_current_month\n    ]\n    return account.total_this_month_cents // len(bought_this_month)\n\n\ndef render_spend_summary(account: Account,\n                         use_monthly_summary: bool,\n                         use_typical_spend: bool = False) -> int:\n    \"\"\"The figure Io's account page shows, through whichever version the rollout\n    selects.\n\n    Raises whatever the selected version raises. Catching belongs at the request\n    boundary - see `io_shop.account_page` - where there is a response to turn a\n    failure into and a log to record it in. A page that swallowed its own errors\n    would render a wrong number instead of an error, which is a worse incident\n    than the one it hid.\n\n    Two rollouts, so two flags to be told about, and the newer one wins where a\n    request is inside both. That is the ordinary arrangement: each is a slice of\n    traffic, the slices overlap, and the page has to render one figure.\n    \"\"\"\n    if use_typical_spend:\n        return typical_spend_per_item(account)\n\n    if use_monthly_summary:\n        return average_spend_per_item_this_month(account)\n\n    return average_spend_per_item(account)\n",
+          "tool_use_id": "toolu_01Kr1QAspYx2LtKqEda25mKz",
+          "type": "tool_result"
+        },
+        {
+          "content": "src/io_shop/purchase_ledger.py:63: `io_shop.spend_summary.average_spend_per_item`). Keeping a second copy of a\nsrc/io_shop/spend_summary.py:16: def average_spend_per_item(account: Account) -> int:\nsrc/io_shop/spend_summary.py:37: def average_spend_per_item_this_month(account: Account) -> int:\nsrc/io_shop/spend_summary.py:70: return average_spend_per_item_this_month(account)\nsrc/io_shop/spend_summary.py:72: return average_spend_per_item(account)\ntests/io_shop/test_spend_summary.py:7: average_spend_per_item,\ntests/io_shop/test_spend_summary.py:8: average_spend_per_item_this_month,\ntests/io_shop/test_spend_summary.py:34: assert average_spend_per_item(account) == 2000\ntests/io_shop/test_spend_summary.py:50: assert average_spend_per_item(an_account_whose_total_drifted) == 2000\ntests/io_shop/test_spend_summary.py:67: assert average_spend_per_item_this_month(an_active_shopper) == 3000",
+          "tool_use_id": "toolu_01DhXk3RXA8pE7Xeozd6Qpb8",
+          "type": "tool_result"
+        },
+        {
+          "content": "from __future__ import annotations\n\nimport pytest\n\nfrom io_shop.accounts import Account, Purchase\nfrom io_shop.spend_summary import (\n    average_spend_per_item,\n    average_spend_per_item_this_month,\n    render_spend_summary,\n)\n\n\"\"\"Io's account-page arithmetic - the lifetime figure and the monthly one.\n\nThe monthly figure is newer and ships behind a rollout flag, so the cases below\ncover the shape the page has had for years plus the one the flag adds.\n\"\"\"\n\n\ndef an_account_with_no_purchases_this_month(*prices: int) -> Account:\n    \"\"\"The ordinary case: a shopper who has bought before, but not this month.\"\"\"\n    return Account(\n        shopper_id=\"shopper-idle-this-month\",\n        purchases=tuple(\n            Purchase(price_cents=price, in_current_month=False) for price in prices\n        ),\n        total_cents=sum(prices),\n        total_this_month_cents=0,\n    )\n\n\ndef test_the_lifetime_average_spreads_the_total_over_every_purchase() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 2000, 3000)\n\n    assert average_spend_per_item(account) == 2000\n\n\ndef test_the_lifetime_average_follows_the_purchases_not_the_carried_total() -> None:\n    # The figure is derived from the list the shopper is looking at, so a total\n    # that has drifted from its own purchases does not reach the page.\n    an_account_whose_total_drifted = Account(\n        shopper_id=\"shopper-with-a-stale-total\",\n        purchases=(\n            Purchase(price_cents=1000, in_current_month=False),\n            Purchase(price_cents=3000, in_current_month=False),\n        ),\n        total_cents=99_999,\n        total_this_month_cents=0,\n    )\n\n    assert average_spend_per_item(an_account_whose_total_drifted) == 2000\n\n\ndef test_the_monthly_average_is_correct_for_a_shopper_who_did_buy() -> None:\n    # The ordinary case for the monthly figure: a shopper who has bought\n    # something this month, averaged over what they bought this month.\n    an_active_shopper = Account(\n        shopper_id=\"shopper-who-bought-this-month\",\n        purchases=(\n            Purchase(price_cents=4000, in_current_month=True),\n            Purchase(price_cents=2000, in_current_month=True),\n            Purchase(price_cents=9000, in_current_month=False),\n        ),\n        total_cents=15000,\n        total_this_month_cents=6000,\n    )\n\n    assert average_spend_per_item_this_month(an_active_shopper) == 3000\n\n\ndef test_the_page_takes_the_stable_summary_when_the_rollout_is_off() -> None:\n    account = an_account_with_no_purchases_this_month(1000, 3000)\n\n    assert render_spend_summary(account, use_monthly_summary=False) == 2000\n\n\ndef test_the_page_lets_a_failure_reach_its_caller() -> None:\n    # Swallowing it here would render a wrong number instead of an error, and\n    # there would be no error rate for anyone to alert on.\n    a_shopper_who_never_bought_anything = Account(\n        shopper_id=\"shopper-with-no-history\", purchases=(), total_cents=0,\n        total_this_month_cents=0\n    )\n\n    with pytest.raises(ZeroDivisionError):\n        render_spend_summary(\n            a_shopper_who_never_bought_anything, use_monthly_summary=False\n        )\n",
+          "tool_use_id": "toolu_01AvWj2XFXFVxbJyab3SzvbV",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "A mitigation has probably already hidden the symptom - a flag off, a version rolled back. The code you are reading is the code that broke, whether or not anything looks broken now.\n\nThe change that exposed a fault is not the fault. Make the code safe to turn back on, to take that deploy again, to meet that input again. Reverting bought time and left the fault behind a switch nobody dares touch.\n\nThe investigation never read this code. Where it places the cause elsewhere, calls this service healthy or says what the fix is, that is no verdict on the code. Ask what the code did when the cause arrived: if a change here would have spared its users some of it, that change is the fix.\n\nYou have no test runner, so reading is your only evidence. Start from what the investigation named - read it before you search - and read its callers too: a fix that satisfies one file and breaks them is this job's characteristic mistake. Once you can name the fault and the file it lives in, read no further. Every call re-sends everything you have read, and a walk that runs out mid-read submits nothing at all.\n\nReport that there is nothing to change only if you have read the code and that is genuinely what you found - never because a configuration change triggered the incident, which is the common case and still a code fault. It is a separate answer with its own tool, report_nothing_to_change, because it is a conclusion rather than an empty patch. If you cannot name the fault, say so and fix what you can defend.\n\nChange as little as possible: you send whole files, so a tidy-up is invisible in your answer and enormous in the diff a person has to approve. Make the code safe in both states - flag on and off, field present and missing. Never silence the failure; a blanket except ends the symptom and the evidence together.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tools": [
+    {
+      "description": "Find where something appears in the service's source. Answers with every matching line as 'path:line: text'. START HERE: the investigation has already named the cause, so search for it - the flag, the function, the message from the log line - and the answer tells you which files to read. Plain text, not a regular expression.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "The text to look for. Something distinctive from the cause - a flag name, a function name, an error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository",
+      "strict": true
+    },
+    {
+      "description": "Find code by describing what it does, when you have no exact text to search for. Answers with passages of the service's source - each one 'path:start-end' and the lines themselves - nearest in meaning to your description. Use this where searching for exact text cannot help: the investigation described a behaviour ('the discount is divided by a count that can be zero') and the repository may not contain any of those words. Describe the behaviour and the mistake, not an identifier. Where you can also search for exact text, do both rather than one instead of the other - one matches characters, this matches meaning.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "description": "What the code you are looking for does, in a sentence - the behaviour and what is wrong with it, as you would describe it to another engineer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "name": "search_repository_by_meaning",
+      "strict": true
+    },
+    {
+      "description": "List every file in the service's repository, as paths from its root. A fallback for when searching found nothing and you need to see the shape of the repository - prefer a search, which tells you which file to open rather than leaving you to guess from names. A repository that could not be listed whole is reported as a failure, never as a shorter list.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_repository_files",
+      "strict": true
+    },
+    {
+      "description": "Read one file's entire contents. Call it several times in the same turn when you want several files - every result comes back together, and a turn spent on one file re-sends everything you have read so far. Read a file before you rewrite it - what you submit replaces what is there, so a file you did not read is a file you are overwriting blind.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file's path from the repository root.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read_repository_file",
+      "strict": true
+    },
+    {
+      "description": "Submit the code fix for this incident. Give every file you are changing in full - its entire new contents, not a diff and not an excerpt - because what you send is written to the branch exactly as it stands. Read a file before you rewrite it. This tool is for a patch; if you read the code and found nothing in it to change, call report_nothing_to_change instead - a flag or a deploy that exposed a fault is still a fault in the code that could not survive it.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "Why this is the fix: what the fault was, why the code behaved that way, and why this change ends it. Written for the person who has to approve it. Say what the code does and why: what the incident did - how many requests or evaluations it reached, and how far a rate moved - is the investigation's to say, not yours to restate. Nothing will have run your test or your fix when this is read: say what the test is written to show and what the change should do, never that the test fails or that the fix works. Say what a file says only of the file that says it, naming it by its path. Say what each piece of code does only as its own lines do it, with the conditions they do it under - no wider than the code you read, and nothing of code you did not read. Say of several pieces at once only what each one's own lines do.",
+            "type": "string"
+          },
+          "files": {
+            "description": "Every file the fix changes or adds, each in full - including the test. Bring the test that exposes the bug: the case that was failing, asserted to pass, alongside the service's other tests. A fix without one is a claim; a fix with one is evidence. Write the test so that it would fail against the code as it stands now, or it proves nothing: where the fault is slowness, assert a bound on how long the work takes or how much of it is done, because a test that only checks the answer passes against the slow code too. At least one file: this tool is how a patch is sent, and an incident traced to a cause in this service usually has one.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "description": "The file's entire new contents.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The file's path from the repository root, exactly as it was listed.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "summary": {
+            "description": "What the fix does, in one line, as a pull request title an engineer would scan in a list.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "explanation",
+          "files"
+        ],
+        "type": "object"
+      },
+      "name": "submit_fix",
+      "strict": true
+    },
+    {
+      "description": "Report that you read the code and there is genuinely nothing in it to change. This is a conclusion a person acts on, not a way out of a hard read: an incident traced to a cause in this service usually has a fix, and a flag or a deploy that exposed a fault is still a fault in the code that could not survive it. Use submit_fix for anything you would change, however small.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "explanation": {
+            "description": "What you read, and why none of it needs changing. Written for the person who has to accept that no fix is coming.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "report_nothing_to_change",
+      "strict": true
+    },
+    {
+      "description": "Answer a yes-or-no question Argus asks about your submission. Use it only when asked.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "description": "true for yes, false for no.",
+            "type": "boolean"
+          },
+          "explanation": {
+            "description": "Why, in a few sentences.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "explanation"
+        ],
+        "type": "object"
+      },
+      "name": "answer_question",
+      "strict": true
+    }
+  ]
+}

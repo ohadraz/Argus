@@ -1,0 +1,146 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS4gUKEAgTGAI4AUIIdGhpbmtpbmcSDDCltROCftqhA0ZaXRoMr3EZRmjf3CTsZfFJIjDZKTO+2AIhX5xys2K+n1Blyqq29RpWw3eSJnAb74J7WsKJqBMSgCdp9S+fHHfxAu4q/wTYXCz7XeebU8dJBMo2GsWXh5A2EP+/ktD8VeATe8ZfgbbNY7nJXFPEsm/d1p3gK9LEZMU7tbz5B19s2RmS0lJL77431dBl7DvMlB8DC81L9lot3QVIuJJmnG4MDHDQwyq6j8ttNiaj0aiFcNmRRoulY1DQFXboKpvIMSsqs83CVJrGyasLwVNEnHktYtwZGOGY3S9GrIhyob4YO5OSKefzm+KtU39ux3OaP/uu4qud5+4cFHTjukRZhSTQuIN3NXu0DpBofudh+QDYMR+ok7EvDhuJyn4lT8+qhwspgUZoVKvlXmY28sQfRnBb4nPb4Cv9RZXrPlBFMWfMgk+QULV3BKBELKF2pdg1NNkNXmn0ZEShGackkpZd+Xy4Bil0mB/WzrGt8aCImuMXoBwB5LNnj33p2mI6zUm/LWL5gaRCNMjSmKiXoWjbTy6Wo7zzhJQvu1Ff9T4ePa1+TVdVm6P/oQD6dCc2YM2guuKMQb1CKr3gMTI9Zy1i6uKCMsWYv7/tGL046DDUFP6TwKnlZoNgnxUVgY+5CJbilqolnN+rB6L7Pa1eXzFCNYpcKtHRFLL32MZEw9IiaILsViVwIPAIiTJoc3QavDOMDkdz5LE4TIXIq4wp4Rs3v4CjKpcbjbwHi79dh9DFFhVmMhptV0tCCZSCurTB0nICdubBjNpkFghuqfSrO8EtktmcH9pbjSct3VQuHlyo7P+vBjPVWPujG7GalPgjgHnScTauKoS3NwG2HnpmbquvcuFDqGAiXRAbWRUCVGtKzDWsWq4EVF2eQECD8XKi1rJXYfAnGqGgkz4xuJ+MZsTak80klLbk5dLHTES6AXiXuBxsLFJzQR4YAQ==",
+      "thinking": "I should remove the revision naming from root_cause, but the causal chain can keep it. The third action item doesn't need to resolve anything either, so I'll resubmit now.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_015WUdJEKnmhCa9Uxpb5wuvf",
+      "input": {
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a CI test that bounds the work of rendering the account page for an account with a large purchase history, on every spend-figure path, not only the lifetime average.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add a canary stage to io-shop deployments that holds promotion while p95 latency is above its level before the deploy.",
+            "type": "prevent"
+          },
+          {
+            "answers": [],
+            "item": "Link the HighLatency alert on io-shop to an on-call rotation so a person is paged when it fires.",
+            "type": "process"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T5",
+              "T6"
+            ],
+            "ruled_out": [],
+            "step": "From {began}, shoppers' requests to io-shop slowed down: the slowest requests took {series_while_broken} ms on average while it was broken and {series_at_worst} ms at worst, against {series_before} ms before it began. Failed requests did not rise beyond their normal variation."
+          },
+          {
+            "cites": [
+              "S1",
+              "D1"
+            ],
+            "ruled_out": [],
+            "step": "Every account-page render outside both rollout flags computes the lifetime average spend per item. At the running revision, that computation re-sums the purchase list from its start once for every purchase in it, so its work grows quadratically with the account's purchase count. Only the last pass is kept."
+          },
+          {
+            "cites": [
+              "P2",
+              "D1",
+              "T14",
+              "T20",
+              "T22",
+              "T23"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T5",
+                  "T6",
+                  "T22",
+                  "T23"
+                ],
+                "what": "The earlier deploy P1 of revision 70dbcfde2b549d110a3817d92d60b6dd9786e78b. The metrics read show latency at its baseline with P1 in place up to the onset, and the confirmed rollback, which left the service on P1's revision, brought it back to normal."
+              },
+              {
+                "cites": [
+                  "T17"
+                ],
+                "what": "A feature-flag change. The flag provider showed no flag changes by anyone but Argus in the hour before."
+              }
+            ],
+            "step": "That code arrived with deployment P2 of revision 5e07d73148d0a704b8fefe5f379bc652bb773655 at {P2.1}. The deploy replaced the read of the account's carried total with this loop. As of {T14.1}, all replicas ran that revision. Rolling it back brought the service off the incident's level, which confirmed it as the trigger."
+          }
+        ],
+        "cause_in_plain_words": "A code change made the shop work out a shopper's average spend by adding up their purchase history again and again, once for each purchase, so account pages for shoppers with long histories took far longer to build.",
+        "cause_rests_on_an_unrun_reading": false,
+        "contributing_factors": [
+          {
+            "addressed_by": [
+              "AI-2"
+            ],
+            "factor": "The tests that came with the revision check only the average's value, and only for accounts with a handful of purchases. No test or check of how much work a render does for a long purchase history was seen before the deploy.",
+            "had_it_been_otherwise": "A check on render cost for a large purchase history would have failed on the quadratic loop before the revision reached production.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "The revision reached every replica at once. No staged rollout and no latency gate on promotion was seen.",
+            "had_it_been_otherwise": "A canary held back on rising latency would have exposed only part of the traffic, and the rollout would have stopped before every shopper was affected.",
+            "label": "CF-2"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            "The Investigator read the deployment's diff and named the deploy as the candidate cause {T15.1 - alert_raised} after the alert was raised.",
+            "The Mitigation Agent rolled the deployment back {T20.1 - alert_raised} after the alert was raised.",
+            "Argus confirmed, {T23.1 - alert_raised} after the alert was raised, that the rollback had brought the service off the incident's level.",
+            "Code-Fix opened draft pull request #378 {T25.1 - alert_raised} after the alert was raised."
+          ],
+          "went_wrong": [
+            "Nobody was paged: no on-call incident was linked to the alert, so no person was brought in."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "The change rewrote average_spend_per_item, which every account-page render outside both rollout flags calls. It used to read the total the account carries. Now it re-sums the purchase list from its start on every loop iteration, and each pass is overwritten by the next. A render now does work that grows quadratically with the account's number of purchases, when only a single sum is needed.",
+        "still_at_risk": "The code with the repeated re-summing is still in the repository, so any deploy from it before a fix is merged would bring the slowdown back.",
+        "symptom": "Shop pages loaded slowly for shoppers"
+      },
+      "name": "submit_postmortem",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgWxfbij2QXfcukhTAymT",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1868
+    },
+    "cache_creation_input_tokens": 1868,
+    "cache_read_input_tokens": 12733,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 1833,
+    "output_tokens_details": {
+      "thinking_tokens": 59
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
