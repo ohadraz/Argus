@@ -1486,6 +1486,7 @@ def _the_opening_message(alert: Alert,
     named as the shape of the fault, in the same breath as the minute it cannot be
     seen at.
     """
+    no_minute = _what_no_minute_means(metric_buckets, metrics_answered)
     said = [
         "## Alert",
         f"service: {alert.service}",
@@ -1498,7 +1499,7 @@ def _the_opening_message(alert: Alert,
         _the_onset_paragraph(
             alert, onset, how_the_minute_is_known, rows_stop_at,
             _the_rule_whose_series_was_not_read(alert, metric_buckets),
-            _what_no_minute_means(metric_buckets, metrics_answered)
+            no_minute
         )
     ]
 
@@ -1509,11 +1510,12 @@ def _the_opening_message(alert: Alert,
             "retrievable, and a window anchored on it may not contain the cause."
         )
 
-    no_minute = _what_no_minute_means(metric_buckets, metrics_answered)
     if no_minute is not None:
         # No rows to describe, and no header over nothing: an empty table under
         # a sentence about what its rows are reads as a table that was cut off.
-        said.extend(["", "## Per-minute metrics", f"None. {no_minute}"])
+        # Why there are none is the onset paragraph's, which always says it
+        # where there is no minute - said again here, it is said twice running.
+        said.extend(["", "## Per-minute metrics", "None."])
     else:
         # What the rows below are evidence *of*, which is not the same question
         # in the two cases. Where the onset was measured they are what it was
@@ -1616,7 +1618,14 @@ def _the_placement_as_lines(placement: RecordedPlacement) -> list[str]:
     Read against the alarm's minute, the paragraph and the marks say so: a pod
     placed then was placed as the alarm went off, and a model told it
     started at the onset reads the replacement as the cause.
+
+    A placement of no pods is said as the platform's answer and nothing more: a
+    paragraph about what each pod line says, over no pod line, reads as a list
+    that was cut off.
     """
+    if not placement.pods:
+        return ["The platform reported no pods for the service."]
+
     after = placement.started_after_the_onset()
     at_the_onset = [pod for pod in placement.started_at_the_onset() if pod not in after]
     the_minute = "the alarm" if placement.against_the_alarm else "the onset"

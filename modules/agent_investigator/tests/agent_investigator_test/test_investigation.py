@@ -3417,6 +3417,31 @@ def _what_was_asked_first_avoids(model: Mock, *forbidden: str) -> Assertion[Find
     return assertion
 
 
+def _what_was_asked_first_says_once(model: Mock, *expected: str) -> Assertion[Findings]:
+    """Words the opening message says, and says only once.
+
+    A sentence said twice running costs the model nothing to read past, and
+    tells it nothing the first saying did not - so the second is noise in front
+    of the one reader who cannot ask what it was for.
+    """
+    def assertion(dont_care_findings: Findings) -> bool:
+        opening = _the_transcript_of(model, turn=0)[0]
+        if not isinstance(opening, Ask):
+            raise AssertionError(f"Expected the conversation to open with an ask, got [{opening}].")
+
+        counted = {mention: opening.text.count(mention) for mention in expected}
+        not_once = {mention: count for mention, count in counted.items() if count != 1}
+        if not_once:
+            raise AssertionError(
+                f"Expected the opening message to say each of {list(expected)} once, "
+                f"and it said {not_once} times, got [{opening.text}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _what_was_asked_first_names_the_rule_before_the_rows(model: Mock,
                                                           rule: str) -> Assertion[Findings]:
     """The rule's column is placed before the table, not after its last row.
@@ -4278,7 +4303,8 @@ def test_a_model_with_no_minute_of_metrics_is_told_why_and_never_of_a_flat_windo
             all_of(
                 _what_was_asked_first_mentions(investigation.model, why, "where to look from"),
                 _what_was_asked_first_avoids(investigation.model, "No series departs",
-                                             "no series departs", "One row per minute")
+                                             "no series departs", "One row per minute"),
+                _what_was_asked_first_says_once(investigation.model, why)
             )
         )
 
@@ -4358,6 +4384,36 @@ def test_pods_placed_at_the_alarms_minute_are_marked_as_that_and_never_as_at_the
             _what_was_asked_first_avoids(investigation.model, "read at the onset",
                                          "of the incident beginning"),
             _the_placement_was_read_against_the_alarm()
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("metrics", "alert"), [
+    (a_window_that_starts_calm(), an_alert()),
+    ([], an_alert(stated_onset=None))
+], ids=["measured-onset", "the-alarms-minute"])
+def test_a_platform_that_reported_no_pods_is_said_to_have_and_no_pod_is_described(
+    metrics: list[MetricBucket],
+    alert: Alert
+) -> None:
+    # The platform answering, and said as that. A paragraph about what each pod
+    # line marks, over no pod line, reads as a list that was cut off - and the
+    # model goes looking for a placement it was never given.
+    investigation = an_investigation(a_model_that_says(a_turn_answering(an_explanation())))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(metrics)),
+            calling(investigation.the_platform_placed([]))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=alert)
+        ) \
+        .then(all_of(
+            _what_was_asked_first_mentions(investigation.model,
+                                           "The platform reported no pods for the service."),
+            _what_was_asked_first_avoids(investigation.model, "Each of the service's pods",
+                                         "A pod marked")
         ))
 
 

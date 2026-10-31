@@ -2363,11 +2363,12 @@ _THE_CATEGORISER_CASE: Final = "tests/e2e/test_a_categoriser_upgrade_is_rolled_b
 # which tool found a file.
 _THE_RESCHEDULED_SCORER_CASE: Final = "tests/e2e/test_a_rescheduled_scorer_is_pinned_back.py"
 
-# The two endings settled before the model is asked anything: a window nobody
-# could read, escalated, and a flat one, disproven. A decision, and a stronger
-# one than the categoriser's - neither walk offers the model a tool at all, so
-# no mode's tool list can reach them. One file, since the pair is written to be
-# read together.
+# The two endings reached without a cause: a window with no minute in it,
+# investigated and escalated, and a flat one, disproven. A decision, and a
+# stronger one than the categoriser's - before its write-up the disproven walk
+# asks nothing, and the other asks only the Investigator, whose tools carry no
+# code search, so no mode's tool list can reach either. One file, since the
+# pair is written to be read together.
 _THE_ENDINGS_WITHOUT_A_CAUSE_CASES: Final = "tests/e2e/test_incident_lifecycle.py"
 
 # A person reporting the incident over, from its page, the on-call platform and
@@ -2396,9 +2397,9 @@ def _the_cases_for(mode: str) -> list[str]:
     platform still answering; the fourth that a finding nobody can date is walked
     from the minute it paged; the fifth that a walk dates and judges an incident
     on the rule's own series; the sixth that a walk pins a deployment to the card
-    its record says the fleet ran on; the next two that a window nobody could
-    read escalates and a flat one is disproven, both before the model is offered
-    a tool at all; the last three that a person reporting the incident over
+    its record says the fleet ran on; the next two that a window with no minute
+    in it escalates and a flat one is disproven, neither offering the model a
+    tool that searches code; the last three that a person reporting the incident over
     leaves Argus's changes in place and is written up.
     Nothing in any of those varies by which tool the model found a file with, and
     the walks that do
