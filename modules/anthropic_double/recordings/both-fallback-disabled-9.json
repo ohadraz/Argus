@@ -1,0 +1,50 @@
+{
+  "container": null,
+  "content": [
+    {
+      "signature": "CAQS1ggKEAgTGAI4AUIIdGhpbmtpbmcSDAmE30HowLcj2xNqyhoMWzQYr4AF7DSVYHbGIjBexdC5wODo1O71VL2wfdcxeDbjIeG43eIxKypPADPi4IokluiyNOgoCHvLV51ESqUq8wfeWknIf3hf5rm4Jm+JpCR4B4wUM45PpA6rSgkaQmOpMsuFYNbmY0SRwE314VwOli9m8XvBwvbwloNWGlHBiwjK2jTJ1c4hY/JJrik18CcWmf/8IWCmTbIyIcKwj+gafEf9B1/6jrXN5S/51StvzfE8yXlH3iKZ2zXrbV51G3gxQ2SS5NXtSgU8pq/I13f8lsYVS+ILQ2Nr3HJSKP3Cba/xLptFz7Epzx1/pS9xSixGquGWzRukJR0wyLyteLPfNPtvalFXLh+nn/1ZCHv+KLB4GcKCtQins5UYfFiP/4e6VcUsHYl986gIoHxw9V8xt4/Pw2w75EysGBAEURjvhIG5UljT9uYGY+HUNgVeqTRDyjNppPbwDjk2CAU6e2jFPKDHYP7CIm+Pg3+mU6wFP4OdtzMNeV6a7i2cKvga75d3D3RBZSrKUsrJYsnlct703mjlvwAoSPlwjAShPeho1Y8m/7e3GmnPn8LQFlCBHPcW3RW1ehREEqfiZaMLnpQskM3USx51BolgRTQo8f/RBBc89M9Zs68oEm1uVwbrEKmKnRWDwzdz2O0w7J3SKTE71NWtXaWFZ/dZb0qk6j4MfsTZTQq2hO9EujmkA8M+yvK8dihRhaKrjXTri6ZeIdQq+R/lnvfjvZoWqhVkbbzOwjOkasRflp2/FOjPzMAmiy2ZOUoID8yxXO7BmyHf26EQDKg8cCvIxTugFcZPBuzm1CnfM/st0b5skMUm6xZChxAs8/4xkaEYg3cQl7OQel9iR4Zz9Q2VXsYyikwsro+H5K8PGeaeL/s+ChNghYT3ox/7+fJdb+PSwj5TUIhtVLYhbqUA35QOop0F9Yt6E3t8nkSxAHnUabiCgzfkfclrBS2WcND20yWzzyZNH3RFy9qHnGe5I/1NfhKhfjF/b0SzyZVcO1CN3FojRTqRjOQdsUn2YSpwFDGbR3MrUaWT1zqWHBMF0x3R5SXovd8ms3K7Fq+iFQHVRUXdcM8sRxTYeJ1fqBSY73Rmg5U3GogH7C0vA84mT9gJAhrUhmPphaO4bYJH2aghMizFHPHn1fDfg0rvYTd+8em3EzH3BeqfXYYmWTvCwZl0P5JvSwCNzveVOYEv93ZkZXoVEBn6tBS8h6IP6t+49Zm7svXt8alNCK1JUXspLlsCa6qRPB2MA6A9FbiT09VdrAmSIJZ22gjUaxJtEHIuKIC+sG3hMRE+SUhu4e78EA9HCI9OuSlXhJHT0eW0KH5yUYh04WJm2wFkDf3QVfvN+GueBW4WXzUOEq+pBKr4qF4c4sYBQGfZhdgqQluLLUDiDjLA24Uq0/YtYNCHr+640l/2cRKFxQEgBgQOsAL5zVgYAQ==",
+      "thinking": "I'm ordering the causal chain: failed pages led to the error, the error occurred because requests reached that code path due to the flag switch, and finally the flag switch explains the underlying mechanism causing the division by zero.\n\n",
+      "type": "thinking"
+    },
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_013HJCCxpvTjvBYYBC4w8aUg",
+      "input": {
+        "order": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "name": "order_chain",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011Cga8h1SC523f5jHz6YhRG",
+  "model": "claude-opus-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1418
+    },
+    "cache_creation_input_tokens": 1418,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 4,
+    "output_tokens": 284,
+    "output_tokens_details": {
+      "thinking_tokens": 226
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
