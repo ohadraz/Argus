@@ -55,6 +55,7 @@ from agent_postmortem.prompting import (
 from agent_postmortem.pull_requests import with_the_pull_request_named
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
 from agent_postmortem.sections import logs_in_the_gap_of, record_action_items_of
+from agent_postmortem.undetermined import NOT_DETERMINED, NOT_KNOWN, named_no_cause
 
 logger = logging.getLogger(__name__)
 
@@ -85,22 +86,26 @@ def answer_worth_writing(llm: LLMClient,
     """
     asked = opening_ask(evidence, measured)
     # The tool for this incident, which asks what each lead changed only where
-    # people wrote any, and how the logs show the service only where a line
-    # reaches into a stretch the metrics did not watch.
-    submit = submit_postmortem_for(evidence.leads, logs_in_the_gap_of(evidence, measured))
+    # people wrote any, how the logs show the service only where a line reaches
+    # into a stretch the metrics did not watch, and what the cause was only where
+    # the investigation named one.
+    cause_asked = not named_no_cause(evidence)
+    submit = submit_postmortem_for(evidence.leads, logs_in_the_gap_of(evidence, measured),
+                                   cause_asked=cause_asked)
     # Every figure the answer may name, each written in as this run measured it.
     figures = figures_shown(evidence, measured)
     # And as the summary's paragraph says them, which the two sentences it
     # carries are written with.
     off_the_page = the_day_said_off_the_page(evidence, measured)
     given = _what_was_given(evidence, measured, figures).model_copy(update={
-        "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required})
+        "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required,
+        "cause_asked": cause_asked})
     submitted = llm.converse(asked, [submit])
 
     first, told = _reading_of(submitted, evidence.leads, given, figures, off_the_page,
                               evidence.pull_request)
     if not told:
-        return _with_its_chain_in_order(llm, (first, []))
+        return _finished(llm, (first, []), cause_asked=cause_asked)
 
     faults = _every_one_of(told)
     logger.warning("postmortem answer rejected", extra={"faults": faults})
@@ -114,7 +119,7 @@ def answer_worth_writing(llm: LLMClient,
     # text and the same fault.
     untold = _every_one_of({check: said for check, said in found.items() if check not in told})
     if not untold:
-        return _with_its_chain_in_order(llm, (second, _every_one_of(found)))
+        return _finished(llm, (second, _every_one_of(found)), cause_asked=cause_asked)
 
     logger.warning("postmortem answer rejected", extra={"faults": untold})
 
@@ -127,7 +132,31 @@ def answer_worth_writing(llm: LLMClient,
     third, still = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures,
                                off_the_page, evidence.pull_request)
 
-    return _with_its_chain_in_order(llm, (third, _every_one_of(still)))
+    return _finished(llm, (third, _every_one_of(still)), cause_asked=cause_asked)
+
+
+def _finished(llm: LLMClient,
+              reading: tuple[SubmittedPostmortem, list[str]],
+              *,
+              cause_asked: bool) -> tuple[SubmittedPostmortem, list[str]]:
+    """The answer kept: its chain in order, and - where the model was not asked
+    what the cause was - the cause fields as the document writes them."""
+    answer, faults = _with_its_chain_in_order(llm, reading)
+
+    return (answer if cause_asked else _with_no_cause_named(answer)), faults
+
+
+def _with_no_cause_named(answer: SubmittedPostmortem) -> SubmittedPostmortem:
+    """The answer with the cause fields the document writes itself where the
+    investigation named no cause (`undetermined`) - the model was not asked for
+    them. No chain that reaches a cause and none resting on a reading nothing
+    ran, so neither the chain nor the review's box claims a cause the root
+    cause denies."""
+    return answer.model_copy(update={
+        "root_cause": NOT_DETERMINED,
+        "cause_in_plain_words": NOT_KNOWN,
+        "reaches_a_cause": False,
+        "cause_rests_on_an_unrun_reading": False})
 
 
 def _with_its_chain_in_order(llm: LLMClient,

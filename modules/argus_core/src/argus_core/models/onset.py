@@ -23,10 +23,12 @@ class HowTheMinuteIsKnown(StrEnum):
     # departs. Checkable against nothing Argus holds, which is exactly why the
     # model is told which of the two it has.
     STATED_BY_THE_ALERT = "stated-by-the-alert"
-    # Neither. The window is flat, the alert dated nothing, and what stands in
-    # for an onset is the minute the alarm itself fired in. Reached only by an
-    # alert reporting a finding no series carries - a flat window under a rule
-    # watching a series is a disproof rather than an incident with no date.
+    # Neither. Nothing in the window departs - or there is no window, because no
+    # minute came back - the alert dated nothing, and what stands in for an onset
+    # is the minute the alarm itself fired in. Reached by an alert reporting a
+    # finding no series carries, by a rule whose own series the window lacks, and
+    # by a window with no minutes in it; a flat window under a rule watching a
+    # series it carries is a disproof rather than an incident with no date.
     NOTHING_DATES_IT = "nothing-dates-it"
 
 

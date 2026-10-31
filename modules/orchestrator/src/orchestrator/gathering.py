@@ -35,6 +35,7 @@ from argus_core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
+    AnchoredOnTheAlarm,
     ChangesRetrieved,
     DeploymentChangesRead,
     FixAttempted,
@@ -206,6 +207,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         alerted_at=_when_it_was_alerted(incident.alert_payload) or incident.created_at,
         onset_at=_when_it_actually_began(conn, incident_id),
         onset_stated_by_the_alert=_when_the_alert_said_it_began(incident.alert_payload),
+        anchored_at=_where_it_looked_from(conn, incident_id),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
         resolution=_the_resolution(account, told),
         people_wrote=any(line.kind == _PERSON_WROTE for line in told),
@@ -365,6 +367,22 @@ def _when_it_actually_began(conn: psycopg.Connection,
               if isinstance(event, OnsetDetected)]
 
     return parse_iso(onsets[0]) if onsets else None
+
+
+def _where_it_looked_from(conn: psycopg.Connection,
+                          incident_id: str) -> datetime | None:
+    """The alarm's minute the Investigator anchored on where nothing dated the
+    incident, as it published it - the first, for the reason the onset above
+    is the first: a walk is anchored once.
+
+    `None` where an onset anchored it, or nothing did - an incident whose alert
+    never said when it fired, or one that never reached an investigation.
+    """
+    anchors = [event.minute
+               for event in events.get_by_incident(conn, incident_id)
+               if isinstance(event, AnchoredOnTheAlarm)]
+
+    return parse_iso(anchors[0]) if anchors else None
 
 
 def _when_it_came_back(conn: psycopg.Connection,

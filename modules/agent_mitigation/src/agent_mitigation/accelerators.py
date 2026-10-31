@@ -22,7 +22,11 @@ def the_accelerator_to_pin_to(placement: RecordedPlacement | None) -> str | None
     started at the onset ran on another - or `None` wherever that is not what the
     placement says.
 
-    Pinned only where all four hold:
+    Pinned only where all five hold:
+    - the placement was read against an onset rather than against the alarm's
+      minute, because a pin answers a replica moved as the incident began, and
+      where nothing dates the incident a pod placed at the alarm was placed
+      as the alarm went off;
     - every pod has a card the platform reported, because a card nobody
       reported may be a second card the fleet ran on, or the fleet's own;
     - the pods serving before the onset ran on exactly one card, because
@@ -41,7 +45,7 @@ def the_accelerator_to_pin_to(placement: RecordedPlacement | None) -> str | None
     Which pods were started at the onset is `RecordedPlacement`'s rule, so this
     marks the pods the opening message and the timeline mark.
     """
-    if placement is None:
+    if placement is None or placement.against_the_alarm:
         return None
 
     if any(pod.accelerator is None for pod in placement.pods):

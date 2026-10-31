@@ -31,6 +31,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
@@ -581,6 +582,24 @@ def test_an_onset_on_another_day_is_placed_with_its_date() -> None:
 
 
 @pytest.mark.unit
+def test_the_alarms_minute_is_said_as_where_the_investigation_looked_from_not_as_a_start(
+) -> None:
+    # Nothing dated the incident, and the minute is only where every window was
+    # anchored. Said as a start, the page and the postmortem dated the incident
+    # from the moment the alarm went off.
+    some_anchor = AnchoredOnTheAlarm(incident_id=new_id(), minute=SOME_MINUTE)
+
+    Scenario() \
+        .given(some_anchor) \
+        .when(lambda: build_narration([some_anchor])) \
+        .then(all_of(
+            _the_only_line_says("the minute the alarm fired in"),
+            _the_only_line_says("nothing dates when the incident began"),
+            _the_only_line_does_not_say("start")
+        ))
+
+
+@pytest.mark.unit
 def test_a_candidate_shows_the_move_it_blamed_the_way_the_flag_table_does() -> None:
     # One spelling for a flag's position across the whole page, so a change
     # reads as the same kind of thing whether it appears in the flag table or
@@ -818,6 +837,18 @@ def test_the_onset_line_names_the_minute_it_placed() -> None:
     Scenario() \
         .given(some_onset) \
         .when(lambda: build_narration([some_onset])) \
+        .then(_the_only_line_names_the_minute(SOME_MINUTE))
+
+
+@pytest.mark.unit
+def test_the_line_saying_where_the_investigation_looked_from_names_that_minute() -> None:
+    # One minute out of ninety, as the onset's line names its own: a reader is
+    # never left to find it by eye.
+    some_anchor = AnchoredOnTheAlarm(incident_id=new_id(), minute=SOME_MINUTE)
+
+    Scenario() \
+        .given(some_anchor) \
+        .when(lambda: build_narration([some_anchor])) \
         .then(_the_only_line_names_the_minute(SOME_MINUTE))
 
 
@@ -3153,6 +3184,33 @@ def test_a_placement_names_each_pods_card_and_marks_the_ones_placed_at_the_onset
             ),
             _the_only_line_marks(f"io-shop-c on {the_card_at_the_onset}"),
             _the_lines_are_credited_to(["Investigator Agent"])
+        ))
+
+
+@pytest.mark.unit
+def test_a_placement_read_against_the_alarm_marks_its_pods_as_at_the_alarm_not_the_onset(
+) -> None:
+    # Nothing dated the incident, and the minute is the alarm's own: a pod placed
+    # then was placed as the alarm went off, and said as started at the
+    # onset it reads as the cause.
+    some_placement = PlacementRecorded(
+        incident_id=new_id(),
+        placement=RecordedPlacement(
+            onset=SOME_ONSET,
+            pods=(
+                _a_pod("io-shop-a", "Tesla-V100-SXM2-16GB", SOME_TIME_LONG_BEFORE_THE_ONSET),
+                _a_pod("io-shop-b", "Tesla-T4", SOME_ONSET)
+            ),
+            against_the_alarm=True
+        )
+    )
+
+    Scenario() \
+        .given(some_placement) \
+        .when(lambda: build_narration([some_placement])) \
+        .then(all_of(
+            _the_only_line_says("at the alarm: io-shop-b"),
+            _the_only_line_does_not_say("onset")
         ))
 
 

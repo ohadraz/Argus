@@ -27,6 +27,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
@@ -499,6 +500,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
     """
     return [
         OnsetDetected(incident_id=AN_INCIDENT, onset="2026-08-30T10:03:00Z"),
+        AnchoredOnTheAlarm(incident_id=AN_INCIDENT, minute="2026-08-30T10:03:00Z"),
         HypothesisFormed(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),

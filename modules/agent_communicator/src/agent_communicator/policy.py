@@ -30,6 +30,7 @@ from argus_core.events import (
     ActionTaken,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     ChangeUndone,
@@ -94,8 +95,13 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # not one, and the state machine already knows the difference.
             return (Register.ANNOUNCED if event.to_status.is_terminal()
                     else Register.FOLLOWED)
-        case (OnsetDetected() | HypothesisFormed() | CandidateSelected()
-              | ActionTaken() | VerdictReached() | ChangeUndone()):
+        case (OnsetDetected() | AnchoredOnTheAlarm() | HypothesisFormed()
+              | CandidateSelected() | ActionTaken() | VerdictReached() | ChangeUndone()):
+            # `anchored-on-the-alarm` is the onset's counterpart where nothing
+            # dated the incident, and followed where it is: a thread that heard
+            # when one incident began and nothing of when another did would
+            # read the silence as an onset nobody looked for.
+            #
             # `candidate-selected` earns its place beside the findings even
             # though the list was already published: the walk skips any
             # candidate it cannot act on, so which explanation the next few

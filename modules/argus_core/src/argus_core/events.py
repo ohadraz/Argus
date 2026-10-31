@@ -346,6 +346,21 @@ class OnsetDetected(_Event):
     onset: str
 
 
+class AnchoredOnTheAlarm(_Event):
+    """The minute an investigation looked from where nothing dated the incident:
+    the one the alarm fired in, named as a bucket.
+
+    Its own event rather than an `OnsetDetected` carrying a grade, because it is
+    the opposite claim. An onset says when the incident began; this says nobody
+    knows, and names the minute every window was anchored on only so that the
+    reads after it are not windows around nothing. Said as an onset, a page and
+    a postmortem dated the incident from the moment the alarm went off.
+    """
+
+    kind: Literal["anchored-on-the-alarm"] = "anchored-on-the-alarm"
+    minute: str
+
+
 class HypothesisFormed(_Event):
     """One explanation the Investigator arrived at, as it arrived at it.
 
@@ -1076,6 +1091,7 @@ type IncidentEvent = Annotated[
         | FlagChangesRetrieved
         | PlacementRecorded
         | OnsetDetected
+        | AnchoredOnTheAlarm
         | HypothesisFormed
         | CandidateSelected
         | ActionRefused

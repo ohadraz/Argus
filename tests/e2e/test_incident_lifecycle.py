@@ -27,19 +27,21 @@ from tests.e2e.framework.world import a_scenario_was_seeded, the_shops_window
 def test_an_alert_over_a_window_nobody_could_read_escalates_with_a_postmortem() -> None:
     # No scenario is seeded, so the Target Service serves no metrics at all -
     # `/metrics` answers with an empty list where nothing is staged. So Argus is
-    # told a service is failing and cannot see the service.
+    # told a service is failing and cannot see the service in its metrics.
     #
-    # It escalates, and must. An empty window is an indication of nothing: not
-    # that the service is well, not that it is broken. The one thing Argus must
-    # not do with it is close the alarm - `disproven` is for a window that was
-    # read and held no departure in any judged signal, and reaching it from no
+    # An empty window is an indication of nothing: not that the service is well,
+    # not that it is broken. So Argus looks where a person picking it up would -
+    # the deploys and the logs, from the minute the alarm fired in - and, with
+    # nothing staged there either, escalates. The one thing it must not do with
+    # the window is close the alarm: `disproven` is for a window that was read
+    # and held no departure in any judged signal, and reaching it from no
     # readings at all would report "nothing is wrong" on the strength of never
     # having looked.
     #
-    # So this stays the honest-failure path (spec §9) it always was, and the case
-    # below is its pair: the same flat reading of the same five signals, over a
-    # window that exists. Together they are what stops one ending standing in for
-    # the other - the distinction is between having looked and not.
+    # The case below is its pair: the same flat reading of the same five
+    # signals, over a window that exists. Together they are what stops one ending
+    # standing in for the other - the distinction is between having looked and
+    # not.
     some_alert_name = "HighErrorRate"
     some_severity = "critical"
     some_alert = a_grafana_style_alert_with(service=THE_SERVICE_NAME,

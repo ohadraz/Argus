@@ -36,6 +36,7 @@ from argus_core.events import (
     ActionRefused,
     ActionTaken,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     ChangesRetrieved,
     DeploymentChangesRead,
     FixAttempted,
@@ -1278,6 +1279,33 @@ def test_an_incident_whose_onset_was_never_found_carries_none(a_clean_database: 
             ) \
             .then(
                 _carries_no_onset()
+            )
+
+
+@pytest.mark.component
+def test_the_alarms_minute_an_investigation_looked_from_is_carried_and_never_as_the_onset(
+        a_clean_database: None) -> None:
+    # Where nothing dated the incident the Investigator anchored on the minute
+    # the alarm fired in, and said so. Carried as where it looked from, for what
+    # it says of the walk; read as the onset, it would date the incident from
+    # the moment the alarm went off.
+    some_minute = "2026-09-02T12:00"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(
+                    conn, incident_id, AnchoredOnTheAlarm(incident_id=incident_id,
+                                                          minute=some_minute))
+            ) \
+            .then(
+                all_of(
+                    _carries_the_anchor(parse_iso(some_minute)),
+                    _carries_no_onset()
+                )
             )
 
 
@@ -3019,6 +3047,18 @@ def _carries_the_onset(expected: datetime) -> Assertion[IncidentEvidence]:
         if evidence.onset_at != expected:
             raise AssertionError(
                 f"Expected the onset [{expected}], got [{evidence.onset_at}].")
+
+        return True
+
+    return assertion
+
+
+def _carries_the_anchor(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.anchored_at != expected:
+            raise AssertionError(
+                f"Expected the minute the investigation looked from [{expected}], got "
+                f"[{evidence.anchored_at}].")
 
         return True
 

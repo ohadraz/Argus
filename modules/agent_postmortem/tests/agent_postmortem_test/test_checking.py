@@ -156,6 +156,25 @@ def test_every_required_field_missing_is_named_and_not_just_the_first() -> None:
 
 
 @pytest.mark.unit
+def test_a_cause_the_model_was_not_asked_for_is_not_missing() -> None:
+    # Where the investigation named no cause the tool leaves the cause fields
+    # out and the document writes them itself: sent back for them, a model is
+    # asked for what it was never offered.
+    Scenario() \
+        .given(
+            an_answer_saying_nothing_of_the_cause := _an_answer(
+                root_cause=None, cause_in_plain_words=None)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying_nothing_of_the_cause,
+                              given=SOME_GIVEN.model_copy(update={"cause_asked": False}))
+        ) \
+        .then(
+            _found(0)
+        )
+
+
+@pytest.mark.unit
 def test_an_answer_carrying_what_was_required_has_nothing_wrong_with_it() -> None:
     # The accepting case, which is the one that decides whether the document
     # says it is complete.

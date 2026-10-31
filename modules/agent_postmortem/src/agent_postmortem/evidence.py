@@ -184,6 +184,13 @@ class IncidentEvidence(BaseModel):
     # series measured one, and then the time to the alert is that schedule
     # rather than anything detection took. `None` where the alert said nothing.
     onset_stated_by_the_alert: datetime | None = None
+    # The minute the investigation looked from where nothing dated the incident:
+    # the one the alarm fired in. Never an onset, and never read as one - the
+    # document dates such an incident from the alert, as it dates any incident
+    # nothing measured. Carried for what it says of the walk, that it had a
+    # minute to read from, which `onset_at` being `None` does not say. `None`
+    # where an onset anchored the walk, or nothing did.
+    anchored_at: datetime | None = None
     # When the service came back, as Mitigation recorded it at the time - the
     # onset's counterpart, read off the account for the same reason. The minute
     # was measured on the window the verification wait was polling, and this

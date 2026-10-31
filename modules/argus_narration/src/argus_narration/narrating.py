@@ -32,6 +32,7 @@ from argus_core.events import (
     AgentInvoked,
     AlarmDisproven,
     AlertAcknowledged,
+    AnchoredOnTheAlarm,
     AwaitingRecovery,
     CandidateSelected,
     CandidatesReordered,
@@ -523,6 +524,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = (
                 f"Placed the start of the incident at "
                 f"{a_minute(event.onset, beside=to_iso(event.at))}"
+            )
+        case AnchoredOnTheAlarm():
+            who = _INVESTIGATOR
+            # Where it looked from and, in the same breath, that this is not
+            # when it began: said as a start, it dated the incident from the
+            # moment the alarm went off.
+            text = (
+                f"Looked from {a_minute(event.minute, beside=to_iso(event.at))}, the "
+                f"minute the alarm fired in - nothing dates when the incident began"
             )
         case PlacementRecorded():
             who = _INVESTIGATOR
@@ -1080,11 +1090,12 @@ def _the_ending_offered_by(event: IncidentEvent) -> IncidentStatus | None:
 def _the_minute_it_names(event: IncidentEvent) -> str:
     """The one minute a line is about, where it is about one.
 
-    Two events name one: the onset names where the incident began, and a look
-    that found the service back names where it ended. Both are a single minute
-    picked out of a window of ninety, which is what a destination with a table
-    of minutes anchors on, and neither is reachable from the prose - the
-    sentence says `10:13` where the table is keyed by the whole instant.
+    Three events name one: the onset names where the incident began, the anchor
+    where the investigation looked from when nothing dated it, and a look that
+    found the service back names where it ended. Each is a single minute picked
+    out of a window of ninety, which is what a destination with a table of
+    minutes anchors on, and none is reachable from the prose - the sentence says
+    `10:13` where the table is keyed by the whole instant.
 
     A look that is still waiting names none, and a confirmation nothing could
     date names none either: the field is the minute this line is *about*, and a
@@ -1092,6 +1103,9 @@ def _the_minute_it_names(event: IncidentEvent) -> str:
     """
     if isinstance(event, OnsetDetected):
         return event.onset
+
+    if isinstance(event, AnchoredOnTheAlarm):
+        return event.minute
 
     if isinstance(event, RecoveryChecked) and event.recovered_minute is not None:
         return event.recovered_minute
@@ -1593,10 +1607,16 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
     card and the same moment said once for each was the same paragraph. The
     moment sits beside "started" and the onset after it: "started after the
     onset at" a moment reads as when the onset was.
+
+    Recorded against the alarm's minute, where nothing dated the incident, the
+    minute is said as that and never as the onset: a pod placed then was placed
+    as the alarm went off, and said as started at the onset it reads as
+    the cause.
     """
     if not placement.pods:
         return "", "Recorded where the service's replicas run - the platform reported no pods"
 
+    the_minute = "the alarm" if placement.against_the_alarm else "the onset"
     cards = {pod.accelerator for pod in placement.pods}
     card = next(iter(cards))
     on_one_card = len(placement.pods) > 1 and len(cards) == 1 and card is not None
@@ -1609,7 +1629,7 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
         return "", (f"Recorded where the {len(placement.pods)} replicas run - all on {card}, "
                     f"started at "
                     f"{a_moment_with_its_day(to_iso(placement.pods[0].started_at))}, "
-                    f"after the onset")
+                    f"after {the_minute}")
 
     before = ", ".join(_a_pod_said(pod) for pod in placement.started_before_the_onset())
     at_the_onset = ", ".join(_a_pod_said(pod) for pod in placement.started_at_the_onset()
@@ -1623,8 +1643,8 @@ def _where_the_replicas_ran(placement: RecordedPlacement) -> tuple[str, str]:
                       for pod in after)
 
     clauses = (before,
-               f"started at the onset: {at_the_onset}" if at_the_onset else "",
-               f"started after the onset: {since}" if since else "")
+               f"started at {the_minute}: {at_the_onset}" if at_the_onset else "",
+               f"started after {the_minute}: {since}" if since else "")
     first, *rest = [told for told in clauses if told]
 
     return at_the_onset, (f"Recorded where the service's replicas run - {first}"

@@ -32,6 +32,7 @@ from argus_core.models import (
     ActionProgress,
     Ask,
     ChangeEvent,
+    ChannelReading,
     CitedChange,
     CitedEvidence,
     DeploymentComparison,
@@ -120,6 +121,7 @@ from agent_postmortem.sections import (
     what_it_came_to,
 )
 from agent_postmortem.sources import EngagementAnswer, NotPaged
+from agent_postmortem.undetermined import named_no_cause
 
 # The tool's name and its fields, named once. Both ends of the exchange read
 # them - the definition offered to the model, and the reader taking the call
@@ -195,6 +197,15 @@ REQUIRED_FIELDS: Final = [
     REACHES_A_CAUSE_FIELD,
     CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD
 ]
+
+# The fields that say what the cause was, which the document writes itself and
+# the model is not asked for where the investigation named none (`undetermined`).
+THE_CAUSE_FIELDS: Final = frozenset({
+    ROOT_CAUSE_FIELD,
+    CAUSE_IN_PLAIN_WORDS_FIELD,
+    REACHES_A_CAUSE_FIELD,
+    CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD
+})
 
 # What a list of things that happened says when nothing did. Said rather than
 # left as a heading over nothing, which tells the model there is something it
@@ -923,7 +934,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
 
 
 def submit_postmortem_for(leads: Sequence[ThreadMessage],
-                          logs_in_the_gap: LogsInTheGap | None = None) -> ToolDefinition:
+                          logs_in_the_gap: LogsInTheGap | None = None,
+                          *,
+                          cause_asked: bool = True) -> ToolDefinition:
     """The tool for this incident: the one every incident gets, a place to say
     what each lead changed where people wrote any, and one to say whether the
     logs show the service serving as before where any reach into a stretch the
@@ -937,6 +950,10 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
     answer, and says how the service did over the stretch from the other, and
     an optional field is one a model leaves out whenever its prose reads well
     without it.
+
+    Without the cause fields where `cause_asked` is false - the investigation
+    named no cause, and the document says so itself (`undetermined`). Asked
+    for them anyway, a write-up filled them with what was checked.
     """
     offered: dict[str, Any] = {}
 
@@ -946,12 +963,16 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
     if logs_in_the_gap is not None and logs_in_the_gap.labels:
         offered[LOGS_SHOW_SERVING_AS_BEFORE_FIELD] = _LOGS_SHOW_SERVING_AS_BEFORE
 
-    if not offered:
+    if not offered and cause_asked:
         return SUBMIT_POSTMORTEM
 
+    left_out = frozenset() if cause_asked else THE_CAUSE_FIELDS
+
     return SUBMIT_POSTMORTEM.model_copy(update={
-        "properties": {**SUBMIT_POSTMORTEM.properties, **offered},
-        "required": [*REQUIRED_FIELDS, *offered]
+        "properties": {**{name: field for name, field in SUBMIT_POSTMORTEM.properties.items()
+                          if name not in left_out},
+                       **offered},
+        "required": [*(name for name in REQUIRED_FIELDS if name not in left_out), *offered]
     })
 
 
@@ -1048,6 +1069,8 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
             *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                       measured.metrics_stopped_at is not None,
                                       _the_logs_reaching_in(evidence, measured), figures),
+            *([_NOTHING_TO_LOOK_BACK_FROM]
+              if _nothing_was_looked_back_from(evidence, measured) else []),
             *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
                                         measured.rule_series_unit, evidence,
                                         measured.error_rates, figures,
@@ -1209,7 +1232,8 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         ("Log lines it read, one per message:", log_lines,
          None if log_lines else no_logs_listed(evidence.logs_reading)),
         (f"Candidates it considered, in the Investigator's words - cite them; what they "
-         f"claim {_NOT_WHAT_HAPPENED}:", candidates, None if candidates else NOTHING),
+         f"claim {_NOT_WHAT_HAPPENED}:", candidates,
+         _NO_CAUSE_NAMED if named_no_cause(evidence) else None if candidates else NOTHING),
         # "none" only where it is true: above an action nobody can say was
         # taken it says nothing was done, which nobody knows either.
         *([("Actions it took:", actions, None if actions else NOTHING)]
@@ -1659,6 +1683,12 @@ def _in_its_own_words(summary: str,
                       failure_mode: str | None,
                       confidence: float | None,
                       became: str) -> str:
+    """A candidate in the Investigator's words, its failure mode, its
+    confidence, and what became of it - only the last for a candidate that
+    names no cause, which has neither, and said as "None" they read as values."""
+    if failure_mode is None and confidence is None:
+        return f"{summary} [{became}]"
+
     return f"{summary} [{failure_mode}, confidence {confidence}, {became}]"
 
 
@@ -1958,6 +1988,22 @@ def _the_logs_reaching_in(evidence: IncidentEvidence, measured: Measurements) ->
     return labels_reaching_into(evidence.log_lines, measured.metrics_stopped_at)
 
 
+def _nothing_was_looked_back_from(evidence: IncidentEvidence, measured: Measurements) -> bool:
+    """Whether every part of `_NOTHING_TO_LOOK_BACK_FROM` is true: no minute
+    came back and nothing else dated an onset or anchored the walk, no deploys
+    or logs were read, and the walk escalated. An alert that dates its own onset
+    is investigated over an empty window, one that says when it fired is
+    investigated from that minute, and a person can end the walk - of any of
+    them, the line would be false. So would it be of a walk anchored on the
+    alarm that ran out before reading anything: it had a minute to read from."""
+    return (measured.error_rates_unmeasured is Unmeasured.NOTHING_READ
+            and measured.onset_at is None
+            and evidence.anchored_at is None
+            and evidence.escalated
+            and evidence.deploys_reading is ChannelReading.NOT_ASKED
+            and evidence.logs_reading is ChannelReading.NOT_ASKED)
+
+
 def _back_before(credited: ActionRecord | None,
                  measured: Measurements,
                  figures: Mapping[str, Figure]) -> list[str]:
@@ -1990,6 +2036,28 @@ _WHY_UNMEASURED: Final[dict[Unmeasured, str]] = {
     Unmeasured.NO_MINUTE_WHILE_BROKEN: (
         "metrics were read, but none from while the service was broken")
 }
+
+# Where no minute of the metrics came back and the alert gave no time either:
+# nothing to look back from, so the walk read no deploys or logs and escalated -
+# by design. Never told it, a write-up listed the reads it never made as what
+# went wrong. The document already says they were not made - Supporting
+# information's "Deploys not read" and "Not read." - so the model is told not to
+# list them there. Not told to leave them unsaid: a step of the chain says what
+# it could not rule out, and these are why.
+_NOTHING_TO_LOOK_BACK_FROM: Final = (
+    "With no minute of metrics and no time from the alert, there was nothing to look "
+    "back from, so Argus read no deploys or logs and escalated, as it is built to - the "
+    "document says so already: do not list it as something that went wrong. Reading "
+    "them is the next step for the person it escalated to, and belongs in the action "
+    "items.")
+
+# Beneath the candidates where none names a cause, whose fields the tool then
+# leaves out (`submit_postmortem_for`): the other fields' descriptions still
+# speak of the root cause, and a model not told who writes it is left to guess.
+_NO_CAUSE_NAMED: Final = (
+    f"No candidate names a cause, so the document itself says the cause was not "
+    f"determined, in {ROOT_CAUSE_FIELD} and {CAUSE_IN_PLAIN_WORDS_FIELD}, and you are not "
+    f"asked for either: where a field speaks of {ROOT_CAUSE_FIELD}, that is what it says.")
 
 # The same gap where the metrics stopped at the onset. Its own sentence, because
 # the line before it says that stretch is not known to have been trouble, and

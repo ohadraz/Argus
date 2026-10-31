@@ -28,12 +28,14 @@ _DRESSED_AS = {
 # metrics takes a reader to a table they were going to scroll to anyway.
 _POINTS_AT = {
     "onset-detected": "show the minute",
+    "anchored-on-the-alarm": "show the minute",
     "action-taken": "the change it reverted"
 }
 
 # Which table a kind's row lives in, on the page below the account.
 _ANCHORS = {
     "onset-detected": "minute",
+    "anchored-on-the-alarm": "minute",
     "action-taken": "flag"
 }
 
@@ -163,11 +165,12 @@ def _the_rows_of(table: str, held: RowsHeld) -> list[str]:
 def _the_row_named_by(line: NarrationLine) -> str:
     """The value identifying the row this line is about, or nothing.
 
-    The onset carries its minute as a fact about the incident; the action marks
-    its flag as the word a reader scans for. Two fields because they are two
-    different things, and neither exists to be linked.
+    The onset carries its minute as a fact about the incident, and the anchor
+    the minute the investigation looked from; the action marks its flag as the
+    word a reader scans for. Two fields because they are two different things,
+    and neither exists to be linked.
     """
-    if line.kind == "onset-detected":
+    if line.kind in ("onset-detected", "anchored-on-the-alarm"):
         return line.names_minute
 
     return line.emphasis

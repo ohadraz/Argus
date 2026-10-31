@@ -37,6 +37,7 @@ from agent_postmortem.prompting import (
     CITES_FIELD,
     LEAD_EFFECTS_FIELD,
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
+    REACHES_A_CAUSE_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
     STILL_AT_RISK_FIELD,
@@ -616,6 +617,44 @@ def test_a_model_that_answers_completely_is_asked_once() -> None:
 
 
 @pytest.mark.unit
+def test_an_investigation_that_named_no_cause_is_written_up_with_the_cause_said_not_determined(
+) -> None:
+    # The model is offered no place for the cause and is not sent back for one;
+    # the answer kept says it was not determined, in the document's words, and
+    # claims no chain reaching a cause - even where an answer said one.
+    asks: Kept[Transcript] = Kept()
+    offered: Kept[list[ToolDefinition]] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_writing_a_cause_anyway := a_model_answering_in_turn(
+                an_answer(root_cause="the flags had not been changed by anyone",
+                          reaches_a_cause=True),
+                recording_into=asks, offered_tools=offered)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_writing_a_cause_anyway,
+                an_evidence_bundle(candidates=[
+                    a_candidate("no cause determined for HighErrorRate on io-shop",
+                                confidence=None).model_copy(update={"failure_mode": None})]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks),
+                _was_offered_no_place_for(offered, ROOT_CAUSE_FIELD),
+                _was_offered_no_place_for(offered, REACHES_A_CAUSE_FIELD),
+                _answered_with(ROOT_CAUSE_FIELD,
+                               "Not determined: the investigation named no cause."),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, "The cause is not known."),
+                _claims_no_cause_reached(),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> None:
     # The tool the model is offered is the one for this incident: asked with
     # the tool every incident gets, a model would have nowhere to say what a
@@ -1153,6 +1192,38 @@ def _was_offered_a_place_for(offered: Kept[list[ToolDefinition]],
             raise AssertionError(
                 f"Expected every tool the model was offered to ask for [{field}], "
                 f"and they asked for {fields}.")
+
+        return True
+
+    return assertion
+
+
+def _was_offered_no_place_for(offered: Kept[list[ToolDefinition]],
+                              field: str) -> Assertion[Reading]:
+    def assertion(dont_care_reading: Reading) -> bool:
+        fields = [sorted(tool.properties) for tools in offered.taken for tool in tools]
+
+        if not fields or any(field in properties for properties in fields):
+            raise AssertionError(
+                f"Expected no tool the model was offered to ask for [{field}], and "
+                f"they asked for {fields}.")
+
+        return True
+
+    return assertion
+
+
+def _claims_no_cause_reached() -> Assertion[Reading]:
+    """Neither a chain that reaches a cause nor one resting on a reading nothing
+    ran - so nothing on the page claims a cause the root cause denies."""
+    def assertion(reading: Reading) -> bool:
+        answer, _ = reading
+
+        if answer.reaches_a_cause or answer.cause_rests_on_an_unrun_reading is not False:
+            raise AssertionError(
+                f"Expected an answer the investigation named no cause for to claim no "
+                f"chain reaching one and none resting on a reading, got "
+                f"[{answer.reaches_a_cause}] and [{answer.cause_rests_on_an_unrun_reading}].")
 
         return True
 

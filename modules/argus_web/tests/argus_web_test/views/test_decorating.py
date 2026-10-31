@@ -20,6 +20,7 @@ import pytest
 from argus_core import new_id
 from argus_core.events import (
     ActionTaken,
+    AnchoredOnTheAlarm,
     FixAttempted,
     OnsetDetected,
     SimilarIncidentsRecalled,
@@ -115,6 +116,21 @@ def test_the_onset_line_points_at_the_minute_it_named() -> None:
             )
         ) \
         .when(lambda: decorated(the_onset, held=_holding(minutes=[SOME_MINUTE]))) \
+        .then(_it_points_at(f"#minute-{SOME_MINUTE}", "show the minute"))
+
+
+@pytest.mark.unit
+def test_the_line_saying_where_the_investigation_looked_from_points_at_that_minute() -> None:
+    # Where nothing dated the incident, the minute the investigation looked from
+    # is the one minute the account is about, and finding it by hand is the work
+    # the link saves.
+    Scenario() \
+        .given(
+            the_anchor := a_narration_line(
+                AnchoredOnTheAlarm(incident_id=new_id(), minute=SOME_MINUTE)
+            )
+        ) \
+        .when(lambda: decorated(the_anchor, held=_holding(minutes=[SOME_MINUTE]))) \
         .then(_it_points_at(f"#minute-{SOME_MINUTE}", "show the minute"))
 
 

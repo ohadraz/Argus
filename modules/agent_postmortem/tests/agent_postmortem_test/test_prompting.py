@@ -31,7 +31,12 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from agent_postmortem import DeploymentChangesRecord, EngagementAnswer, NotPaged
+from agent_postmortem import (
+    DeploymentChangesRecord,
+    EngagementAnswer,
+    IncidentEvidence,
+    NotPaged,
+)
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
     AFTER_THE_WAIT_FIGURE,
@@ -1425,6 +1430,70 @@ def test_a_candidate_tried_without_a_verdict_is_said_to_have_none() -> None:
 
 
 @pytest.mark.unit
+def test_a_candidate_naming_no_cause_is_said_with_only_what_became_of_it() -> None:
+    # It has no failure mode and no confidence, and said as "None" they read as
+    # values the Investigator gave it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("nothing in the record points at a cause",
+                            confidence=None).model_copy(update={"failure_mode": None})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says("[C1] nothing in the record points at a cause [never tried]"),
+            _does_not_say("[None"),
+            _does_not_say("confidence None")
+        ))
+
+
+@pytest.mark.unit
+def test_an_investigation_that_named_no_cause_is_told_the_document_says_so_itself() -> None:
+    # The tool leaves the cause fields out, and the other fields' descriptions
+    # still speak of the root cause: a model not told who writes it is left to
+    # guess.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=[
+                a_candidate("no cause determined for HighErrorRate on io-shop",
+                            confidence=None).model_copy(update={"failure_mode": None})])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("No candidate names a cause", "you are not asked for either")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("evidence", [
+    pytest.param(an_evidence_bundle(candidates=[
+        a_candidate("no cause determined", confidence=None).model_copy(
+            update={"failure_mode": None}),
+        a_candidate("the flag was switched on")]),
+        id="one names a cause"),
+    pytest.param(an_evidence_bundle(disproven=True, candidates=[
+        a_candidate("the alarm was disproven", confidence=None).model_copy(
+            update={"failure_mode": None})]),
+        id="disproven")
+])
+def test_an_investigation_that_named_a_cause_or_disproved_the_alarm_is_never_told_none_was(
+        evidence: IncidentEvidence) -> None:
+    # Where one candidate names a cause the model is asked for it, and a
+    # disproven alarm's cause sentence says why it was false.
+    Scenario() \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("No candidate names a cause")
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_the_action_items_the_record_already_holds() -> None:
     # Numbered before it is asked, so a contributing factor can name one and its
     # own proposals follow on rather than repeat them.
@@ -2294,6 +2363,82 @@ def test_an_error_rate_nobody_could_measure_is_told_with_the_reason(why: Unmeasu
         ) \
         .then(
             _says(said)
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_none_of_whose_metrics_could_be_read_is_told_its_unread_deploys_are_by_design(
+) -> None:
+    # Where no minute of the metrics came back and the alert gave no time
+    # either, there is nothing to look back from, so the walk read no deploys or
+    # logs and escalated. Never told it, a write-up listed the reads it never
+    # made as what went wrong - which the document already says.
+    #
+    # Not told to leave them unsaid: a step of the chain says what it could not
+    # rule out, and these are why.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(escalated=True),
+            an_incident_whose_metrics_could_not_be_read := a_measured_incident(
+                error_rates=None, onset_at=None).model_copy(
+                    update={"error_rates_unmeasured": Unmeasured.NOTHING_READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, an_incident_whose_metrics_could_not_be_read)
+        ) \
+        .then(all_of(
+            _says("no time from the alert, there was nothing to look back from"),
+            _says("do not list it as something that went wrong"),
+            _says("belongs in the action items"),
+            _does_not_say("do not say it again")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("why", "onset_at", "anchored_at", "escalated", "deploys", "logs"), [
+    pytest.param(Unmeasured.NO_MINUTE_IN_THE_HOUR_BEFORE_THE_ONSET, None, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="metrics read, none before the onset"),
+    pytest.param(Unmeasured.NO_MINUTE_WHILE_BROKEN, None, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="metrics read, none while broken"),
+    pytest.param(Unmeasured.NOTHING_READ, ONSET, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="an onset the alert dated"),
+    pytest.param(Unmeasured.NOTHING_READ, None, ONSET, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="anchored on the alarm's minute"),
+    pytest.param(Unmeasured.NOTHING_READ, None, None, True,
+                 ChannelReading.READ, ChannelReading.NOT_ASKED,
+                 id="deploys read"),
+    pytest.param(Unmeasured.NOTHING_READ, None, None, True,
+                 ChannelReading.NOT_ASKED, ChannelReading.READ,
+                 id="logs read"),
+    pytest.param(Unmeasured.NOTHING_READ, None, None, False,
+                 ChannelReading.NOT_ASKED, ChannelReading.NOT_ASKED,
+                 id="ended other than escalated")
+])
+def test_an_incident_that_line_is_false_of_is_never_told_there_was_nothing_to_look_back_from(
+        why: Unmeasured, onset_at: datetime | None, anchored_at: datetime | None,
+        escalated: bool, deploys: ChannelReading, logs: ChannelReading) -> None:
+    # The line says four things - no minute of metrics, nothing else to date or
+    # anchor the walk, no deploys or logs read, and an escalation - and of an
+    # incident where any one is untrue, it is false. A walk anchored on the
+    # alarm's minute that ran out before reading anything had a minute to read
+    # from.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(escalated=escalated).model_copy(
+                update={"deploys_reading": deploys, "logs_reading": logs,
+                        "anchored_at": anchored_at}),
+            measured := a_measured_incident(error_rates=None, onset_at=onset_at).model_copy(
+                update={"error_rates_unmeasured": why})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _does_not_say("nothing to look back from")
         )
 
 
@@ -4618,6 +4763,29 @@ def test_an_incident_nobody_wrote_about_is_asked_for_what_it_always_was() -> Non
             all_of(
                 _asks_only_for(*EVERY_FIELD_ASKED),
                 _requires(*REQUIRED_FIELDS)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_investigation_named_no_cause_is_not_asked_what_the_cause_was(
+) -> None:
+    # The document says the cause was not determined itself. Asked for it
+    # anyway, a write-up filled the root cause with what was checked - a flag
+    # provider's hour said as though it covered more.
+    the_cause_fields = (ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, REACHES_A_CAUSE_FIELD,
+                        CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD)
+
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], cause_asked=False)
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*(field for field in EVERY_FIELD_ASKED
+                                 if field not in the_cause_fields)),
+                _requires(*(field for field in REQUIRED_FIELDS
+                            if field not in the_cause_fields))
             )
         )
 

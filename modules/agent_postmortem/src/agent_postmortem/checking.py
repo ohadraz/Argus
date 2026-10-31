@@ -80,6 +80,7 @@ from agent_postmortem.prompting import (
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
+    THE_CAUSE_FIELDS,
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
@@ -227,6 +228,9 @@ class Given(BaseModel):
     # Whether it was asked if the logs show the service serving as before -
     # which it is wherever a line reaches into a stretch the metrics missed.
     serving_as_before_asked: bool = False
+    # Whether it was asked what the cause was - which it is wherever the
+    # investigation named one (`undetermined`).
+    cause_asked: bool = True
     # Each line outside Code-Fix's patch that uses what it changes, by label.
     uses: dict[str, CodeUse] = {}
 
@@ -254,7 +258,7 @@ def faults_by_check(answer: SubmittedPostmortem,
     field, the lead, the step, the factor - and a figure's rule is one rule
     wherever the figure sits, so those are by the check alone."""
     checks: list[partial[_Placed] | partial[list[str]]] = [
-        partial(_missing_fields, answer),
+        partial(_missing_fields, answer, given),
         partial(_how_it_served_left_unanswered, answer, given),
         partial(_a_symptom_of_more_than_one_sentence, answer),
         partial(_a_symptom_over_its_words, answer),
@@ -334,16 +338,22 @@ def _leads_left_unanswered(answer: SubmittedPostmortem,
             if label not in answer.lead_effects]
 
 
-def _missing_fields(answer: SubmittedPostmortem) -> _Placed:
+def _missing_fields(answer: SubmittedPostmortem, given: Given) -> _Placed:
     """Which of the fields the tool declared required went unanswered.
 
     Read off the same list the tool declares, by name, rather than field by
     field: a field the model is told it must send and this does not check for
-    is the pair going out of step in the direction nothing would notice.
+    is the pair going out of step in the direction nothing would notice. The
+    cause fields only where they were asked for: where the investigation named
+    no cause the tool leaves them out, and the document writes them itself.
     """
+    not_asked = frozenset() if given.cause_asked else THE_CAUSE_FIELDS
+
     return [(field, f"the field [{field}] was missing from your answer")
             for field in REQUIRED_FIELDS
-            if getattr(answer, field) is None and field not in _UNANSWERED_BEFORE_IT_WAS_ASKED]
+            if getattr(answer, field) is None
+            and field not in _UNANSWERED_BEFORE_IT_WAS_ASKED
+            and field not in not_asked]
 
 
 # Required fields whose absence means an answer recorded before the question
