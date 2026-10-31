@@ -560,6 +560,10 @@ class Impact(BaseModel):
     before firing, on a disproven alarm - its grounds in figures - and `None`
     on any other ending, or where no minute there carried the series. A
     disproven alarm's duration is nothing: there was no stretch to measure.
+
+    `metrics_read` is `False` where no minute of the metrics came back for the
+    incident window at all, which leaves collecting them to a person; `True`
+    otherwise, which a document written before it was carried reads as.
     """
 
     duration: timedelta
@@ -570,6 +574,7 @@ class Impact(BaseModel):
     rule_series_harm: RuleSeriesHarm | None = None
     logs_in_the_gap: LogsInTheGap | None = None
     before_the_alert: RuleSeriesBeforeTheAlert | None = None
+    metrics_read: bool = True
 
 
 class Trigger(BaseModel):

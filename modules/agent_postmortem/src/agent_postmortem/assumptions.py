@@ -28,7 +28,7 @@ from datetime import timedelta
 
 from argus_core.models import said_as_money
 
-from agent_postmortem.estimate import weeks_back_for
+from agent_postmortem.estimate import Unmeasured, weeks_back_for
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.sources import EngagementAnswer, NotPaged
@@ -73,6 +73,12 @@ ONSET_UNKNOWN_ASSUMPTION = (
     "No loss estimate: no minute departed from the baseline, so there is no "
     "measured incident to attribute a loss to"
 )
+# The same absence where no minute of the metrics could be read at all: "no
+# minute departed" says of a window nobody saw that it was looked at and calm.
+NOTHING_READ_ASSUMPTION = (
+    "No loss estimate: no minute of the service's metrics could be read, so there "
+    "is no measured incident to attribute a loss to"
+)
 ENGAGEMENT_UNAVAILABLE_ASSUMPTION = (
     "No engineer minutes: no source could say when a person engaged"
 )
@@ -107,7 +113,9 @@ def assumptions_of(answer: SubmittedPostmortem,
     assumptions: list[str] = []
 
     if measured.onset_at is None:
-        assumptions.append(ONSET_UNKNOWN_ASSUMPTION)
+        assumptions.append(NOTHING_READ_ASSUMPTION
+                           if measured.error_rates_unmeasured is Unmeasured.NOTHING_READ
+                           else ONSET_UNKNOWN_ASSUMPTION)
 
     assumptions.extend(_rates_applied(measured))
     assumptions.extend(_currencies_left_out_of(measured))

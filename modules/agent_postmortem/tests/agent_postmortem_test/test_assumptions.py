@@ -33,6 +33,7 @@ from agent_postmortem import (
     EXCLUDED_CURRENCY_ASSUMPTION_LABEL,
     NO_RATE_PUBLISHED_REASON,
     NORMAL_VARIATION_ASSUMPTION_LABEL,
+    NOTHING_READ_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
@@ -43,6 +44,7 @@ from agent_postmortem import (
     WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from agent_postmortem.assumptions import assumptions_of
+from agent_postmortem.estimate import Unmeasured
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import SubmittedPostmortem
 from agent_postmortem.responder_cost import ResponderCost
@@ -246,6 +248,27 @@ def test_an_incident_with_no_onset_says_so() -> None:
         .then(
             _names(ONSET_UNKNOWN_ASSUMPTION)
         )
+
+
+@pytest.mark.unit
+def test_an_incident_none_of_whose_metrics_could_be_read_says_so_not_that_none_departed() -> None:
+    # "No minute departed from the baseline" says of a window nobody saw that
+    # it was looked at and found calm.
+    Scenario() \
+        .given(
+            an_incident_nothing_could_be_read_for := a_measured_incident(
+                onset_at=None).model_copy(
+                    update={"error_rates_unmeasured": Unmeasured.NOTHING_READ})
+        ) \
+        .when(
+            lambda: assumptions_of(DONT_CARE_ANSWER,
+                                   an_incident_nothing_could_be_read_for,
+                                   DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(all_of(
+            _names(NOTHING_READ_ASSUMPTION),
+            _says_nothing_about(ONSET_UNKNOWN_ASSUMPTION)
+        ))
 
 
 @pytest.mark.unit

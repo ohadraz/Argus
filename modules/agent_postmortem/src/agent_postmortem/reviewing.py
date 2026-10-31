@@ -83,7 +83,7 @@ def review_of(document: PostmortemDocument,
         analysis = _a_criterion(ANALYSIS_COMPLETE, short)
 
     return [
-        _a_criterion(KEY_DATA_COLLECTED, _what_the_key_data_lacks(document)),
+        _the_key_data_collected(document),
         _the_impact_assessed(document),
         analysis,
         ReviewCriterion(criterion=ITEMS_OWNED_AND_DATED, met=None),
@@ -225,6 +225,28 @@ def _the_fix_s_item(document: PostmortemDocument) -> str | None:
 
     return next((item.number for item in document.action_items
                  if fix is not None and item.tracking == fix.url), None)
+
+
+# Why the key data is left to a person where no minute of the metrics came
+# back: Argus can collect no more of a window that came back empty, and the
+# next step is a person's. Nothing of the deploys or the logs, which an alert
+# dating its own onset still has read, and which the document lists anyway.
+_NOTHING_CAME_BACK: Final = ("no minute of metrics came back for the incident window; collecting "
+                             "them is for a person")
+
+
+def _the_key_data_collected(document: PostmortemDocument) -> ReviewCriterion:
+    """Key incident data collected: met where the document lacks nothing; left
+    to a person where all it lacks is a window that came back empty, which
+    Argus can collect no more of; and not met, saying why, otherwise."""
+    lacks = _what_the_key_data_lacks(document)
+    if document.impact is None or document.impact.metrics_read:
+        return _a_criterion(KEY_DATA_COLLECTED, lacks)
+
+    if lacks:
+        return _a_criterion(KEY_DATA_COLLECTED, [*lacks, _NOTHING_CAME_BACK])
+
+    return ReviewCriterion(criterion=KEY_DATA_COLLECTED, met=None, because=_NOTHING_CAME_BACK)
 
 
 def _what_the_key_data_lacks(document: PostmortemDocument) -> list[str]:

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from agent_postmortem import CandidateRecord, DeploymentChangesRecord, RefusalRecord
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan
+from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan, Unmeasured
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
     detection_of,
@@ -2395,6 +2395,29 @@ def test_metrics_that_never_stopped_leave_no_stretch_for_the_logs_to_reach_into(
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("unmeasured", "read"), [
+    (Unmeasured.NOTHING_READ, False),
+    (Unmeasured.NO_MINUTE_WHILE_BROKEN, True),
+    (None, True)
+], ids=["nothing-came-back", "some-came-back", "measured"])
+def test_impact_carries_whether_any_minute_of_the_metrics_came_back(
+        unmeasured: Unmeasured | None, read: bool) -> None:
+    # For the review: a window that came back empty is one Argus can collect
+    # no more of, and a window that came back is not, whatever it held.
+    Scenario() \
+        .given(
+            measured := a_measured_incident().model_copy(
+                update={"error_rates_unmeasured": unmeasured})
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).metrics_read
+        ) \
+        .then(
+            the_answer_was(read)
         )
 
 

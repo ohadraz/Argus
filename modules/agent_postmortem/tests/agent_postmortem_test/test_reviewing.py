@@ -11,7 +11,7 @@ with nothing beside it says only that something somewhere fell short.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TypedDict, Unpack
 
@@ -37,6 +37,7 @@ from argus_core.models import (
     Detection,
     HypothesisConsidered,
     Impact,
+    ImpactExtent,
     Lessons,
     OpenedPullRequest,
     PostmortemDocument,
@@ -127,6 +128,43 @@ def test_key_data_is_not_collected_while_something_ruled_out_cites_nothing() -> 
         .then(
             _says_because(KEY_DATA_COLLECTED, met=False,
                           because="something the causal chain ruled out cites nothing")
+        )
+
+
+@pytest.mark.unit
+def test_key_data_of_a_window_that_came_back_empty_is_for_a_person() -> None:
+    # Not a cross: a cross says Argus could have done more, and of a window that
+    # came back empty it can collect no more. Collecting it is the next step,
+    # and a person's.
+    Scenario() \
+        .given(
+            a_document_nothing_came_back_for := _a_document(impact=_an_impact_of_nothing_read())
+        ) \
+        .when(
+            lambda: review_of(a_document_nothing_came_back_for, faults=[], reaches_a_cause=False)
+        ) \
+        .then(
+            _says_because(KEY_DATA_COLLECTED, met=None,
+                          because="no minute of metrics came back for the incident window; "
+                                  "collecting them is for a person")
+        )
+
+
+@pytest.mark.unit
+def test_key_data_of_a_window_that_came_back_empty_and_lacks_more_is_not_collected() -> None:
+    # Whatever else it lacks is the document falling short, and is said with it.
+    Scenario() \
+        .given(
+            a_document_lacking_more := _a_document(impact=_an_impact_of_nothing_read(),
+                                                   timeline=[])
+        ) \
+        .when(
+            lambda: review_of(a_document_lacking_more, faults=[], reaches_a_cause=False)
+        ) \
+        .then(
+            _says_because(KEY_DATA_COLLECTED, met=False,
+                          because="there is no timeline; no minute of metrics came back for the "
+                                  "incident window; collecting them is for a person")
         )
 
 
@@ -836,6 +874,13 @@ def _a_document(**overrides: Unpack[_WhatADocumentHolds]) -> PostmortemDocument:
     }
 
     return PostmortemDocument(**(complete | overrides))
+
+
+def _an_impact_of_nothing_read() -> Impact:
+    """An incident no minute of whose metrics came back - the duration a floor
+    from the alert, and no figure of how bad it was."""
+    return Impact(duration=timedelta(seconds=6), extent=ImpactExtent.AT_LEAST,
+                  peak_error_rate=None, metrics_read=False)
 
 
 def _a_trigger() -> Trigger:

@@ -41,6 +41,7 @@ from argus_core.models import (
     Verdict,
 )
 
+from agent_postmortem.estimate import Unmeasured
 from agent_postmortem.evidence import CandidateRecord, DeploymentChangesRecord, IncidentEvidence
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.measuring import Measurements
@@ -222,6 +223,9 @@ def impact_of(measured: Measurements,
 
     A `disproven` alarm first: no stretch, no figure of one, and what the
     rule's series read over the minutes it claimed its condition held in.
+
+    Whether any minute of the metrics came back at all, for the review: a
+    window that came back empty is one Argus can collect no more of.
     """
     if disproven:
         return Impact(duration=timedelta(0),
@@ -258,7 +262,8 @@ def impact_of(measured: Measurements,
                                                   is_the_error_rate=(
                                                       measured.rule_series_is_the_error_rate))
                   if series is not None and series.got_worse else None,
-                  logs_in_the_gap=logs_in_the_gap)
+                  logs_in_the_gap=logs_in_the_gap,
+                  metrics_read=measured.error_rates_unmeasured is not Unmeasured.NOTHING_READ)
 
 
 def _the_rule_series_before_the_alert(measured: Measurements) -> RuleSeriesBeforeTheAlert | None:

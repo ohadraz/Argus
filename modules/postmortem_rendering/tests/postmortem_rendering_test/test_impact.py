@@ -31,6 +31,10 @@ from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
 
 SOME_MINUTE = datetime(2026, 10, 21, 19, 12, tzinfo=UTC)
 
+# An incident no onset was measured for, as Detection records it: every
+# stretch it reports runs from the alert.
+NO_ONSET = Detection(alerted_at=SOME_MINUTE, rule="dont care", onset_at=None, gap=None)
+
 
 @pytest.mark.unit
 def test_a_measured_incident_shows_its_four_figures_each_beside_what_it_is() -> None:
@@ -115,6 +119,77 @@ def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -
         ) \
         .then(
             the_answer_was(expected))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("extent", "expected"), [
+    (ImpactExtent.MEASURED, Card(value="40m 0s", label="the alert until back to normal")),
+    (ImpactExtent.REPORTED, Card(value="40m 0s", label="the alert until reported resolved")),
+    (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
+                                 label="since the alert, still not back to normal")),
+    (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
+                                        label="since the alert, metrics missing"))],
+    ids=["measured", "reported", "at-least", "metrics-missing"])
+def test_the_duration_of_an_incident_no_onset_was_measured_for_runs_from_the_alert(
+        extent: ImpactExtent, expected: Card) -> None:
+    # Measured from the alert, and "since onset" beside the head's "onset
+    # unknown" names a start nobody saw.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=NO_ONSET,
+                impact=Impact(duration=timedelta(minutes=40), extent=extent,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[0]
+        ) \
+        .then(
+            the_answer_was(expected))
+
+
+@pytest.mark.unit
+def test_levels_of_an_incident_no_onset_was_measured_for_are_compared_with_before_the_alert(
+) -> None:
+    # The calm a level is set against is the hour before the alert where no
+    # onset was measured, on both cards that compare levels.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=NO_ONSET,
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.02, requests_failed=72,
+                              error_rates=ErrorRateLevels(before=0.0104, while_broken=0.0093,
+                                                          rose=False),
+                              rule_series_harm=RuleSeriesHarm(before=0.8994, while_broken=0.45943,
+                                                              at_its_worst=0.39071,
+                                                              worse_when="below")))
+        ) \
+        .when(
+            lambda: [card.label for card in the_impact(some_postmortem, an_alert()).cards[1:3]]
+        ) \
+        .then(
+            the_answer_was(["error rate, before the alert and while broken on average",
+                            "what the alert watches, before the alert and while broken on "
+                            "average"]))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_stopped_with_no_onset_says_they_stop_at_the_alert() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=NO_ONSET,
+                impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.METRICS_MISSING,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
+        ) \
+        .then(
+            the_answer_was("The metrics stop at the alert, so the duration is how long they had "
+                           "been missing by the close - not a stretch the service is known to "
+                           "have spent broken."))
 
 
 @pytest.mark.unit
