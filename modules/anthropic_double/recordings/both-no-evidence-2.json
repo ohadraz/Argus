@@ -1,0 +1,51 @@
+{
+  "container": null,
+  "content": [
+    {
+      "caller": {
+        "type": "direct"
+      },
+      "id": "toolu_01BCXGjpx9L5XLXP17VwLREd",
+      "input": {
+        "hypotheses": [
+          {
+            "confidence": null,
+            "failure_mode": null,
+            "faulting_service": null,
+            "from_state": null,
+            "subject": null,
+            "summary": "No cause can be determined: metrics, logs, pods and changes are all empty for the window, and no deployment history exists. Would need metrics/logs around the error rise or dependency error data.",
+            "supporting_evidence": [],
+            "to_state": null
+          }
+        ]
+      },
+      "name": "final_answer",
+      "type": "tool_use"
+    }
+  ],
+  "diagnostics": null,
+  "id": "msg_011CgaZi2HUc5pHECYVY93jP",
+  "model": "claude-sonnet-5-5",
+  "role": "assistant",
+  "stop_details": null,
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 603
+    },
+    "cache_creation_input_tokens": 603,
+    "cache_read_input_tokens": 9034,
+    "inference_geo": "global",
+    "input_tokens": 2,
+    "output_tokens": 173,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "service_tier": "standard",
+    "speed": "standard"
+  }
+}
