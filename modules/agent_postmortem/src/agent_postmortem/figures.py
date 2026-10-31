@@ -339,10 +339,12 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     last, after Argus's own.
     """
     day = the_day_it_began(evidence, measured)
-    figures = {
-        ALERT_RAISED_FIGURE: _an_instant(evidence.alerted_at, day),
-        BEGAN_FIGURE: _an_instant(_the_instant_it_began(evidence, measured), day)
-    }
+    figures = {ALERT_RAISED_FIGURE: _an_instant(evidence.alerted_at, day)}
+
+    # Nothing began where the alarm was disproven, and nothing lasted: named,
+    # the alert and the time Argus held it read as a stretch it was broken for.
+    if not evidence.disproven:
+        figures[BEGAN_FIGURE] = _an_instant(_the_instant_it_began(evidence, measured), day)
 
     if measured.back_to_normal_at is not None:
         figures[BACK_TO_NORMAL_FIGURE] = _an_instant(measured.back_to_normal_at, day)
@@ -365,7 +367,8 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         if evidence.log_reading_ended is not None:
             figures[LOG_READING_ENDED_FIGURE] = _an_instant(evidence.log_reading_ended, day)
 
-    figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
+    if not evidence.disproven:
+        figures[DURATION_FIGURE] = _a_span(measured.duration_in_hours)
     figures[HELD_FIGURE] = _a_span(measured.time_to_close_in_hours)
     figures[ARGUS_STOPPED_FIGURE] = _an_instant(evidence.ended_at, day)
 
@@ -895,8 +898,9 @@ def _worked_out(working: re.Match[str], figures: Mapping[str, Figure]) -> str | 
 
 def _the_day_shown(figures: Mapping[str, Figure]) -> date | None:
     """The day the incident began, as the model was shown the instant it is
-    dated from - or `None` where it was shown none."""
-    began = figures.get(BEGAN_FIGURE)
+    dated from - the alert's, where nothing began - or `None` where it was
+    shown none."""
+    began = figures.get(BEGAN_FIGURE, figures.get(ALERT_RAISED_FIGURE))
 
     return parse_iso(began.given).astimezone(UTC).date() if began is not None else None
 

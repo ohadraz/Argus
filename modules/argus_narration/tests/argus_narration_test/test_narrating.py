@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 
 import pytest
 from argus_core import new_id
+from argus_core.anomaly import THE_JUDGED_SIGNALS
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -74,6 +75,7 @@ from argus_core.models import (
     RESTART_SERVICE,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
+    RULE_READING_FIELD,
     SCALE_OUT,
     ActionIdentity,
     ActionType,
@@ -1453,6 +1455,10 @@ def test_a_disproven_alarm_says_what_was_ruled_out_and_over_what() -> None:
     # timeline is the last check there is. A window holding fewer minutes than
     # its ends suggest is exactly the one to doubt a disproof over, and that is
     # invisible unless both figures are said.
+    #
+    # Its ends as every other row says a minute, and its signals as the
+    # metrics table beside it heads them: `p95_ms` above a column headed `p95`
+    # is one signal said two ways.
     some_condition = "error rate above 5% for 5m"
     some_disproof = AlarmDisproven(
         incident_id=new_id(),
@@ -1468,11 +1474,31 @@ def test_a_disproven_alarm_says_what_was_ruled_out_and_over_what() -> None:
         .when(lambda: build_narration([some_disproof])) \
         .then(all_of(
             _the_only_line_marks(some_condition),
-            _the_only_line_says(
-                "error_rate", "p95_ms", "30", "2026-10-03T09:00Z",
-                "2026-10-03T09:29Z"
-            ),
+            _the_only_line_says("in errors or p95,", "30", "between 09:00 and 09:29"),
+            _the_only_line_does_not_say("error_rate", "p95_ms", "2026-10-03"),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_every_signal_a_window_is_judged_on_is_said_as_the_metrics_table_heads_it() -> None:
+    # Read off the kernel rather than listed here: a signal added to the
+    # judgement and not to the headings would be said by its field name, beside
+    # a table that calls it something else.
+    some_disproof = AlarmDisproven(
+        incident_id=new_id(),
+        condition="dont care",
+        signals_judged=(*THE_JUDGED_SIGNALS, RULE_READING_FIELD),
+        earliest_minute="2026-10-03T09:00Z",
+        latest_minute="2026-10-03T09:29Z",
+        minutes_judged=30
+    )
+
+    Scenario() \
+        .given(some_disproof) \
+        .when(lambda: build_narration([some_disproof])) \
+        .then(
+            _the_only_line_says("in errors, p50, p95, p99, memory or the alert rule's series,")
+        )
 
 
 @pytest.mark.unit

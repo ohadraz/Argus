@@ -293,6 +293,28 @@ def test_an_instant_worked_out_onto_another_day_than_the_one_it_began_says_its_d
 
 
 @pytest.mark.unit
+def test_an_instant_worked_out_where_nothing_began_is_said_against_the_alert_s_day() -> None:
+    # A disproven alarm names no beginning, and its brief is dated from the
+    # alert: worked out against no day at all, an instant on the alert's own
+    # day would say its date beside figures that say none.
+    some_figures = {
+        ALERT_RAISED_FIGURE: Figure(given="2026-09-02T12:00:00Z", written="dont care"),
+        HELD_FIGURE: Figure(given="30 minutes", written="dont care")
+    }
+
+    Scenario() \
+        .given(
+            an_answer_naming_it := SubmittedPostmortem(root_cause="It was {alert_raised + held}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_naming_it, some_figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause="It was 12:30 UTC."))
+        )
+
+
+@pytest.mark.unit
 def test_an_instant_worked_out_with_no_day_it_began_says_its_date_in_full() -> None:
     # Nothing to leave unsaid: with no instant the incident is dated from, a
     # time alone says no day at all.
@@ -1158,6 +1180,23 @@ def test_the_alert_is_raised_when_its_sender_says_it_fired() -> None:
             _the_figures_include({
                 ALERT_RAISED_FIGURE: Figure(given=to_iso(some_firing), written="12:08 UTC")
             })
+        )
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_names_no_beginning_and_no_duration() -> None:
+    # Nothing began and nothing lasted. Named, the alert and the seconds Argus
+    # held it read as a stretch the service was broken for.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            measured := a_measured_incident(onset_at=None, back_to_normal_at=None)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(BEGAN_FIGURE, DURATION_FIGURE)
         )
 
 

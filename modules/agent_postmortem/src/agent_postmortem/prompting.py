@@ -1038,16 +1038,22 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         # it; not an ending, since an escalated incident has not ended; and not
         # the last change of status, since a person can resolve it after.
         f"Argus held the incident for {_shown(HELD_FIGURE, figures)}, "
-        f"until {_shown(ARGUS_STOPPED_FIGURE, figures)}. That is not how long the fault "
-        f"lasted, nor how long Argus went on working - leave it out of your answer.",
-        *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
-                                  measured.metrics_stopped_at is not None,
-                                  _the_logs_reaching_in(evidence, measured), figures),
-        *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
-                                    measured.rule_series_unit, evidence,
-                                    measured.error_rates, figures,
-                                    is_the_error_rate=measured.rule_series_is_the_error_rate),
-        _what_customers_lost(measured, figures),
+        f"until {_shown(ARGUS_STOPPED_FIGURE, figures)}. That is not "
+        f"{'' if evidence.disproven else 'how long the fault lasted, nor '}how long Argus "
+        f"went on working - leave it out of your answer.",
+        # Nothing of what it cost where the alarm was disproven: the line
+        # saying it was not broken is the whole of it, and an error rate or a
+        # loss said beside it as unmeasured reads as a fault nobody measured.
+        *([] if evidence.disproven else [
+            *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
+                                      measured.metrics_stopped_at is not None,
+                                      _the_logs_reaching_in(evidence, measured), figures),
+            *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
+                                        measured.rule_series_unit, evidence,
+                                        measured.error_rates, figures,
+                                        is_the_error_rate=measured.rule_series_is_the_error_rate),
+            _what_customers_lost(measured, figures)
+        ]),
         *(line
           for heading, cited, beneath in _the_evidence_by_kind(evidence, measured)
           for line in ["", heading,
@@ -1809,7 +1815,18 @@ def _how_long_it_was_broken(measured: Measurements,
     Code-Fix after it, and not as the incident closing or ending: an
     escalated incident has not closed, and a model told it had wrote that it
     had - over a blind stretch that was still running.
+
+    None of it where the alarm was disproven, but that it was not broken: told
+    it was broken from the alert for at least the seconds Argus held it, a
+    model was told of a fault the window had just ruled out.
     """
+    if evidence.disproven:
+        return [
+            "Not broken: the alarm was disproven - no minute of the window Argus read "
+            "departed from the service's baseline, so there is no onset, duration or "
+            "impact to report."
+        ]
+
     dated_from = (
         "the onset" if measured.onset_at is not None
         else "the alert, since no onset could be measured"
@@ -2158,6 +2175,10 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
     called detection slow anyway. Said as a rule that fires at once where it
     waits for nothing, and as unread where nobody could read it - which is not
     the same rule. Nothing where no rule fired.
+
+    Where the alarm was disproven, the wait as a fact of the rule and nothing
+    of the time from the onset to the alert: there was no onset, and told to
+    count the wait into that time, a model was pointed at a span that never was.
     """
     if measured.rule_wait_unread:
         return ["How long the alert rule waits before it fires could not be read."]
@@ -2168,13 +2189,16 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
     if not measured.rule_waits:
         return [f"The alert rule fires as soon as its condition holds."
                 f"{_the_alert_against_no_wait(evidence, measured, figures)}"
-                f"{_the_condition_s_window(measured, figures)}"]
+                f"{_the_condition_s_window(measured, figures, evidence.disproven)}"]
+
+    timed = ("" if evidence.disproven else
+             ": that wait is part of the time from the onset to the alert - count it "
+             "before calling detection slow")
 
     return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
-            f"condition holding before it fires: that wait is part of the time from "
-            f"the onset to the alert - count it before calling detection slow."
+            f"condition holding before it fires{timed}."
             f"{_the_alert_against_its_wait(evidence, measured, figures)}"
-            f"{_the_condition_s_window(measured, figures)}"]
+            f"{_the_condition_s_window(measured, figures, evidence.disproven)}"]
 
 
 def _the_alert_against_no_wait(evidence: IncidentEvidence,
@@ -2204,21 +2228,28 @@ def _the_alert_against_no_wait(evidence: IncidentEvidence,
             f"onset.")
 
 
-def _the_condition_s_window(measured: Measurements, figures: Mapping[str, Figure]) -> str:
+def _the_condition_s_window(measured: Measurements,
+                            figures: Mapping[str, Figure],
+                            disproven: bool) -> str:
     """How far back the rule's condition looks, as a sentence to follow the
     wait's own - or nothing, for a check that looks back over no range.
 
     Part of the time from the onset to the alert can be that window filling:
     "5m with no sample" holds only once five minutes have passed with none.
     Told only that it may be, a write-up was left to find how much in the
-    alert's words and subtract it.
+    alert's words and subtract it. Where the alarm was `disproven` there was
+    no onset to fill it from, and the look-back is said as the rule's alone.
     """
     if not measured.rule_looks_back:
         return ""
 
-    return (f" Its condition looks back over {_shown(RULE_LOOKS_BACK_FIGURE, figures)}: up to "
-            f"that much of the time from the onset to the alert is that window filling - "
-            f"count it before calling detection slow.")
+    looks_back = f" Its condition looks back over {_shown(RULE_LOOKS_BACK_FIGURE, figures)}"
+
+    if disproven:
+        return f"{looks_back}."
+
+    return (f"{looks_back}: up to that much of the time from the onset to the alert is that "
+            f"window filling - count it before calling detection slow.")
 
 
 def _the_alert_against_its_wait(evidence: IncidentEvidence,

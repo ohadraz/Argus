@@ -3839,13 +3839,10 @@ def test_a_later_round_numbers_its_candidates_on_from_the_earlier_rounds() -> No
         (lambda: an_investigation(a_model_that_says()),
          lambda investigation: investigation.metrics_showed([])),
         (lambda: an_investigation(a_model_that_says()),
-         lambda investigation: investigation.metrics_showed(a_steady_window())),
-        (lambda: an_investigation(a_model_that_says()),
          lambda investigation: raising(investigation.metrics_fetcher, McpToolError(
              "MCP tool call [get_metrics_summary] failed: timed out")))
     ],
-    ids=["cut-short", "declined", "ran-out", "nothing-to-say", "disproven",
-         "nothing-could-be-read"]
+    ids=["cut-short", "declined", "ran-out", "nothing-to-say", "nothing-could-be-read"]
 )
 def test_a_round_that_named_no_cause_numbers_its_candidate_on_too(
     an_investigation_naming_no_cause: Callable[[], Investigation],
@@ -3869,6 +3866,34 @@ def test_a_round_that_named_no_cause_numbers_its_candidate_on_too(
             all_of(
                 _the_candidates_are_numbered(3),
                 _the_candidates_published_are_numbered(published, 3)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_numbers_its_candidate_on_and_says_none_was_formed() -> None:
+    # The round still carries a candidate naming no cause, numbered on from the
+    # rounds before - and does not say it formed one. A candidate is an
+    # explanation of a fault, and this round found there was none: the walk
+    # records no candidate here, and one said in the chat and on the timeline
+    # was a candidate every other account said was never formed.
+    published: list[IncidentEvent] = []
+    investigation = an_investigation(a_model_that_says())
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_steady_window()))
+        ) \
+        .when(
+            lambda: investigation.investigate(alert=an_alert(stated_onset=None),
+                                              publisher=published.append,
+                                              earlier_candidates=2)
+        ) \
+        .then(
+            all_of(
+                _the_alarm_was_disproven_over(THE_JUDGED_SIGNALS),
+                _the_candidates_are_numbered(3),
+                _the_candidates_published_are_numbered(published)
             )
         )
 

@@ -472,7 +472,7 @@ def investigate(
         # having been able to see than to having seen a well service - and an
         # alarm closed on an empty window would be closed on no evidence.
         return _the_alarm_was_disproven(
-            alert, incident_id, earlier_candidates, metric_buckets, narrator
+            alert, incident_id, earlier_candidates, metric_buckets
         )
 
     if onset is None and the_window_cannot_contradict_it:
@@ -1292,8 +1292,7 @@ def _nothing_to_say(alert: Alert,
 def _the_alarm_was_disproven(alert: Alert,
                              incident_id: str,
                              earlier_candidates: int,
-                             metric_buckets: list[MetricBucket],
-                             narrator: Narrator) -> Findings:
+                             metric_buckets: list[MetricBucket]) -> Findings:
     """The outcome when the window contradicts what the alarm claimed.
 
     A third shape beside `_nothing_to_say` and `_nothing_could_be_read`, and the
@@ -1310,8 +1309,12 @@ def _the_alarm_was_disproven(alert: Alert,
     rule's own series wherever the window carries it.
 
     It still carries an undetermined candidate, because `Findings.candidates` is
-    never empty and a reader walking the candidates should find the account there
-    like any other. What makes this ending its own is the disproof beside them.
+    never empty - and does not say it was formed. A candidate is an explanation
+    of a fault, and what this round found is that there was none: the walk
+    records no candidate on this path, so one narrated here would be a candidate
+    every other account says was never formed, and its reason would repeat the
+    disproof the walk says next. What makes this ending its own is the disproof
+    beside it.
     """
     disproof = Disproof(
         signals_judged=signals_judged_in(metric_buckets),
@@ -1332,7 +1335,6 @@ def _the_alarm_was_disproven(alert: Alert,
         ),
         metric_buckets
     )
-    _say_formed(narrator, undetermined)
 
     return Findings(
         candidates=[undetermined], already_read=[], disproof=disproof

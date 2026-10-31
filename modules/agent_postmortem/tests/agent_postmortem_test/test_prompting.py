@@ -1697,6 +1697,48 @@ def test_how_long_argus_held_the_incident_is_said_as_nothing_but_that() -> None:
 
 
 @pytest.mark.unit
+def test_how_long_argus_held_a_disproven_alarm_is_not_set_against_a_fault() -> None:
+    # There was no fault to have lasted.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident(onset_at=None))
+        ) \
+        .then(all_of(
+            _says(f"{{{ARGUS_STOPPED_FIGURE}}}. That is not how long Argus went on working"),
+            _does_not_say("how long the fault lasted")
+        ))
+
+
+@pytest.mark.unit
+def test_a_disproven_alarm_is_told_as_not_broken_and_as_nothing_it_cost() -> None:
+    # Told the service was broken from the alert for at least the seconds Argus
+    # held it, with its error rate unmeasured, a model was told of a fault the
+    # window had just ruled out. Every figure of what a fault cost goes with it,
+    # measured or not: there was no fault to cost.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            measured := a_measured_incident(onset_at=None, back_to_normal_at=None,
+                                            rule_series=SOME_RULE_SERIES)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("Not broken: the alarm was disproven - no minute of the window Argus read "
+                  "departed from the service's baseline, so there is no onset, duration or "
+                  "impact to report."),
+            _does_not_say("Broken from"),
+            _does_not_say("Error rate:"),
+            _does_not_say("paging rule"),
+            _does_not_say("Customer loss:")
+        ))
+
+
+@pytest.mark.unit
 def test_the_model_is_told_how_long_the_paging_rule_waits_before_it_fires() -> None:
     # Part of the time from the onset to the alert. Not told it, a write-up
     # called the rule's own wait slow detection.
@@ -1711,6 +1753,33 @@ def test_the_model_is_told_how_long_the_paging_rule_waits_before_it_fires() -> N
         .then(
             _says(f"waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding")
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("waits", "said"), [
+    (timedelta(minutes=5), f"waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding "
+                           f"before it fires. Its condition looks back over 1 minute "
+                           f"{{{RULE_LOOKS_BACK_FIGURE}}}."),
+    (timedelta(0), f"fires as soon as its condition holds. Its condition looks back over "
+                   f"1 minute {{{RULE_LOOKS_BACK_FIGURE}}}.")
+], ids=["waits", "fires-at-once"])
+def test_a_disproven_alarm_s_rule_is_told_as_the_rule_s_and_not_against_an_onset(
+        waits: timedelta, said: str) -> None:
+    # There was no onset, and told to count the wait and the look-back into the
+    # time from it to the alert, a model was pointed at a span that never was.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=True),
+            measured := a_measured_incident(onset_at=None, rule_waits=waits,
+                                            rule_looks_back=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(said),
+            _does_not_say("detection slow")
+        ))
 
 
 @pytest.mark.unit

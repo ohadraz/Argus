@@ -70,6 +70,7 @@ from argus_core.events import (
     WithdrawalOffered,
 )
 from argus_core.models import (
+    RULE_READING_FIELD,
     ActionType,
     Actor,
     ChangeEvent,
@@ -116,6 +117,18 @@ _A_PERSON = "A person"
 # own line, the channel's announcement and the postmortem's head - in one set of
 # words, so a reader matching them reads one finding rather than two.
 THE_CLAIM_WAS_NOT_IN_THE_WINDOW: Final = "the alarm's own claim was not in the window"
+
+# Each signal a window is judged on, by the heading of its column in the walk
+# page's metrics table (`argus_web`'s `evidence.html`). The rule's series as a
+# noun a sentence can end on, where the column heading drops the article.
+_A_SIGNAL_AS_THE_TABLE_HEADS_IT: Final[dict[str, str]] = {
+    "error_rate": "errors",
+    "p50_ms": "p50",
+    "p95_ms": "p95",
+    "p99_ms": "p99",
+    "memory_used_bytes": "memory",
+    RULE_READING_FIELD: "the alert rule's series"
+}
 
 # How what Code-Fix said of the code is introduced beside its line: a static
 # reading, which no test or run confirmed, and Code-Fix's rather than Argus's.
@@ -630,12 +643,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # scanning the timeline is the last check there is. A window that
             # holds fewer minutes than its ends suggest is the one a disproof
             # should be doubted over, and that is invisible unless both are said.
+            # Its ends as every other row says a minute, and its signals as the
+            # metrics table beside it heads them.
             text = (
                 f"Nothing in the window matched the alarm's own claim - "
-                f"{emphasis} - across {', '.join(event.signals_judged)}, over "
+                f"{emphasis} - in {_any_of(event.signals_judged)}, over "
                 f"{event.minutes_judged} minute"
                 f"{'' if event.minutes_judged == 1 else 's'} read between "
-                f"{event.earliest_minute} and {event.latest_minute}. "
+                f"{a_minute(event.earliest_minute, beside=event.latest_minute)} and "
+                f"{a_minute(event.latest_minute, beside=event.earliest_minute)}. "
                 f"The rule fired rather than the service failing"
             )
         case MitigationResumed():
@@ -1418,6 +1434,23 @@ def _and_then_some(action_types: Sequence[ActionType]) -> str:
         return f"{said[0]} was"
 
     return f"{', '.join(said[:-1])} and {said[-1]} were"
+
+
+def _any_of(signals: Sequence[str]) -> str:
+    """The signals a disproof was judged on, each by the heading of its column
+    in the metrics table, said as a list a person reads.
+
+    The table's word rather than the field's: the line and the table sit on one
+    page, and `p95_ms` above a column headed `p95` is one signal said two ways.
+    A signal the table has no column for is said as it arrived, as `clock` says
+    a value that is not a time.
+    """
+    said = [_A_SIGNAL_AS_THE_TABLE_HEADS_IT.get(signal, signal) for signal in signals]
+
+    if len(said) == 1:
+        return said[0]
+
+    return f"{', '.join(said[:-1])} or {said[-1]}"
 
 
 def what_the_action_does(action_type: ActionType, subject: str) -> str:
