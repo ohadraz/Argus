@@ -374,10 +374,14 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
     # moved and reverting it is what stops the drift. What differs is
     # everything after: it repairs nothing already written, and nothing can
     # confirm it inside the time Argus waits.
+    naming_a_flag = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=DONT_CARE_FLAG
+    )
+
     Scenario() \
-        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .given(naming_a_flag) \
         .when(lambda: propose_action(
-            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            naming_a_flag,
             Circumstances(service=DONT_CARE_SERVICE,
                           flag_changes=[an_enabling_of(DONT_CARE_FLAG)])
         )) \
@@ -387,18 +391,75 @@ def test_silent_data_corruption_is_answered_by_reverting_the_flag_that_caused_it
 @pytest.mark.unit
 def test_silent_data_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> None:
     # The mode names the damage and not the change, so the action follows the
-    # record rather than the mode. A walk that read a flat window and reached
-    # for a flag would have learned the flag scenario rather than the mode, and
-    # here it would find no flag to revert and recommend nothing at all.
+    # change the candidate named rather than the mode. A walk that reached for a
+    # flag would have learned the flag scenario rather than the mode, and here
+    # it would find no flag to revert and recommend nothing at all.
+    the_deployment = a_deployment()
+    naming_its_revision = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=the_deployment.reference
+    )
+
     Scenario() \
-        .given(a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .given(naming_its_revision) \
         .when(lambda: propose_action(
-            a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION),
+            naming_its_revision,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[the_deployment])
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_naming_no_change_proposes_nothing_beside_a_deployment() -> None:
+    # A deployment in the window is not a candidate blaming it. The walk reads
+    # the deploy history over a window of its own, so the revision can be one the
+    # Investigator never saw - and a rollback recommended for it sends a person
+    # to undo somebody else's work for a fault nobody weighed.
+    Scenario() \
+        .given(naming_nothing := a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            naming_nothing,
             Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
                           flag_changes=NO_FLAGS_CHANGED,
                           deployments=[a_deployment()])
         )) \
-        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_naming_no_change_proposes_nothing_beside_one_flag() -> None:
+    # The flag history's half of the case above: one flag that moved is not a
+    # candidate blaming it.
+    Scenario() \
+        .given(naming_nothing := a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION)) \
+        .when(lambda: propose_action(
+            naming_nothing,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=[an_enabling_of(DONT_CARE_FLAG)])
+        )) \
+        .then(nothing_was_proposed())
+
+
+@pytest.mark.unit
+def test_silent_data_corruption_naming_a_revision_nobody_recorded_proposes_nothing() -> None:
+    # The revision named is checked against what the platform recorded, as a
+    # named flag is against the flag history: a name in no recorded change may
+    # be one the model invented, and a deployment beside it is not the one blamed.
+    some_revision_nobody_recorded = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+    naming_it = a_hypothesis_blaming(
+        FailureMode.SILENT_DATA_CORRUPTION, subject=some_revision_nobody_recorded
+    )
+
+    Scenario() \
+        .given(naming_it) \
+        .when(lambda: propose_action(
+            naming_it,
+            Circumstances(service=SOME_APPLICATION_THE_ALERT_NAMES,
+                          flag_changes=NO_FLAGS_CHANGED,
+                          deployments=[a_deployment()])
+        )) \
+        .then(nothing_was_proposed())
 
 
 @pytest.mark.unit
@@ -456,9 +517,9 @@ def test_a_deployment_recorded_changes_nothing_for_any_other_mode() -> None:
 
 @pytest.mark.unit
 def test_the_strategy_answering_corruption_declares_both_actions_it_may_take() -> None:
-    # Which change is undone is the record's to say, so either kind may come
-    # back - and a declaration naming one would be wrong whenever the record
-    # held the other.
+    # Which change is undone is the candidate's to name, so either kind may come
+    # back - and a declaration naming one would be wrong whenever the candidate
+    # named the other.
     Scenario() \
         .given(the_mode := FailureMode.SILENT_DATA_CORRUPTION) \
         .when(lambda: DEFAULT_STRATEGIES[the_mode].action_types) \

@@ -39,9 +39,9 @@ class Hypothesis(BaseModel):
 
     `faulting_service` is the service the fault is *in*, and it exists because
     that is not always the service the alert was about. It is deliberately not
-    `subject`: a subject is a description and this is an address, which is the
-    difference between something a reader parses and something a platform call
-    is sent to.
+    `subject`: a subject is never an address and this is one, which is the
+    difference between something a reader parses or the record is compared
+    against and something a platform call is sent to.
 
     `from_state` and `to_state` are what the subject moved between - `off` and
     `on` for a flag, two versions for a deployment. Strings for the same reason

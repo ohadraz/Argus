@@ -185,7 +185,7 @@ def _what_was_given(evidence: IncidentEvidence,
     each change only the walk read, under its label with the flag it switched.
 
     Not a walk-alone change whose flag a candidate blamed - its subject, or a
-    flag its words name: the walk turns back the flag a candidate blamed, so a
+    flag its words name: the walk turns back only a flag a candidate named, so a
     causing flag switched just past the Investigator's own window is one the
     Investigator did name, and a sentence crediting it with that flag is true."""
     return Given(

@@ -597,8 +597,8 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
     collaborators: Collaborators
 ) -> None:
     # The same damage as the flag case above, left by the other kind of change.
-    # The flag history is quiet and the platform recorded a deployment, so the
-    # change to undo is the deployment - and it is recommended rather than
+    # The candidate blames a revision the platform recorded deploying, so the
+    # change to undo is that deployment - and it is recommended rather than
     # taken for the same reason: the readings already cover the incident, and a
     # rollback reports nothing of its own that would say whether it worked.
     Scenario() \
@@ -606,7 +606,7 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback(
             a_deployment_behind_the_damage := replace(
                 collaborators,
                 investigate=_an_investigation_offering(
-                    a_corruption_blamed_on("dont-care", "some prose")
+                    a_corruption_blamed_on("dont-care", a_deployment().reference)
                 ),
                 fetch_flag_changes=_a_provider_reporting(),
                 fetch_deployments=lambda **dont_care_question: [a_deployment()]

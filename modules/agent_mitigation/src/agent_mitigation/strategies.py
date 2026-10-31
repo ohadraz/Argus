@@ -80,8 +80,8 @@ class MitigationStrategy(Protocol):
     that a strategy cannot be registered without saying which actions it
     answers for - and so that the kinds a cause maps to can be read without
     building the action first. A set rather than one kind, because one mode
-    names the damage rather than the change, and its strategy answers with
-    whichever undo the record calls for.
+    names the damage rather than the change, and its strategy answers by
+    undoing the change the candidate named, as the record holds it.
     """
 
     action_types: frozenset[ActionType]
@@ -203,8 +203,8 @@ class RollBackDeploymentStrategy:
     Like a restart and unlike a flag revert, the subject comes from the alert
     and from nowhere else. Not from Argus's configuration, which would
     hardcode one deployment's answer into the agent - and not from the
-    hypothesis, whose subject is the model's description of what went wrong
-    rather than the name of anything that can be addressed.
+    hypothesis, whose subject is never an address: it describes what went
+    wrong, or names a revision only for the record to be compared against.
 
     Which revision to return to is named nowhere here, because nothing at this
     layer could name it honestly: a deployment history lives with the platform,
@@ -239,10 +239,12 @@ class RestartDependencyStrategy:
     service it acts on; what changes is where that name comes from.
 
     It comes from the hypothesis, and this is the one strategy where that is
-    right. The three above refuse to read the hypothesis for a subject, and the
-    refusal is sound: what a model writes in `subject` is its description of what
-    went wrong, and a platform call sent to "kuki heap (memory_used_bytes / heap
-    of 2048MiB limit)" asks about a resource nobody has. `faulting_service` is a
+    right. None of the three above takes an address from the hypothesis's
+    `subject`, and that is sound: a subject is never an address. Where it names
+    a flag or a revision it is compared against the record to say which change
+    was blamed, and the address comes from the record or the alert; otherwise it
+    describes what went wrong, and a platform call sent to a description asks
+    about a resource nobody has. `faulting_service` is a
     different field for exactly that reason - an address rather than a
     description, written from the service register, which is the only place the
     name a platform knows a service by can be copied from.
@@ -357,7 +359,7 @@ class PinAutoscalerStrategy:
     Like a restart, a rollback and a scale-out, the deployment comes from the alert
     and from nowhere else. Not from Argus's configuration, which would hardcode one
     estate's answer into the agent - and not from the hypothesis, whose subject is
-    the model's description of what would not settle rather than the name of
+    never an address: here it describes what would not settle, rather than naming
     anything a platform can be asked about.
 
     How high to raise the floor is named nowhere here, for the scale-out's reason
@@ -443,26 +445,28 @@ class DiscardCacheEntriesStrategy:
 
 
 class UndoTheRecordedChangeStrategy:
-    """Answering damage a change left behind by undoing whichever change the
-    record holds.
+    """Answering damage a change left behind by undoing the change the
+    candidate named, as the record holds it.
 
     Every other strategy here answers a mode that is itself a statement about
     what kind of thing went wrong - a flag, a revision, a heap, a controller. A
     mode that names the damage instead says nothing of the sort: wrong data can
     be written by a flag somebody turned on, by a revision somebody deployed, by
     a migration or by a person at a console. So the mode chooses the family of
-    answers - undo the change - and the record chooses which member.
+    answers - undo the change - and the candidate's subject chooses which
+    member, confirmed against the record.
 
-    The flag revert is asked first, because it is the narrower claim. It answers
-    only where a recorded change matches the flag the candidate named, or - where
-    the candidate named none - is the only flag that moved; an estate deploys far
-    more often than it toggles, so a deployment in the window says less. The
-    rollback follows where the platform recorded one, and is addressed to the
-    alerting service as every rollback is.
+    The flag revert answers where a recorded change matches the flag the
+    candidate named, and the rollback where it named a revision the platform
+    recorded deploying - a subject names one or the other, never both. The
+    rollback is addressed to the alerting service as every rollback is.
 
-    Neither is a default. Where the record holds no change, nothing is proposed:
-    a rollback recommended with no deployment behind it sends a person to undo
-    somebody else's work for a fault it did not cause.
+    Neither is a default. Where the candidate named no recorded change, nothing
+    is proposed - even with one change in the record. The walk reads the
+    histories over a window of its own, so that change can be one the
+    Investigator never saw, and undoing it would be acting on a cause nobody
+    weighed; a rollback recommended for it sends a person to undo somebody
+    else's work for a fault it may not have caused.
     """
 
     action_types: frozenset[ActionType] = frozenset(
@@ -472,14 +476,15 @@ class UndoTheRecordedChangeStrategy:
     def propose(self,
                 hypothesis: Hypothesis,
                 circumstances: Circumstances) -> Action | None:
-        """The flag revert where the flag history names the change, else the
-        rollback where the platform recorded a deployment, else `None`."""
+        """The flag revert where the candidate named a recorded flag change,
+        else the rollback where it named a recorded revision, else `None`."""
         flag_revert = RevertFeatureFlagStrategy().propose(hypothesis, circumstances)
 
         if flag_revert is not None:
             return flag_revert
 
-        if circumstances.deployments:
+        if any(deployment.reference == hypothesis.subject
+               for deployment in circumstances.deployments):
             return RollBackDeploymentStrategy().propose(hypothesis, circumstances)
 
         return None
@@ -580,7 +585,7 @@ DEFAULT_STRATEGIES: Strategies = {
     FailureMode.DEMAND_SATURATION: ScaleOutStrategy(),
     FailureMode.AUTOSCALING_PATHOLOGY: PinAutoscalerStrategy(),
     FailureMode.IN_FLIGHT_COMPATIBILITY_BREAK: RollBackDeploymentStrategy(),
-    # Whichever change the record holds at the onset, undone - and the one entry
+    # The change the candidate named, as the record holds it, undone - and the one entry
     # here whose action the gate will decline. That refusal is the gate's
     # judgement and not this table's: a mode absent from this mapping proposes
     # `None`, and the incident then ends saying a person is needed without
@@ -674,17 +679,16 @@ def _the_change_to_undo(subject: str | None,
     window. `flag_changes` arrives oldest first, so the last mention of a flag
     is the current one.
 
-    A hypothesis that named a flag selects it from among these; a hypothesis
-    that named none falls back to the window being unambiguous by itself.
+    Only a flag the hypothesis named. A window holding one change is not a
+    candidate blaming it: the walk reads the history over a window of its own,
+    and its one change can be a flag the Investigator never saw - reverted, it
+    would be Argus acting on a cause nobody weighed.
     """
+    if subject is None:
+        return None
+
     latest_per_flag: dict[str, FlagChange] = {
         change.flag: change for change in flag_changes
     }
 
-    if subject is not None:
-        return latest_per_flag.get(subject)
-
-    if len(latest_per_flag) != 1:
-        return None
-
-    return next(iter(latest_per_flag.values()))
+    return latest_per_flag.get(subject)

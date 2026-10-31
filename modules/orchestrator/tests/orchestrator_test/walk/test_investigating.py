@@ -1593,11 +1593,12 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock,
     fetch_deployments: MagicMock
 ) -> None:
-    # The guard once more, for the candidate whose answer is read off the deploy
-    # history. The round asks each candidate which action would answer it, and
-    # has to ask with the history it just read: asked without it, a corruption
-    # no flag caused reads as answered by nothing, which matches nothing already
-    # tried - so the walk would roll the same deployment back once per wording.
+    # The guard once more, for the candidate whose answer is checked against the
+    # deploy history. The round asks each candidate which action would answer
+    # it, and has to ask with the history it just read: asked without it, a
+    # corruption blaming a revision reads as answered by nothing, which matches
+    # nothing already tried - so the walk would roll the same deployment back
+    # once per round.
     a_round_after_the_rollback = _an_investigating_incident().model_copy(
         update={"attempts": [_an_attempt_to(rolling_back(SOME_SERVICE))]}
     )
@@ -1607,7 +1608,7 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
             calling(lambda: _the_investigation_returned(
                 investigate,
                 a_corruption_blamed_on(a_round_after_the_rollback.incident_id,
-                                       "monthly totals fall behind the purchases")))
+                                       a_deployment().reference)))
         ) \
         .when(
             lambda: investigator_node(a_round_after_the_rollback,

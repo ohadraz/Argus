@@ -192,13 +192,13 @@ def a_divergence_blamed_on(incident_id: str, prose: str) -> Hypothesis:
                       subject=prose)
 
 
-def a_corruption_blamed_on(incident_id: str, prose: str) -> Hypothesis:
+def a_corruption_blamed_on(incident_id: str, subject: str) -> Hypothesis:
     """An explanation that what the service wrote is wrong, in the model's words.
 
-    Names no flag on purpose. The mode names the damage rather than the change,
-    so what answers it is read off the change histories rather than off the
-    candidate - and a candidate that named a flag would let the flag history
-    answer for a case that is about the deploy history.
+    What it names is what the walk undoes, checked against the change
+    histories: a revision the platform recorded is answered by a rollback, and
+    prose by nothing. The mode names the damage rather than the change, so a
+    candidate naming no recorded change has blamed nothing the walk may undo.
     """
     some_confidence = 0.75
 
@@ -207,7 +207,7 @@ def a_corruption_blamed_on(incident_id: str, prose: str) -> Hypothesis:
                       failure_mode=FailureMode.SILENT_DATA_CORRUPTION,
                       confidence=some_confidence,
                       supporting_evidence=[Evidence(claim="some log line", at=None)],
-                      subject=prose)
+                      subject=subject)
 
 
 def an_accelerator_blamed_on(incident_id: str, prose: str) -> Hypothesis:

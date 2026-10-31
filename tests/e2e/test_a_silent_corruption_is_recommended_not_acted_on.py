@@ -18,9 +18,10 @@ the incident ends at `recommended` rather than `escalated`, which is the
 difference between "somebody work out what to do" and "somebody go and do this".
 
 Two cases, one per kind of change that writes wrong data. The mode names the
-damage rather than its cause, so which change to undo is read off the record: a
-flag that moved at the onset is reverted, and a revision that went out at the
-onset is rolled back. Both end the same way, which is why they are one file.
+damage rather than its cause, so the change to undo is the one the candidate
+named, as the record holds it: a flag it named that moved at the onset is
+reverted, and a revision it named that went out at the onset is rolled back.
+Both end the same way, which is why they are one file.
 """
 
 from __future__ import annotations
@@ -106,9 +107,10 @@ def test_a_corruption_a_deployment_left_behind_is_recommended_a_rollback() -> No
     # The same damage by the other kind of change. No flag moved: a revision
     # went out at the instant the oldest short total was written, and the
     # platform's deploy history is the only place that says so. The mode names
-    # the damage rather than its cause, so which change to undo is read off the
-    # record - and an empty flag history beside a deploy at the onset is a
-    # rollback, recommended for the reason the revert above is.
+    # the damage rather than its cause, so the change to undo is the one the
+    # candidate named, as the record holds it - and a candidate naming the
+    # revision the platform recorded at the onset is answered by a rollback,
+    # recommended for the reason the revert above is.
     #
     # The change channel is load-bearing rather than corroborating: a walk that
     # never read the deploy history has nothing to recommend and ends

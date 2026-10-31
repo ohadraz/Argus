@@ -521,18 +521,17 @@ def test_a_divergence_candidate_is_answered_by_discarding_the_keys_handed_in() -
 
 @pytest.mark.unit
 def test_a_corruption_candidate_is_answered_by_the_deployment_recorded() -> None:
-    # The other candidate whose answer the candidate cannot give. It names the
-    # damage and not the change, so what is undone is whichever change the
-    # histories hold - and asked without the deploy history, a corruption a
-    # revision caused would come back answered by nothing, and the walk would
-    # pass over the one explanation it had.
+    # The other candidate whose answer is checked against a history. It names
+    # the damage and not the change, so what is undone is the revision it
+    # blamed, as the platform recorded it - and asked without the deploy
+    # history, a corruption a revision caused would come back answered by
+    # nothing, and the walk would pass over the one explanation it had.
     some_incident_id = a_random_id()
 
     Scenario() \
         .given(the_revision_that_went_out := [a_deployment()]) \
         .when(lambda: what_each_would_do(
-            [a_corruption_blamed_on(some_incident_id,
-                                    "monthly totals fall behind the purchases")],
+            [a_corruption_blamed_on(some_incident_id, a_deployment().reference)],
             Circumstances(service=SOME_SERVICE,
                           flag_changes=[],
                           deployments=the_revision_that_went_out)

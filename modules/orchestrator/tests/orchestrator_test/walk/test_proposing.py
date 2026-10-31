@@ -46,6 +46,7 @@ from orchestrator.walk.proposing import mitigation_proposal_node
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.builders import (
+    a_candidate_blaming,
     a_corruption_blamed_on,
     a_deployment,
     a_determined_hypothesis,
@@ -68,7 +69,9 @@ def test_the_proposal_node_proposes_an_action_for_the_flag_that_changed() -> Non
     Scenario() \
         .given(
             a_mitigating_incident := _a_mitigating_incident(
-                read_from_the_provider=[_an_enabling_of(the_flag_that_changed)]
+                read_from_the_provider=[_an_enabling_of(the_flag_that_changed)],
+                about=lambda incident_id: a_candidate_blaming(incident_id,
+                                                              the_flag_that_changed)
             )
         ) \
         .when(lambda: mitigation_proposal_node(a_mitigating_incident)) \
@@ -127,7 +130,7 @@ def test_a_divergence_is_answered_by_discarding_the_entries_the_alert_named() ->
 @pytest.mark.unit
 def test_a_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> None:
     # The node hands on the deploy history the round read, as it hands on the
-    # flag history. Without it, a corruption with no flag behind it would have
+    # flag history. Without it, a corruption blaming a revision would have
     # nothing proposed for it, and an incident Argus had diagnosed correctly
     # would end without the one thing it could recommend.
     some_alert = Alert(service=SOME_SERVICE, alert_name="SpendTotalsDoNotReconcile")
@@ -138,7 +141,7 @@ def test_a_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> No
             a_corrupting_incident := state.model_copy(
                 update={
                     "hypothesis": a_corruption_blamed_on(
-                        state.incident_id, "monthly totals fall behind the purchases"
+                        state.incident_id, a_deployment().reference
                     ),
                     "flag_changes": [],
                     "deployments": [a_deployment()]

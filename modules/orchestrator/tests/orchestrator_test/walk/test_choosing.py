@@ -560,12 +560,12 @@ def test_a_candidate_answered_by_a_discard_already_taken_is_skipped() -> None:
 
 @pytest.mark.unit
 def test_a_corruption_answered_by_a_rollback_already_taken_is_skipped() -> None:
-    # The guard once more, for the candidate whose answer is read off the deploy
-    # history. Two rounds word one corruption two ways, and both are answered
-    # by returning the deployment the platform recorded - which this node knows
-    # only while it is still passing that history down. Stop passing it and the
-    # second wording reads as answered by nothing, which the guard cannot match
-    # against the rollback already taken.
+    # The guard once more, for the candidate whose answer is checked against the
+    # deploy history. Two rounds blame one revision for the corruption, and both
+    # are answered by returning the deployment the platform recorded - which
+    # this node knows only while it is still passing that history down. Stop
+    # passing it and the second reads as answered by nothing, which the guard
+    # cannot match against the rollback already taken.
     incident_id = a_random_id()
     a_candidate_blaming_a_flag = a_candidate_blaming(incident_id, ANOTHER_FLAG)
 
@@ -573,8 +573,8 @@ def test_a_corruption_answered_by_a_rollback_already_taken_is_skipped() -> None:
         .given(
             a_walk := _a_walk_that_rolled_back(
                 incident_id,
-                [a_corruption_blamed_on(incident_id, "monthly totals look wrong"),
-                 a_corruption_blamed_on(incident_id, "the totals fell behind"),
+                [a_corruption_blamed_on(incident_id, a_deployment().reference),
+                 a_corruption_blamed_on(incident_id, a_deployment().reference),
                  a_candidate_blaming_a_flag],
                 index=0
             )

@@ -108,9 +108,10 @@ def mitigation_node(
         # row is the only account of what this attempt changed, and every
         # reader of it afterwards - the write-up, and the memory the next
         # incident is ordered by - has nowhere else to ask. A candidate's
-        # subject is prose a model wrote about the symptom, so a row carrying
-        # it quotes something nobody did, and the cap on attempts per subject
-        # counts a phrase that comes out different every round.
+        # subject is never an address, and is often prose a model wrote about
+        # the symptom, so a row carrying it quotes something nobody did, and the
+        # cap on attempts per subject counts a phrase that comes out different
+        # every round.
         subject=the_subject_of(state.proposed_action),
         # When the claim was written, which is not when the action was: the
         # agent is called in after it, and the action announced after that.
