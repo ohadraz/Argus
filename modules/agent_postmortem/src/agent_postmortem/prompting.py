@@ -2247,9 +2247,10 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
     waits for nothing, and as unread where nobody could read it - which is not
     the same rule. Nothing where no rule fired.
 
-    Where the alarm was disproven, the wait as a fact of the rule and nothing
-    of the time from the onset to the alert: there was no onset, and told to
-    count the wait into that time, a model was pointed at a span that never was.
+    Where no onset was measured - a disproven alarm, or one nothing dated - the
+    wait as a fact of the rule and nothing of the time from the onset to the
+    alert: no onset was measured to count from, and told to count the wait into
+    that time, a model was pointed at a span the record does not hold.
     """
     if measured.rule_wait_unread:
         return ["How long the alert rule waits before it fires could not be read."]
@@ -2260,16 +2261,16 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
     if not measured.rule_waits:
         return [f"The alert rule fires as soon as its condition holds."
                 f"{_the_alert_against_no_wait(evidence, measured, figures)}"
-                f"{_the_condition_s_window(measured, figures, evidence.disproven)}"]
+                f"{_the_condition_s_window(measured, figures)}"]
 
-    timed = ("" if evidence.disproven else
+    timed = ("" if measured.onset_at is None else
              ": that wait is part of the time from the onset to the alert - count it "
              "before calling detection slow")
 
     return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
             f"condition holding before it fires{timed}."
             f"{_the_alert_against_its_wait(evidence, measured, figures)}"
-            f"{_the_condition_s_window(measured, figures, evidence.disproven)}"]
+            f"{_the_condition_s_window(measured, figures)}"]
 
 
 def _the_alert_against_no_wait(evidence: IncidentEvidence,
@@ -2300,23 +2301,23 @@ def _the_alert_against_no_wait(evidence: IncidentEvidence,
 
 
 def _the_condition_s_window(measured: Measurements,
-                            figures: Mapping[str, Figure],
-                            disproven: bool) -> str:
+                            figures: Mapping[str, Figure]) -> str:
     """How far back the rule's condition looks, as a sentence to follow the
     wait's own - or nothing, for a check that looks back over no range.
 
     Part of the time from the onset to the alert can be that window filling:
     "5m with no sample" holds only once five minutes have passed with none.
     Told only that it may be, a write-up was left to find how much in the
-    alert's words and subtract it. Where the alarm was `disproven` there was
-    no onset to fill it from, and the look-back is said as the rule's alone.
+    alert's words and subtract it. Where no onset was measured - a disproven
+    alarm, or one nothing dated - there was no measured onset to fill it from,
+    and the look-back is said as the rule's alone.
     """
     if not measured.rule_looks_back:
         return ""
 
     looks_back = f" Its condition looks back over {_shown(RULE_LOOKS_BACK_FIGURE, figures)}"
 
-    if disproven:
+    if measured.onset_at is None:
         return f"{looks_back}."
 
     return (f"{looks_back}: up to that much of the time from the onset to the alert is that "

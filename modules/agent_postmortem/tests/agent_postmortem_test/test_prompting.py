@@ -1855,6 +1855,35 @@ def test_a_disproven_alarm_s_rule_is_told_as_the_rule_s_and_not_against_an_onset
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("waits", "said"), [
+    (timedelta(minutes=5), f"waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding "
+                           f"before it fires. Its condition looks back over 1 minute "
+                           f"{{{RULE_LOOKS_BACK_FIGURE}}}."),
+    (timedelta(0), f"fires as soon as its condition holds. Its condition looks back over "
+                   f"1 minute {{{RULE_LOOKS_BACK_FIGURE}}}.")
+], ids=["waits", "fires-at-once"])
+def test_an_undated_alarm_s_rule_is_told_as_the_rule_s_and_not_against_an_onset(
+        waits: timedelta, said: str) -> None:
+    # Not disproven, and nothing dated it: a window with no minutes in it,
+    # broken from the alert as a lower bound. No onset was measured here either,
+    # and the brief that said so two lines below told the model to count the
+    # wait and the look-back into the time from it to the alert.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=None, disproven=False),
+            measured := a_measured_incident(onset_at=None, rule_waits=waits,
+                                            rule_looks_back=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(said),
+            _does_not_say("detection slow")
+        ))
+
+
+@pytest.mark.unit
 def test_a_rule_that_waits_for_nothing_is_told_as_firing_at_once() -> None:
     Scenario() \
         .given(
