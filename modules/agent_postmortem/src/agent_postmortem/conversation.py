@@ -27,7 +27,7 @@ from argus_core.models import (
     Turn,
 )
 
-from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn
+from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn, names_the_flag
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import (
     Figure,
@@ -48,6 +48,7 @@ from agent_postmortem.prompting import (
     submit_postmortem_for,
     the_candidates_labelled,
     the_change_that_set_it_off,
+    the_changes_labelled,
     the_evidence_labelled,
     the_files_as_they_ran_labelled,
     the_uses_outside_labelled,
@@ -180,7 +181,13 @@ def _what_was_given(evidence: IncidentEvidence,
     are hypotheses, the items already on the record, the revisions the incident
     read and the one the deploy that set it off went to, the figures it may
     name, each file shown as it ran - named by its first line, its path at
-    its revision - and each line outside Code-Fix's patch, under its label."""
+    its revision - each line outside Code-Fix's patch, under its label, and
+    each change only the walk read, under its label with the flag it switched.
+
+    Not a walk-alone change whose flag a candidate blamed - its subject, or a
+    flag its words name: the walk turns back the flag a candidate blamed, so a
+    causing flag switched just past the Investigator's own window is one the
+    Investigator did name, and a sentence crediting it with that flag is true."""
     return Given(
         labels=frozenset(label for cited in the_evidence_labelled(evidence, measured)
                          for label in (cited.label, *cited.also)),
@@ -194,7 +201,14 @@ def _what_was_given(evidence: IncidentEvidence,
                    for cited in the_files_as_they_ran_labelled(evidence)},
         uses={cited.label: use
               for cited, use in zip(the_uses_outside_labelled(evidence), evidence.uses_outside,
-                                    strict=True)}
+                                    strict=True)},
+        read_by_the_walk_alone={
+            cited.label: cited.change.reference
+            for cited in the_changes_labelled(evidence)
+            if cited.change in evidence.changes_the_walk_alone_read
+            and not any(candidate.subject == cited.change.reference
+                        or names_the_flag(candidate.summary, cited.change.reference)
+                        for candidate in evidence.candidates)}
     )
 
 

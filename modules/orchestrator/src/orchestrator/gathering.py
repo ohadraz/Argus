@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Final, get_args
+from typing import Final, NamedTuple, get_args
 
 import psycopg
 from agent_postmortem import (
@@ -199,6 +199,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
     account = events.get_by_incident(conn, incident_id)
     told = _the_account_told(account)
     reading = _the_reading_that_stands(account)
+    changed = _what_changed(conn, incident_id)
 
     return IncidentEvidence(
         incident_id=incident_id,
@@ -230,7 +231,8 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
                                [hypothesis.id for hypothesis in considered]),
         log_lines=_what_was_read(conn, incident_id),
         log_reading_ended=_how_far_the_logs_were_read(account),
-        changes=_what_changed(conn, incident_id),
+        changes=changed.every,
+        changes_the_walk_alone_read=changed.by_the_walk_alone,
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
         fix_explanation=reading.explanation if reading is not None else None,
@@ -876,10 +878,18 @@ def _what_it_did(taken_action: TakenAction, said: Mapping[str, ActionTaken]) -> 
     return f"{taken_action.type} on {taken_action.subject}"
 
 
-def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEvent]:
+class _ChangesRead(NamedTuple):
+    """Every change the walk read, and those of them the walk alone read."""
+
+    every: list[ChangeEvent]
+    by_the_walk_alone: list[ChangeEvent]
+
+
+def _what_changed(conn: psycopg.Connection, incident_id: str) -> _ChangesRead:
     """Every change the walk read, in the order they were made: the
     investigation's, and each flag change the walk read for itself that the
-    investigation did not.
+    investigation did not - which are told apart, since the Investigator never
+    saw those and a write-up not told so credited it with weighing one.
 
     The flags too, because the walk acts on what it read of them, and a
     write-up has to be able to cite the change Argus acted on. The model's own
@@ -910,6 +920,7 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEven
                 if not any(_the_same_change(change, seen) for seen in read):
                     read.append(change)
     first_acted = _when_it_first_acted(recorded)
+    walk_alone: list[ChangeEvent] = []
 
     for event in recorded:
         if isinstance(event, FlagChangesRetrieved):
@@ -920,8 +931,15 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> list[ChangeEven
                 change = as_a_change(toggle)
                 if not any(_the_same_change(change, seen) for seen in read):
                     read.append(change)
+                    walk_alone.append(change)
 
-    return sorted(read, key=lambda change: parse_iso(change.occurred_at))
+    return _ChangesRead(every=sorted(read, key=_when_it_was_made),
+                        by_the_walk_alone=sorted(walk_alone, key=_when_it_was_made))
+
+
+def _when_it_was_made(change: ChangeEvent) -> datetime:
+    """The instant a change was made, which is the order changes are carried in."""
+    return parse_iso(change.occurred_at)
 
 
 def _when_it_first_acted(account: list[IncidentEvent]) -> datetime | None:

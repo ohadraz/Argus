@@ -267,6 +267,12 @@ class IncidentEvidence(BaseModel):
     # What changed on the service, as the investigation read it - what dates
     # the change the confirmed candidate blamed.
     changes: list[ChangeEvent] = []
+    # Those of `changes` only Argus's own read of the flag provider's history
+    # found - not returned by the Investigator's read of the changes where it
+    # made one, and never seen by it where it made none. Listed among the
+    # investigation's reads with nothing to tell them apart, a write-up
+    # credited the Investigator with ruling out a flag it never saw.
+    changes_the_walk_alone_read: list[ChangeEvent] = []
     # What each deployment the investigation looked into changed, in the order
     # it first asked - the one thing that tells a broken configuration from bad
     # code, and what names the deploy that carried a change.

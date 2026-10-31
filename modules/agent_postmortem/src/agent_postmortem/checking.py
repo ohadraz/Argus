@@ -174,6 +174,15 @@ _A_MISSING_CHECK: Final = re.compile(
     r"|\bno\s+(?:\w+\s+)?(?:checks?|safeguards?)\b",
     re.IGNORECASE)
 
+# The Investigator, named in an item - the agent, not "the investigation",
+# which reads fairly as the whole response.
+_THE_INVESTIGATOR: Final = re.compile(r"\binvestigator\b", re.IGNORECASE)
+
+# A flag named only as not the one that caused it: "the other flag change", "a
+# second flag", "another flag", "an unrelated flag".
+_ANOTHER_FLAG: Final = re.compile(r"\b(?:other|second|another|unrelated)\s+(?:\w+\s+)?flags?\b",
+                                  re.IGNORECASE)
+
 # A factor's label written as a word of the prose.
 _A_FACTOR_S_LABEL: Final = re.compile(rf"\b{re.escape(CONTRIBUTING_FACTOR_PREFIX)}\d+\b")
 
@@ -213,8 +222,8 @@ class Given(BaseModel):
     """What the model was handed, as far as a check needs it: the labels it
     could cite and which of them name a hypothesis, how many action items the
     record already held, the revisions the incident read and which of them the
-    deploy that set it off went to, the figures it gave, by name, and each file
-    shown as it ran, by label."""
+    deploy that set it off went to, the figures it gave, by name, each file
+    shown as it ran, by label, and each change the walk alone read."""
 
     labels: frozenset[str] = frozenset()
     hypotheses: frozenset[str] = frozenset()
@@ -233,6 +242,10 @@ class Given(BaseModel):
     cause_asked: bool = True
     # Each line outside Code-Fix's patch that uses what it changes, by label.
     uses: dict[str, CodeUse] = {}
+    # Each change only Argus's own read of the flag provider's history found,
+    # by label, with the flag it switched - the two ways the prose names a
+    # change. Not one a candidate names, which the Investigator did weigh.
+    read_by_the_walk_alone: dict[str, str] = {}
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -279,7 +292,8 @@ def faults_by_check(answer: SubmittedPostmortem,
         partial(_ranges_after_an_opening_or_a_moment, answer, given),
         partial(_workings_that_make_no_sense, answer, given),
         partial(_units_against_their_figures, answer, given),
-        partial(_revisions_nobody_read, answer, given)]
+        partial(_revisions_nobody_read, answer, given),
+        partial(_the_investigator_beside_what_it_never_read, answer, given)]
 
     found: dict[str, list[str]] = {}
     for check in checks:
@@ -925,4 +939,44 @@ def _revisions_nobody_read(answer: SubmittedPostmortem, given: Given) -> list[st
         for prose in answer.sentences()
         for named in unknown_revisions_in(prose, given.revisions)
     ]
+
+
+def names_the_flag(prose: str, flag: str) -> bool:
+    """Whether `prose` names `flag` as a whole name: not inside a longer one,
+    which a flag's hyphens make a word boundary no help with - `checkout` is
+    not named by `checkout-v2`."""
+    return re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", prose) is not None
+
+
+def _the_investigator_beside_what_it_never_read(answer: SubmittedPostmortem,
+                                                given: Given) -> _Placed:
+    """Each item naming the Investigator beside a change it never read.
+
+    Only Argus's own read of the flag provider's history found such a change,
+    and write-ups said the Investigator ruled it out, set it aside, or picked
+    another flag over it - two as "the other flag change", one by the flag's
+    name. Its label is matched too, since the brief names the change by it. The
+    whole item rather than a sentence, because one slip named the Investigator
+    in the sentence before the one that set the flag aside.
+    """
+    if not given.read_by_the_walk_alone:
+        return []
+
+    faults: _Placed = []
+    for place, item in answer.placed_sentences():
+        if not _THE_INVESTIGATOR.search(item):
+            continue
+
+        named = [label for label, flag in given.read_by_the_walk_alone.items()
+                 if re.search(rf"\b{re.escape(label)}\b", item) or names_the_flag(item, flag)]
+        beside = named or (list(given.read_by_the_walk_alone)
+                           if _ANOTHER_FLAG.search(item) else [])
+        if beside:
+            faults.append((place,
+                           f"[{item}] names the Investigator beside [{', '.join(beside)}], found "
+                           f"only by Argus's read of the flag provider's history - the "
+                           f"Investigator never read it: credit it to that read, or leave the "
+                           f"Investigator out of this item"))
+
+    return faults
 

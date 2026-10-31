@@ -994,6 +994,106 @@ def test_a_revision_the_incident_never_read_is_named() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("item", [
+    "The Investigator tied the errors to the flag change and ruled out deploys and the other "
+    "flag change, forming its candidate {T13.1 - alert_raised} after the alert was raised.",
+    "The Investigator tied the onset to the monthly-spend-feature flag change. It set aside "
+    "the other flag change because that change came after the onset.",
+    "The Investigator picked monthly-spend-feature over an-unrelated-feature, the other flag "
+    "switched on around the same time, by matching the flag's evaluations and the first "
+    "division errors to its toggle.",
+    "The Investigator tied the onset to the monthly-spend-feature flag change. It set aside "
+    "[P2] because that change came after the onset.",
+    "The Investigator picked monthly-spend-feature over an-unrelated-feature, by matching the "
+    "flag's evaluations and the first division errors to its toggle."
+], ids=["ruled-out-the-other-flag", "set-aside-a-sentence-later", "picked-over-it-by-name",
+        "set-aside-by-its-label", "picked-over-it-by-its-name-alone"])
+def test_the_investigator_credited_with_a_flag_it_never_read_is_named(item: str) -> None:
+    # Three write-ups said so of a flag only Argus's own read of the flag history
+    # found - the Investigator's read of the changes never returned it - as "the
+    # other flag change", by the flag's name, and a sentence after the one naming
+    # the Investigator. The last two say it by the label alone and by the name
+    # alone, which is what holds each of those to the check.
+    Scenario() \
+        .given(
+            an_answer_crediting_the_investigator := _an_answer(lessons=Lessons(went_well=[item]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_crediting_the_investigator,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "read_by_the_walk_alone": {"P2": "an-unrelated-feature"}}))
+        ) \
+        .then(
+            _named("names the Investigator beside [P2]")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("item", [
+    "The investigation tied the errors to the flag through log lines showing flag evaluations "
+    "moving from off to on in the same minute the errors began. An unrelated flag switched on "
+    "shortly before the alert was not mistaken for the cause.",
+    "The flag change to an-unrelated-feature. It came after the errors had already started. "
+    "Turning monthly-spend-feature off brought the service back while an-unrelated-feature was "
+    "still on."
+], ids=["the-investigation", "no-investigator"])
+def test_a_flag_only_argus_read_said_without_crediting_the_investigator_is_accepted(
+        item: str) -> None:
+    # "The investigation" reads fairly as the whole response, which did read the
+    # flag; and the flag ruled out with nobody credited is what every write-up
+    # of the case did.
+    Scenario() \
+        .given(
+            an_answer_crediting_nobody := _an_answer(lessons=Lessons(went_well=[item]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_crediting_nobody,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "read_by_the_walk_alone": {"P2": "an-unrelated-feature"}}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_named_inside_a_longer_name_is_not_the_flag_only_argus_read() -> None:
+    # A flag's hyphens make a word boundary no help: matched as text, a flag
+    # only Argus read named checkout would be named by every checkout-v2.
+    Scenario() \
+        .given(
+            an_answer_naming_a_longer_flag := _an_answer(lessons=Lessons(went_well=[
+                "The Investigator tied the errors to checkout-v2."]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_a_longer_flag,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "read_by_the_walk_alone": {"P2": "checkout"}}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_the_investigator_beside_another_flag_is_accepted_where_it_read_every_flag() -> None:
+    # Where Argus read no flag the Investigator did not, a flag set aside by the
+    # Investigator is one it did set aside.
+    Scenario() \
+        .given(
+            an_answer_crediting_the_investigator := _an_answer(lessons=Lessons(went_well=[
+                "The Investigator tied the onset to the monthly-spend-feature flag change. It "
+                "set aside the other flag change because that change came after the onset."]))
+        ) \
+        .when(
+            lambda: faults_in(an_answer_crediting_the_investigator, given=SOME_GIVEN)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 def test_a_figure_as_long_as_a_revision_is_still_named() -> None:
     # Only hex with a letter in it reads as a name. A figure of the same length
     # is still a figure.

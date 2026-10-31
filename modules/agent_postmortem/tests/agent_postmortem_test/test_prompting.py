@@ -563,6 +563,55 @@ def test_a_change_nobody_is_named_for_is_said_to_be_unnamed() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_only_argus_read_is_told_as_not_the_investigator_s() -> None:
+    # Listed among the investigation's own reads with nothing to tell them
+    # apart, a flag only Argus's own read of the flag history found was
+    # credited to the Investigator - as ruled out, set aside, or picked over.
+    the_flag_both_read = _a_change(reference="monthly-spend-feature",
+                                   occurred_at="2026-09-02T11:59:00Z")
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature",
+                                         occurred_at="2026-09-02T12:04:00Z")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[the_flag_both_read, the_flag_only_argus_read]
+            ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                                 "deploys_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[P2]", "an-unrelated-feature",
+                              "found only by Argus's read of the flag provider's history",
+                              "the Investigator's read of the changes did not return it"),
+            _says_once("found only by Argus's read of the flag provider's history")
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_only_argus_read_is_not_said_unreturned_by_a_read_never_made() -> None:
+    # Where the Investigator never asked for the changes, there was no read of
+    # them to not return it - and "Deploys not read" beneath would say so.
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(changes=[the_flag_only_argus_read]).model_copy(
+                update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                        "deploys_reading": ChannelReading.NOT_ASKED})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[P1]", "found only by Argus's read of the flag provider's history"),
+            _does_not_say("the Investigator's read of the changes did not return it")
+        ))
+
+
+@pytest.mark.unit
 def test_the_model_is_shown_what_each_deployment_it_looked_into_changed() -> None:
     # What tells a broken configuration from bad code is inside the diff, and a
     # write-up never shown it hedges a cause the investigation read off the
@@ -3714,6 +3763,39 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
 
 
 @pytest.mark.unit
+def test_every_sentence_the_answer_would_publish_is_read_with_a_place_of_its_own() -> None:
+    # A fault keyed by its check alone is one the model is never told of again
+    # once it moves into another item: told of it in one item, a rewrite saying
+    # it in another would count as already told. So every sentence comes with a
+    # place of its own, which is what a fault found in it is keyed by.
+    some_answer = SubmittedPostmortem(
+        root_cause="the root cause",
+        cause_in_plain_words="the cause in plain words",
+        still_at_risk="what is still at risk",
+        symptom="the symptom",
+        assumptions=["an assumption"],
+        lead_effects={"L1": "a lead's effect"},
+        causal_chain=[SubmittedStep(step="a step", cites=["T1"],
+                                    ruled_out=[SubmittedRuledOut(what="what it ruled out",
+                                                                 cites=["T2"])])],
+        contributing_factors=[SubmittedFactor(factor="a factor",
+                                              had_it_been_otherwise="had it been otherwise",
+                                              addressed_by=["AI-1"])],
+        action_items=[SubmittedItem(item="an item", type=ActionItemType.PREVENT)],
+        lessons=Lessons(went_well=["went well"], went_wrong=["went wrong"],
+                        got_lucky=["got lucky"]))
+
+    Scenario() \
+        .when(
+            lambda: list(some_answer.placed_sentences())
+        ) \
+        .then(all_of(
+            _read_in_the_order_sentences_reads(some_answer),
+            _each_in_a_place_of_its_own()
+        ))
+
+
+@pytest.mark.unit
 def test_what_a_step_ruled_out_is_rewritten_as_every_other_sentence_is() -> None:
     # Read by the same fields `sentences` reads: a figure named in what was
     # ruled out is written in like one named anywhere else.
@@ -5656,6 +5738,34 @@ def _says(*expected: str) -> Assertion[Transcript]:
         if missing:
             raise AssertionError(
                 f"Expected the model to be told {missing}, and it was not: {said}")
+
+        return True
+
+    return assertion
+
+
+def _read_in_the_order_sentences_reads(
+        answer: SubmittedPostmortem) -> Assertion[list[tuple[str, str]]]:
+    """The same sentences `sentences` yields, in its order."""
+    def assertion(placed: list[tuple[str, str]]) -> bool:
+        read = [prose for _, prose in placed]
+
+        if read != list(answer.sentences()):
+            raise AssertionError(
+                f"Expected the sentences {list(answer.sentences())}, each with its place, "
+                f"got {read}.")
+
+        return True
+
+    return assertion
+
+
+def _each_in_a_place_of_its_own() -> Assertion[list[tuple[str, str]]]:
+    def assertion(placed: list[tuple[str, str]]) -> bool:
+        places = [place for place, _ in placed]
+
+        if len(set(places)) != len(places):
+            raise AssertionError(f"Expected every sentence in a place of its own, got {places}.")
 
         return True
 

@@ -39,8 +39,11 @@ from agent_postmortem.prompting import (
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     REACHES_A_CAUSE_FIELD,
     ROOT_CAUSE_FIELD,
+    RULED_OUT_FIELD,
     STEP_FIELD,
     STILL_AT_RISK_FIELD,
+    WENT_WELL_FIELD,
+    WHAT_FIELD,
     SubmittedPostmortem,
 )
 from argus_core import to_iso
@@ -1005,6 +1008,159 @@ def test_a_root_cause_saying_one_role_of_lines_whose_rows_differ_is_asked_for_ag
 
 
 @pytest.mark.unit
+def test_an_answer_crediting_the_investigator_with_a_flag_only_argus_read_is_asked_again(
+) -> None:
+    # What the answer is held to includes each change only Argus's own read of
+    # the flag history found, under the label the model was shown it by.
+    asks: Kept[Transcript] = Kept()
+    the_flag_both_read = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T11:59:00Z",
+                                     reference="monthly-spend-feature",
+                                     summary="dont care")
+    the_flag_only_argus_read = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                           occurred_at="2026-09-02T12:04:00Z",
+                                           reference="an-unrelated-feature",
+                                           summary="dont care")
+
+    Scenario() \
+        .given(
+            a_model_crediting_the_investigator := a_model_answering_in_turn(
+                an_answer(root_cause="The Investigator tied the onset to the "
+                                     "monthly-spend-feature flag change. It set aside the "
+                                     "other flag change because that change came after the "
+                                     "onset."),
+                an_answer(),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_crediting_the_investigator,
+                an_evidence_bundle(
+                    changes=[the_flag_both_read, the_flag_only_argus_read]
+                ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read]}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, "[P2]"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_only_argus_read_that_a_candidate_names_is_one_the_investigator_weighed() -> None:
+    # The walk turns back the flag a candidate blamed, so a causing flag
+    # switched just past the Investigator's own window is one only the walk's
+    # read found and one the Investigator named. Crediting it with that flag is
+    # true, and asked again for it the model would be told to give the
+    # diagnosis to the flag read.
+    asks: Kept[Transcript] = Kept()
+    the_flag_only_argus_read = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                           occurred_at="2026-09-02T12:04:00Z",
+                                           reference="an-unrelated-feature",
+                                           summary="dont care")
+
+    Scenario() \
+        .given(
+            a_model_crediting_the_investigator := a_model_answering_in_turn(
+                an_answer(root_cause="The Investigator tied the errors to an-unrelated-feature."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_crediting_the_investigator,
+                an_evidence_bundle(
+                    changes=[the_flag_only_argus_read],
+                    candidates=[a_candidate("The feature flag an-unrelated-feature was switched "
+                                            "on, and the errors began with it.")]
+                ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read]}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_only_argus_read_that_a_candidate_blamed_in_other_words_is_one_it_weighed(
+) -> None:
+    # What the walk turns back is the flag a candidate blamed - its subject -
+    # whatever words the candidate said it in.
+    asks: Kept[Transcript] = Kept()
+    the_flag_only_argus_read = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                           occurred_at="2026-09-02T12:04:00Z",
+                                           reference="an-unrelated-feature",
+                                           summary="dont care")
+
+    Scenario() \
+        .given(
+            a_model_crediting_the_investigator := a_model_answering_in_turn(
+                an_answer(root_cause="The Investigator tied the errors to an-unrelated-feature."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_crediting_the_investigator,
+                an_evidence_bundle(
+                    changes=[the_flag_only_argus_read],
+                    candidates=[a_candidate("The legacy checkout fallback was switched on, and "
+                                            "the errors began with it.",
+                                            subject="an-unrelated-feature")]
+                ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read]}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_credit_moved_into_another_item_is_asked_for_once_more() -> None:
+    # Told of it in a lesson, a rewrite that says it in what a step ruled out
+    # makes a fault it was never told of there.
+    asks: Kept[Transcript] = Kept()
+    the_flag_only_argus_read = ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                           occurred_at="2026-09-02T12:04:00Z",
+                                           reference="an-unrelated-feature",
+                                           summary="dont care")
+    the_slip = ("The Investigator tied the onset to the monthly-spend-feature flag change. "
+                "It set aside the other flag change because that change came after the onset.")
+
+    Scenario() \
+        .given(
+            a_model_moving_the_credit := a_model_answering_in_turn(
+                an_answer(lessons={WENT_WELL_FIELD: [the_slip]}),
+                an_answer(causal_chain=[{STEP_FIELD: "dont care", CITES_FIELD: ["T1"],
+                                          RULED_OUT_FIELD: [{WHAT_FIELD: the_slip,
+                                                              CITES_FIELD: ["T1"]}]}]),
+                an_answer(),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_moving_the_credit,
+                an_evidence_bundle(changes=[the_flag_only_argus_read]).model_copy(
+                    update={"changes_the_walk_alone_read": [the_flag_only_argus_read]}),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=3),
+                _the_correction_on_ask_named(asks, 3, "[P1]"),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_accepted_chain_is_put_in_the_order_its_whys_answer_each_other() -> None:
     # Asked for the five whys, a write-up gave the step saying why the symptom
     # happened after the one it explains. Asked once more, by number, the model
@@ -1309,6 +1465,24 @@ def _the_correction_named(asks: Kept[Transcript], expected: str) -> Assertion[Re
         if expected not in said:
             raise AssertionError(
                 f"Expected the correction to name [{expected}], and it did not: {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_correction_on_ask_named(asks: Kept[Transcript],
+                                 ask: int,
+                                 expected: str) -> Assertion[Reading]:
+    """What the model was told on its `ask`th time of asking, counted from 1 -
+    only what that ask added, since its transcript still carries every
+    correction before it."""
+    def assertion(dont_care_reading: Reading) -> bool:
+        said = _what_was_said_to_the_model(asks.taken[ask - 1][-1:])
+
+        if expected not in said:
+            raise AssertionError(
+                f"Expected ask [{ask}] to name [{expected}], and it did not: {said}.")
 
         return True
 

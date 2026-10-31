@@ -588,6 +588,40 @@ def test_a_flag_change_only_the_walk_read_is_carried_once_in_its_place_in_time(
 
 
 @pytest.mark.component
+def test_a_flag_change_only_the_walk_read_is_carried_as_the_walk_s_alone(
+        a_clean_database: None) -> None:
+    # The Investigator never saw it, and listed among its reads with nothing to
+    # tell them apart, a write-up credited the Investigator with ruling it out.
+    # A change both of them read is the investigation's.
+    the_flip = FlagChange(flag=SOME_FLAG, enabled=True, occurred_at="2026-09-02T11:49:52Z")
+    the_flip_only_the_walk_read = FlagChange(flag=SOME_OTHER_FLAG,
+                                             enabled=True,
+                                             occurred_at="2026-09-02T11:20:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[as_a_change(the_flip)]
+                ))),
+                calling(lambda: events.record(conn, FlagChangesRetrieved(
+                    incident_id=incident_id,
+                    changes=[the_flip_only_the_walk_read, the_flip]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_as_the_walk_s_alone([as_a_change(the_flip_only_the_walk_read)])
+            )
+
+
+@pytest.mark.component
 def test_changes_a_later_read_reached_further_back_for_are_carried_in_time_order(
         a_clean_database: None) -> None:
     # A change is labelled by its place among the changes, and a later round
@@ -3249,6 +3283,19 @@ def _carries_the_changes(expected: list[ChangeEvent]) -> Assertion[IncidentEvide
             raise AssertionError(
                 f"Expected the evidence to carry the changes {expected}, and it "
                 f"carried {evidence.changes}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _carries_as_the_walk_s_alone(expected: list[ChangeEvent]) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.changes_the_walk_alone_read != expected:
+            raise AssertionError(
+                f"Expected the evidence to carry {expected} as read by the walk alone, and "
+                f"it carried {evidence.changes_the_walk_alone_read}."
             )
 
         return True

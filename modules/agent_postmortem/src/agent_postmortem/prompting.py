@@ -316,24 +316,44 @@ class SubmittedPostmortem(BaseModel):
         one of them leaves out is prose the other's rule never sees - a figure
         the check never refuses, or a name never written in.
         """
-        yield from (prose for prose in (self.root_cause, self.cause_in_plain_words,
-                                        self.still_at_risk, self.symptom)
+        yield from (prose for _, prose in self.placed_sentences())
+
+    def placed_sentences(self) -> Iterator[tuple[str, str]]:
+        """Every sentence the answer would publish, with the place it is in -
+        the field, and its position where the field is a list.
+
+        What a check that finds a fault in one item returns, so a fault moved
+        into another item is one the model was never told of (`checking`).
+        """
+        yield from ((field, prose)
+                    for field, prose in ((ROOT_CAUSE_FIELD, self.root_cause),
+                                         (CAUSE_IN_PLAIN_WORDS_FIELD, self.cause_in_plain_words),
+                                         (STILL_AT_RISK_FIELD, self.still_at_risk),
+                                         (SYMPTOM_FIELD, self.symptom))
                     if prose is not None)
-        yield from self.assumptions
-        yield from self.lead_effects.values()
-        for step in self.causal_chain or []:
-            yield step.step
-            yield from (ruled.what for ruled in step.ruled_out)
-        for factor in self.contributing_factors or []:
-            yield factor.factor
+        yield from ((f"{ASSUMPTIONS_FIELD} {position}", assumption)
+                    for position, assumption in enumerate(self.assumptions, start=1))
+        yield from ((f"{LEAD_EFFECTS_FIELD} {lead}", effect)
+                    for lead, effect in self.lead_effects.items())
+        for position, step in enumerate(self.causal_chain or [], start=1):
+            yield f"{CAUSAL_CHAIN_FIELD} {position}", step.step
+            yield from ((f"{CAUSAL_CHAIN_FIELD} {position} {RULED_OUT_FIELD} {ruled_at}",
+                         ruled.what)
+                        for ruled_at, ruled in enumerate(step.ruled_out, start=1))
+        for position, factor in enumerate(self.contributing_factors or [], start=1):
+            yield f"{CONTRIBUTING_FACTORS_FIELD} {position}", factor.factor
             if factor.had_it_been_otherwise is not None:
-                yield factor.had_it_been_otherwise
-        yield from (item.item for item in self.action_items or [])
+                yield (f"{CONTRIBUTING_FACTORS_FIELD} {position} {HAD_IT_BEEN_OTHERWISE_FIELD}",
+                       factor.had_it_been_otherwise)
+        yield from ((f"{ACTION_ITEMS_FIELD} {position}", item.item)
+                    for position, item in enumerate(self.action_items or [], start=1))
 
         if self.lessons is not None:
-            yield from self.lessons.went_well
-            yield from self.lessons.went_wrong
-            yield from self.lessons.got_lucky
+            for field, said in ((WENT_WELL_FIELD, self.lessons.went_well),
+                                (WENT_WRONG_FIELD, self.lessons.went_wrong),
+                                (GOT_LUCKY_FIELD, self.lessons.got_lucky)):
+                yield from ((f"{field} {position}", lesson)
+                            for position, lesson in enumerate(said, start=1))
 
     def with_each_sentence(self, rewrite: Callable[[str], str]) -> SubmittedPostmortem:
         """The answer with `rewrite` applied to every sentence it would publish,
@@ -610,6 +630,14 @@ _A_SAFEGUARD_NOBODY_SAW: Final = (
     "A safeguard the record does not show is one not seen, never one absent: "
     "write that no check was seen, not that none ran."
 )
+
+# Beside a change only Argus's own read of the flag provider's history found.
+# Listed among the investigation's reads with nothing to tell them apart, a
+# write-up credited the Investigator with ruling out a flag it never saw. That
+# the Investigator's read did not return it is said only where it read the
+# changes at all: where it never asked, there was no read to not return it.
+_THE_WALK_ALONE_READ_IT: Final = " - found only by Argus's read of the flag provider's history"
+_ITS_READ_DID_NOT_RETURN_IT: Final = "; the Investigator's read of the changes did not return it"
 
 # Said beneath what Code-Fix read. Its reading was restated more absolutely
 # than it was given, both ways: "nothing in main does that" became "nothing in
@@ -1200,6 +1228,10 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                                          labels_of_the_narration(evidence.timeline),
                                          strict=True)]
     changes = the_changes_labelled(evidence)
+    walk_alone = evidence.changes_the_walk_alone_read
+    who_read_it = (f"{_THE_WALK_ALONE_READ_IT}{_ITS_READ_DID_NOT_RETURN_IT}"
+                   if evidence.deploys_reading is ChannelReading.READ
+                   else _THE_WALK_ALONE_READ_IT)
     log_lines = grouped(evidence.log_lines, measured.metrics_stopped_at,
                         the_day_it_began(evidence, measured))
     candidates = the_candidates_labelled(evidence)
@@ -1225,7 +1257,9 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     return [
         (_WHAT_ARGUS_DID, narration, None if narration else NOTHING),
         ("Changes to production it read:",
-         [CitedEvidence(label=cited.label, text=_a_change_as_a_line(cited.change))
+         [CitedEvidence(label=cited.label,
+                        text=f"{_a_change_as_a_line(cited.change)}"
+                             f"{who_read_it if cited.change in walk_alone else ''}")
           for cited in changes],
          changes_not_listed(evidence.deploys_reading, evidence.flags_reading,
                             {cited.change.kind for cited in changes})),
