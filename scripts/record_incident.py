@@ -116,7 +116,7 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
     the_rule_is_firing,
 )
-from tests.e2e.framework.builders import THE_ERROR_RATE_RULES_WORDS
+from tests.e2e.framework.builders import THE_ERROR_RATE_RULE, THE_ERROR_RATE_RULES_WORDS
 from tests.e2e.framework.chat import (
     RECORDED_INTENT_INFORMATION,
     RECORDED_INTENT_RESOLVE,
@@ -1125,10 +1125,10 @@ def _an_alert_for(service: str,
     judged - by the rule where one is named, by the levels where none is - so a
     payload without it records a walk judged one way and replays it judged the
     other. Where nothing is staged the link is the one the suite's builder
-    sends.
+    sends: the error-rate rule, whose words the summary then is.
     """
     summary = _WHAT_EACH_SCENARIO_PAGES_WITH.get(scenario or "", THE_ERROR_RATE_RULES_WORDS)
-    linked = service if rule_uid is None else rule_uid
+    linked = THE_ERROR_RATE_RULE if rule_uid is None else rule_uid
 
     return {
         "receiver": "argus-webhook",
