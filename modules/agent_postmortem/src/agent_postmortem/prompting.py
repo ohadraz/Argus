@@ -642,7 +642,7 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         "\"for several minutes\", never \"twenty minutes\", \"a third\" or "
         "\"tripled\". A number is a figure even with a unit or a clock's marks "
         "on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a "
-        "name - a label you cite (T2, G3fa2, C1, AI-1), a version (v2), a "
+        "name - a label (T2, G3fa2, C1, AI-1), a version (v2), a "
         "revision, a pod - and is written as given. State only what the "
         "evidence you are shown says: where the record does not show something "
         "- a check that was or was not run, how many replicas - leave it out "
@@ -1231,8 +1231,11 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                             {cited.change.kind for cited in changes})),
         ("Log lines it read, one per message:", log_lines,
          None if log_lines else no_logs_listed(evidence.logs_reading)),
-        (f"Candidates it considered, in the Investigator's words - cite them; what they "
-         f"claim {_NOT_WHAT_HAPPENED}:", candidates,
+        # Named and never cited: "cite" is what the chain's steps do with evidence,
+        # and the check refuses a step citing a candidate, so a header saying
+        # "cite them" was a refusal asked for.
+        (f"Candidates it considered, in the Investigator's words - name them by their "
+         f"labels, but cite none; what they claim {_NOT_WHAT_HAPPENED}:", candidates,
          _NO_CAUSE_NAMED if named_no_cause(evidence) else None if candidates else NOTHING),
         # "none" only where it is true: above an action nobody can say was
         # taken it says nothing was done, which nobody knows either.

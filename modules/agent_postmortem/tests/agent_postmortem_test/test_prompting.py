@@ -800,9 +800,11 @@ def test_what_code_fix_read_is_asked_to_be_said_no_wider_than_it_read_it() -> No
 
 
 @pytest.mark.unit
-def test_the_candidates_are_shown_as_the_investigator_s_words() -> None:
+def test_the_candidates_are_shown_as_the_investigator_s_words_and_never_to_be_cited() -> None:
     # "The shop itself kept serving normally" was a candidate's, written before
-    # anything was tried, and came back in the root cause as what happened.
+    # anything was tried, and came back in the root cause as what happened. And
+    # a header saying "cite them" had a step cite one, which the check refuses -
+    # a refused answer bought for every write-up that took the header at its word.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(candidates=[a_candidate("dont care")])
@@ -811,8 +813,9 @@ def test_the_candidates_are_shown_as_the_investigator_s_words() -> None:
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(
-            _says("Candidates it considered, in the Investigator's words - cite them; what "
-                  "they claim is not what happened unless a row of the record shows it:")
+            _says("Candidates it considered, in the Investigator's words - name them by "
+                  "their labels, but cite none; what they claim is not what happened unless a "
+                  "row of the record shows it:")
         )
 
 
@@ -3625,6 +3628,24 @@ def test_the_model_is_told_a_size_it_says_has_no_number_in_it() -> None:
                 _the_description_mentions("most requests", "several minutes",
                                           "twenty minutes", "a third", "tripled"),
                 _the_description_avoids("roughly")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_name_with_a_digit_in_it_is_never_said_to_be_cited() -> None:
+    # "A label you cite (T2, G3fa2, C1, AI-1)" called a candidate citable, beside
+    # a brief telling the model to cite none - and the check refuses a step that
+    # cites one. The sentence is there to say a name is written as given, which
+    # needs no word about citing.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.description
+        ) \
+        .then(
+            all_of(
+                _the_description_mentions("a label (T2, G3fa2, C1, AI-1)"),
+                _the_description_avoids("you cite")
             )
         )
 
