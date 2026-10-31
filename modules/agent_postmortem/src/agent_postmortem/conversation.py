@@ -55,7 +55,11 @@ from agent_postmortem.prompting import (
 )
 from agent_postmortem.pull_requests import with_the_pull_request_named
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
-from agent_postmortem.sections import logs_in_the_gap_of, record_action_items_of
+from agent_postmortem.sections import (
+    a_candidate_was_confirmed,
+    logs_in_the_gap_of,
+    record_action_items_of,
+)
 from agent_postmortem.undetermined import NOT_DETERMINED, NOT_KNOWN, named_no_cause
 
 logger = logging.getLogger(__name__)
@@ -88,11 +92,12 @@ def answer_worth_writing(llm: LLMClient,
     asked = opening_ask(evidence, measured)
     # The tool for this incident, which asks what each lead changed only where
     # people wrote any, how the logs show the service only where a line reaches
-    # into a stretch the metrics did not watch, and what the cause was only where
-    # the investigation named one.
+    # into a stretch the metrics did not watch, what the cause was only where
+    # the investigation named one, and who formed it only where it was confirmed.
     cause_asked = not named_no_cause(evidence)
     submit = submit_postmortem_for(evidence.leads, logs_in_the_gap_of(evidence, measured),
-                                   cause_asked=cause_asked)
+                                   cause_asked=cause_asked,
+                                   cause_confirmed=a_candidate_was_confirmed(evidence))
     # Every figure the answer may name, each written in as this run measured it.
     figures = figures_shown(evidence, measured)
     # And as the summary's paragraph says them, which the two sentences it

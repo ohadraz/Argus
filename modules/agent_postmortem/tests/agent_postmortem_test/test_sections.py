@@ -16,6 +16,7 @@ from agent_postmortem import CandidateRecord, DeploymentChangesRecord, RefusalRe
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan, Unmeasured
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
+    a_candidate_was_confirmed,
     detection_of,
     hypotheses_of,
     impact_of,
@@ -499,6 +500,44 @@ def test_no_confirmed_candidate_establishes_no_trigger() -> None:
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_candidate_whose_test_confirmed_it_is_said_confirmed() -> None:
+    # The one the brief's candidate line says "confirmed" of, behind another
+    # the walk tried first and refuted.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", tested=True, result=Verdict.REFUTED),
+                            a_candidate("dont care", tested=True, result=Verdict.CONFIRMED)])
+        ) \
+        .when(
+            lambda: a_candidate_was_confirmed(evidence)
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("candidates", [
+    [],
+    [a_candidate("dont care", tested=True, result=Verdict.REFUTED)],
+    [a_candidate("dont care")]
+], ids=["none-formed", "refuted", "never-tested"])
+def test_no_candidate_whose_test_confirmed_it_is_said_unconfirmed(
+        candidates: list[CandidateRecord]) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(candidates=candidates)
+        ) \
+        .when(
+            lambda: a_candidate_was_confirmed(evidence)
+        ) \
+        .then(
+            the_answer_was(False)
         )
 
 

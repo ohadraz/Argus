@@ -633,11 +633,12 @@ _A_SAFEGUARD_NOBODY_SAW: Final = (
 
 # Beside a change only Argus's own read of the flag provider's history found.
 # Listed among the investigation's reads with nothing to tell them apart, a
-# write-up credited the Investigator with ruling out a flag it never saw. That
-# the Investigator's read did not return it is said only where it read the
-# changes at all: where it never asked, there was no read to not return it.
+# write-up credited the Investigator with ruling out a flag it never saw. Who
+# found it, and no more: told also that the Investigator's read did not return
+# it, a write-up repeated that as the Investigator's failing - its read ended at
+# the onset by design - and the check that refuses the Investigator named beside
+# such a change refused it, so the line baited the refusal it is there to spare.
 _THE_WALK_ALONE_READ_IT: Final = " - found only by Argus's read of the flag provider's history"
-_ITS_READ_DID_NOT_RETURN_IT: Final = "; the Investigator's read of the changes did not return it"
 
 # Said beneath what Code-Fix read. Its reading was restated more absolutely
 # than it was given, both ways: "nothing in main does that" became "nothing in
@@ -815,7 +816,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                      "The record's own action items that answer it, by the numbers the "
                      "record gives them: AI-1. Empty where none of them does. Never an "
                      "item you propose: that item names, in its own "
-                     f"{ANSWERS_FIELD}, the factors it answers."
+                     f"{ANSWERS_FIELD}, the factors it answers. The record's item that "
+                     "merges this incident's fix answers the fault its own tests cover, "
+                     "never a check missing before the change went out: answer that with "
+                     "an item that puts the check in place for every change like it."
                  )
              }},
             [LABEL_FIELD, FACTOR_FIELD, HAD_IT_BEEN_OTHERWISE_FIELD, ADDRESSED_BY_FIELD],
@@ -964,11 +968,13 @@ SUBMIT_POSTMORTEM = ToolDefinition(
 def submit_postmortem_for(leads: Sequence[ThreadMessage],
                           logs_in_the_gap: LogsInTheGap | None = None,
                           *,
-                          cause_asked: bool = True) -> ToolDefinition:
+                          cause_asked: bool = True,
+                          cause_confirmed: bool = False) -> ToolDefinition:
     """The tool for this incident: the one every incident gets, a place to say
     what each lead changed where people wrote any, and one to say whether the
     logs show the service serving as before where any reach into a stretch the
-    metrics did not watch.
+    metrics did not watch - with what went well asked who formed the cause
+    where a candidate was confirmed.
 
     Only where they do. A field offered on an incident it does not fit is a
     question about nothing, and a request that changed for every incident - so
@@ -991,17 +997,42 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
     if logs_in_the_gap is not None and logs_in_the_gap.labels:
         offered[LOGS_SHOW_SERVING_AS_BEFORE_FIELD] = _LOGS_SHOW_SERVING_AS_BEFORE
 
-    if not offered and cause_asked:
+    if not offered and cause_asked and not cause_confirmed:
         return SUBMIT_POSTMORTEM
 
     left_out = frozenset() if cause_asked else THE_CAUSE_FIELDS
+    lessons = (_asking_who_formed_the_cause(SUBMIT_POSTMORTEM.properties[LESSONS_FIELD])
+               if cause_confirmed else SUBMIT_POSTMORTEM.properties[LESSONS_FIELD])
 
     return SUBMIT_POSTMORTEM.model_copy(update={
         "properties": {**{name: field for name, field in SUBMIT_POSTMORTEM.properties.items()
                           if name not in left_out},
+                       LESSONS_FIELD: lessons,
                        **offered},
         "required": [*(name for name in REQUIRED_FIELDS if name not in left_out), *offered]
     })
+
+
+# Asked of what went well only where a candidate was confirmed. Asked nothing of
+# the diagnosis, a write-up dropped who found the cause, which every earlier
+# write-up of the incident had said.
+_WHO_FORMED_THE_CAUSE: Final = (
+    "Where the cause the walk acted on was found soon, say who formed it and how soon, "
+    "as a working of two instants."
+)
+
+
+def _asking_who_formed_the_cause(lessons: dict[str, Any]) -> dict[str, Any]:
+    """The lessons, with what went well asked who formed the cause."""
+    went_well = lessons["properties"][WENT_WELL_FIELD]
+
+    return {**lessons,
+            "properties": {**lessons["properties"],
+                           WENT_WELL_FIELD: {
+                               **went_well,
+                               "description": f"{went_well['description']} "
+                                              f"{_WHO_FORMED_THE_CAUSE}"
+                           }}}
 
 
 # Where what each lead changed is said, offered only where people wrote any.
@@ -1229,9 +1260,6 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                                          strict=True)]
     changes = the_changes_labelled(evidence)
     walk_alone = evidence.changes_the_walk_alone_read
-    who_read_it = (f"{_THE_WALK_ALONE_READ_IT}{_ITS_READ_DID_NOT_RETURN_IT}"
-                   if evidence.deploys_reading is ChannelReading.READ
-                   else _THE_WALK_ALONE_READ_IT)
     log_lines = grouped(evidence.log_lines, measured.metrics_stopped_at,
                         the_day_it_began(evidence, measured))
     candidates = the_candidates_labelled(evidence)
@@ -1259,7 +1287,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         ("Changes to production it read:",
          [CitedEvidence(label=cited.label,
                         text=f"{_a_change_as_a_line(cited.change)}"
-                             f"{who_read_it if cited.change in walk_alone else ''}")
+                             f"{_THE_WALK_ALONE_READ_IT if cited.change in walk_alone else ''}")
           for cited in changes],
          changes_not_listed(evidence.deploys_reading, evidence.flags_reading,
                             {cited.change.kind for cited in changes})),

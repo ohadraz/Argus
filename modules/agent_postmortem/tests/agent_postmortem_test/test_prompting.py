@@ -584,30 +584,14 @@ def test_a_change_only_argus_read_is_told_as_not_the_investigator_s() -> None:
         ) \
         .then(all_of(
             _says_on_one_line("[P2]", "an-unrelated-feature",
-                              "found only by Argus's read of the flag provider's history",
-                              "the Investigator's read of the changes did not return it"),
-            _says_once("found only by Argus's read of the flag provider's history")
-        ))
-
-
-@pytest.mark.unit
-def test_a_change_only_argus_read_is_not_said_unreturned_by_a_read_never_made() -> None:
-    # Where the Investigator never asked for the changes, there was no read of
-    # them to not return it - and "Deploys not read" beneath would say so.
-    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature")
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(changes=[the_flag_only_argus_read]).model_copy(
-                update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
-                        "deploys_reading": ChannelReading.NOT_ASKED})
-        ) \
-        .when(
-            lambda: opening_ask(evidence, a_measured_incident())
-        ) \
-        .then(all_of(
-            _says_on_one_line("[P1]", "found only by Argus's read of the flag provider's history"),
-            _does_not_say("the Investigator's read of the changes did not return it")
+                              "found only by Argus's read of the flag provider's history"),
+            _says_once("found only by Argus's read of the flag provider's history"),
+            # Who found it, and no more. Told also that the Investigator's read
+            # did not return it - a read that ended at the onset by design - a
+            # write-up repeated that as the Investigator's failing, and the
+            # check refusing the Investigator named beside such a change
+            # refused it.
+            _does_not_say("did not return it")
         ))
 
 
@@ -4580,6 +4564,27 @@ def test_a_factor_is_asked_to_name_only_the_record_s_own_items() -> None:
 
 
 @pytest.mark.unit
+def test_the_item_merging_the_fix_is_not_asked_to_answer_a_check_missing_before_the_change(
+) -> None:
+    # A factor framed as this incident's missing test was answered by the
+    # record's item merging Code-Fix's pull request alone, in 3 of 9 write-ups
+    # of one incident - and the item putting a check in place before every
+    # change like it, which every other write-up proposed, was gone.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CONTRIBUTING_FACTORS_FIELD][
+                "items"]["properties"][ADDRESSED_BY_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions(
+                "The record's item that merges this incident's fix answers the fault its "
+                "own tests cover, never a check missing before the change went out: answer "
+                "that with an item that puts the check in place for every change like it."
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_proposed_item_is_asked_for_the_factors_it_answers() -> None:
     Scenario() \
         .when(
@@ -4919,6 +4924,43 @@ def test_an_incident_whose_investigation_named_no_cause_is_not_asked_what_the_ca
                 _requires(*(field for field in REQUIRED_FIELDS
                             if field not in the_cause_fields))
             )
+        )
+
+
+@pytest.mark.unit
+def test_what_went_well_is_asked_who_formed_the_cause_where_a_candidate_was_confirmed() -> None:
+    # Asked nothing of the diagnosis, a write-up dropped who found the cause -
+    # which every earlier write-up of the incident had said. The rest of what
+    # went well is asked as it always was, and nothing else is.
+    the_went_well_every_incident_gets = SUBMIT_POSTMORTEM.properties[LESSONS_FIELD][
+        "properties"][WENT_WELL_FIELD]["description"]
+    the_question = ("Where the cause the walk acted on was found soon, say who formed it "
+                    "and how soon, as a working of two instants.")
+
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], cause_confirmed=True)
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED),
+                _requires(*REQUIRED_FIELDS),
+                _what_went_well_is_asked_as(f"{the_went_well_every_incident_gets} {the_question}")
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_whose_candidate_was_not_confirmed_is_asked_for_what_it_always_was() -> None:
+    # Who formed a cause the walk acted on is a question only a confirmed
+    # candidate has an answer to; offered elsewhere, it is a question about
+    # nothing and a changed tool for every incident.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], cause_confirmed=False)
+        ) \
+        .then(
+            the_answer_was(SUBMIT_POSTMORTEM)
         )
 
 
@@ -5840,6 +5882,21 @@ def _tells_no_instant_finer_than_the_second() -> Assertion[Transcript]:
             raise AssertionError(
                 f"Expected every instant the model is told to the second, and it was "
                 f"told {finer}: {said}")
+
+        return True
+
+    return assertion
+
+
+def _what_went_well_is_asked_as(expected: str) -> Assertion[ToolDefinition]:
+    def assertion(tool: ToolDefinition) -> bool:
+        asked = tool.properties[LESSONS_FIELD]["properties"][WENT_WELL_FIELD]["description"]
+
+        if asked != expected:
+            raise AssertionError(
+                f"Expected what went well to be asked as [{expected}], and it was asked "
+                f"as [{asked}]."
+            )
 
         return True
 

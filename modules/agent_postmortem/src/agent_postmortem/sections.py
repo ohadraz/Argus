@@ -1093,6 +1093,16 @@ def _an_item(kind: ActionItemType,
                       tracking=tracking, status=status)
 
 
+def a_candidate_was_confirmed(evidence: IncidentEvidence) -> bool:
+    """Whether a candidate's test confirmed it - the verdict its row and the
+    brief both say as confirmed.
+
+    Read through the trigger's own test of it, so the tool asking who formed
+    the cause and the trigger naming the change it blamed cannot disagree about
+    whether there was one."""
+    return _the_confirmed(evidence.candidates) is not None
+
+
 def _the_confirmed(candidates: list[CandidateRecord]) -> CandidateRecord | None:
     confirmed = [candidate for candidate in candidates
                  if candidate.tested and candidate.result == Verdict.CONFIRMED]
