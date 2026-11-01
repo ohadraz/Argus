@@ -50,7 +50,7 @@ import httpx2
 import psycopg
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_postmortem import WRITE_UP_TOOLS
-from agent_postmortem.prompting import SUBMIT_TOOL_NAME
+from agent_postmortem.prompting import LESSONS_FIELD, SUBMIT_TOOL_NAME, WENT_WELL_FIELD
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
 from argus_core import get_settings, to_iso, utc_now
 from argus_core.events import (
@@ -1946,6 +1946,40 @@ def _capture(recording: _Recording,
     _the_walk_did_what_this_recording_is_of(
         recording, incident_id, the_incidents_events(incident_id)
     )
+
+    if not replaying:
+        _what_went_well_came_as_items(stored, started_at)
+
+
+def _what_went_well_came_as_items(stored: str, started_at: float) -> None:
+    """Refuses a write-up recorded this run whose what-went-well came as plain
+    sentences rather than items that may name their row.
+
+    That is the shape answers came in before rows were asked for, and
+    `checking` holds it to none of its rules about timing, so the recordings
+    made in it still replay - which lets a live answer in it pass every check
+    unread, a span of the model's own and all. Only this run's answers: the
+    set's older ones are in the old shape by right. After the walk is judged,
+    and with nothing deleted, as there.
+    """
+    plain = [answer.stem for answer in _the_set_named(stored)
+             if answer.stat().st_mtime >= started_at
+             and any(isinstance(item, str) for item in _what_went_well_in(answer))]
+
+    if plain:
+        raise AssertionError(
+            f"[{stored}] recorded what went well as plain sentences in {plain} - the "
+            f"shape before rows were asked for, which no check holds to its timing"
+        )
+
+
+def _what_went_well_in(answer: Path) -> list[Any]:
+    """Each item of what went well a write-up's answer submitted, as it came."""
+    return [item for block in load(answer.stem).get("content", [])
+            if block.get("type") == TOOL_USE_TYPE and block.get("name") == SUBMIT_TOOL_NAME
+            and isinstance(lessons := block.get("input", {}).get(LESSONS_FIELD), dict)
+            and isinstance(went_well := lessons.get(WENT_WELL_FIELD), list)
+            for item in went_well]
 
 
 def _what_was_asked_for(names: list[str]) -> list[_Recording]:
