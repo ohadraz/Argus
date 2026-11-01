@@ -305,12 +305,14 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
                                         answer: SubmittedPostmortem) -> list[ActionItem]:
     """The record's items as numbered before the model was asked, its
     proposals numbered on from them in the order it gave them, and last the
-    item it was asked for that stops the harm, where it was asked.
+    items it was asked for that stop the harm and find out why the change put
+    back did not help, where it was asked.
 
-    Last, so the numbers its factors gave its proposals stay theirs. A
-    mitigation: it stops harm still going on - and kept until the fault is
-    fixed, which the document says after the model's words, ending them as a
-    sentence where they did not end as one.
+    Last, so the numbers its factors gave its proposals stay theirs. Both
+    mitigations, since the harm is still going on: the first stops it - and is
+    kept until the fault is fixed, which the document says after the model's
+    words, ending them as a sentence where they did not end as one - and the
+    second finds out why the change put back did not.
 
     Open and nobody's: Argus edits no item after the document is written, so
     whoever takes one on does so somewhere else.
@@ -322,6 +324,8 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
         ended = said if said.endswith((".", "!", "?")) else f"{said}."
         proposed_items.append((f"{ended} {KEPT_UNTIL_THE_FAULT_IS_FIXED}",
                                ActionItemType.MITIGATE))
+    if answer.why_it_did_not_help is not None:
+        proposed_items.append((answer.why_it_did_not_help.rstrip(), ActionItemType.MITIGATE))
 
     return [
         *on_record,

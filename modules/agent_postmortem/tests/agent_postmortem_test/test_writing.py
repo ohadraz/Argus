@@ -743,6 +743,45 @@ def test_what_stops_the_harm_is_published_as_a_mitigation_after_the_model_s_prop
 
 
 @pytest.mark.unit
+def test_why_the_change_put_back_did_not_help_is_published_as_a_mitigation_after_the_rest(
+) -> None:
+    # After what stops the harm, so every number before it stays as it was; a
+    # mitigation, since the harm is still going on while nobody knows why the
+    # change did not reach it.
+    evidence = an_evidence_bundle(
+        actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)])
+    measured = a_measured_incident(back_to_normal_at=None)
+
+    Scenario() \
+        .given(
+            a_model_saying_why := _asking_that_answers(
+                a_submitted_answer().model_copy(update={
+                    "stops_the_harm": "Switch the flag off.",
+                    "why_it_did_not_help": "Find out why the service kept reading the flag on."}))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=a_model_saying_why,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the action items", lambda document: document.action_items, [
+                ActionItem(number="AI-1",
+                           text="Switch the flag off. Keep it in place until the fault is fixed.",
+                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN),
+                ActionItem(number="AI-2",
+                           text="Find out why the service kept reading the flag on.",
+                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_a_factor_is_published_with_its_record_items_and_the_proposals_naming_it() -> None:
     # The model links each proposal to the factors it answers, by label; the
     # reader is shown each factor's items by number, as the record's are -

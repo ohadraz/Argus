@@ -82,6 +82,7 @@ from agent_postmortem.prompting import (
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
     THE_CAUSE_FIELDS,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
 from agent_postmortem.revisions import unknown_revisions_in
@@ -244,6 +245,9 @@ class Given(BaseModel):
     # Whether it was asked for the item that stops the harm - which it is
     # wherever a change put back left the harm standing.
     stops_the_harm_asked: bool = False
+    # Whether it was asked for the item to find out why that change did not
+    # help - which it is wherever the item that stops the harm is.
+    why_it_did_not_help_asked: bool = False
     # Whether it was asked what the cause was - which it is wherever the
     # investigation named one (`undetermined`).
     cause_asked: bool = True
@@ -281,6 +285,7 @@ def faults_by_check(answer: SubmittedPostmortem,
         partial(_missing_fields, answer, given),
         partial(_how_it_served_left_unanswered, answer, given),
         partial(_what_stops_the_harm_left_unanswered, answer, given),
+        partial(_why_it_did_not_help_left_unanswered, answer, given),
         partial(_a_symptom_of_more_than_one_sentence, answer),
         partial(_a_symptom_over_its_words, answer),
         partial(_summary_sentences_of_more_than_one, answer),
@@ -405,6 +410,17 @@ def _what_stops_the_harm_left_unanswered(answer: SubmittedPostmortem,
         return []
 
     return [f"the field [{STOPS_THE_HARM_FIELD}] was missing from your answer"]
+
+
+def _why_it_did_not_help_left_unanswered(answer: SubmittedPostmortem,
+                                         given: Given) -> list[str]:
+    """That the answer left out the item to find out why the change put back did
+    not help, where it was asked - refused for the reason the item that stops
+    the harm is."""
+    if not given.why_it_did_not_help_asked or answer.why_it_did_not_help is not None:
+        return []
+
+    return [f"the field [{WHY_IT_DID_NOT_HELP_FIELD}] was missing from your answer"]
 
 
 def _a_reading_the_answer_says_otherwise_of(answer: SubmittedPostmortem) -> list[str]:

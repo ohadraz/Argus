@@ -96,6 +96,7 @@ from agent_postmortem.prompting import (
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
     WHAT_FIELD,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
@@ -3740,6 +3741,8 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
         cause_in_plain_words="the cause in plain words",
         still_at_risk="what is still at risk",
         symptom="the symptom",
+        stops_the_harm="what stops the harm",
+        why_it_did_not_help="why it did not help",
         assumptions=["an assumption"],
         lead_effects={"L1": "a lead's effect"},
         causal_chain=[SubmittedStep(step="a step", cites=["T1"],
@@ -3758,8 +3761,9 @@ def test_every_sentence_the_answer_would_publish_is_read() -> None:
         ) \
         .then(
             the_answer_was(["the root cause", "the cause in plain words",
-                            "what is still at risk", "the symptom", "an assumption",
-                            "a lead's effect", "a step", "what it ruled out", "a factor",
+                            "what is still at risk", "the symptom", "what stops the harm",
+                            "why it did not help", "an assumption", "a lead's effect",
+                            "a step", "what it ruled out", "a factor",
                             "had it been otherwise", "an item", "went well", "went wrong",
                             "got lucky"])
         )
@@ -3776,6 +3780,8 @@ def test_every_sentence_the_answer_would_publish_is_read_with_a_place_of_its_own
         cause_in_plain_words="the cause in plain words",
         still_at_risk="what is still at risk",
         symptom="the symptom",
+        stops_the_harm="what stops the harm",
+        why_it_did_not_help="why it did not help",
         assumptions=["an assumption"],
         lead_effects={"L1": "a lead's effect"},
         causal_chain=[SubmittedStep(step="a step", cites=["T1"],
@@ -3835,6 +3841,24 @@ def test_what_a_factor_would_have_changed_is_rewritten_as_every_other_sentence_i
             the_answer_was([SubmittedFactor(label="CF-1", factor="A FACTOR",
                                             had_it_been_otherwise="HAD IT BEEN OTHERWISE",
                                             addressed_by=["AI-1"])])
+        )
+
+
+@pytest.mark.unit
+def test_what_a_put_back_asks_for_is_rewritten_as_every_other_sentence_is() -> None:
+    # Read by the same fields `sentences` reads: a figure named in what stops
+    # the harm, or in why the change put back did not help, is written in like
+    # one named anywhere else - and the item that stops it names one.
+    some_answer = SubmittedPostmortem(stops_the_harm="what stops the harm",
+                                      why_it_did_not_help="why it did not help")
+
+    Scenario() \
+        .when(
+            lambda: some_answer.with_each_sentence(str.upper)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(stops_the_harm="WHAT STOPS THE HARM",
+                                               why_it_did_not_help="WHY IT DID NOT HELP"))
         )
 
 
@@ -5022,18 +5046,22 @@ def test_an_incident_whose_logs_reach_where_the_metrics_stopped_is_asked_how_the
 
 
 @pytest.mark.unit
-def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_harm() -> None:
+def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_harm_and_why(
+) -> None:
     # Required where it is offered: left to the action items, the item that
     # stops the harm until the fault is fixed was left out of one write-up in
-    # four, while the same write-up's still_at_risk said the harm went on.
+    # four, while the same write-up's still_at_risk said the harm went on. And
+    # the item to find out why the change did not help was left out of one in
+    # six, filed under what went wrong instead.
     Scenario() \
         .when(
             lambda: submit_postmortem_for([], harm_left_standing=True)
         ) \
         .then(
             all_of(
-                _asks_only_for(*EVERY_FIELD_ASKED, STOPS_THE_HARM_FIELD),
-                _requires(*REQUIRED_FIELDS, STOPS_THE_HARM_FIELD)
+                _asks_only_for(*EVERY_FIELD_ASKED, STOPS_THE_HARM_FIELD,
+                               WHY_IT_DID_NOT_HELP_FIELD),
+                _requires(*REQUIRED_FIELDS, STOPS_THE_HARM_FIELD, WHY_IT_DID_NOT_HELP_FIELD)
             )
         )
 

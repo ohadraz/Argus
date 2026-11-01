@@ -46,6 +46,7 @@ from agent_postmortem.prompting import (
     STOPS_THE_HARM_FIELD,
     WENT_WELL_FIELD,
     WHAT_FIELD,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
 from argus_core import to_iso
@@ -770,7 +771,8 @@ def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_har
     Scenario() \
         .given(
             a_model_noting_its_tools := a_model_answering_in_turn(
-                an_answer() | {STOPS_THE_HARM_FIELD: "dont care"},
+                an_answer() | {STOPS_THE_HARM_FIELD: "dont care",
+                               WHY_IT_DID_NOT_HELP_FIELD: "dont care"},
                 offered_tools=offered)
         ) \
         .when(
@@ -781,7 +783,10 @@ def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_har
                 a_measured_incident(back_to_normal_at=None))
         ) \
         .then(
-            _was_offered_a_place_for(offered, STOPS_THE_HARM_FIELD)
+            all_of(
+                _was_offered_a_place_for(offered, STOPS_THE_HARM_FIELD),
+                _was_offered_a_place_for(offered, WHY_IT_DID_NOT_HELP_FIELD)
+            )
         )
 
 
@@ -792,8 +797,9 @@ def test_an_answer_silent_on_what_stops_the_harm_is_asked_for_again_naming_it() 
     Scenario() \
         .given(
             a_model_that_left_it_out := a_model_answering_in_turn(
-                an_answer(),
-                an_answer() | {STOPS_THE_HARM_FIELD: "dont care"},
+                an_answer() | {WHY_IT_DID_NOT_HELP_FIELD: "dont care"},
+                an_answer() | {STOPS_THE_HARM_FIELD: "dont care",
+                               WHY_IT_DID_NOT_HELP_FIELD: "dont care"},
                 recording_into=asks)
         ) \
         .when(
@@ -807,6 +813,34 @@ def test_an_answer_silent_on_what_stops_the_harm_is_asked_for_again_naming_it() 
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, STOPS_THE_HARM_FIELD),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_silent_on_why_it_did_not_help_is_asked_for_again_naming_it() -> None:
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_that_left_it_out := a_model_answering_in_turn(
+                an_answer() | {STOPS_THE_HARM_FIELD: "dont care"},
+                an_answer() | {STOPS_THE_HARM_FIELD: "dont care",
+                               WHY_IT_DID_NOT_HELP_FIELD: "dont care"},
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_that_left_it_out,
+                an_evidence_bundle(
+                    actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)]),
+                a_measured_incident(back_to_normal_at=None))
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, WHY_IT_DID_NOT_HELP_FIELD),
                 _found_no_fault()
             )
         )

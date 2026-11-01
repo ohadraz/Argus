@@ -58,6 +58,7 @@ from agent_postmortem.prompting import (
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedFactor,
     SubmittedItem,
     SubmittedPostmortem,
@@ -95,6 +96,10 @@ SOME_GIVEN_ASKING_HOW_IT_SERVED = SOME_GIVEN.model_copy(
 # asked for the item that stops the harm.
 SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM = SOME_GIVEN.model_copy(
     update={"stops_the_harm_asked": True})
+
+# And asked for the item to find out why the change put back did not help.
+SOME_GIVEN_ASKING_WHY_IT_DID_NOT_HELP = SOME_GIVEN.model_copy(
+    update={"why_it_did_not_help_asked": True})
 
 # What a model shown Code-Fix's reading and a deployment's diff was given.
 SOME_GIVEN_WITH_A_READING = SOME_GIVEN.model_copy(update={
@@ -275,6 +280,40 @@ def test_what_stops_the_harm_said_where_it_was_asked_is_accepted() -> None:
         ) \
         .when(
             lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_why_it_did_not_help_left_out_where_it_was_asked_is_named() -> None:
+    # Required for the reason what stops the harm is: left to the action items,
+    # a write-up filed the revert that never reached the service under what went
+    # wrong and asked nobody to find out why.
+    Scenario() \
+        .given(
+            an_answer_not_saying := _an_answer()
+        ) \
+        .when(
+            lambda: faults_in(an_answer_not_saying, given=SOME_GIVEN_ASKING_WHY_IT_DID_NOT_HELP)
+        ) \
+        .then(
+            all_of(
+                _named(WHY_IT_DID_NOT_HELP_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_why_it_did_not_help_said_where_it_was_asked_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_saying := _an_answer(why_it_did_not_help=DONT_CARE_PROSE)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_WHY_IT_DID_NOT_HELP)
         ) \
         .then(
             _found_nothing_wrong()
@@ -2471,6 +2510,7 @@ class _WhatAnAnswerHolds(TypedDict, total=False):
     logs_show_serving_as_before: bool | None
     cause_rests_on_an_unrun_reading: bool | None
     stops_the_harm: str | None
+    why_it_did_not_help: str | None
 
 
 def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:

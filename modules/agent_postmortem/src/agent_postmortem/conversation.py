@@ -41,6 +41,7 @@ from agent_postmortem.prompting import (
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     STOPS_THE_HARM_FIELD,
     SUBMIT_TOOL_NAME,
+    WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
     figures_shown,
     opening_ask,
@@ -96,7 +97,8 @@ def answer_worth_writing(llm: LLMClient,
     # people wrote any, how the logs show the service only where a line reaches
     # into a stretch the metrics did not watch, what the cause was only where
     # the investigation named one, who formed it only where it was confirmed,
-    # and what stops the harm only where a change put back left it standing.
+    # and what stops the harm and why the change did not help only where a
+    # change put back left the harm standing.
     cause_asked = not named_no_cause(evidence)
     submit = submit_postmortem_for(
         evidence.leads, logs_in_the_gap_of(evidence, measured),
@@ -111,6 +113,7 @@ def answer_worth_writing(llm: LLMClient,
     given = _what_was_given(evidence, measured, figures).model_copy(update={
         "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required,
         "stops_the_harm_asked": STOPS_THE_HARM_FIELD in submit.required,
+        "why_it_did_not_help_asked": WHY_IT_DID_NOT_HELP_FIELD in submit.required,
         "cause_asked": cause_asked})
     submitted = llm.converse(asked, [submit])
 

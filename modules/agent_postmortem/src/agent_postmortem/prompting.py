@@ -192,6 +192,9 @@ STOPS_THE_HARM_FIELD: Final = "stops_the_harm"
 # rather than asked of them: asked, a write-up dropped it two times in five.
 # A sentence of its own, so it reads right whatever clause the model ends on.
 KEPT_UNTIL_THE_FAULT_IS_FIXED: Final = "Keep it in place until the fault is fixed."
+# The item to find out why that change did not help - asked wherever the item
+# that stops the harm is, and listed after it.
+WHY_IT_DID_NOT_HELP_FIELD: Final = "why_it_did_not_help"
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
@@ -319,6 +322,9 @@ class SubmittedPostmortem(BaseModel):
     # `None` where unanswered - which is an answer only where it was not asked
     # (`checking`).
     stops_the_harm: str | None = None
+    # `None` where unanswered - which is an answer only where it was not asked
+    # (`checking`).
+    why_it_did_not_help: str | None = None
 
     def sentences(self) -> Iterator[str]:
         """Every sentence the answer would publish as written.
@@ -341,7 +347,8 @@ class SubmittedPostmortem(BaseModel):
                                          (CAUSE_IN_PLAIN_WORDS_FIELD, self.cause_in_plain_words),
                                          (STILL_AT_RISK_FIELD, self.still_at_risk),
                                          (SYMPTOM_FIELD, self.symptom),
-                                         (STOPS_THE_HARM_FIELD, self.stops_the_harm))
+                                         (STOPS_THE_HARM_FIELD, self.stops_the_harm),
+                                         (WHY_IT_DID_NOT_HELP_FIELD, self.why_it_did_not_help))
                     if prose is not None)
         yield from ((f"{ASSUMPTIONS_FIELD} {position}", assumption)
                     for position, assumption in enumerate(self.assumptions, start=1))
@@ -379,6 +386,7 @@ class SubmittedPostmortem(BaseModel):
             STILL_AT_RISK_FIELD: rewritten(self.still_at_risk),
             SYMPTOM_FIELD: rewritten(self.symptom),
             STOPS_THE_HARM_FIELD: rewritten(self.stops_the_harm),
+            WHY_IT_DID_NOT_HELP_FIELD: rewritten(self.why_it_did_not_help),
             ASSUMPTIONS_FIELD: [rewrite(each) for each in self.assumptions],
             LEAD_EFFECTS_FIELD: {lead: rewrite(effect)
                                  for lead, effect in self.lead_effects.items()},
@@ -408,7 +416,8 @@ class SubmittedPostmortem(BaseModel):
         })
 
     @field_validator(ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
-                     SYMPTOM_FIELD, STOPS_THE_HARM_FIELD, mode="before")
+                     SYMPTOM_FIELD, STOPS_THE_HARM_FIELD, WHY_IT_DID_NOT_HELP_FIELD,
+                     mode="before")
     @classmethod
     def _prose_however_it_arrived(cls, value: Any) -> Any:
         """A prose field made to cost only itself.
@@ -987,9 +996,10 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
     """The tool for this incident: the one every incident gets, a place to say
     what each lead changed where people wrote any, one to say whether the logs
     show the service serving as before where any reach into a stretch the
-    metrics did not watch, and one for the item that stops the harm where a
-    change put back left it standing (`harm_left_standing`) - with what went
-    well asked who formed the cause where a candidate was confirmed.
+    metrics did not watch, and one each for the item that stops the harm and the
+    one to find out why the change did not help where a change put back left the
+    harm standing (`harm_left_standing`) - with what went well asked who formed
+    the cause where a candidate was confirmed.
 
     Only where they do. A field offered on an incident it does not fit is a
     question about nothing, and a request that changed for every incident - so
@@ -1014,6 +1024,7 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
 
     if harm_left_standing:
         offered[STOPS_THE_HARM_FIELD] = _STOPS_THE_HARM
+        offered[WHY_IT_DID_NOT_HELP_FIELD] = _WHY_IT_DID_NOT_HELP
 
     if not offered and cause_asked and not cause_confirmed:
         return SUBMIT_POSTMORTEM
@@ -1105,6 +1116,19 @@ _STOPS_THE_HARM: Final[dict[str, Any]] = {
         "document adds that it stays in place until the fault is fixed. Say only what "
         "the record shows. It is listed after your own action items: do not repeat it "
         "among them, nor any of the record's own."
+    )
+}
+
+# The item to find out why the change put back did not help, offered where the
+# item that stops the harm is. Left to the action items, a write-up of a revert
+# that never reached the service filed it under what went wrong and asked nobody
+# to find out why, which every write-up of the incident before it had.
+_WHY_IT_DID_NOT_HELP: Final[dict[str, Any]] = {
+    "type": "string",
+    "description": (
+        "One action item: what to find out about why the action that was put back did "
+        "not help - whether it reached the service, and if it did, why it did not end "
+        "the harm."
     )
 }
 
