@@ -753,7 +753,8 @@ def _what_was_done(conn: psycopg.Connection,
                      left_behind_known=_whether_what_it_left_is_known(taken_action),
                      candidate=(considered.index(taken_action.hypothesis_id) + 1
                                 if taken_action.hypothesis_id in considered else None),
-                     tried_before=_what_it_was_before(taken_action, before))
+                     tried_before=_what_it_was_before(taken_action, before),
+                     put_back=_whether_it_was_put_back(taken_action))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
 
@@ -1078,7 +1079,7 @@ def _what_became_of(taken_action: TakenAction) -> str:
         return ("left as found when it did not help: it had been changed from "
                 "outside since Argus set it")
 
-    if taken_action.outcome is Verdict.REFUTED:
+    if _whether_it_was_put_back(taken_action):
         return "put back when it did not help"
 
     if taken_action.outcome is None:
@@ -1089,6 +1090,15 @@ def _what_became_of(taken_action: TakenAction) -> str:
             return "not known whether it was made"
 
     return "still in place"
+
+
+def _whether_it_was_put_back(taken_action: TakenAction) -> bool:
+    """Whether Mitigation put the action's change back itself, having found it
+    did not help - with a way back, refuted, and not left as found because
+    somebody had changed its subject since."""
+    return (taken_action.has_a_way_back
+            and taken_action.outcome is Verdict.REFUTED
+            and taken_action.undone is not Undone.LEFT_AS_FOUND)
 
 
 def _how_far_the_logs_were_read(account: list[IncidentEvent]) -> datetime | None:

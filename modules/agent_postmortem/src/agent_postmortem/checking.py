@@ -77,6 +77,7 @@ from agent_postmortem.prompting import (
     REQUIRED_FIELDS,
     ROOT_CAUSE_FIELD,
     STILL_AT_RISK_FIELD,
+    STOPS_THE_HARM_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
@@ -237,6 +238,9 @@ class Given(BaseModel):
     # Whether it was asked if the logs show the service serving as before -
     # which it is wherever a line reaches into a stretch the metrics missed.
     serving_as_before_asked: bool = False
+    # Whether it was asked for the item that stops the harm - which it is
+    # wherever a change put back left the harm standing.
+    stops_the_harm_asked: bool = False
     # Whether it was asked what the cause was - which it is wherever the
     # investigation named one (`undetermined`).
     cause_asked: bool = True
@@ -273,6 +277,7 @@ def faults_by_check(answer: SubmittedPostmortem,
     checks: list[partial[_Placed] | partial[list[str]]] = [
         partial(_missing_fields, answer, given),
         partial(_how_it_served_left_unanswered, answer, given),
+        partial(_what_stops_the_harm_left_unanswered, answer, given),
         partial(_a_symptom_of_more_than_one_sentence, answer),
         partial(_a_symptom_over_its_words, answer),
         partial(_summary_sentences_of_more_than_one, answer),
@@ -385,6 +390,18 @@ def _how_it_served_left_unanswered(answer: SubmittedPostmortem, given: Given) ->
         return []
 
     return [f"the field [{LOGS_SHOW_SERVING_AS_BEFORE_FIELD}] was missing from your answer"]
+
+
+def _what_stops_the_harm_left_unanswered(answer: SubmittedPostmortem,
+                                         given: Given) -> list[str]:
+    """That the answer left out the item that stops the harm, where it was
+    asked - a required field only some incidents are asked for, and refused as
+    one: an optional field is one a model leaves out whenever its prose reads
+    well without it."""
+    if not given.stops_the_harm_asked or answer.stops_the_harm is not None:
+        return []
+
+    return [f"the field [{STOPS_THE_HARM_FIELD}] was missing from your answer"]
 
 
 def _a_reading_the_answer_says_otherwise_of(answer: SubmittedPostmortem) -> list[str]:

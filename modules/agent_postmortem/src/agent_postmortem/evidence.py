@@ -105,6 +105,10 @@ class ActionRecord(BaseModel):
     # revert reads it as a fresh experiment where it was a repeat of one that
     # had already failed.
     tried_before: list[Verdict] = []
+    # Whether the walk put the change back itself, having found it did not
+    # help - the fact `standing` says in words. Not one left as found, which
+    # somebody had changed since, nor one with nothing to put back.
+    put_back: bool = False
 
 
 class DeploymentChangesRecord(BaseModel):

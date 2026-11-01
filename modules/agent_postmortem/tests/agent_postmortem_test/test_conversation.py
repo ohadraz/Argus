@@ -43,6 +43,7 @@ from agent_postmortem.prompting import (
     RULED_OUT_FIELD,
     STEP_FIELD,
     STILL_AT_RISK_FIELD,
+    STOPS_THE_HARM_FIELD,
     WENT_WELL_FIELD,
     WHAT_FIELD,
     SubmittedPostmortem,
@@ -81,6 +82,7 @@ from agent_postmortem_test.framework.builders import (
     a_model_calling,
     a_model_submitting_two_answers_at_once,
     a_timeline_entry,
+    an_action,
     an_answer,
     an_answer_without,
     an_evidence_bundle,
@@ -754,6 +756,57 @@ def test_an_answer_silent_on_how_the_logs_show_the_service_is_asked_for_again_na
             all_of(
                 _was_asked(asks, times=2),
                 _the_correction_named(asks, LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_harm() -> None:
+    # The tool for this incident offers a place for the item, and which tool
+    # that is turns on what the record holds of the change and the service.
+    offered: Kept[list[ToolDefinition]] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_noting_its_tools := a_model_answering_in_turn(
+                an_answer() | {STOPS_THE_HARM_FIELD: "dont care"},
+                offered_tools=offered)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_noting_its_tools,
+                an_evidence_bundle(
+                    actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)]),
+                a_measured_incident(back_to_normal_at=None))
+        ) \
+        .then(
+            _was_offered_a_place_for(offered, STOPS_THE_HARM_FIELD)
+        )
+
+
+@pytest.mark.unit
+def test_an_answer_silent_on_what_stops_the_harm_is_asked_for_again_naming_it() -> None:
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_that_left_it_out := a_model_answering_in_turn(
+                an_answer(),
+                an_answer() | {STOPS_THE_HARM_FIELD: "dont care"},
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_that_left_it_out,
+                an_evidence_bundle(
+                    actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)]),
+                a_measured_incident(back_to_normal_at=None))
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_correction_named(asks, STOPS_THE_HARM_FIELD),
                 _found_no_fault()
             )
         )

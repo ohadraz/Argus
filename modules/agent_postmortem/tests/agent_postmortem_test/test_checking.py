@@ -54,6 +54,7 @@ from agent_postmortem.prompting import (
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     ROOT_CAUSE_FIELD,
     STILL_AT_RISK_FIELD,
+    STOPS_THE_HARM_FIELD,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
@@ -89,6 +90,11 @@ SOME_GIVEN_WITH_A_FILE_AS_IT_RAN = SOME_GIVEN.model_copy(update={
 # given: it is asked whether they show the service serving as before.
 SOME_GIVEN_ASKING_HOW_IT_SERVED = SOME_GIVEN.model_copy(
     update={"serving_as_before_asked": True})
+
+# What a model whose incident a change put back left harmed was given: it is
+# asked for the item that stops the harm.
+SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM = SOME_GIVEN.model_copy(
+    update={"stops_the_harm_asked": True})
 
 # What a model shown Code-Fix's reading and a deployment's diff was given.
 SOME_GIVEN_WITH_A_READING = SOME_GIVEN.model_copy(update={
@@ -235,6 +241,40 @@ def test_how_the_logs_show_the_service_said_where_it_was_asked_is_accepted() -> 
         ) \
         .when(
             lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_what_stops_the_harm_left_out_where_it_was_asked_is_named() -> None:
+    # Asked only where a change put back left the harm standing, and required
+    # there: an optional field is one a model leaves out whenever its prose
+    # reads well without it.
+    Scenario() \
+        .given(
+            an_answer_not_saying := _an_answer()
+        ) \
+        .when(
+            lambda: faults_in(an_answer_not_saying, given=SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM)
+        ) \
+        .then(
+            all_of(
+                _named(STOPS_THE_HARM_FIELD),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_stops_the_harm_said_where_it_was_asked_is_accepted() -> None:
+    Scenario() \
+        .given(
+            an_answer_saying := _an_answer(stops_the_harm=DONT_CARE_PROSE)
+        ) \
+        .when(
+            lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_WHAT_STOPS_THE_HARM)
         ) \
         .then(
             _found_nothing_wrong()
@@ -2427,6 +2467,7 @@ class _WhatAnAnswerHolds(TypedDict, total=False):
     reaches_a_cause: bool
     logs_show_serving_as_before: bool | None
     cause_rests_on_an_unrun_reading: bool | None
+    stops_the_harm: str | None
 
 
 def _an_answer(**overrides: Unpack[_WhatAnAnswerHolds]) -> SubmittedPostmortem:

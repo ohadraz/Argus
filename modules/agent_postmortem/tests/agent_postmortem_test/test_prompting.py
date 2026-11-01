@@ -88,6 +88,7 @@ from agent_postmortem.prompting import (
     RULED_OUT_FIELD,
     STEP_FIELD,
     STILL_AT_RISK_FIELD,
+    STOPS_THE_HARM_FIELD,
     SUBMIT_POSTMORTEM,
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
@@ -4998,6 +4999,23 @@ def test_an_incident_whose_logs_reach_where_the_metrics_stopped_is_asked_how_the
             all_of(
                 _asks_only_for(*EVERY_FIELD_ASKED, LOGS_SHOW_SERVING_AS_BEFORE_FIELD),
                 _requires(*REQUIRED_FIELDS, LOGS_SHOW_SERVING_AS_BEFORE_FIELD)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_harm() -> None:
+    # Required where it is offered: left to the action items, the item that
+    # stops the harm until the fault is fixed was left out of one write-up in
+    # four, while the same write-up's still_at_risk said the harm went on.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], harm_left_standing=True)
+        ) \
+        .then(
+            all_of(
+                _asks_only_for(*EVERY_FIELD_ASKED, STOPS_THE_HARM_FIELD),
+                _requires(*REQUIRED_FIELDS, STOPS_THE_HARM_FIELD)
             )
         )
 

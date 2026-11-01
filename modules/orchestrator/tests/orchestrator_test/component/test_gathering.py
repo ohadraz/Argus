@@ -1687,6 +1687,44 @@ def test_an_action_that_did_not_help_and_was_changed_since_is_said_to_be_left_as
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("action_type", "outcome", "undo", "undone", "put_back"), [
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 None, True, id="put-back"),
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.REFUTED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 Undone.LEFT_AS_FOUND, False, id="left-as-found"),
+    pytest.param(REVERT_FEATURE_FLAG, Verdict.CONFIRMED, FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                 None, False, id="still-in-place"),
+    pytest.param(DISCARD_CACHE_ENTRIES, Verdict.REFUTED, None, None, False,
+                 id="nothing-to-put-back")
+])
+def test_an_action_says_whether_the_walk_put_it_back(
+    action_type: ActionType,
+    outcome: Verdict,
+    undo: UndoDescriptor | None,
+    undone: Undone | None,
+    put_back: bool,
+    a_clean_database: None
+) -> None:
+    # As a fact, not only in the standing's words: the write-up is asked what
+    # stops the harm where a change put back left it standing, and reads which
+    # changes were put back off this.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(conn, incident_id, action_type, outcome, undo,
+                                                 undone=undone))
+            ) \
+            .when(
+                lambda: [action.put_back for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([put_back])
+            )
+
+
+@pytest.mark.component
 @pytest.mark.parametrize(("progress", "standing"), [
     pytest.param(ActionProgress.PERFORMED, "may still be in place", id="made-and-never-judged"),
     pytest.param(ActionProgress.UNKNOWN, "not known whether it was made", id="unaccounted-for"),

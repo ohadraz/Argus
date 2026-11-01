@@ -24,6 +24,7 @@ from argus_core.llm import LLMClient
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
+    ActionItemType,
     ChainStep,
     CitedEvidence,
     ContributingFactor,
@@ -42,6 +43,7 @@ from agent_postmortem.figures import the_day_it_began
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
+    KEPT_UNTIL_THE_FAULT_IS_FIXED,
     SubmittedPostmortem,
     the_changes_labelled,
     the_code_reading_labelled,
@@ -301,21 +303,33 @@ def _the_factors_with_what_answers_them(evidence: IncidentEvidence,
 def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
                                         measured: Measurements,
                                         answer: SubmittedPostmortem) -> list[ActionItem]:
-    """The record's items as numbered before the model was asked, and its
-    proposals numbered on from them in the order it gave them.
+    """The record's items as numbered before the model was asked, its
+    proposals numbered on from them in the order it gave them, and last the
+    item it was asked for that stops the harm, where it was asked.
+
+    Last, so the numbers its factors gave its proposals stay theirs. A
+    mitigation: it stops harm still going on - and kept until the fault is
+    fixed, which the document says after the model's words, ending them as a
+    sentence where they did not end as one.
 
     Open and nobody's: Argus edits no item after the document is written, so
     whoever takes one on does so somewhere else.
     """
     on_record = record_action_items_of(evidence, measured.back_to_normal_at)
+    proposed_items = [(proposed.item, proposed.type) for proposed in answer.action_items or []]
+    if answer.stops_the_harm is not None:
+        said = answer.stops_the_harm.rstrip()
+        ended = said if said.endswith((".", "!", "?")) else f"{said}."
+        proposed_items.append((f"{ended} {KEPT_UNTIL_THE_FAULT_IS_FIXED}",
+                               ActionItemType.MITIGATE))
 
     return [
         *on_record,
         *(ActionItem(number=action_item_number(len(on_record) + position),
-                     text=proposed.item,
-                     type=proposed.type,
+                     text=text,
+                     type=kind,
                      owner=None,
                      tracking=None,
                      status=ActionItemStatus.OPEN)
-          for position, proposed in enumerate(answer.action_items or [], start=1))
+          for position, (text, kind) in enumerate(proposed_items, start=1))
     ]

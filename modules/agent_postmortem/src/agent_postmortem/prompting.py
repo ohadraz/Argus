@@ -184,6 +184,14 @@ CAUSE_RESTS_ON_AN_UNRUN_READING_FIELD: Final = "cause_rests_on_an_unrun_reading"
 # the service serving as before - asked only where one reaches in, and said by
 # the document from the answer rather than by the model in prose.
 LOGS_SHOW_SERVING_AS_BEFORE_FIELD: Final = "logs_show_serving_as_before"
+# The item that stops the harm still going on where the walk put a change back
+# that did not help - asked only where one was put back while nothing ended the
+# harm, and listed after the model's own proposals.
+STOPS_THE_HARM_FIELD: Final = "stops_the_harm"
+# How long that item is kept, said by the document after the model's own words
+# rather than asked of them: asked, a write-up dropped it two times in five.
+# A sentence of its own, so it reads right whatever clause the model ends on.
+KEPT_UNTIL_THE_FAULT_IS_FIXED: Final = "Keep it in place until the fault is fixed."
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
@@ -308,6 +316,9 @@ class SubmittedPostmortem(BaseModel):
     # `None` where unanswered - which is an answer only where it was not asked
     # (`checking`).
     logs_show_serving_as_before: bool | None = None
+    # `None` where unanswered - which is an answer only where it was not asked
+    # (`checking`).
+    stops_the_harm: str | None = None
 
     def sentences(self) -> Iterator[str]:
         """Every sentence the answer would publish as written.
@@ -329,7 +340,8 @@ class SubmittedPostmortem(BaseModel):
                     for field, prose in ((ROOT_CAUSE_FIELD, self.root_cause),
                                          (CAUSE_IN_PLAIN_WORDS_FIELD, self.cause_in_plain_words),
                                          (STILL_AT_RISK_FIELD, self.still_at_risk),
-                                         (SYMPTOM_FIELD, self.symptom))
+                                         (SYMPTOM_FIELD, self.symptom),
+                                         (STOPS_THE_HARM_FIELD, self.stops_the_harm))
                     if prose is not None)
         yield from ((f"{ASSUMPTIONS_FIELD} {position}", assumption)
                     for position, assumption in enumerate(self.assumptions, start=1))
@@ -366,6 +378,7 @@ class SubmittedPostmortem(BaseModel):
             CAUSE_IN_PLAIN_WORDS_FIELD: rewritten(self.cause_in_plain_words),
             STILL_AT_RISK_FIELD: rewritten(self.still_at_risk),
             SYMPTOM_FIELD: rewritten(self.symptom),
+            STOPS_THE_HARM_FIELD: rewritten(self.stops_the_harm),
             ASSUMPTIONS_FIELD: [rewrite(each) for each in self.assumptions],
             LEAD_EFFECTS_FIELD: {lead: rewrite(effect)
                                  for lead, effect in self.lead_effects.items()},
@@ -395,7 +408,7 @@ class SubmittedPostmortem(BaseModel):
         })
 
     @field_validator(ROOT_CAUSE_FIELD, CAUSE_IN_PLAIN_WORDS_FIELD, STILL_AT_RISK_FIELD,
-                     SYMPTOM_FIELD, mode="before")
+                     SYMPTOM_FIELD, STOPS_THE_HARM_FIELD, mode="before")
     @classmethod
     def _prose_however_it_arrived(cls, value: Any) -> Any:
         """A prose field made to cost only itself.
@@ -969,12 +982,14 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
                           logs_in_the_gap: LogsInTheGap | None = None,
                           *,
                           cause_asked: bool = True,
-                          cause_confirmed: bool = False) -> ToolDefinition:
+                          cause_confirmed: bool = False,
+                          harm_left_standing: bool = False) -> ToolDefinition:
     """The tool for this incident: the one every incident gets, a place to say
-    what each lead changed where people wrote any, and one to say whether the
-    logs show the service serving as before where any reach into a stretch the
-    metrics did not watch - with what went well asked who formed the cause
-    where a candidate was confirmed.
+    what each lead changed where people wrote any, one to say whether the logs
+    show the service serving as before where any reach into a stretch the
+    metrics did not watch, and one for the item that stops the harm where a
+    change put back left it standing (`harm_left_standing`) - with what went
+    well asked who formed the cause where a candidate was confirmed.
 
     Only where they do. A field offered on an incident it does not fit is a
     question about nothing, and a request that changed for every incident - so
@@ -996,6 +1011,9 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
 
     if logs_in_the_gap is not None and logs_in_the_gap.labels:
         offered[LOGS_SHOW_SERVING_AS_BEFORE_FIELD] = _LOGS_SHOW_SERVING_AS_BEFORE
+
+    if harm_left_standing:
+        offered[STOPS_THE_HARM_FIELD] = _STOPS_THE_HARM
 
     if not offered and cause_asked and not cause_confirmed:
         return SUBMIT_POSTMORTEM
@@ -1072,6 +1090,21 @@ _LOGS_SHOW_SERVING_AS_BEFORE: Final[dict[str, Any]] = {
         "Whether the log lines that reach into the stretch the metrics did not "
         "watch show the service serving as it had before the metrics stopped. The "
         "document writes that sentence itself, bounded to when the logs were read."
+    )
+}
+
+# The item that stops the harm, offered only where the walk put a change back
+# while nothing ended the harm. Left to the action items, it was left out of one
+# write-up in four, while the same write-up's still_at_risk said the harm went on.
+_STOPS_THE_HARM: Final[dict[str, Any]] = {
+    "type": "string",
+    "description": (
+        "One action item, said as the one thing to do: what stops the harm the record "
+        "shows going on once the action that did not help was put back, and how to "
+        "confirm at the service that it took effect. Not how long it is kept: the "
+        "document adds that it stays in place until the fault is fixed. Say only what "
+        "the record shows. It is listed after your own action items: do not repeat it "
+        "among them, nor any of the record's own."
     )
 }
 

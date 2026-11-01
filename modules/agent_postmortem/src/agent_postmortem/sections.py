@@ -1103,6 +1103,20 @@ def a_candidate_was_confirmed(evidence: IncidentEvidence) -> bool:
     return _the_confirmed(evidence.candidates) is not None
 
 
+def a_put_back_left_the_harm(evidence: IncidentEvidence,
+                             back_to_normal_at: datetime | None) -> bool:
+    """Whether the walk put a change back when it did not help while nothing
+    ended the harm - the service not known back, and no action confirmed.
+
+    Put back, the change is as it was before the action, and the harm goes on.
+    Left to the model, the item that stops it until the fault is fixed was left
+    out of one write-up in four, while the same write-up's own still_at_risk
+    said the harm went on."""
+    return (back_to_normal_at is None
+            and any(action.put_back for action in evidence.actions)
+            and not any(action.verdict == Verdict.CONFIRMED for action in evidence.actions))
+
+
 def _the_confirmed(candidates: list[CandidateRecord]) -> CandidateRecord | None:
     confirmed = [candidate for candidate in candidates
                  if candidate.tested and candidate.result == Verdict.CONFIRMED]

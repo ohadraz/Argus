@@ -39,6 +39,7 @@ from agent_postmortem.measuring import Measurements
 from agent_postmortem.ordering import ORDER_TOOL_NAME, put_in_order
 from agent_postmortem.prompting import (
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
+    STOPS_THE_HARM_FIELD,
     SUBMIT_TOOL_NAME,
     SubmittedPostmortem,
     figures_shown,
@@ -57,6 +58,7 @@ from agent_postmortem.pull_requests import with_the_pull_request_named
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
 from agent_postmortem.sections import (
     a_candidate_was_confirmed,
+    a_put_back_left_the_harm,
     logs_in_the_gap_of,
     record_action_items_of,
 )
@@ -93,11 +95,14 @@ def answer_worth_writing(llm: LLMClient,
     # The tool for this incident, which asks what each lead changed only where
     # people wrote any, how the logs show the service only where a line reaches
     # into a stretch the metrics did not watch, what the cause was only where
-    # the investigation named one, and who formed it only where it was confirmed.
+    # the investigation named one, who formed it only where it was confirmed,
+    # and what stops the harm only where a change put back left it standing.
     cause_asked = not named_no_cause(evidence)
-    submit = submit_postmortem_for(evidence.leads, logs_in_the_gap_of(evidence, measured),
-                                   cause_asked=cause_asked,
-                                   cause_confirmed=a_candidate_was_confirmed(evidence))
+    submit = submit_postmortem_for(
+        evidence.leads, logs_in_the_gap_of(evidence, measured),
+        cause_asked=cause_asked,
+        cause_confirmed=a_candidate_was_confirmed(evidence),
+        harm_left_standing=a_put_back_left_the_harm(evidence, measured.back_to_normal_at))
     # Every figure the answer may name, each written in as this run measured it.
     figures = figures_shown(evidence, measured)
     # And as the summary's paragraph says them, which the two sentences it
@@ -105,6 +110,7 @@ def answer_worth_writing(llm: LLMClient,
     off_the_page = the_day_said_off_the_page(evidence, measured)
     given = _what_was_given(evidence, measured, figures).model_copy(update={
         "serving_as_before_asked": LOGS_SHOW_SERVING_AS_BEFORE_FIELD in submit.required,
+        "stops_the_harm_asked": STOPS_THE_HARM_FIELD in submit.required,
         "cause_asked": cause_asked})
     submitted = llm.converse(asked, [submit])
 

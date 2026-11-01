@@ -696,6 +696,53 @@ def test_the_model_s_proposals_are_numbered_after_the_record_s_own_items() -> No
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("said", [
+    pytest.param("Switch the flag off, confirmed at the service.", id="ended-as-a-sentence"),
+    pytest.param("Switch the flag off, confirmed at the service", id="not-ended")
+])
+def test_what_stops_the_harm_is_published_as_a_mitigation_after_the_model_s_proposals(
+        said: str) -> None:
+    # Last, so the numbers the model's factors gave its proposals stay theirs;
+    # a mitigation, since it stops harm still going on. How long it is kept is
+    # said after the model's words, as a sentence of its own: asked of the
+    # model, a write-up dropped it two times in five, and tacked onto its last
+    # clause it would read as that clause's.
+    evidence = an_evidence_bundle(
+        actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)])
+    measured = a_measured_incident(back_to_normal_at=None)
+
+    Scenario() \
+        .given(
+            a_model_saying_what_stops_it := _asking_that_answers(
+                a_submitted_answer().model_copy(update={
+                    "action_items": [
+                        SubmittedItem(item="test an empty month", type=ActionItemType.PREVENT)
+                    ],
+                    "stops_the_harm": said}))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=a_model_saying_what_stops_it,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the action items", lambda document: document.action_items, [
+                ActionItem(number="AI-1", text="test an empty month",
+                           type=ActionItemType.PREVENT, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN),
+                ActionItem(number="AI-2",
+                           text="Switch the flag off, confirmed at the service. Keep it in "
+                                "place until the fault is fixed.",
+                           type=ActionItemType.MITIGATE, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_a_factor_is_published_with_its_record_items_and_the_proposals_naming_it() -> None:
     # The model links each proposal to the factors it answers, by label; the
     # reader is shown each factor's items by number, as the record's are -

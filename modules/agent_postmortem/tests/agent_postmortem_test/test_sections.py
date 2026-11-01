@@ -12,11 +12,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from agent_postmortem import CandidateRecord, DeploymentChangesRecord, RefusalRecord
+from agent_postmortem import (
+    ActionRecord,
+    CandidateRecord,
+    DeploymentChangesRecord,
+    RefusalRecord,
+)
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan, Unmeasured
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
     a_candidate_was_confirmed,
+    a_put_back_left_the_harm,
     detection_of,
     hypotheses_of,
     impact_of,
@@ -1786,6 +1792,37 @@ def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
                          "on sooner it puts back what the repository says, undoing what Argus "
                          "changed by hand", ActionItemType.MITIGATE, ActionItemStatus.OPEN)
             ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("actions", "back_to_normal_at", "left_standing"), [
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED, put_back=True)],
+                 None, True, id="put-back-with-nothing-ending-the-harm"),
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED, put_back=True)],
+                 STARTED_AT + timedelta(minutes=9), False, id="service-back"),
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED, put_back=True),
+                  an_action("dont care either", verdict=Verdict.CONFIRMED)],
+                 None, False, id="another-action-helped"),
+    pytest.param([an_action("dont care", verdict=Verdict.REFUTED,
+                            standing="left as found when it did not help")],
+                 None, False, id="nothing-put-back")
+])
+def test_a_change_put_back_leaves_the_harm_standing_only_while_nothing_ended_it(
+        actions: list[ActionRecord], back_to_normal_at: datetime | None,
+        left_standing: bool) -> None:
+    # Put back, a change is as it was before the action, doing whatever harm it
+    # did. With the service back, or another action confirmed, the harm is over;
+    # left as found, nothing of Argus's was put back.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=actions)
+        ) \
+        .when(
+            lambda: a_put_back_left_the_harm(evidence, back_to_normal_at)
+        ) \
+        .then(
+            the_answer_was(left_standing)
         )
 
 
