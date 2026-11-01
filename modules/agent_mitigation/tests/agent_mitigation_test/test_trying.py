@@ -4733,6 +4733,39 @@ def test_a_rule_still_firing_is_read_again_until_it_stops() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("is_normal", [False, True], ids=["firing", "quiet"])
+def test_a_rule_evaluated_over_minutes_before_the_change_is_said_to_have_read_none_since(
+        is_normal: bool) -> None:
+    # A look a second after a revert said the service was "still at the
+    # incident's level", and write-ups read it as a verdict reached too soon.
+    # The rule's evaluation still spanned minutes from before the change, so it
+    # judged nothing the change did - firing or quiet.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_stops_firing := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=is_normal, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                ),
+                _a_rule_standing(
+                    is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC)
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_stops_firing,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 60, 120),
+                publisher=published.append
+            )
+        ) \
+        .then(
+            _the_looks_saw_no_minute(published, True, False)
+        )
+
+
+@pytest.mark.unit
 def test_an_evaluation_whose_range_begins_as_the_change_arrived_confirms_it() -> None:
     # The boundary: a range that starts at the very instant the change was in
     # force covers no minute before it.

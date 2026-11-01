@@ -529,9 +529,10 @@ class RecoveryChecked(_Event):
     nothing to date, and absent too on a confirmation nothing can date: the
     verdict is reached on a window whose departure need not have persisted.
 
-    `saw_no_minute` is a look that found no minute since the change to judge:
-    not recovered, because nothing answered yet, and not still at the
-    incident's level either, because nothing was measured to say so.
+    `saw_no_minute` is a look that found no minute since the change to judge -
+    in the metrics, or in an alert rule's evaluation whose range began before
+    it: neither recovered nor still at the incident's level, because nothing
+    since the change was measured to say either.
     """
 
     kind: Literal["recovery-checked"] = "recovery-checked"

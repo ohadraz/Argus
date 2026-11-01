@@ -2182,6 +2182,9 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     model said in its own assumptions that the number was unusable and went to
     the per-minute logs for the severity it actually needed.
 
+    Said to be the whole service's. Labelled only "Error rate", beside logs
+    warning of one page's own rate, write-ups called this figure that page's.
+
     Where it was not measured, why not. Every gap was once told to the model as
     metrics that could not be read, about a read that had returned six hours of
     them - all after an onset a week earlier - and the write-up described a
@@ -2219,8 +2222,9 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
         return [f"Error rate: not measured by the metrics{why}{logged}."]
 
     return [
-        f"Error rate before it began: {_shown(ERRORS_BEFORE_FIGURE, figures)}.",
-        f"Error rate while it was broken: {_shown(ERRORS_WHILE_BROKEN_FIGURE, figures)}, "
+        f"The service's error rate over all its requests, before it began: "
+        f"{_shown(ERRORS_BEFORE_FIGURE, figures)}.",
+        f"The same rate while it was broken: {_shown(ERRORS_WHILE_BROKEN_FIGURE, figures)}, "
         f"peaking at {_shown(ERRORS_AT_WORST_FIGURE, figures)}{_the_peak_held_to(rates)}.",
         _the_rise(rates, figures)
     ]

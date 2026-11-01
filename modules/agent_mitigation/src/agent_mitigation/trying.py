@@ -1007,11 +1007,14 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             the_rule_was_read = True
             # Only an evaluation whose whole range followed the change says
             # anything about it; one that began before may have caught a lull the
-            # action had no part in.
-            resolved = standing.is_normal and (
+            # action had no part in. So a look at one that began before has judged
+            # nothing yet, firing or quiet. Said as still at the incident's level,
+            # a look a second after a revert was read as the verdict.
+            followed_the_change = (
                 standing.evaluated_at - timedelta(seconds=standing.range_seconds)
                 >= arrived_at
             )
+            resolved = standing.is_normal and followed_the_change
             came_back_at = (
                 find_recovery(buckets, thresholds, since=incident_began)
                 if resolved else None
@@ -1022,7 +1025,8 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                     incident_id=incident_id,
                     minute=first_whole_minute,
                     recovered=resolved,
-                    recovered_minute=came_back_at
+                    recovered_minute=came_back_at,
+                    saw_no_minute=not followed_the_change
                 ))
 
             if not still_wanted():

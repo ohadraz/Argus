@@ -2295,6 +2295,24 @@ def test_the_model_is_told_how_far_the_errors_rose() -> None:
 
 
 @pytest.mark.unit
+def test_the_error_rate_is_said_to_be_over_all_the_service_s_requests() -> None:
+    # Labelled only "Error rate", beside logs warning of the account page's own
+    # rate, 6 of 13 write-ups called this figure the account page's. It is every
+    # request the service answered.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_rose := a_measured_incident(error_rates=ERRORS_THAT_ROSE)
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_rose)
+        ) \
+        .then(all_of(
+            _says("The service's error rate over all its requests, before it began: "),
+            _says("The same rate while it was broken: ")
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("error_rates", [ERRORS_THAT_STAYED_FLAT, ERRORS_THAT_FELL],
                          ids=["flat", "fell"])
 def test_a_rise_at_or_below_nothing_is_told_as_none(error_rates: ErrorRates) -> None:
