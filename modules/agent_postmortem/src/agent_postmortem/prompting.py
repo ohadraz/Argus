@@ -899,25 +899,20 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         ),
         LESSONS_FIELD: {
             "type": "object",
-            # Said in the list the praise is written in: told how to work a
-            # span out only in the tool's description, a write-up praised Argus
-            # for acting "within seconds" when it took 41.
+            # How soon is said by code (`timing`): set by the model, a span
+            # timed the wrong clause in two of nine write-ups of one incident.
+            # In no words either: a write-up praised Argus for acting "within
+            # seconds" when it took 41.
             "properties": {WENT_WELL_FIELD: {
                                **_SENTENCES,
                                "description": (
-                                   "Where one says how quickly Argus did something, "
-                                   "write the span as a working of two instants - a "
-                                   "T or P row's instant is its first figure, as T3.1 "
-                                   f"is T3's: {{T3.1 - {ALERT_RAISED_FIGURE}}}, not in "
-                                   "words (\"within seconds\"). Set the span beside "
-                                   "what it times - the thing its later instant dates "
-                                   "- not after something else in the same sentence: "
-                                   "\"Argus confirmed, {T20.1 - "
-                                   f"{ALERT_RAISED_FIGURE}}} after the alert was raised, "
-                                   "that the rollback had brought the service back\", "
-                                   "not \"Argus confirmed the rollback had brought the "
-                                   "service back from the incident's level {T20.1 - "
-                                   f"{ALERT_RAISED_FIGURE}}} after the alert was raised\". "
+                                   "Ahead of these, the document already says, where the "
+                                   "record holds each, how long after the alert was "
+                                   "raised the cause Argus acted on "
+                                   "was formed, that action taken and confirmed, and a "
+                                   "fix proposed: leave those out, and say no span of "
+                                   "time here, in figures or in words (\"within "
+                                   "seconds\"). "
                                    "Set a purpose or a reason beside the action it "
                                    "belongs to, and say it once. "
                                    "Name what Code-Fix proposed without saying what it "
@@ -1010,15 +1005,13 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
                           logs_in_the_gap: LogsInTheGap | None = None,
                           *,
                           cause_asked: bool = True,
-                          cause_confirmed: bool = False,
                           harm_left_standing: bool = False) -> ToolDefinition:
     """The tool for this incident: the one every incident gets, a place to say
     what each lead changed where people wrote any, one to say whether the logs
     show the service serving as before where any reach into a stretch the
     metrics did not watch, and one each for the item that stops the harm and the
     one to find out why the change did not help where a change put back left the
-    harm standing (`harm_left_standing`) - with what went well asked who formed
-    the cause where a candidate was confirmed.
+    harm standing (`harm_left_standing`).
 
     Only where they do. A field offered on an incident it does not fit is a
     question about nothing, and a request that changed for every incident - so
@@ -1045,42 +1038,17 @@ def submit_postmortem_for(leads: Sequence[ThreadMessage],
         offered[STOPS_THE_HARM_FIELD] = _STOPS_THE_HARM
         offered[WHY_IT_DID_NOT_HELP_FIELD] = _WHY_IT_DID_NOT_HELP
 
-    if not offered and cause_asked and not cause_confirmed:
+    if not offered and cause_asked:
         return SUBMIT_POSTMORTEM
 
     left_out = frozenset() if cause_asked else THE_CAUSE_FIELDS
-    lessons = (_asking_who_formed_the_cause(SUBMIT_POSTMORTEM.properties[LESSONS_FIELD])
-               if cause_confirmed else SUBMIT_POSTMORTEM.properties[LESSONS_FIELD])
 
     return SUBMIT_POSTMORTEM.model_copy(update={
         "properties": {**{name: field for name, field in SUBMIT_POSTMORTEM.properties.items()
                           if name not in left_out},
-                       LESSONS_FIELD: lessons,
                        **offered},
         "required": [*(name for name in REQUIRED_FIELDS if name not in left_out), *offered]
     })
-
-
-# Asked of what went well only where a candidate was confirmed. Asked nothing of
-# the diagnosis, a write-up dropped who found the cause, which every earlier
-# write-up of the incident had said.
-_WHO_FORMED_THE_CAUSE: Final = (
-    "Where the cause the walk acted on was found soon, say who formed it and how soon, "
-    "as a working of two instants."
-)
-
-
-def _asking_who_formed_the_cause(lessons: dict[str, Any]) -> dict[str, Any]:
-    """The lessons, with what went well asked who formed the cause."""
-    went_well = lessons["properties"][WENT_WELL_FIELD]
-
-    return {**lessons,
-            "properties": {**lessons["properties"],
-                           WENT_WELL_FIELD: {
-                               **went_well,
-                               "description": f"{went_well['description']} "
-                                              f"{_WHO_FORMED_THE_CAUSE}"
-                           }}}
 
 
 # Where what each lead changed is said, offered only where people wrote any.

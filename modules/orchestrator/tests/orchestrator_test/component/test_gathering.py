@@ -57,6 +57,7 @@ from argus_core.events import (
     RetrievalUnanswered,
     SimilarIncidentsRecalled,
     StatusChanged,
+    VerdictReached,
 )
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
@@ -2155,6 +2156,43 @@ def test_an_action_carries_the_verdict_it_reached(a_clean_database: None) -> Non
 
 
 @pytest.mark.component
+def test_an_action_carries_when_it_was_last_judged(a_clean_database: None) -> None:
+    # The document times the confirmation from the alert, and the verdict's own
+    # line names no candidate, so the instant arrives with the action. The last
+    # verdict that judged it, as its row's is the last one written: a wait whose
+    # every look went unanswered judged nothing.
+    when_it_was_judged = parse_iso("2026-09-02T12:06:00Z")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        candidate = Hypothesis(incident_id=incident_id, summary="dont care",
+                               failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=0.8,
+                               supporting_evidence=[], number=1)
+
+        Scenario() \
+            .given(
+                calling(lambda: hypotheses.record(conn, candidate)),
+                calling(lambda: taken_actions.record(
+                    conn, incident_id, hypothesis_id=candidate.id,
+                    action_type=REVERT_FEATURE_FLAG, subject=SOME_FLAG, outcome=Verdict.CONFIRMED,
+                    undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True),
+                    at=DONT_CARE_TAKEN_AT, performed=True, left_behind_known=True)),
+                calling(lambda: events.record(conn, VerdictReached(
+                    incident_id=incident_id, at=when_it_was_judged,
+                    hypothesis_id=candidate.id, outcome=Verdict.CONFIRMED))),
+                calling(lambda: events.record(conn, VerdictReached(
+                    incident_id=incident_id, at=parse_iso("2026-09-02T12:09:00Z"),
+                    hypothesis_id=candidate.id, outcome=Verdict.ESCALATED, judged=False)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_action_was_judged_at(when_it_was_judged)
+            )
+
+
+@pytest.mark.component
 def test_an_action_is_dated_by_when_it_was_taken_not_by_when_it_was_claimed(
         a_clean_database: None) -> None:
     # The row is a claim written before anything happens, so that a walk
@@ -2299,6 +2337,63 @@ def test_the_evidence_carries_the_fix_that_was_proposed(a_clean_database: None) 
             ) \
             .then(
                 _carries_the_proposal_at(where_it_can_be_read)
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_when_the_fix_that_stands_was_opened(a_clean_database: None) -> None:
+    # The document times the proposal from the alert, as it times the rest of
+    # what went well. The last one opened, as the proposal itself is: a walk
+    # that went back to investigate can reach the code twice.
+    when_the_last_was_opened = parse_iso("2026-09-02T12:07:00Z")
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id,
+                    at=parse_iso("2026-09-02T12:03:00Z"),
+                    outcome=FixOutcome.PROPOSED,
+                    pull_request=OpenedPullRequest(number=7, url="https://github.invalid/7",
+                                                   branch="argus/fix-abc"),
+                    detail="dont care what the node said"
+                ))),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id,
+                    at=when_the_last_was_opened,
+                    outcome=FixOutcome.PROPOSED,
+                    pull_request=OpenedPullRequest(number=8, url="https://github.invalid/8",
+                                                   branch="argus/fix-abd"),
+                    detail="dont care what the node said"
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_fix_was_opened_at(when_the_last_was_opened)
+            )
+
+
+@pytest.mark.component
+def test_an_incident_that_opened_no_fix_says_none_was_opened(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id,
+                    outcome=FixOutcome.NOT_WARRANTED,
+                    pull_request=None,
+                    detail="dont care what the node said"
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_fix_was_opened_at(None)
             )
 
 
@@ -3356,6 +3451,31 @@ def _the_logs_were_read_until(expected: datetime | None) -> Assertion[IncidentEv
             raise AssertionError(
                 f"Expected the logs to have been read until {expected}, and the evidence "
                 f"says {evidence.log_reading_ended}.")
+
+        return True
+
+    return assertion
+
+
+def _the_action_was_judged_at(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        judged = [action.judged_at for action in evidence.actions]
+
+        if judged != [expected]:
+            raise AssertionError(
+                f"Expected one action, judged at {expected}, and the evidence says {judged}.")
+
+        return True
+
+    return assertion
+
+
+def _the_fix_was_opened_at(expected: datetime | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.pull_request_opened_at != expected:
+            raise AssertionError(
+                f"Expected the fix to have been opened at {expected}, and the evidence "
+                f"says {evidence.pull_request_opened_at}.")
 
         return True
 

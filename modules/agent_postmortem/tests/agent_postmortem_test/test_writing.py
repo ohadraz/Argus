@@ -62,6 +62,7 @@ from agent_postmortem.sections import (
 )
 from agent_postmortem.sources import EngagedResponder, NotPaged
 from agent_postmortem.summary import the_executive_summary
+from agent_postmortem.timing import how_soon_argus_moved
 from argus_core import to_iso
 from argus_core.models import (
     ActionItem,
@@ -114,6 +115,7 @@ from agent_postmortem_test.framework.builders import (
     a_lead,
     a_measured_incident,
     a_submitted_answer,
+    a_timeline_entry,
     an_action,
     an_answer,
     an_engagement_of,
@@ -219,6 +221,59 @@ def test_a_field_the_answer_never_carried_is_absent_rather_than_empty() -> None:
                 _publishes("the contributing factors",
                            lambda document: document.contributing_factors, [])
             )
+        )
+
+
+@pytest.mark.unit
+def test_how_soon_argus_moved_is_published_ahead_of_what_the_model_said_went_well() -> None:
+    # A span is a figure, and set by the model it timed the wrong clause: code
+    # says each moment's, and the model's own lessons follow as it wrote them.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("dont care", who="Mitigation Agent")],
+                actions=[an_action("Reverted the feature flag kuki", verdict=Verdict.CONFIRMED,
+                                   line=0)]),
+            an_answer_praising := _asking_that_answers(SubmittedPostmortem(
+                lessons=Lessons(went_well=["THE MODEL'S OWN"])))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=an_answer_praising,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("what went well",
+                       lambda document: document.lessons.went_well if document.lessons else None,
+                       [*how_soon_argus_moved(evidence), "THE MODEL'S OWN"])
+        )
+
+
+@pytest.mark.unit
+def test_how_soon_argus_moved_is_published_where_the_model_s_lessons_could_not_be_read() -> None:
+    # Those moments went well whether or not the model's answer could be read.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[a_timeline_entry("dont care", who="Mitigation Agent")],
+                actions=[an_action("Reverted the feature flag kuki", verdict=Verdict.CONFIRMED,
+                                   line=0)]),
+            an_answer_carrying_nothing := _asking_that_answers(SubmittedPostmortem())
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=an_answer_carrying_nothing,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the lessons", lambda document: document.lessons,
+                       Lessons(went_well=how_soon_argus_moved(evidence)))
         )
 
 

@@ -87,6 +87,9 @@ class ActionRecord(BaseModel):
     action: str
     has_a_way_back: bool
     verdict: str | None
+    # When that verdict was reached - the instant the document times the
+    # confirmation by. `None` where none was, or none judged the action.
+    judged_at: datetime | None = None
     standing: str
     paused_sync_of: str | None = None
     line: int | None = None
@@ -291,6 +294,9 @@ class IncidentEvidence(BaseModel):
     # of the finished document goes on to open, and a summary is free to be
     # written well without mentioning it.
     pull_request: OpenedPullRequest | None = None
+    # When Code-Fix opened it - which the document times from the alert, as it
+    # times the rest of what went well. `None` where it opened none.
+    pull_request_opened_at: datetime | None = None
     # What Code-Fix said of the code - why its change, or why there was none to
     # make - where it said anything. The one account of the mechanism read off
     # the source, and a static reading: nothing ran it.

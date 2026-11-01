@@ -55,6 +55,7 @@ from argus_core.events import (
     RetrievalUnanswered,
     SimilarIncidentsRecalled,
     StatusChanged,
+    VerdictReached,
     WithdrawalOffered,
     the_escalations,
 )
@@ -236,6 +237,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         change_reading_ended=_how_far_the_changes_were_read(account),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
+        pull_request_opened_at=_when_it_was_proposed(account),
         fix_explanation=reading.explanation if reading is not None else None,
         fix_branch_read=reading.branch_read if reading is not None else None,
         fix_holds_what_ran=reading.holds_what_ran if reading is not None else None,
@@ -334,6 +336,15 @@ def _what_was_proposed(conn: psycopg.Connection,
                 if isinstance(event, FixAttempted) and event.pull_request]
 
     return proposed[-1] if proposed else None
+
+
+def _when_it_was_proposed(account: list[IncidentEvent]) -> datetime | None:
+    """When the fix that stands was opened - the last attempt that opened one,
+    as `_what_was_proposed` reads it - or `None` where none was."""
+    opened = [event.at for event in account
+              if isinstance(event, FixAttempted) and event.pull_request]
+
+    return opened[-1] if opened else None
 
 
 def _the_reading_that_stands(account: list[IncidentEvent]) -> FixAttempted | None:
@@ -741,12 +752,14 @@ def _what_was_done(conn: psycopg.Connection,
     said = {event.hypothesis_id: event for event in announced if event.hypothesis_id is not None}
     where = _where_each_is_said(announced, told)
     before = _what_each_was_before(account)
+    judged = _when_each_was_judged(account)
 
     return [
         ActionRecord(taken_at=when_it_was_taken(taken_action, announced),
                      action=_what_it_did(taken_action, said),
                      has_a_way_back=_whether_it_left_a_way_back(taken_action),
                      verdict=taken_action.outcome,
+                     judged_at=judged.get(taken_action.hypothesis_id or ""),
                      standing=_what_became_of(taken_action),
                      paused_sync_of=_whose_sync_it_left_stopped(taken_action),
                      line=where.get(taken_action.hypothesis_id or ""),
@@ -758,6 +771,16 @@ def _what_was_done(conn: psycopg.Connection,
                      put_back=_whether_it_was_put_back(taken_action))
         for taken_action in taken_actions.get_by_incident(conn, incident_id)
     ]
+
+
+def _when_each_was_judged(account: list[IncidentEvent]) -> dict[str, datetime]:
+    """When each candidate's action was judged, by the candidate it was for -
+    the last verdict that judged it, as the row's verdict is the last one
+    written. A verdict that judged nothing (`VerdictReached.judged`) dates no
+    judgement."""
+    return {event.hypothesis_id: event.at for event in account
+            if isinstance(event, VerdictReached) and event.judged
+            and event.hypothesis_id is not None}
 
 
 def _what_each_was_before(account: list[IncidentEvent]) -> dict[ActionIdentity, list[Verdict]]:

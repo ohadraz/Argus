@@ -1093,16 +1093,6 @@ def _an_item(kind: ActionItemType,
                       tracking=tracking, status=status)
 
 
-def a_candidate_was_confirmed(evidence: IncidentEvidence) -> bool:
-    """Whether a candidate's test confirmed it - the verdict its row and the
-    brief both say as confirmed.
-
-    Read through the trigger's own test of it, so the tool asking who formed
-    the cause and the trigger naming the change it blamed cannot disagree about
-    whether there was one."""
-    return _the_confirmed(evidence.candidates) is not None
-
-
 def a_put_back_left_the_harm(evidence: IncidentEvidence,
                              back_to_normal_at: datetime | None) -> bool:
     """Whether the walk put a change back when it did not help while nothing

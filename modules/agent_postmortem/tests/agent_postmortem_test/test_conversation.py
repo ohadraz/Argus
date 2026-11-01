@@ -36,7 +36,6 @@ from agent_postmortem.prompting import (
     CAUSE_IN_PLAIN_WORDS_FIELD,
     CITES_FIELD,
     LEAD_EFFECTS_FIELD,
-    LESSONS_FIELD,
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     REACHES_A_CAUSE_FIELD,
     ROOT_CAUSE_FIELD,
@@ -682,33 +681,6 @@ def test_an_incident_people_wrote_about_is_asked_what_each_lead_changed() -> Non
         ) \
         .then(
             _was_offered_a_place_for(offered, LEAD_EFFECTS_FIELD)
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(("result", "asked"), [(Verdict.CONFIRMED, True),
-                                               (Verdict.REFUTED, False)],
-                         ids=["confirmed", "refuted"])
-def test_an_incident_is_asked_who_formed_the_cause_only_where_a_candidate_was_confirmed(
-        result: str, asked: bool) -> None:
-    # The tool the model is offered is the one for this incident, and which
-    # that is turns on the candidate's verdict as the brief says it.
-    offered: Kept[list[ToolDefinition]] = Kept()
-
-    Scenario() \
-        .given(
-            a_model_noting_its_tools := a_model_answering_in_turn(
-                an_answer(), an_answer(), offered_tools=offered)
-        ) \
-        .when(
-            lambda: answer_worth_writing(
-                a_model_noting_its_tools,
-                an_evidence_bundle(candidates=[a_candidate("dont care", tested=True,
-                                                           result=result)]),
-                a_measured_incident())
-        ) \
-        .then(
-            _what_went_well_was_asked(offered, "say who formed it and how soon", asked=asked)
         )
 
 
@@ -1478,28 +1450,6 @@ def _was_offered_no_place_for(offered: Kept[list[ToolDefinition]],
             raise AssertionError(
                 f"Expected no tool the model was offered to ask for [{field}], and "
                 f"they asked for {fields}.")
-
-        return True
-
-    return assertion
-
-
-def _what_went_well_was_asked(offered: Kept[list[ToolDefinition]],
-                              words: str,
-                              asked: bool) -> Assertion[Reading]:
-    def assertion(dont_care_reading: Reading) -> bool:
-        descriptions = [tool.properties[LESSONS_FIELD]["properties"][WENT_WELL_FIELD][
-                            "description"]
-                        for tools in offered.taken for tool in tools
-                        if LESSONS_FIELD in tool.properties]
-
-        if not descriptions or any((words in description) != asked
-                                   for description in descriptions):
-            raise AssertionError(
-                f"Expected what went well {'to ask' if asked else 'not to ask'} "
-                f"[{words}] in every tool the model was offered, and it was asked as "
-                f"{descriptions}."
-            )
 
         return True
 

@@ -4082,53 +4082,25 @@ def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: st
 
 
 @pytest.mark.unit
-def test_how_quickly_argus_acted_is_asked_for_as_a_working_of_two_rows() -> None:
-    # Told how to work a span out only in the tool's description, 20 recorded
-    # walks praised Argus for acting "within seconds" - one of them for 41
-    # seconds. Said in the list the praise is written in.
+def test_what_went_well_is_asked_to_leave_how_soon_to_the_document() -> None:
+    # Shown how to set a span beside what it times and how not to, a write-up
+    # still set the confirmation's span after "brought the service back", so it
+    # read as a three-minute recovery from a service back in one - two of nine
+    # write-ups of the incident. The document says those spans itself, so the
+    # model is told it does, and to say none: in words as well, since a
+    # write-up praised Argus for acting "within seconds" when it took 41.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
                                                 [WENT_WELL_FIELD]["description"]
         ) \
-        .then(
-            _the_description_mentions("how quickly", f"{{T3.1 - {ALERT_RAISED_FIGURE}}}")
-        )
-
-
-@pytest.mark.unit
-def test_a_span_is_asked_to_be_set_beside_what_it_times() -> None:
-    # A write-up worked out how long the refusal took and set it after the
-    # handover, six seconds later, in the same sentence: "and handed it to a
-    # person instead (less than a second after entering MITIGATING)".
-    Scenario() \
-        .when(
-            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
-                                                [WENT_WELL_FIELD]["description"]
-        ) \
-        .then(
-            _the_description_mentions("beside what it times",
-                                      "not after something else in the same sentence")
-        )
-
-
-@pytest.mark.unit
-def test_a_span_set_after_something_else_is_shown_beside_the_form_to_write() -> None:
-    # Told the rule, a write-up still set the confirmation's span after "brought
-    # the service back", so it read as a three-minute recovery from a service
-    # back in one. Its own sentence is the form shown not to write.
-    Scenario() \
-        .when(
-            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
-                                                [WENT_WELL_FIELD]["description"]
-        ) \
-        .then(
-            _the_description_mentions(
-                f"Argus confirmed, {{T20.1 - {ALERT_RAISED_FIGURE}}} after the alert was "
-                f"raised, that the rollback had brought the service back",
-                f"not \"Argus confirmed the rollback had brought the service back from the "
-                f"incident's level {{T20.1 - {ALERT_RAISED_FIGURE}}} after the alert was raised\"")
-        )
+        .then(all_of(
+            _the_description_mentions("the document already says, where the record holds "
+                                      "each, how long after the alert",
+                                      "leave those out",
+                                      "say no span of time here, in figures or in words"),
+            _the_description_avoids(f"{{T20.1 - {ALERT_RAISED_FIGURE}}}")
+        ))
 
 
 @pytest.mark.unit
@@ -5042,43 +5014,6 @@ def test_an_incident_whose_investigation_named_no_cause_is_not_asked_what_the_ca
                 _requires(*(field for field in REQUIRED_FIELDS
                             if field not in the_cause_fields))
             )
-        )
-
-
-@pytest.mark.unit
-def test_what_went_well_is_asked_who_formed_the_cause_where_a_candidate_was_confirmed() -> None:
-    # Asked nothing of the diagnosis, a write-up dropped who found the cause -
-    # which every earlier write-up of the incident had said. The rest of what
-    # went well is asked as it always was, and nothing else is.
-    the_went_well_every_incident_gets = SUBMIT_POSTMORTEM.properties[LESSONS_FIELD][
-        "properties"][WENT_WELL_FIELD]["description"]
-    the_question = ("Where the cause the walk acted on was found soon, say who formed it "
-                    "and how soon, as a working of two instants.")
-
-    Scenario() \
-        .when(
-            lambda: submit_postmortem_for([], cause_confirmed=True)
-        ) \
-        .then(
-            all_of(
-                _asks_only_for(*EVERY_FIELD_ASKED),
-                _requires(*REQUIRED_FIELDS),
-                _what_went_well_is_asked_as(f"{the_went_well_every_incident_gets} {the_question}")
-            )
-        )
-
-
-@pytest.mark.unit
-def test_an_incident_whose_candidate_was_not_confirmed_is_asked_for_what_it_always_was() -> None:
-    # Who formed a cause the walk acted on is a question only a confirmed
-    # candidate has an answer to; offered elsewhere, it is a question about
-    # nothing and a changed tool for every incident.
-    Scenario() \
-        .when(
-            lambda: submit_postmortem_for([], cause_confirmed=False)
-        ) \
-        .then(
-            the_answer_was(SUBMIT_POSTMORTEM)
         )
 
 
@@ -6037,21 +5972,6 @@ def _tells_no_instant_finer_than_the_second() -> Assertion[Transcript]:
             raise AssertionError(
                 f"Expected every instant the model is told to the second, and it was "
                 f"told {finer}: {said}")
-
-        return True
-
-    return assertion
-
-
-def _what_went_well_is_asked_as(expected: str) -> Assertion[ToolDefinition]:
-    def assertion(tool: ToolDefinition) -> bool:
-        asked = tool.properties[LESSONS_FIELD]["properties"][WENT_WELL_FIELD]["description"]
-
-        if asked != expected:
-            raise AssertionError(
-                f"Expected what went well to be asked as [{expected}], and it was asked "
-                f"as [{asked}]."
-            )
 
         return True
 
