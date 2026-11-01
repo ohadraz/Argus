@@ -66,9 +66,11 @@ from agent_postmortem.pull_requests import with_the_pull_request_named
 from agent_postmortem.revisions import revisions_of, with_revisions_corrected
 from agent_postmortem.sections import (
     a_put_back_left_the_harm,
+    labels_of_the_narration,
     logs_in_the_gap_of,
     record_action_items_of,
 )
+from agent_postmortem.timing import with_each_moment_timed
 from agent_postmortem.undetermined import NOT_DETERMINED, NOT_KNOWN, named_no_cause
 
 logger = logging.getLogger(__name__)
@@ -229,7 +231,10 @@ def _what_was_given(evidence: IncidentEvidence,
                         for candidate in evidence.candidates)},
         rates_the_logs_name=rates_named_in([cited.text for cited in
                                             the_evidence_labelled(evidence, measured)
-                                            if cited.label.startswith(LOG_GROUP_PREFIX)])
+                                            if cited.label.startswith(LOG_GROUP_PREFIX)]),
+        speakers=frozenset(entry.who.split(" ", 1)[0] for entry in evidence.timeline
+                           if entry.who),
+        timeline_rows=frozenset(labels_of_the_narration(evidence.timeline))
     )
 
 
@@ -285,7 +290,11 @@ def _reading_of(turn: Turn,
     answer = with_the_pull_request_named(
         with_revisions_corrected(_answer_from(turn), given.revisions), pull_request)
     of_the_turn = faults_in_the_turn(turn)
-    written = with_figures_written(answer, figures)
+    # Each moment that went well timed by code off the row the model named,
+    # before the figures are written in, since the time is one of them. Checked
+    # as the model sent it, which is what the check speaks of.
+    written = with_figures_written(with_each_moment_timed(answer, figures, given.timeline_rows),
+                                   figures)
     in_the_summary = (written if off_the_page is None
                       else with_figures_written_with_every_day(answer, figures, off_the_page))
 

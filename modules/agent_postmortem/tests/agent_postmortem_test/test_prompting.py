@@ -93,6 +93,7 @@ from agent_postmortem.prompting import (
     SUBMIT_TOOL_NAME,
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
+    TIMED_BY_FIELD,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
     WHAT_FIELD,
@@ -4082,12 +4083,14 @@ def test_a_safeguard_the_record_does_not_show_is_asked_for_as_not_seen(field: st
 
 
 @pytest.mark.unit
-def test_what_went_well_is_asked_to_leave_how_soon_to_the_document() -> None:
+def test_what_went_well_is_asked_for_its_rows_and_no_span_of_its_own() -> None:
     # Shown how to set a span beside what it times and how not to, a write-up
     # still set the confirmation's span after "brought the service back", so it
     # read as a three-minute recovery from a service back in one - two of nine
-    # write-ups of the incident. The document says those spans itself, so the
-    # model is told it does, and to say none: in words as well, since a
+    # write-ups of the incident. So the model names the row and the document
+    # says the span, ahead of the item: one thing to a timed item, since one
+    # time is said for the whole of it - and only to a timed one, since an
+    # untimed item split is noise - and no span in words either, since a
     # write-up praised Argus for acting "within seconds" when it took 41.
     Scenario() \
         .when(
@@ -4095,11 +4098,60 @@ def test_what_went_well_is_asked_to_leave_how_soon_to_the_document() -> None:
                                                 [WENT_WELL_FIELD]["description"]
         ) \
         .then(all_of(
-            _the_description_mentions("the document already says, where the record holds "
-                                      "each, how long after the alert",
-                                      "leave those out",
-                                      "say no span of time here, in figures or in words"),
+            _the_description_mentions("Only what went well; empty where nothing did",
+                                      "A timed item says one thing, done at its row",
+                                      "Say no span of time, in figures or in words",
+                                      f"name the row in {TIMED_BY_FIELD} instead",
+                                      "begin an item timed so with who did it"),
             _the_description_avoids(f"{{T20.1 - {ALERT_RAISED_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
+def test_the_row_a_moment_happened_on_is_asked_for_only_where_its_time_matters() -> None:
+    # Whether when a moment came is part of why it went well is the model's
+    # judgement, so the row is left out where it is not.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"][WENT_WELL_FIELD]
+        ) \
+        .then(all_of(
+            _each_item_requires_only(ITEM_FIELD),
+            _the_row_is_described_as("The T or XW row the item happened on",
+                                     "Left out where its time is not the point")
+        ))
+
+
+@pytest.mark.unit
+def test_what_went_well_is_read_with_the_row_each_item_happened_on() -> None:
+    # In step, off the one list: an item naming no row is timed by nothing, as
+    # is one naming it in blanks.
+    Scenario() \
+        .when(
+            lambda: SubmittedPostmortem.model_validate({LESSONS_FIELD: {WENT_WELL_FIELD: [
+                {ITEM_FIELD: "THE FIRST", TIMED_BY_FIELD: "T13"},
+                {ITEM_FIELD: "THE SECOND"},
+                {ITEM_FIELD: "THE THIRD", TIMED_BY_FIELD: "  "}]}})
+        ) \
+        .then(all_of(
+            _what_went_well_reads(["THE FIRST", "THE SECOND", "THE THIRD"]),
+            _timed_by(["T13", None, None])
+        ))
+
+
+@pytest.mark.unit
+def test_what_went_well_sent_as_sentences_is_read_as_the_shape_before_rows() -> None:
+    # The shape every answer recorded before the rows were asked for came in,
+    # which a replay of one still sends - and which `checking` holds to none
+    # of what it asks of the new one.
+    Scenario() \
+        .when(
+            lambda: SubmittedPostmortem.model_validate({LESSONS_FIELD: {WENT_WELL_FIELD: [
+                "THE FIRST", "THE SECOND"]}})
+        ) \
+        .then(all_of(
+            _what_went_well_reads(["THE FIRST", "THE SECOND"]),
+            _timed_by(None)
         ))
 
 
@@ -5986,6 +6038,50 @@ def _the_description_mentions(*expected: str) -> Assertion[str]:
             raise AssertionError(
                 f"Expected the description to mention {missing}, and it does not: "
                 f"[{description}].")
+
+        return True
+
+    return assertion
+
+
+def _each_item_requires_only(*fields: str) -> Assertion[dict[str, Any]]:
+    def assertion(listed: dict[str, Any]) -> bool:
+        required = listed["items"]["required"]
+
+        if sorted(required) != sorted(fields):
+            raise AssertionError(
+                f"Expected each item to require only {list(fields)}, it requires {required}.")
+
+        return True
+
+    return assertion
+
+
+def _the_row_is_described_as(*expected: str) -> Assertion[dict[str, Any]]:
+    def assertion(listed: dict[str, Any]) -> bool:
+        return _the_description_mentions(*expected)(
+            listed["items"]["properties"][TIMED_BY_FIELD]["description"])
+
+    return assertion
+
+
+def _what_went_well_reads(expected: list[str]) -> Assertion[SubmittedPostmortem]:
+    def assertion(answer: SubmittedPostmortem) -> bool:
+        read = answer.lessons.went_well if answer.lessons is not None else None
+
+        if read != expected:
+            raise AssertionError(f"Expected what went well to read {expected}, it reads {read}.")
+
+        return True
+
+    return assertion
+
+
+def _timed_by(expected: list[str | None] | None) -> Assertion[SubmittedPostmortem]:
+    def assertion(answer: SubmittedPostmortem) -> bool:
+        if answer.went_well_timed_by != expected:
+            raise AssertionError(f"Expected what went well to be timed by {expected}, it is "
+                                 f"timed by {answer.went_well_timed_by}.")
 
         return True
 

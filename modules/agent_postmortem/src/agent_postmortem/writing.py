@@ -28,7 +28,6 @@ from argus_core.models import (
     ChainStep,
     CitedEvidence,
     ContributingFactor,
-    Lessons,
     PostmortemDocument,
     PostmortemLead,
     ReviewCriterion,
@@ -70,7 +69,6 @@ from agent_postmortem.sections import (
 )
 from agent_postmortem.sources import EngagementAnswer, NotPaged, Sources
 from agent_postmortem.summary import the_executive_summary
-from agent_postmortem.timing import how_soon_argus_moved
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +212,7 @@ def write_postmortem(evidence: IncidentEvidence,
         causal_chain=_the_chain_as_cited(answer, shown),
         contributing_factors=_the_factors_with_what_answers_them(evidence, measured, answer),
         action_items=_the_record_s_items_then_the_model_s(evidence, measured, answer),
-        lessons=_the_lessons_with_how_soon(answer.lessons, evidence),
+        lessons=answer.lessons,
         # Written by code, never asked of the model: every part is measured,
         # and three write-ups asked to weigh it weighed nothing.
         detection_lesson=the_detection_lesson(evidence, measured),
@@ -238,23 +236,6 @@ def write_postmortem(evidence: IncidentEvidence,
         "review": review(document, faults, reaches_a_cause=answer.reaches_a_cause,
                          rests_on_an_unrun_reading=answer.cause_rests_on_an_unrun_reading)
     })
-
-
-def _the_lessons_with_how_soon(lessons: Lessons | None,
-                               evidence: IncidentEvidence) -> Lessons | None:
-    """The model's lessons, with how soon each moment that went well came said
-    by code ahead of its own (`how_soon_argus_moved`): a span is a figure, and
-    set by the model it timed the wrong clause.
-
-    Absent only where the model gave none and the record times nothing: those
-    moments went well whether or not the model's answer could be read."""
-    timed = how_soon_argus_moved(evidence)
-    if not timed:
-        return lessons
-
-    lessons = lessons or Lessons()
-
-    return lessons.model_copy(update={"went_well": [*timed, *lessons.went_well]})
 
 
 def _the_root_cause(answer: SubmittedPostmortem) -> str | None:

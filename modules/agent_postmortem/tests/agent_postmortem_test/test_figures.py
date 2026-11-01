@@ -48,6 +48,8 @@ from agent_postmortem.figures import (
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
     Figure,
+    a_span_from_the_alert,
+    an_instant_of,
     figures_of,
     named,
     names_in,
@@ -196,6 +198,58 @@ def test_the_span_between_two_instants_is_written_in_as_one() -> None:
         ) \
         .then(
             the_answer_was(SubmittedPostmortem(root_cause="It was broken for 10 minutes."))
+        )
+
+
+@pytest.mark.unit
+def test_a_sentence_opening_with_a_working_opens_with_a_capital_once_written_in() -> None:
+    # A span of no figure is written in words, lower case: "less than a second".
+    the_same_instant = Figure(given="2026-09-02T12:00:00Z", written="12:00 UTC")
+
+    Scenario() \
+        .given(
+            an_answer_opening_with_a_span := SubmittedPostmortem(
+                root_cause=f"{{later - {ALERT_RAISED_FIGURE}}} after the alert, it was taken up.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_opening_with_a_span,
+                                         {ALERT_RAISED_FIGURE: the_same_instant,
+                                          "later": the_same_instant})
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(
+                root_cause="Less than a second after the alert, it was taken up."))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("at", "said"), [
+    ("2026-09-02T12:00:45Z", f"{{T13.1 - {ALERT_RAISED_FIGURE}}} after the alert was raised"),
+    ("2026-09-02T12:00:00Z", f"{{T13.1 - {ALERT_RAISED_FIGURE}}} after the alert was raised"),
+    ("2026-09-02T11:58:00Z", f"{{{ALERT_RAISED_FIGURE} - T13.1}} before the alert was raised")
+], ids=["after", "at", "before"])
+def test_a_span_from_the_alert_is_worked_the_larger_first(at: str, said: str) -> None:
+    # A person can write before the alert fires, and a span worked the other
+    # way round comes out below nothing.
+    Scenario() \
+        .when(
+            lambda: a_span_from_the_alert("T13.1", {
+                ALERT_RAISED_FIGURE: Figure(given="2026-09-02T12:00:00Z", written="dont care"),
+                "T13.1": Figure(given=at, written="dont care")})
+        ) \
+        .then(
+            the_answer_was(said)
+        )
+
+
+@pytest.mark.unit
+def test_a_row_s_instant_is_its_first_figure() -> None:
+    Scenario() \
+        .when(
+            lambda: an_instant_of("T13")
+        ) \
+        .then(
+            the_answer_was("T13.1")
         )
 
 

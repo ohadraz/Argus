@@ -677,6 +677,25 @@ def _said_with_names(text: str, prefix: str) -> str:
     return "".join(said)
 
 
+def an_instant_of(row: str) -> str:
+    """The name of the instant a row of the evidence opens with - its first
+    figure, as T3.1 is T3's."""
+    return f"{row}.1"
+
+
+def a_span_from_the_alert(instant: str, figures: Mapping[str, Figure]) -> str:
+    """How long after the alert - or before it - the instant named `instant`
+    came, as a working of the two for `with_figures_written` to write in:
+    "{T13.1 - alert_raised} after the alert was raised". The larger first, as
+    every span is worked out: a message a person wrote before the alert is
+    before it."""
+    if (_magnitude_shown(figures[instant], _Kind.INSTANT)
+            < _magnitude_shown(figures[ALERT_RAISED_FIGURE], _Kind.INSTANT)):
+        return f"{{{ALERT_RAISED_FIGURE} - {instant}}} before the alert was raised"
+
+    return f"{{{instant} - {ALERT_RAISED_FIGURE}}} after the alert was raised"
+
+
 def named(name: str, figure: Figure) -> str:
     """A figure as the model is shown it, with its name after it."""
     return f"{figure.given} {{{name}}}"
@@ -717,18 +736,23 @@ def with_figures_written_with_every_day(answer: SubmittedPostmortem,
 def _with_figures_written_in(answer: SubmittedPostmortem, figures: dict[str, Figure],
                              dated: Callable[[str], str]) -> SubmittedPostmortem:
     def written_in(prose: str) -> str:
+        # A sentence that opens with a figure opens with a capital once it is
+        # written in: "less than a second after the alert was raised" is
+        # written lower case.
+        opens_with_one = prose.startswith("{")
         prose = _A_WORKING_AND_A_UNIT.sub(
             lambda working: (_with_its_unit_once(dated(result), working["after"])
                              if (result := _worked_out(working, figures))
                              else working.group(0)),
             prose
         )
-
-        return _A_NAME_AND_A_UNIT.sub(
+        prose = _A_NAME_AND_A_UNIT.sub(
             lambda name: (_with_its_unit_once(figures[name.group(1)].written, name["after"])
                           if name.group(1) in figures else name.group(0)),
             prose
         )
+
+        return f"{prose[:1].upper()}{prose[1:]}" if opens_with_one else prose
 
     return answer.with_each_sentence(written_in)
 

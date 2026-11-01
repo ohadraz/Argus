@@ -56,7 +56,7 @@ from argus_core.models import (
     whether_it_can_be_put_back,
 )
 from argus_narration import where_a_report_came_from
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.evidence import ActionRecord, DeploymentChangesRecord, IncidentEvidence
@@ -171,6 +171,11 @@ ANSWERS_FIELD: Final = "answers"
 # Google's three lists.
 LESSONS_FIELD: Final = "lessons"
 WENT_WELL_FIELD: Final = "went_well"
+# The row a moment that went well happened on, by its label - which the
+# document times from the alert, so the model writes no span of its own.
+TIMED_BY_FIELD: Final = "timed_by"
+# Where the answer keeps those rows beside the items - its own, not the wire's.
+_TIMED_BY_ATTRIBUTE: Final = "went_well_timed_by"
 WENT_WRONG_FIELD: Final = "went_wrong"
 GOT_LUCKY_FIELD: Final = "got_lucky"
 # Whether the chain says why the change that set the incident off broke the
@@ -314,6 +319,14 @@ class SubmittedPostmortem(BaseModel):
     contributing_factors: list[SubmittedFactor] | None = None
     action_items: list[SubmittedItem] | None = None
     lessons: Lessons | None = None
+    # The row each item of what went well happened on, by its label, in the
+    # items' order - `None` for one whose time is not the point of it, or sent
+    # as a plain sentence. The whole list `None` where every item came as a
+    # plain sentence, as recordings made before the rows were asked for did:
+    # the shape is the answer's, and `checking` holds only the new one to it.
+    # Read off the same list the items are (`_the_rows_each_happened_on`); not
+    # a wire name, so set from that.
+    went_well_timed_by: list[str | None] | None = None
     # Never `None`: an answer that did not say reads as a chain that stopped at
     # the change, which unticks one box of the review. So `checking`, which
     # names a required field that is `None`, never sends it back - a retry spent
@@ -567,9 +580,25 @@ class SubmittedPostmortem(BaseModel):
         if not isinstance(value, dict):
             return None
 
-        return Lessons(went_well=_the_strings_in(value.get(WENT_WELL_FIELD)),
+        return Lessons(went_well=[item for item, _ in _what_went_well(value.get(WENT_WELL_FIELD))],
                        went_wrong=_the_strings_in(value.get(WENT_WRONG_FIELD)),
                        got_lucky=_the_strings_in(value.get(GOT_LUCKY_FIELD)))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _the_rows_each_happened_on(cls, value: Any) -> Any:
+        """The row each item of what went well happened on, beside the items,
+        off the same list - so the two cannot fall out of step. None at all
+        where every item is a plain sentence, the shape of the old recordings."""
+        if (not isinstance(value, dict) or _TIMED_BY_ATTRIBUTE in value
+                or not isinstance(lessons := value.get(LESSONS_FIELD), dict)):
+            return value
+
+        went_well = lessons.get(WENT_WELL_FIELD)
+        if not isinstance(went_well, list) or all(isinstance(entry, str) for entry in went_well):
+            return value
+
+        return {**value, _TIMED_BY_ATTRIBUTE: [row for _, row in _what_went_well(went_well)]}
 
     @field_validator(REACHES_A_CAUSE_FIELD, mode="before")
     @classmethod
@@ -586,6 +615,22 @@ class SubmittedPostmortem(BaseModel):
         unanswered, which `checking` asks about where it was asked - rather than
         a refusal of the whole call, or a guess the document then says."""
         return value if isinstance(value, bool) else None
+
+
+def _what_went_well(value: Any) -> list[tuple[str, str | None]]:
+    """Each item of what went well, with the row it happened on - `None` where
+    it names none, or names it in nothing but blanks. An item sent as a plain
+    sentence is one, timed by nothing: recordings made before the rows were
+    asked for sent them so."""
+    if not isinstance(value, list):
+        return []
+
+    return [(entry, None) if isinstance(entry, str)
+            else (entry[ITEM_FIELD], row.strip() or None
+                  if isinstance(row := entry.get(TIMED_BY_FIELD), str) else None)
+            for entry in value
+            if isinstance(entry, str)
+            or isinstance(entry, dict) and isinstance(entry.get(ITEM_FIELD), str)]
 
 
 def _the_strings_in(value: Any) -> list[str]:
@@ -899,27 +944,36 @@ SUBMIT_POSTMORTEM = ToolDefinition(
         ),
         LESSONS_FIELD: {
             "type": "object",
-            # How soon is said by code (`timing`): set by the model, a span
-            # timed the wrong clause in two of nine write-ups of one incident.
-            # In no words either: a write-up praised Argus for acting "within
-            # seconds" when it took 41.
-            "properties": {WENT_WELL_FIELD: {
-                               **_SENTENCES,
-                               "description": (
-                                   "Ahead of these, the document already says, where the "
-                                   "record holds each, how long after the alert was "
-                                   "raised the cause Argus acted on "
-                                   "was formed, that action taken and confirmed, and a "
-                                   "fix proposed: leave those out, and say no span of "
-                                   "time here, in figures or in words (\"within "
-                                   "seconds\"). "
-                                   "Set a purpose or a reason beside the action it "
-                                   "belongs to, and say it once. "
-                                   "Name what Code-Fix proposed without saying what it "
-                                   "does: the action items and Code-Fix's own reading "
-                                   "say that, with its conditions."
-                               )
-                           },
+            # How soon is said by code (`timing`), off the row the model names:
+            # set by the model, a span timed the wrong clause in two of nine
+            # write-ups of one incident. In no words either: a write-up praised
+            # Argus for acting "within seconds" when it took 41. And one thing
+            # per item, since one time is said for the whole of it.
+            "properties": {WENT_WELL_FIELD: _a_list_of(
+                               {ITEM_FIELD: {"type": "string"},
+                                TIMED_BY_FIELD: {
+                                    "type": "string",
+                                    "description": (
+                                        "The T or XW row the item happened on (T13), "
+                                        "where when it happened is part of why it went "
+                                        "well: the document says how long after the "
+                                        "alert that was. Left out where its time is not "
+                                        "the point."
+                                    )
+                                }},
+                               [ITEM_FIELD],
+                               "Only what went well; empty where nothing did. A timed "
+                               "item says one thing, done at its row; what came later "
+                               "goes in an item of its own. Say no span of time, in "
+                               "figures or in words (\"within seconds\"): name the row "
+                               f"in {TIMED_BY_FIELD} instead, and begin an item timed so "
+                               "with who did it (\"The Investigator Agent ...\", "
+                               "\"Argus ...\"), since the document says the time ahead "
+                               "of it. Set a purpose or a reason beside the action it "
+                               "belongs to, and say it once. Name what Code-Fix proposed "
+                               "without saying what it does: the action items and "
+                               "Code-Fix's own reading say that, with its conditions."
+                           ),
                            # Left off so a rollback holds, automatic sync was
                            # listed here as well as in the resolution and the
                            # record's own item - and called a failure when it

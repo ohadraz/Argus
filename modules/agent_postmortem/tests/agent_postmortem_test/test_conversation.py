@@ -35,6 +35,7 @@ from agent_postmortem.ordering import ORDER_FIELD
 from agent_postmortem.prompting import (
     CAUSE_IN_PLAIN_WORDS_FIELD,
     CITES_FIELD,
+    ITEM_FIELD,
     LEAD_EFFECTS_FIELD,
     LOGS_SHOW_SERVING_AS_BEFORE_FIELD,
     REACHES_A_CAUSE_FIELD,
@@ -43,12 +44,13 @@ from agent_postmortem.prompting import (
     STEP_FIELD,
     STILL_AT_RISK_FIELD,
     STOPS_THE_HARM_FIELD,
+    TIMED_BY_FIELD,
     WENT_WELL_FIELD,
     WHAT_FIELD,
     WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
-from argus_core import to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
 from argus_core.models import (
     Ask,
@@ -1210,6 +1212,105 @@ def test_a_flag_only_argus_read_that_a_candidate_blamed_in_other_words_is_one_it
 
 
 @pytest.mark.unit
+def test_an_item_of_what_went_well_timed_by_a_row_is_read_after_its_span_from_the_alert(
+) -> None:
+    # The model names the row and writes no span; the reading says the span
+    # first, worked out from the row's instant as the brief showed it.
+    the_alert = parse_iso("2026-09-02T12:00:00Z")
+
+    Scenario() \
+        .given(
+            a_model_timing_an_item := a_model_answering_in_turn(
+                an_answer(lessons={WENT_WELL_FIELD: [
+                    {ITEM_FIELD: "The Investigator Agent formed C1.", TIMED_BY_FIELD: "T1"}]}))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_timing_an_item,
+                an_evidence_bundle(
+                    alerted_at=the_alert,
+                    timeline=[a_timeline_entry("dont care", at=the_alert + timedelta(seconds=45),
+                                               who="Investigator Agent")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _found_no_fault(),
+                _what_went_well_read(["45 seconds after the alert was raised, the Investigator "
+                                      "Agent formed C1."])
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_item_timed_by_a_row_may_open_with_whoever_the_timeline_says_did_it() -> None:
+    # Who did it is whoever the record's lines are said by - an agent, or a
+    # person writing in the thread - so what an item may open with comes off
+    # the timeline, not a list of names.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model_timing_an_item := a_model_answering_in_turn(
+                an_answer(lessons={WENT_WELL_FIELD: [
+                    {ITEM_FIELD: "Code-Fix proposed PR #7.", TIMED_BY_FIELD: "T1"}]}),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_timing_an_item,
+                an_evidence_bundle(timeline=[a_timeline_entry("dont care",
+                                                              who="Code-Fix Agent")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_an_item_timed_by_a_row_that_is_not_the_timeline_s_is_asked_for_once_more() -> None:
+    # A candidate's first figure is no instant anything was done at - here a
+    # share of requests, which timed as one failed the whole write-up. Sent
+    # back instead, and the item timed by the row the model names next.
+    asks: Kept[Transcript] = Kept()
+    the_alert = parse_iso("2026-09-02T12:00:00Z")
+
+    Scenario() \
+        .given(
+            a_model_timing_by_a_candidate := a_model_answering_in_turn(
+                an_answer(lessons={WENT_WELL_FIELD: [
+                    {ITEM_FIELD: "The Investigator Agent formed C1.", TIMED_BY_FIELD: "C1"}]}),
+                an_answer(lessons={WENT_WELL_FIELD: [
+                    {ITEM_FIELD: "The Investigator Agent formed C1.", TIMED_BY_FIELD: "T1"}]}),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_timing_by_a_candidate,
+                an_evidence_bundle(
+                    alerted_at=the_alert,
+                    timeline=[a_timeline_entry("dont care", at=the_alert + timedelta(seconds=45),
+                                               who="Investigator Agent")],
+                    candidates=[a_candidate("The error rate rose to 33% of requests.")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _the_last_correction_named(asks, "timed by [C1], which is no row of the "
+                                                 "timeline"),
+                _found_no_fault(),
+                _what_went_well_read(["45 seconds after the alert was raised, the Investigator "
+                                      "Agent formed C1."])
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_credit_moved_into_another_item_is_asked_for_once_more() -> None:
     # Told of it in a lesson, a rewrite that says it in what a step ruled out
     # makes a fault it was never told of there.
@@ -1480,6 +1581,19 @@ def _answered_with(field: str, expected: str) -> Assertion[Reading]:
         if getattr(answer, field) != expected:
             raise AssertionError(
                 f"Expected [{field}] to be [{expected}], got [{getattr(answer, field)}].")
+
+        return True
+
+    return assertion
+
+
+def _what_went_well_read(expected: list[str]) -> Assertion[Reading]:
+    def assertion(reading: Reading) -> bool:
+        answer, _ = reading
+        read = answer.lessons.went_well if answer.lessons is not None else None
+
+        if read != expected:
+            raise AssertionError(f"Expected what went well to read {expected}, got {read}.")
 
         return True
 

@@ -1,178 +1,105 @@
-"""How soon after the alert Argus did what went well, said by code."""
+"""How soon after the alert each moment that went well came, said by code."""
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
-from agent_postmortem import ActionRecord
-from agent_postmortem.timing import how_soon_argus_moved
-from argus_core.models import ForCandidate, OpenedPullRequest, TimelineEntry, Verdict
+from agent_postmortem.figures import ALERT_RAISED_FIGURE, Figure
+from agent_postmortem.prompting import SubmittedPostmortem
+from agent_postmortem.timing import with_each_moment_timed
+from argus_core.models import Lessons
 from argus_testkit import Scenario, the_answer_was
 
-from agent_postmortem_test.framework.builders import (
-    STARTED_AT,
-    a_timeline_entry,
-    an_action,
-    an_evidence_bundle,
-)
+# The alert, a row of the walk after it and a person's line before it, each as
+# the brief showed its instant - and a candidate's claimed instant and a log
+# group's count, the first figures of rows that are not the timeline's.
+SOME_FIGURES = {
+    ALERT_RAISED_FIGURE: Figure(given="2026-09-02T12:00:00Z", written="12:00 UTC"),
+    "T13.1": Figure(given="2026-09-02T12:00:45Z", written="12:00:45 UTC"),
+    "XW1.1": Figure(given="2026-09-02T11:58:00Z", written="11:58 UTC"),
+    "C1.1": Figure(given="2026-09-02T11:54:00Z", written="11:54 UTC"),
+    "G7e5d.1": Figure(given="200", written="200")
+}
 
-SOME_ALERT = STARTED_AT
-SOME_PULL_REQUEST = OpenedPullRequest(number=7, url="https://github.com/kuki/shop/pull/7",
-                                      branch="argus/kuki")
-
-
-def _forming(seconds: float, who: str | None = "Investigator Agent") -> TimelineEntry:
-    """A line that formed the first candidate, `seconds` after the alert."""
-    return a_timeline_entry("dont care", at=SOME_ALERT + timedelta(seconds=seconds)) \
-        .model_copy(update={"who": who, "candidates": [0]})
+# The timeline's own rows.
+SOME_TIMELINE_ROWS = frozenset({"T13", "XW1"})
 
 
-def _for_the_first(seconds: float, who: str = "Mitigation Agent") -> TimelineEntry:
-    """A line that acted for the first candidate, `seconds` after the alert."""
-    return a_timeline_entry("dont care", at=SOME_ALERT + timedelta(seconds=seconds), who=who) \
-        .model_copy(update={"for_candidate": ForCandidate(place=0, said_as="dont care")})
-
-
-def _confirmed(action: str, line: int, judged: float | None = None) -> ActionRecord:
-    """An action for the first candidate, said on `line`, that the service
-    confirmed - `judged` seconds after the alert, where a test says when."""
-    return an_action(action, verdict=Verdict.CONFIRMED, line=line).model_copy(update={
-        "candidate": 1,
-        "judged_at": SOME_ALERT + timedelta(seconds=judged) if judged is not None else None})
+def _an_answer_saying(*went_well: tuple[str, str | None]) -> SubmittedPostmortem:
+    """An answer whose items of what went well are each timed by the row
+    beside it, or by nothing."""
+    return SubmittedPostmortem(lessons=Lessons(went_well=[item for item, _ in went_well]),
+                               went_well_timed_by=[row for _, row in went_well])
 
 
 @pytest.mark.unit
-def test_a_confirmed_action_is_timed_from_the_alert_by_whoever_said_each_moment() -> None:
+def test_an_item_timed_by_a_row_is_said_after_how_long_from_the_alert_that_row_came() -> None:
     # Set by the model, the confirmation's span came after "brought the
     # service back", so it read as a three-minute recovery from a service back
-    # in one. Each span opens its sentence here, and what the verdict measured
-    # is said as it measured it: no longer at the incident's level. The verdict
-    # is dated by the record, and said by whoever took the action: its own
-    # line ("Judged the action CONFIRMED") names no candidate.
+    # in one. Said first, the span times the whole item; the article it opened
+    # with is lowered as the sentence goes on.
     Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                alerted_at=SOME_ALERT,
-                timeline=[_forming(10), _for_the_first(60),
-                          a_timeline_entry("Judged the action CONFIRMED",
-                                           at=SOME_ALERT + timedelta(seconds=190))],
-                actions=[_confirmed("Reverted the feature flag kuki", line=1, judged=190)])
-        ) \
         .when(
-            lambda: how_soon_argus_moved(evidence)
+            lambda: with_each_moment_timed(
+                _an_answer_saying(("The Investigator Agent formed C1.", "T13")), SOME_FIGURES,
+                SOME_TIMELINE_ROWS)
+            .lessons
         ) \
         .then(
-            the_answer_was([
-                "10 seconds after the alert was raised, the Investigator Agent formed the "
-                "cause that was acted on, C1.",
-                "1 minute after the alert was raised, the Mitigation Agent reverted the "
-                "feature flag kuki.",
-                "3 minutes 10 seconds after the alert was raised, the Mitigation Agent "
-                "confirmed the service was no longer at the incident's level."
-            ])
+            the_answer_was(Lessons(went_well=[
+                f"{{T13.1 - {ALERT_RAISED_FIGURE}}} after the alert was raised, the "
+                f"Investigator Agent formed C1."]))
         )
 
 
 @pytest.mark.unit
-def test_a_cause_is_timed_from_the_line_that_first_formed_it() -> None:
-    # A later round can list the same candidate again; it was formed when it
-    # was first said.
+def test_an_item_timed_by_a_row_before_the_alert_is_said_before_it() -> None:
+    # A person can write before the alert fires; a span worked the other way
+    # round comes out below nothing.
     Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                alerted_at=SOME_ALERT,
-                timeline=[_forming(10), _forming(40), _for_the_first(60)],
-                actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
-                                   line=2).model_copy(update={"candidate": 1})])
-        ) \
         .when(
-            lambda: how_soon_argus_moved(evidence)[0]
+            lambda: with_each_moment_timed(
+                _an_answer_saying(("Argus took the report in", "XW1")), SOME_FIGURES,
+                SOME_TIMELINE_ROWS).lessons
         ) \
         .then(
-            the_answer_was("10 seconds after the alert was raised, the Investigator Agent "
-                           "formed the cause that was acted on, C1.")
+            the_answer_was(Lessons(went_well=[
+                f"{{{ALERT_RAISED_FIGURE} - XW1.1}} before the alert was raised, Argus took "
+                f"the report in."]))
         )
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("verdict", [Verdict.REFUTED, None], ids=["refuted", "never-judged"])
-def test_an_action_nothing_confirmed_is_not_timed(verdict: str | None) -> None:
-    # A refuted action did not go well, and one a person's report stopped
-    # before Argus judged it confirmed nothing.
+@pytest.mark.parametrize("went_well", [
+    [("Argus read the flag provider's history.", None)],
+    [("Argus read the flag provider's history.", "T99")],
+    [("Argus read the flag provider's history.", "C1")],
+    [("Argus read the flag provider's history.", "G7e5d")]
+], ids=["timed-by-nothing", "a-row-with-no-instant", "a-candidate-s-claimed-instant",
+        "a-log-group-s-count"])
+def test_an_item_with_no_row_of_the_timeline_to_time_it_by_is_left_as_written(
+        went_well: list[tuple[str, str | None]]) -> None:
+    # Any other row is the check's to send back. A candidate's first figure is
+    # the instant it claims, and timed by it an item said when nothing was done;
+    # a log group's is a count, which no span is worked out from.
     Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                alerted_at=SOME_ALERT,
-                timeline=[_forming(10), _for_the_first(60)],
-                actions=[an_action("dont care", verdict=verdict,
-                                   line=1).model_copy(update={"candidate": 1})])
-        ) \
         .when(
-            lambda: how_soon_argus_moved(evidence)
+            lambda: with_each_moment_timed(_an_answer_saying(*went_well), SOME_FIGURES,
+                                           SOME_TIMELINE_ROWS).lessons
         ) \
         .then(
-            the_answer_was([])
+            the_answer_was(Lessons(went_well=["Argus read the flag provider's history."]))
         )
 
 
 @pytest.mark.unit
-def test_a_proposed_fix_is_timed_from_the_alert_among_the_rest() -> None:
-    # The pull request is what a reader opens next, and told to say no span of
-    # its own, the model can no longer time it.
+def test_what_went_well_sent_as_sentences_is_left_as_written() -> None:
+    # The shape answers recorded before rows were asked for came in.
     Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                alerted_at=SOME_ALERT,
-                timeline=[_forming(10), _for_the_first(60)],
-                actions=[_confirmed("Reverted the feature flag kuki", line=1, judged=300)],
-                pull_request=SOME_PULL_REQUEST
-            ).model_copy(update={"pull_request_opened_at": SOME_ALERT + timedelta(seconds=120)})
-        ) \
         .when(
-            lambda: how_soon_argus_moved(evidence)[2]
+            lambda: with_each_moment_timed(
+                SubmittedPostmortem(lessons=Lessons(went_well=["THE FIRST", "THE SECOND"])),
+                SOME_FIGURES, SOME_TIMELINE_ROWS).lessons
         ) \
         .then(
-            the_answer_was("2 minutes after the alert was raised, Code-Fix proposed a draft "
-                           "fix, PR #7.")
-        )
-
-
-@pytest.mark.unit
-def test_a_span_is_worked_out_from_the_instants_as_the_rows_show_them() -> None:
-    # The rows show each instant to the second; worked out from the fractions
-    # instead, a span would disagree with the two rows beside it.
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                alerted_at=SOME_ALERT + timedelta(seconds=0.9),
-                timeline=[_forming(10.1), _for_the_first(60)],
-                actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
-                                   line=1).model_copy(update={"candidate": 1})])
-        ) \
-        .when(
-            lambda: how_soon_argus_moved(evidence)[0]
-        ) \
-        .then(
-            the_answer_was("10 seconds after the alert was raised, the Investigator Agent "
-                           "formed the cause that was acted on, C1.")
-        )
-
-
-@pytest.mark.unit
-def test_a_moment_on_a_line_naming_nobody_is_said_as_argus_s() -> None:
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(
-                alerted_at=SOME_ALERT,
-                timeline=[_forming(10, who=None), _for_the_first(60)],
-                actions=[an_action("dont care", verdict=Verdict.CONFIRMED,
-                                   line=1).model_copy(update={"candidate": 1})])
-        ) \
-        .when(
-            lambda: how_soon_argus_moved(evidence)[0]
-        ) \
-        .then(
-            the_answer_was("10 seconds after the alert was raised, Argus formed the cause that "
-                           "was acted on, C1.")
+            the_answer_was(Lessons(went_well=["THE FIRST", "THE SECOND"]))
         )

@@ -82,6 +82,8 @@ from agent_postmortem.prompting import (
     SYMPTOM_FIELD,
     SYMPTOM_WORDS_AT_MOST,
     THE_CAUSE_FIELDS,
+    TIMED_BY_FIELD,
+    WENT_WELL_FIELD,
     WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
@@ -96,6 +98,7 @@ from agent_postmortem.sections import (
     is_a_code_reading,
     label_of,
 )
+from agent_postmortem.timing import LOWERED_AFTER_A_SPAN
 
 # A number said in a word: a count, a ten, a power of ten, or the fraction a
 # decimal is read out in.
@@ -215,6 +218,15 @@ _A_DERIVATION: Final = re.compile(
 _A_LIST_GAP: Final = re.compile(r"(?:\s|,|\band\b|\bor\b|\bthe\b)*", re.IGNORECASE)
 _CLOSE_AFTER: Final = re.compile(r"\s*(?:\w+\s+){0,3}")
 
+# A working of two figures, as the model writes one: "{T13.1 - alert_raised}".
+_A_WORKING: Final = re.compile(r"\{[^{}]+\s[-+*/]\s[^{}]+\}")
+# What an item timed by a row may open with besides the first word of who said
+# a line: an article the sentence lowers after the span, or Argus.
+_A_TIMED_ITEM_S_OPENINGS: Final = frozenset({*LOWERED_AFTER_A_SPAN, "Argus"})
+# What a first word may carry after the name it is - "Argus's", "Argus," - and
+# still open the item with who did it.
+_A_WORD_S_TAIL: Final = re.compile(r"(?:['’]s)?\W*$")
+
 # What every fault about a figure asks for instead.
 _STATE_IT_BY_ITS_NAME: Final = (
     "write a figure the incident gave as the name shown after it, braces and all, "
@@ -261,6 +273,14 @@ class Given(BaseModel):
     # rate"), lowercased - taken to be none of them the service's rate over all
     # its requests, which no log line names today.
     rates_the_logs_name: frozenset[str] = frozenset()
+    # The first word of each name a line of the timeline is said by ("Argus",
+    # "Investigator", "Code-Fix", a person's) - what an item timed by a row may
+    # begin with, the document saying its time ahead of it.
+    speakers: frozenset[str] = frozenset()
+    # The labels of the timeline's own rows, the T and XW ones - the only rows
+    # an item of what went well may be timed by: another row's first figure
+    # is a claim's instant or a count, not when anything was done.
+    timeline_rows: frozenset[str] = frozenset()
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -311,7 +331,8 @@ def faults_by_check(answer: SubmittedPostmortem,
         partial(_units_against_their_figures, answer, given),
         partial(_the_service_s_rate_called_a_log_s, answer, given),
         partial(_revisions_nobody_read, answer, given),
-        partial(_the_investigator_beside_what_it_never_read, answer, given)]
+        partial(_the_investigator_beside_what_it_never_read, answer, given),
+        partial(_moments_timed_out_of_shape, answer, given)]
 
     found: dict[str, list[str]] = {}
     for check in checks:
@@ -1052,6 +1073,46 @@ def _the_investigator_beside_what_it_never_read(answer: SubmittedPostmortem,
                            f"only by Argus's read of the flag provider's history - the "
                            f"Investigator never read it: credit it to that read, or leave the "
                            f"Investigator out of this item"))
+
+    return faults
+
+
+def _moments_timed_out_of_shape(answer: SubmittedPostmortem, given: Given) -> _Placed:
+    """Each item of what went well the document cannot time as it stands: one
+    saying a span of its own, or one timed by a row that is not the
+    timeline's, or not opening with who did it.
+
+    The document says the span ahead of the item, worked out from the row: a
+    span of the model's says the time twice beside one, and is the model's
+    span again beside none - which, set by the model, timed the wrong clause.
+    Opening with who did it is what lets the item go on after the span as a
+    sentence - "When the evidence could not support a cause, Argus escalated"
+    does not. Nothing of an answer whose every item came as a plain sentence:
+    that is the shape answers came in before rows were asked for.
+    """
+    if answer.lessons is None or answer.went_well_timed_by is None:
+        return []
+
+    faults: _Placed = []
+    for position, (item, row) in enumerate(zip(answer.lessons.went_well, answer.went_well_timed_by,
+                                               strict=False), start=1):
+        place = f"{WENT_WELL_FIELD} {position}"
+        if _A_WORKING.search(item):
+            faults.append((place, f"[{item}] says a span of its own: the document says how "
+                                  f"long after the alert a moment came, ahead of the item, "
+                                  f"off the row named in {TIMED_BY_FIELD} - leave the span out"))
+        if row is None:
+            continue
+
+        if row not in given.timeline_rows:
+            faults.append((place, f"[{item}] is timed by [{row}], which is no row of the "
+                                  f"timeline: name the T or XW row it happened on, or leave "
+                                  f"{TIMED_BY_FIELD} out"))
+        if (_A_WORD_S_TAIL.sub("", item.split(" ", 1)[0])
+                not in _A_TIMED_ITEM_S_OPENINGS | given.speakers):
+            faults.append((place, f"[{item}] is timed by [{row}], so the document says its "
+                                  f"time ahead of it: begin it with who did it, as the row "
+                                  f"names them"))
 
     return faults
 

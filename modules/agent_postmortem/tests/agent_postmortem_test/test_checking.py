@@ -124,6 +124,22 @@ SOME_GIVEN_WITH_A_LOGGED_RATE = SOME_GIVEN.model_copy(update={
     "rates_the_logs_name": frozenset({"account page error rate"}),
     "figures": {name: DONT_CARE_FIGURE for name in ("errors_before", "Gbac1.5")}})
 
+# What a model shown a row of the walk, said by the Investigator Agent, was
+# given: the row, and who its lines are said by - beside a candidate and a log
+# group, whose first figures are no instant anything was done at.
+SOME_GIVEN_WITH_A_ROW = SOME_GIVEN.model_copy(update={
+    "figures": {"T13.1": Figure(given="2026-09-02T12:00:45Z", written="12:00:45 UTC"),
+                **{name: DONT_CARE_FIGURE for name in ("C1.1", "G7e5d.1")}},
+    "speakers": frozenset({"Investigator"}),
+    "timeline_rows": frozenset({"T13"})})
+
+
+def _timed(item: str, row: str | None) -> SubmittedPostmortem:
+    """An answer that passes every check but for one item of what went well,
+    timed by `row` - in the shape rows are asked for in."""
+    return _an_answer(lessons=Lessons(went_well=[item])).model_copy(
+        update={"went_well_timed_by": [row]})
+
 
 @pytest.mark.unit
 def test_a_required_field_the_model_left_out_is_named() -> None:
@@ -294,6 +310,117 @@ def test_the_service_s_error_rate_said_beside_a_rate_its_logs_name_is_accepted()
         ) \
         .when(
             lambda: faults_in(an_answer_naming_each, given=SOME_GIVEN_WITH_A_LOGGED_RATE)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("row", ["T99", "C1", "G7e5d"],
+                         ids=["a-row-nobody-showed", "a-candidate", "a-log-group"])
+def test_an_item_timed_by_a_row_that_is_not_the_timeline_s_is_named(row: str) -> None:
+    # The document times the item off the row's instant. A candidate's first
+    # figure is the instant it claims - timed by it, "The Investigator Agent
+    # formed C1" came out six minutes before the alert - and a log group's is a
+    # count; a time guessed for a row nobody showed would be one nobody measured.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("The Investigator Agent formed C1.", row),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            all_of(
+                _named(f"timed by [{row}], which is no row of the timeline"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("row", ["T13", None], ids=["timed-by-a-row", "timed-by-nothing"])
+def test_an_item_saying_a_span_of_its_own_is_named(row: str | None) -> None:
+    # The document says the span ahead of the item: one of the model's beside
+    # it says the time twice, and set by the model a span timed the wrong
+    # clause - "brought the service back from the incident's level {T20.1 -
+    # alert_raised} after the alert was raised". Beside no row it is the
+    # model's span back again.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("The Investigator Agent formed C1 {T13.1 - T13.1} in.",
+                                     row),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            all_of(
+                _named("says a span of its own"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_went_well_sent_as_sentences_is_held_to_none_of_it() -> None:
+    # The shape answers recorded before rows were asked for came in, a span of
+    # the model's own among them.
+    Scenario() \
+        .when(
+            lambda: faults_in(
+                _an_answer(lessons=Lessons(went_well=[
+                    "The Investigator Agent formed C1 {T13.1 - T13.1} in."])),
+                given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_an_item_timed_by_a_row_not_opening_with_who_did_it_is_named() -> None:
+    # It goes on after the span as a sentence, which "When the evidence could
+    # not support a cause, Argus escalated" does not.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("When the evidence could not support a cause, Argus "
+                                     "escalated.", "T13"),
+                              given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            all_of(
+                _named("begin it with who did it"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("item", [
+    "The Investigator Agent formed C1.",
+    "Investigator Agent formed C1.",
+    "Argus formed C1.",
+    "A worker took the incident up.",
+    "Argus's read of the flag history found P2.",
+    "Argus, which held the incident, escalated it."
+], ids=["an-article", "a-speaker", "argus", "another-article", "a-possessive",
+        "a-name-and-a-comma"])
+def test_an_item_timed_by_a_row_opening_with_who_did_it_is_accepted(item: str) -> None:
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed(item, "T13"), given=SOME_GIVEN_WITH_A_ROW)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_an_item_timed_by_nothing_is_held_to_no_opening() -> None:
+    # Said as written: no span goes ahead of it.
+    Scenario() \
+        .when(
+            lambda: faults_in(_timed("When the evidence could not support a cause, Argus "
+                                     "escalated.", None),
+                              given=SOME_GIVEN_WITH_A_ROW)
         ) \
         .then(
             _found_nothing_wrong()
