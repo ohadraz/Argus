@@ -154,10 +154,13 @@ _A_PLACE_IN_A_FILE: Final = frozenset({"line", "lines"})
 # The words a range is opened with, and the dash a range figure is written
 # with: "between {G}" where G writes in as "21:41–22:01" opens it twice. And
 # the words that place a moment, after which a range is a span where the
-# sentence wants one instant: "first appears at {G}" read "at 14:46–14:53".
+# sentence wants one instant: "first appears at {G}" read "at 14:46–14:53",
+# and "logged as on through {G}" read "through 14:46–14:53", where the
+# sentence wants the minute the span ends.
 _WORDS_THAT_OPEN_A_RANGE: Final = frozenset({"between", "from"})
-_WORDS_THAT_PLACE_A_MOMENT: Final = frozenset({"at", "by", "since", "until", "before",
-                                               "after"})
+_WORDS_THAT_PLACE_A_MOMENT: Final = frozenset({"at", "by", "since", "until", "till",
+                                               "through", "to", "before", "after", "past",
+                                               "around", "about", "near"})
 _WORDS_A_RANGE_MAY_NOT_FOLLOW: Final = _WORDS_THAT_OPEN_A_RANGE | _WORDS_THAT_PLACE_A_MOMENT
 _A_RANGE_DASH: Final = re.compile(r"[–—]")
 

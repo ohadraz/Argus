@@ -691,10 +691,13 @@ def test_a_range_figure_after_a_word_that_opens_a_range_is_named(before: str) ->
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("before", ["at", "by", "since", "until", "before", "after", "At"])
+@pytest.mark.parametrize("before", ["at", "by", "since", "until", "till", "through", "to",
+                                    "before", "after", "past", "around", "about", "near",
+                                    "At"])
 def test_a_range_figure_after_a_word_that_places_a_moment_is_named(before: str) -> None:
     # "This error first appears at {G}" read "first appears at 14:46–14:53": a
-    # span where the sentence wanted its first minute.
+    # span where the sentence wanted its first minute. And "logged as on
+    # through {G}" read "through 14:46–14:53": a span where it wanted its last.
     Scenario() \
         .given(
             an_answer_placing_a_range := _an_answer(
