@@ -29,7 +29,9 @@ from typing import Any
 RECORDINGS_DIR = Path(__file__).resolve().parents[2] / "recordings"
 
 # What a stored question's file name ends in, before `.json`. A recording's
-# name never ends in it, so the two cannot be mistaken for each other.
+# name never ends in it, so the two cannot be mistaken for each other. Private,
+# with the two functions below as the only way in: spelled again by each script
+# that moves recordings, it was three spellings of one name.
 _QUESTION_SUFFIX = ".request"
 
 
@@ -41,8 +43,15 @@ def _path_for(name: str) -> Path:
     return RECORDINGS_DIR / f"{name}.json"
 
 
-def _question_path_for(name: str) -> Path:
-    return RECORDINGS_DIR / f"{name}{_QUESTION_SUFFIX}.json"
+def question_beside(answer: Path) -> Path:
+    """Where the question the answer stored at `answer` was given to is
+    stored: beside it, under its name with `.request` before `.json`."""
+    return answer.with_name(f"{answer.stem}{_QUESTION_SUFFIX}{answer.suffix}")
+
+
+def is_a_question(path: Path) -> bool:
+    """Whether the file at `path` is a stored question rather than an answer."""
+    return path.stem.endswith(_QUESTION_SUFFIX)
 
 
 def available() -> list[str]:
@@ -50,8 +59,7 @@ def available() -> list[str]:
     questions stored beside them."""
     if not RECORDINGS_DIR.exists():
         return []
-    return sorted(path.stem for path in RECORDINGS_DIR.glob("*.json")
-                  if not path.stem.endswith(_QUESTION_SUFFIX))
+    return sorted(path.stem for path in RECORDINGS_DIR.glob("*.json") if not is_a_question(path))
 
 
 def load(name: str) -> dict[str, Any]:
@@ -88,13 +96,13 @@ def save_question(name: str, body: dict[str, Any]) -> Path:
     pair, and a question left over from an earlier recording would describe an
     answer that is no longer on disk.
     """
-    return _write(_question_path_for(name), body)
+    return _write(question_beside(_path_for(name)), body)
 
 
 def load_question(name: str) -> dict[str, Any] | None:
     """The request `name`'s answer was given to - or `None` for an answer
     recorded before questions were kept, which nothing can be compared with."""
-    path = _question_path_for(name)
+    path = question_beside(_path_for(name))
     if not path.exists():
         return None
     body: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))

@@ -51,7 +51,7 @@ import psycopg
 from agent_investigator.tools.answer import ANSWER_TOOL
 from agent_postmortem import WRITE_UP_TOOLS
 from agent_postmortem.prompting import SUBMIT_TOOL_NAME
-from anthropic_double.recordings import RECORDINGS_DIR, load
+from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
 from argus_core import get_settings, to_iso, utc_now
 from argus_core.events import (
     ActionRecommended,
@@ -1573,22 +1573,6 @@ def _the_set_named(name: str) -> list[Path]:
     return sorted(belonging, key=lambda path: int(path.stem[len(name) + 1:] or 1))
 
 
-# What the question an answer was given to is stored under, beside the answer
-# (`anthropic_double.recordings`, which keeps the spelling private).
-_QUESTION_SUFFIX: Final = ".request"
-
-
-def _the_question_beside(answer: Path) -> Path:
-    """Where the question `answer` was given to is stored.
-
-    Moved and deleted with its answer, never apart from it: a question left
-    beside an answer it was not asked for tells the double the question
-    changed when it did not, and one left behind a deleted answer describes
-    nothing on disk.
-    """
-    return answer.with_name(f"{answer.stem}{_QUESTION_SUFFIX}{answer.suffix}")
-
-
 def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[Path]:
     """Deletes the answers of the previous recording this run did not replace.
 
@@ -1617,7 +1601,7 @@ def _discard_what_was_not_answered_again(name: str, started_at: float) -> list[P
     ]
     for path in stale:
         path.unlink()
-        _the_question_beside(path).unlink(missing_ok=True)
+        question_beside(path).unlink(missing_ok=True)
 
     return stale
 
@@ -1685,14 +1669,14 @@ def _the_walk_is_taken_from(source: str, stored: str, whole: bool = False) -> No
 
     for old in _the_set_named(stored):
         old.unlink()
-        _the_question_beside(old).unlink(missing_ok=True)
+        question_beside(old).unlink(missing_ok=True)
 
     for position, answer in enumerate(taken):
         named = stored if position == 0 else f"{stored}-{position + 1}"
         shutil.copyfile(answer, RECORDINGS_DIR / f"{named}.json")
-        if _the_question_beside(answer).exists():
-            shutil.copyfile(_the_question_beside(answer),
-                            _the_question_beside(RECORDINGS_DIR / f"{named}.json"))
+        if question_beside(answer).exists():
+            shutil.copyfile(question_beside(answer),
+                            question_beside(RECORDINGS_DIR / f"{named}.json"))
 
     anchor = the_anchor_file_for(source)
     if anchor.exists():
@@ -1723,15 +1707,15 @@ def _put_the_write_up_in_place(stored: str, begins: int) -> list[str]:
 
     for old in _the_set_named(stored)[begins:]:
         old.unlink()
-        _the_question_beside(old).unlink(missing_ok=True)
+        question_beside(old).unlink(missing_ok=True)
 
     for offset, answer in enumerate(afresh):
         position = begins + offset
         named = stored if position == 0 else f"{stored}-{position + 1}"
-        asked = _the_question_beside(answer)
+        asked = question_beside(answer)
         answer.rename(RECORDINGS_DIR / f"{named}.json")
         if asked.exists():
-            asked.rename(_the_question_beside(RECORDINGS_DIR / f"{named}.json"))
+            asked.rename(question_beside(RECORDINGS_DIR / f"{named}.json"))
 
     return [answer.stem for answer in _the_set_named(stored)]
 
