@@ -4009,6 +4009,27 @@ def test_each_why_is_asked_to_answer_the_step_directly_before_it() -> None:
 
 
 @pytest.mark.unit
+def test_each_step_is_asked_to_cite_what_another_section_says_rather_than_say_it_again() -> None:
+    # A write-up's first step gave the impact's figures again, its first why
+    # told the rollback the resolution already holds, and its last why nearly
+    # copied the root cause - the mechanism said three times on one page.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[CAUSAL_CHAIN_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Where the record holds them",
+                                      "cites the row that shows one of those and does not say "
+                                      "it again", "no figure the impact gives",
+                                      "no action Argus took, nor its verdict, in the step "
+                                      "naming the change",
+                                      "where the chain says why the change broke the service, "
+                                      "its last step says that in one sentence, its mechanism "
+                                      "left to the root cause")
+        )
+
+
+@pytest.mark.unit
 def test_the_cause_is_asked_to_say_what_else_the_record_ruled_out() -> None:
     # A write-up once said, unasked, that the earlier deploy came hours before
     # the onset and no flag had changed, so neither explained it. Asked for
@@ -4484,6 +4505,25 @@ def test_what_went_wrong_is_asked_not_to_say_the_root_cause_or_a_factor_again() 
         ) \
         .then(
             _the_description_mentions("root cause or a contributing factor again")
+        )
+
+
+@pytest.mark.unit
+def test_what_went_wrong_is_asked_not_to_say_what_code_fix_read_again() -> None:
+    # A write-up listed under what went wrong that Code-Fix read main rather
+    # than the revision that ran - which its summary, its last why and Code-Fix's
+    # own reading said already, beside a root cause marked unverified.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [WENT_WRONG_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Code-Fix read another revision than the one that ran",
+                                      "nothing ran its reading",
+                                      "where the record holds them, the document says the "
+                                      "first in its summary and the second beside the root "
+                                      "cause")
         )
 
 

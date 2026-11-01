@@ -853,6 +853,13 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "wrong, that and what was seen instead - and each step after it answers "
             "why the step directly before it happened. The first why says why the "
             "symptom happened, not the symptom again in more detail. Where the "
+            "record holds them, the document says itself how bad it got, which "
+            "change set it off, what put the service back and the root cause: a "
+            "step cites the row that shows one of those and does not say it again "
+            "- no figure the impact gives in the first step, no action Argus took, "
+            "nor its verdict, in the step naming the change, and, where the chain "
+            "says why the change broke the service, its last step says that in one "
+            "sentence, its mechanism left to the root cause. Where the "
             "incident needed two things at once - something going wrong, and "
             "nothing in place to contain it - follow the one that leads to what set "
             f"it off; the other is one of the {CONTRIBUTING_FACTORS_FIELD}, not "
@@ -993,7 +1000,12 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                    "onset: the document says what was read, and "
                                    f"anything assumed is said in {ASSUMPTIONS_FIELD}. "
                                    "Not the root cause or a contributing factor again "
-                                   "- the document says those already."
+                                   "- the document says those already. Not that "
+                                   "Code-Fix read another revision than the one that "
+                                   "ran, or that nothing ran its reading: where the "
+                                   "record holds them, the document says the first "
+                                   "in its summary and the second beside the root "
+                                   "cause."
                                )
                            },
                            # Told only that any list may be empty, write-ups
