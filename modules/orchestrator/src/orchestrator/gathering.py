@@ -35,6 +35,7 @@ from argus_core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
+    AgentInvoked,
     AnchoredOnTheAlarm,
     ChangesRetrieved,
     DeploymentChangesRead,
@@ -123,6 +124,8 @@ _ACTION_REFUSED: Final[str] = ActionRefused.model_fields["kind"].default
 # The kinds of a line telling a person's message and an incident's move.
 _PERSON_WROTE: Final[str] = PersonWrote.model_fields["kind"].default
 _STATUS_CHANGED: Final[str] = StatusChanged.model_fields["kind"].default
+# And the kind a line saying an agent was called in carries.
+_AGENT_INVOKED: Final[str] = AgentInvoked.model_fields["kind"].default
 # The moves as the narration sets them apart: a move to act, and a person's
 # report that the incident is over.
 _TO_ACT: Final = str(IncidentStatus.MITIGATING).upper()
@@ -550,7 +553,8 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
     its own round's. And a line acting for a candidate says where that one sits,
     and in what words the line names it, so the document can say it by its
     label; a line about another incident names it, so the document can lead
-    there.
+    there. A line saying an agent was called in says so, by its kind, so the
+    document's page can leave it out without matching on its words.
     """
     return [
         TimelineEntry(at=line.at,
@@ -561,7 +565,8 @@ def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[Tim
                                   if candidate.hypothesis_id in considered],
                       for_candidate=_the_candidate_it_acted_for(line, considered),
                       names_incident=line.names_incident or None,
-                      outside_the_walk=line.outside_the_walk)
+                      outside_the_walk=line.outside_the_walk,
+                      an_agent_called_in=line.kind == _AGENT_INVOKED)
         for line in told
     ]
 

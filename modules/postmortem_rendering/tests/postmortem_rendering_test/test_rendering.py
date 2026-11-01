@@ -330,6 +330,120 @@ def test_a_cited_line_of_the_timeline_reads_as_its_row() -> None:
 
 
 @pytest.mark.unit
+def test_a_line_saying_only_an_agent_was_called_in_is_left_out_and_the_rest_counted_again(
+) -> None:
+    # The line after it - the agent at work - says it already. Left out of the
+    # postmortem alone, and its labels counted again only as the page says
+    # them: the record keeps every line under the label the model cited it by.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="THE FIRST", label="T1"),
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigation Agent",
+                              label="T2", an_agent_called_in=True),
+                TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE THIRD",
+                              label="T3")],
+                causal_chain=_a_step_citing("T3"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .then(all_of(
+            _the_timeline_reads(("T1", "THE FIRST"), ("T2", "THE THIRD")),
+            _the_first_step_rests_on("T2 14:03:07 Mitigation Agent: THE THIRD"),
+            _it_cites_as("T2")
+        ))
+
+
+@pytest.mark.unit
+def test_a_line_saying_only_an_agent_was_called_in_is_kept_where_something_cites_it() -> None:
+    # A citation of a line the page does not show leads nowhere.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigation Agent",
+                              label="T1", an_agent_called_in=True),
+                TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE SECOND",
+                              label="T2")],
+                causal_chain=_a_step_citing("T1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .then(
+            _the_timeline_reads(("T1", "Called in the Mitigation Agent"), ("T2", "THE SECOND"))
+        )
+
+
+@pytest.mark.unit
+def test_a_line_the_model_s_prose_names_after_one_left_out_is_named_by_its_new_label() -> None:
+    # Prose is cut into citations only once it is shown, against the labels
+    # the page has: left as it was, "(T3)" led to whatever row the page now
+    # counts third. Quoted as code, it is the code's text, and left alone.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[
+                    TimelineEntry(at=SOME_MOMENT, who="Argus", text="dont care", label="T1"),
+                    TimelineEntry(at=SOME_MOMENT, who="Argus",
+                                  text="Called in the Mitigation Agent", label="T2",
+                                  an_agent_called_in=True),
+                    TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="dont care",
+                                  label="T3")],
+                causal_chain=[ChainStep(text="The rollback was confirmed (T3), not `T3`.",
+                                        cites=[])])
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .then(
+            _the_first_step_reads("The rollback was confirmed (T2), not `T3`.")
+        )
+
+
+@pytest.mark.unit
+def test_a_line_saying_only_an_agent_was_called_in_is_kept_where_the_prose_names_it() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[
+                    TimelineEntry(at=SOME_MOMENT, who="Argus",
+                                  text="Called in the Mitigation Agent", label="T1",
+                                  an_agent_called_in=True),
+                    TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE SECOND",
+                                  label="T2")],
+                causal_chain=[ChainStep(text="It was called in (T1).", cites=[])])
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .then(
+            _the_timeline_reads(("T1", "Called in the Mitigation Agent"), ("T2", "THE SECOND"))
+        )
+
+
+@pytest.mark.unit
+def test_a_line_outside_the_walk_is_counted_again_apart_from_the_walk_s() -> None:
+    # A person's line goes by XW, counted apart, as the record labels it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(timeline=[
+                TimelineEntry(at=SOME_MOMENT, who="Argus", text="Called in the Mitigation Agent",
+                              label="T1", an_agent_called_in=True),
+                TimelineEntry(at=SOME_MOMENT, who="kuki", text="THE PERSON'S", label="XW1",
+                              outside_the_walk=True),
+                TimelineEntry(at=SOME_MOMENT, who="Mitigation Agent", text="THE WALK'S",
+                              label="T2")])
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .then(
+            _the_timeline_reads(("XW1", "THE PERSON'S"), ("T1", "THE WALK'S"))
+        )
+
+
+@pytest.mark.unit
 def test_a_cited_line_of_the_timeline_nobody_is_named_for_reads_as_its_row() -> None:
     Scenario() \
         .given(
@@ -623,6 +737,45 @@ def _the_first_step_rests_on(*expected: str) -> Assertion[RenderedPostmortem]:
         if said != expected:
             raise AssertionError(f"Expected the first step to rest on {expected}, "
                                  f"got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_timeline_reads(*expected: tuple[str, str]) -> Assertion[RenderedPostmortem]:
+    """The timeline's labelled rows, each by its label and its words."""
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        read = tuple((row.label, row.text.said) for row in rendered.timeline.rows if row.label)
+
+        if read != expected:
+            raise AssertionError(f"Expected the timeline to read {expected}, got {read}.")
+
+        return True
+
+    return assertion
+
+
+def _the_first_step_reads(expected: str) -> Assertion[RenderedPostmortem]:
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        said = rendered.cause.chain[0].claim.said
+
+        if said != expected:
+            raise AssertionError(f"Expected the first step to read [{expected}], got [{said}].")
+
+        return True
+
+    return assertion
+
+
+def _it_cites_as(expected: str) -> Assertion[RenderedPostmortem]:
+    """The first step's citation of its row, by the label the page says it by."""
+    def assertion(rendered: RenderedPostmortem) -> bool:
+        cited = [(run.text, run.address) for line in rendered.cause.chain[0].evidence
+                 for run in line.runs if run.role is Role.CITATION]
+
+        if cited != [(expected, expected)]:
+            raise AssertionError(f"Expected the first step to cite [{expected}], got {cited}.")
 
         return True
 

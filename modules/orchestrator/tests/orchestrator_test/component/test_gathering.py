@@ -35,6 +35,7 @@ from argus_core.events import (
     ActionRecommended,
     ActionRefused,
     ActionTaken,
+    AgentInvoked,
     AlertAcknowledged,
     AnchoredOnTheAlarm,
     ChangesRetrieved,
@@ -67,6 +68,7 @@ from argus_core.models import (
     ActionIdentity,
     ActionProgress,
     ActionType,
+    Actor,
     Alert,
     ChangeEvent,
     ChangeKind,
@@ -946,6 +948,27 @@ def test_a_line_written_outside_the_walk_is_carried_as_such(a_clean_database: No
             ) \
             .then(
                 _only_the_lines_dated_are_outside_the_walk([somebody_reporting.at])
+            )
+
+
+@pytest.mark.component
+def test_a_line_saying_an_agent_was_called_in_is_carried_as_such(a_clean_database: None) -> None:
+    # The document's page leaves it out - the line after it, the agent at
+    # work, says it already - and knows it by its kind, not by its words.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling_mitigation_in := AgentInvoked(incident_id=incident_id,
+                                                      agent=Actor.MITIGATION)
+            ) \
+            .when(
+                lambda: _the_evidence_after_publishing(conn, incident_id, calling_mitigation_in)
+            ) \
+            .then(
+                _only_the_lines_calling_an_agent_in_are_carried_as_such(
+                    calling_mitigation_in.at)
             )
 
 
@@ -3630,6 +3653,26 @@ def _mentions_none_among(reading: Callable[[IncidentEvidence], list[str]],
 
         if any(unwanted in line for line in lines):
             raise AssertionError(f"Expected [{unwanted}] in none of {lines}.")
+
+        return True
+
+    return assertion
+
+
+def _only_the_lines_calling_an_agent_in_are_carried_as_such(at: datetime
+                                                            ) -> Assertion[IncidentEvidence]:
+    """Every line saying an agent was called in carried as one, the line
+    dated `at` among them, and no other line."""
+    def assertion(evidence: IncidentEvidence) -> bool:
+        wrong = [entry.text for entry in evidence.timeline
+                 if entry.an_agent_called_in != entry.text.startswith("Called in the ")]
+        dated = [entry.at for entry in evidence.timeline if entry.an_agent_called_in]
+
+        if wrong or at not in dated:
+            raise AssertionError(
+                f"Expected every line calling an agent in, the one at [{at}] among them, "
+                f"carried as such and no other line; wrongly carried {wrong}, and those "
+                f"carried are dated {dated}.")
 
         return True
 

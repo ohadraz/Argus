@@ -8,8 +8,10 @@ is read here, once, and handed to every part that says it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import date
+from string import digits
 from typing import Any, Final
 
 from argus_core import said_short
@@ -42,7 +44,7 @@ from postmortem_rendering.supporting import (
     the_short_forms,
     the_supporting_information,
 )
-from postmortem_rendering.timeline import TimelineSection, the_timeline
+from postmortem_rendering.timeline import TimelineRow, TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
 # Every section by the name a destination knows it by, and the heading it is
@@ -164,6 +166,7 @@ def render(postmortem: Postmortem,
         cost=the_response_effort(postmortem),
         supporting=supporting,
         review=the_review(postmortem))
+    rendered = _without_the_lines_the_next_says(rendered, postmortem)
 
     if day is None:
         return rendered
@@ -202,6 +205,112 @@ def _said_on(value: Any, day: date) -> Any:
 
     if isinstance(value, dict):
         return {key: _said_on(each, day) for key, each in value.items()}
+
+    return value
+
+
+def _without_the_lines_the_next_says(rendered: RenderedPostmortem,
+                                     postmortem: Postmortem) -> RenderedPostmortem:
+    """`rendered` without the lines of its timeline that say only that an
+    agent was called in - which the line after it, the agent at work, says
+    already - and every line it keeps counted again, wherever the page says
+    its label: a citation, or a label in the model's prose, which the page
+    cuts out as one only once it is shown.
+
+    Only as the page says them: the record keeps every line, under the label
+    the model was shown and cited it by, so an answer replays as it was given.
+    Counted as the record counts them, the walk's and those outside it apart.
+    A line something cites is kept: a citation of a line the page does not
+    show leads nowhere.
+    """
+    cited = _the_labels_cited_in(rendered, frozenset(entry.label for entry in postmortem.timeline
+                                                     if entry.label))
+    left_out = {entry.label for entry in postmortem.timeline
+                if entry.an_agent_called_in and entry.label and entry.label not in cited}
+    if not left_out:
+        return rendered
+
+    kept = tuple(row for row in rendered.timeline.rows if row.label not in left_out)
+    counted: Counter[str] = Counter()
+    labels: dict[str, str] = {}
+    for row in kept:
+        if row.label:
+            prefix = row.label.rstrip(digits)
+            counted[prefix] += 1
+            labels[row.label] = f"{prefix}{counted[prefix]}"
+
+    relabelled: RenderedPostmortem = _relabelled(rendered.model_copy(update={
+        "timeline": rendered.timeline.model_copy(update={"rows": kept})}), labels)
+
+    return relabelled
+
+
+def _the_labels_cited_in(value: Any, lines: frozenset[str]) -> set[str]:
+    """Every label a citation anywhere in `value` leads to, and each of the
+    timeline's `lines` the model's prose names - as the page finds one to cut
+    out: whole, and outside the code it quotes."""
+    if isinstance(value, Run):
+        if value.role is Role.CITATION and value.address:
+            return {value.address}
+
+        return ({piece.text for piece in _the_prose_cut_at(value, lines)
+                 if piece.role is Role.CITATION}
+                if value.role is Role.PROSE else set())
+
+    if isinstance(value, BaseModel):
+        return {label for name in type(value).model_fields
+                for label in _the_labels_cited_in(getattr(value, name), lines)}
+
+    if isinstance(value, tuple | list):
+        return {label for each in value for label in _the_labels_cited_in(each, lines)}
+
+    if isinstance(value, dict):
+        return {label for each in value.values() for label in _the_labels_cited_in(each, lines)}
+
+    return set()
+
+
+def _the_prose_cut_at(run: Run, labels: Collection[str]) -> tuple[Run, ...]:
+    """A run of prose cut at the code it quotes and, outside it, at each of
+    `labels` it names - each code with its backticks back on, so the pieces
+    say the prose again when joined."""
+    return tuple(piece
+                 for quoted in run.with_code_set_apart()
+                 for piece in ((quoted.model_copy(update={"text": f"`{quoted.text}`"}),)
+                               if quoted.role is Role.CODE else quoted.with_citations(labels)))
+
+
+def _relabelled(value: Any, labels: Mapping[str, str]) -> Any:
+    """`value` with every line of the timeline, every citation of one and
+    every label of one in the model's prose going by its label in `labels` -
+    however deep in a section it sits, as `_said_on` says every moment. Prose
+    stays prose, for the page to cut the label it now says out of."""
+    if isinstance(value, Run):
+        if value.role is Role.PROSE:
+            return value.model_copy(update={"text": "".join(
+                labels[piece.text] if piece.role is Role.CITATION else piece.text
+                for piece in _the_prose_cut_at(value, labels))})
+
+        if value.role is not Role.CITATION or (said := labels.get(value.address or "")) is None:
+            return value
+
+        return value.model_copy(update={"text": said, "address": said})
+
+    if isinstance(value, TimelineRow) and (counted := labels.get(value.label or "")) is not None:
+        value = value.model_copy(update={"label": counted})
+
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={name: _relabelled(getattr(value, name), labels)
+                                        for name in type(value).model_fields})
+
+    if isinstance(value, tuple):
+        return tuple(_relabelled(each, labels) for each in value)
+
+    if isinstance(value, list):
+        return [_relabelled(each, labels) for each in value]
+
+    if isinstance(value, dict):
+        return {key: _relabelled(each, labels) for key, each in value.items()}
 
     return value
 

@@ -213,6 +213,10 @@ class TimelineEntry(BaseModel):
     # the walk's lines (`XW1`), so a message written a second earlier renames
     # nothing the walk said.
     outside_the_walk: bool = False
+    # Whether the line says only that an agent was called in, which the line
+    # after it - the agent at work - says already. The postmortem's page leaves
+    # it out where nothing cites it; the incident's own page keeps every line.
+    an_agent_called_in: bool = False
 
 
 class CandidateConsidered(BaseModel):
