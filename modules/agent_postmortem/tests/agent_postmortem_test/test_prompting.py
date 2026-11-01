@@ -4911,6 +4911,21 @@ def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
 
 
 @pytest.mark.unit
+def test_what_is_still_at_risk_is_asked_not_to_say_how_the_fault_works_again() -> None:
+    # A write-up's sentence on what was still at risk ended on why - the shop
+    # still passes titles without lowercasing them - which the cause sentence
+    # ahead of it in the same summary had just said.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[STILL_AT_RISK_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Not how the fault works",
+                                      f"ahead of this sentence, from {CAUSE_IN_PLAIN_WORDS_FIELD}")
+        )
+
+
+@pytest.mark.unit
 def test_what_went_wrong_no_longer_asks_for_detection_to_be_weighed() -> None:
     # The lesson code writes says it; asked here as well, a write-up would say
     # it a second time, in words that need not agree.
@@ -4979,6 +4994,22 @@ def test_an_action_item_is_asked_not_to_check_what_the_evidence_already_shows() 
         ) \
         .then(
             _the_description_mentions("already shows", "a diff")
+        )
+
+
+@pytest.mark.unit
+def test_an_action_item_is_asked_not_to_check_code_fix_s_reading_beside_its_fix() -> None:
+    # A write-up proposed running the draft's test against the revision that
+    # ran - what its review checklist already said would confirm the cause,
+    # under the record's own item for the fix.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[ACTION_ITEMS_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("Where Code-Fix proposed a fix, propose no item to run or "
+                                      "check its reading", "the review checklist says what "
+                                      "would confirm it")
         )
 
 

@@ -700,6 +700,38 @@ def test_a_reading_a_proposed_fix_can_confirm_names_the_item_that_would() -> Non
 
 
 @pytest.mark.unit
+def test_a_reading_the_root_cause_already_names_is_left_to_it_beside_the_fix_s_item() -> None:
+    # Where the answer says the cause rests on the reading, the root cause says
+    # so itself, naming it: said here as well, a page told it twice. What would
+    # confirm it is the box's alone to say.
+    some_fix = OpenedPullRequest(number=7, url="https://github.invalid/acme/shop/pull/7",
+                                 branch="argus/fix")
+
+    Scenario() \
+        .given(
+            a_document_whose_root_cause_names_the_reading := _a_document(
+                root_cause="dont care",
+                causal_chain=[_a_step("account pages failed"),
+                              ChainStep(text="the divisor was zero",
+                                        cites=[CitedEvidence(label="F1", text="dont care")])],
+                pull_request=some_fix,
+                action_items=[ActionItem(number="AI-2", text="dont care",
+                                         type=ActionItemType.PREVENT, owner=None,
+                                         tracking=some_fix.url,
+                                         status=ActionItemStatus.OPEN)])
+        ) \
+        .when(
+            lambda: review_of(a_document_whose_root_cause_names_the_reading, faults=[],
+                              reaches_a_cause=True, rests_on_an_unrun_reading=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because="running the proposed fix's tests against the current code "
+                                  "would confirm the cause (AI-2)")
+        )
+
+
+@pytest.mark.unit
 def test_a_step_a_reading_and_an_observation_both_support_is_supported() -> None:
     # A reading beside something observed is evidence the observation bears
     # out, and the step rests on more than the reading.

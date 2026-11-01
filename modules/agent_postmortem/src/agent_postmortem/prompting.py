@@ -805,8 +805,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "nothing was. Not whether the service or its metrics were back, nor "
                 "why - the summary says both. Not what Argus left to a person - a "
                 "draft fix, automatic sync left off, a recommended action - which the "
-                "document says itself. Say only what the record says: "
-                "nothing of the service after that was read."
+                "document says itself. Not how the fault works: the summary says "
+                f"that ahead of this sentence, from {CAUSE_IN_PLAIN_WORDS_FIELD}, where "
+                "you give it. Say only "
+                "what the record says: nothing of the service after that was read."
             )
         },
         SYMPTOM_FIELD: {
@@ -947,7 +949,10 @@ SUBMIT_POSTMORTEM = ToolDefinition(
             "marked confirmed - and no check of what the evidence you are shown "
             "already shows: a diff states what changed. Where an F row says to "
             "check something a D row shows, say what the D row shows, and the item "
-            "is what follows from it."
+            "is what follows from it. Where Code-Fix proposed a fix, propose no item "
+            "to run or check its reading: where the cause rests on it, the review "
+            "checklist says what would confirm it, under the record's own item for "
+            "the fix."
         ),
         LESSONS_FIELD: {
             "type": "object",

@@ -70,8 +70,12 @@ def review_of(document: PostmortemDocument,
              if not short else [])
 
     if unrun:
+        # The root cause says it rests on the reading wherever the answer said
+        # so and gave one (`writing`): said here as well, a page told it twice.
+        said_beside_the_cause = bool(rests_on_an_unrun_reading and document.root_cause)
         analysis = ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None,
-                                   because=_what_would_confirm(document, unrun))
+                                   because=_what_would_confirm(document, unrun,
+                                                               said_beside_the_cause))
     elif NONE_TRIED in short and (held := _the_leader_s_refusal(document)) is not None:
         because = _what_would_confirm_a_held_test(document, held)
         analysis = (ReviewCriterion(criterion=ANALYSIS_COMPLETE, met=None, because=because)
@@ -205,14 +209,21 @@ def _readings_resting_alone(document: PostmortemDocument) -> list[str]:
         for cited in step.cites))
 
 
-def _what_would_confirm(document: PostmortemDocument, readings: list[str]) -> str:
+def _what_would_confirm(document: PostmortemDocument, readings: list[str],
+                        said_beside_the_cause: bool) -> str:
     """What the cause rests on, and - where a fix was proposed - what would
-    confirm it and the item a person does it under."""
+    confirm it and the item a person does it under. What it rests on only where
+    the root cause does not say it (`said_beside_the_cause`), unless nothing
+    else is left to say here."""
     rests = f"the cause rests on {', '.join(readings)}, a reading of the source nothing ran"
     item = _the_fix_s_item(document)
 
     if item is None:
         return rests
+
+    if said_beside_the_cause:
+        return (f"running the proposed fix's tests against the current code would confirm "
+                f"the cause ({item})")
 
     return (f"{rests}; running the proposed fix's tests against the current code would "
             f"confirm it ({item})")
