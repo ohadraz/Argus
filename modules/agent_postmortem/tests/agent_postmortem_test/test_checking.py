@@ -118,6 +118,12 @@ SOME_LEVEL_WITH_ITS_UNIT = {"series_before": Figure(given="215.13 ms", written="
 
 DONT_CARE_FIGURE = Figure(given=DONT_CARE_PROSE, written=DONT_CARE_PROSE)
 
+# What a model whose service logs a rate of one page was given: the figures of
+# the rate over all its requests, and the page's own figure.
+SOME_GIVEN_WITH_A_LOGGED_RATE = SOME_GIVEN.model_copy(update={
+    "rates_the_logs_name": frozenset({"account page error rate"}),
+    "figures": {name: DONT_CARE_FIGURE for name in ("errors_before", "Gbac1.5")}})
+
 
 @pytest.mark.unit
 def test_a_required_field_the_model_left_out_is_named() -> None:
@@ -246,6 +252,48 @@ def test_how_the_logs_show_the_service_said_where_it_was_asked_is_accepted() -> 
         ) \
         .when(
             lambda: faults_in(an_answer_saying, given=SOME_GIVEN_ASKING_HOW_IT_SERVED)
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
+def test_the_service_s_error_rate_given_as_a_rate_its_logs_name_is_named() -> None:
+    # Labelled as the rate over all its requests, a write-up still said "the
+    # account page error rate should fall back towards its baseline of
+    # {errors_before}" - the page's own rate is the one its log line warns of,
+    # not that figure.
+    Scenario() \
+        .given(
+            an_answer_mislabelling := _an_answer(
+                stops_the_harm="Confirm the account page error rate falls back towards "
+                               "{errors_before}.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_mislabelling,
+                              given=SOME_GIVEN_WITH_A_LOGGED_RATE)
+        ) \
+        .then(
+            all_of(
+                _named("[{errors_before}] as the account page error rate"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_the_service_s_error_rate_said_beside_a_rate_its_logs_name_is_accepted() -> None:
+    # Each rate under its own name: the share of all requests, then the page's
+    # own rate by its log line's figure.
+    Scenario() \
+        .given(
+            an_answer_naming_each := _an_answer(
+                still_at_risk="The share of all requests failing rose from {errors_before}, and "
+                              "the account page error rate peaked at {Gbac1.5}.")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_naming_each, given=SOME_GIVEN_WITH_A_LOGGED_RATE)
         ) \
         .then(
             _found_nothing_wrong()

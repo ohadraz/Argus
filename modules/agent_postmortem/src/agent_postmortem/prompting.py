@@ -195,6 +195,14 @@ KEPT_UNTIL_THE_FAULT_IS_FIXED: Final = "Keep it in place until the fault is fixe
 # The item to find out why that change did not help - asked wherever the item
 # that stops the harm is, and listed after it.
 WHY_IT_DID_NOT_HELP_FIELD: Final = "why_it_did_not_help"
+# The item listed after that one, by the document rather than the model: asked
+# what to find out about the change, a write-up answered whether it reached the
+# service there and dropped the check for next time - three in four on the
+# field's input - which every write-up of the incident before it had.
+CONFIRM_IT_REACHED_THE_SERVICE: Final = (
+    "Before the Mitigation Agent judges a change it made, have it confirm from the "
+    "service's own logs that the change reached the service."
+)
 
 REQUIRED_FIELDS: Final = [
     ROOT_CAUSE_FIELD,
@@ -940,7 +948,8 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                                **_SENTENCES,
                                "description": (
                                    "Something the record shows went the fortunate way "
-                                   "by chance, and would have made it worse had it not. "
+                                   "by chance, and how it kept the harm down - never "
+                                   "what would have happened otherwise. "
                                    "Empty where the record shows none. Not what kind of "
                                    "fault it was, which the impact already says, nor a "
                                    "limit of what the record shows, which is said in "
@@ -1132,7 +1141,8 @@ _WHY_IT_DID_NOT_HELP: Final[dict[str, Any]] = {
     "description": (
         "One action item: what to find out about why the action that was put back did "
         "not help - whether it reached the service, and if it did, why it did not end "
-        "the harm."
+        "the harm. The document already lists that the Mitigation Agent is to confirm a "
+        "change reached the service before judging it: leave that out of your items."
     )
 }
 

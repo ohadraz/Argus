@@ -747,7 +747,8 @@ def test_why_the_change_put_back_did_not_help_is_published_as_a_mitigation_after
 ) -> None:
     # After what stops the harm, so every number before it stays as it was; a
     # mitigation, since the harm is still going on while nobody knows why the
-    # change did not reach it.
+    # change did not reach it. Then the document's own check for next time:
+    # asked what to find out, a write-up settled the reach there and dropped it.
     evidence = an_evidence_bundle(
         actions=[an_action("dont care", verdict=Verdict.REFUTED, put_back=True)])
     measured = a_measured_incident(back_to_normal_at=None)
@@ -776,6 +777,12 @@ def test_why_the_change_put_back_did_not_help_is_published_as_a_mitigation_after
                 ActionItem(number="AI-2",
                            text="Find out why the service kept reading the flag on.",
                            type=ActionItemType.MITIGATE, owner=None, tracking=None,
+                           status=ActionItemStatus.OPEN),
+                ActionItem(number="AI-3",
+                           text="Before the Mitigation Agent judges a change it made, have it "
+                                "confirm from the service's own logs that the change reached "
+                                "the service.",
+                           type=ActionItemType.PROCESS, owner=None, tracking=None,
                            status=ActionItemStatus.OPEN)
             ])
         )

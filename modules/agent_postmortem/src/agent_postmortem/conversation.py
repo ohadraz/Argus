@@ -27,7 +27,13 @@ from argus_core.models import (
     Turn,
 )
 
-from agent_postmortem.checking import Given, faults_by_check, faults_in_the_turn, names_the_flag
+from agent_postmortem.checking import (
+    Given,
+    faults_by_check,
+    faults_in_the_turn,
+    names_the_flag,
+    rates_named_in,
+)
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import (
     Figure,
@@ -35,6 +41,7 @@ from agent_postmortem.figures import (
     with_figures_written,
     with_figures_written_with_every_day,
 )
+from agent_postmortem.log_groups import LOG_GROUP_PREFIX
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.ordering import ORDER_TOOL_NAME, put_in_order
 from agent_postmortem.prompting import (
@@ -222,7 +229,10 @@ def _what_was_given(evidence: IncidentEvidence,
             if cited.change in evidence.changes_the_walk_alone_read
             and not any(candidate.subject == cited.change.reference
                         or names_the_flag(candidate.summary, cited.change.reference)
-                        for candidate in evidence.candidates)}
+                        for candidate in evidence.candidates)},
+        rates_the_logs_name=rates_named_in([cited.text for cited in
+                                            the_evidence_labelled(evidence, measured)
+                                            if cited.label.startswith(LOG_GROUP_PREFIX)])
     )
 
 

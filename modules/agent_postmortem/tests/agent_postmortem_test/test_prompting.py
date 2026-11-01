@@ -4331,6 +4331,24 @@ def test_luck_is_asked_not_to_say_how_the_service_did_where_its_metrics_did_not_
 
 
 @pytest.mark.unit
+def test_luck_is_asked_for_as_how_it_kept_the_harm_down_never_what_would_have_happened() -> None:
+    # Asked for luck that "would have made it worse had it not", a write-up
+    # answered with what would have happened without the person who rolled the
+    # flag back - leaving out Argus, which formed the cause five seconds after
+    # the report. Five of the case's twenty-one write-ups said it.
+    Scenario() \
+        .when(
+            lambda: SUBMIT_POSTMORTEM.properties[LESSONS_FIELD]["properties"]
+                                                [GOT_LUCKY_FIELD]["description"]
+        ) \
+        .then(all_of(
+            _the_description_mentions("how it kept the harm down",
+                                      "never what would have happened otherwise"),
+            _the_description_avoids("would have made it worse")
+        ))
+
+
+@pytest.mark.unit
 def test_a_draft_fix_left_for_a_person_is_asked_for_as_having_gone_as_designed() -> None:
     # A write-up listed under what went wrong that the proposed fix was "only a
     # draft and nothing ran its test or change". A person reviewing and
@@ -5067,6 +5085,22 @@ def test_an_incident_a_change_put_back_left_standing_is_asked_what_stops_the_har
                                WHY_IT_DID_NOT_HELP_FIELD),
                 _requires(*REQUIRED_FIELDS, STOPS_THE_HARM_FIELD, WHY_IT_DID_NOT_HELP_FIELD)
             )
+        )
+
+
+@pytest.mark.unit
+def test_why_the_change_did_not_help_is_asked_to_leave_the_document_s_own_check_out() -> None:
+    # The document lists its own item after this one, that the Mitigation Agent
+    # confirm a change reached the service before judging it; a write-up not
+    # told so would list it a second time.
+    Scenario() \
+        .when(
+            lambda: submit_postmortem_for([], harm_left_standing=True)
+            .properties[WHY_IT_DID_NOT_HELP_FIELD]["description"]
+        ) \
+        .then(
+            _the_description_mentions("The document already lists",
+                                      "leave that out of your items")
         )
 
 

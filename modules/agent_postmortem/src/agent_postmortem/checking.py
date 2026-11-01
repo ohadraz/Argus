@@ -257,6 +257,10 @@ class Given(BaseModel):
     # by label, with the flag it switched - the two ways the prose names a
     # change. Not one a candidate names, which the Investigator did weigh.
     read_by_the_walk_alone: dict[str, str] = {}
+    # Each error rate the service's own log lines name ("account page error
+    # rate"), lowercased - taken to be none of them the service's rate over all
+    # its requests, which no log line names today.
+    rates_the_logs_name: frozenset[str] = frozenset()
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -305,6 +309,7 @@ def faults_by_check(answer: SubmittedPostmortem,
         partial(_ranges_after_an_opening_or_a_moment, answer, given),
         partial(_workings_that_make_no_sense, answer, given),
         partial(_units_against_their_figures, answer, given),
+        partial(_the_service_s_rate_called_a_log_s, answer, given),
         partial(_revisions_nobody_read, answer, given),
         partial(_the_investigator_beside_what_it_never_read, answer, given)]
 
@@ -961,6 +966,40 @@ def _units_against_their_figures(answer: SubmittedPostmortem, given: Given) -> l
         for prose in answer.sentences()
         for written, unit in units_against_their_figures(prose, given.figures)
     ]
+
+
+# An error rate a log line names: up to three words before "error rate".
+_A_LOGGED_RATE: Final = re.compile(r"(?:[a-z]+[ -]){1,3}error[ -]rate")
+# The figures of the service's error rate over all its requests (`prompting`).
+_THE_SERVICE_S_RATE: Final = re.compile(r"\{errors_[a-z_]+\}")
+
+
+def rates_named_in(lines: Sequence[str]) -> frozenset[str]:
+    """Each error rate the log lines name, lowercased, as `Given` holds them."""
+    return frozenset(found.group(0) for line in lines
+                     for found in _A_LOGGED_RATE.finditer(line.lower()))
+
+
+def _the_service_s_rate_called_a_log_s(answer: SubmittedPostmortem, given: Given) -> list[str]:
+    """Each sentence giving the service's error rate over all its requests as a
+    rate the service's own logs name.
+
+    Labelled only "Error rate" and then over all its requests, a write-up still
+    called the figure the account page's, beside a log line warning of that
+    page's own rate - once in eight on the incident, in the item telling a
+    reader how to see the harm end. The name comes off the record's own lines,
+    so the rule holds for any service.
+    """
+    faults = []
+    for prose in answer.sentences():
+        for name in sorted(given.rates_the_logs_name):
+            spelled = r"[ -]".join(re.escape(word) for word in re.split(r"[ -]", name))
+            for found in re.finditer(rf"{spelled}[^.{{}}]{{0,80}}({_THE_SERVICE_S_RATE.pattern})",
+                                     prose, re.IGNORECASE):
+                faults.append(f"your answer gives [{found.group(1)}] as the {name}, but that "
+                              f"figure is the service's error rate over all its requests - say "
+                              f"it as the service's")
+    return faults
 
 
 def _revisions_nobody_read(answer: SubmittedPostmortem, given: Given) -> list[str]:

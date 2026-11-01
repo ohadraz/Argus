@@ -43,6 +43,7 @@ from agent_postmortem.figures import the_day_it_began
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
+    CONFIRM_IT_REACHED_THE_SERVICE,
     KEPT_UNTIL_THE_FAULT_IS_FIXED,
     SubmittedPostmortem,
     the_changes_labelled,
@@ -312,7 +313,9 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
     mitigations, since the harm is still going on: the first stops it - and is
     kept until the fault is fixed, which the document says after the model's
     words, ending them as a sentence where they did not end as one - and the
-    second finds out why the change put back did not.
+    second finds out why the change put back did not. After them the document's
+    own, a process item: that the Mitigation Agent confirm a change reached the
+    service before judging it.
 
     Open and nobody's: Argus edits no item after the document is written, so
     whoever takes one on does so somewhere else.
@@ -326,6 +329,7 @@ def _the_record_s_items_then_the_model_s(evidence: IncidentEvidence,
                                ActionItemType.MITIGATE))
     if answer.why_it_did_not_help is not None:
         proposed_items.append((answer.why_it_did_not_help.rstrip(), ActionItemType.MITIGATE))
+        proposed_items.append((CONFIRM_IT_REACHED_THE_SERVICE, ActionItemType.PROCESS))
 
     return [
         *on_record,
