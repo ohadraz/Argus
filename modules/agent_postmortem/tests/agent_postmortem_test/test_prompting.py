@@ -3177,7 +3177,9 @@ def test_an_incident_back_to_normal_is_given_as_back_to_normal_rather_than_recov
 def test_an_end_a_person_reported_is_given_as_their_report_under_its_line() -> None:
     # Told the end only as back to normal, a model credits it to the metrics.
     # Told nothing of how to take a report, one called it unverified and asked
-    # for reports like it to be checked.
+    # for reports like it to be checked. And with the report in before Argus had
+    # judged its own action, one said it was marked resolved before that action
+    # could be checked - a stop the walk makes by design.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
@@ -3193,7 +3195,9 @@ def test_an_end_a_person_reported_is_given_as_their_report_under_its_line() -> N
         .then(all_of(
             _says("when Some Person reported it resolved [XW1] - their report is the end, as "
                   "given. A report is not a hypothesis: do not test it against the rest of the "
-                  "record, and do not propose checking reports like it."),
+                  "record, and do not propose checking reports like it. Argus stopping at the "
+                  "report before it judged an action is the design: do not say it went "
+                  "wrong."),
             _does_not_say("back to normal")
         ))
 

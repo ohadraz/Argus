@@ -638,10 +638,14 @@ _A_MESSAGE_NEVER_STOPS_A_STEP: Final = (
 
 # Where a person's report is the end. A model told the end only as "back to
 # normal" credits it to the metrics; one told nothing of how to take it called
-# the report unverified, and asked for reports like it to be checked.
+# the report unverified, and asked for reports like it to be checked. And one
+# whose report came before Argus had judged its own action said the incident
+# was marked resolved before that action could be checked.
 _A_REPORT_IS_NO_HYPOTHESIS: Final = (
     "their report is the end, as given. A report is not a hypothesis: do not test "
-    "it against the rest of the record, and do not propose checking reports like it."
+    "it against the rest of the record, and do not propose checking reports like it. "
+    "Argus stopping at the report before it judged an action is the design: do not say "
+    "it went wrong."
 )
 
 # What a check the record does not show is written as, said in the two fields a
