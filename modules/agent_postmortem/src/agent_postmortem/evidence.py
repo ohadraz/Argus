@@ -277,6 +277,11 @@ class IncidentEvidence(BaseModel):
     # investigation's reads with nothing to tell them apart, a write-up
     # credited the Investigator with ruling out a flag it never saw.
     changes_the_walk_alone_read: list[ChangeEvent] = []
+    # Where the furthest of the investigation's reads of the changes ended - a
+    # window it picks for itself. Told only that a change was the walk's alone,
+    # a write-up said the changes feed had failed to return one made past that
+    # end, and asked for the feed to be fixed. `None` where no read is recorded.
+    change_reading_ended: datetime | None = None
     # What each deployment the investigation looked into changed, in the order
     # it first asked - the one thing that tells a broken configuration from bad
     # code, and what names the deploy that carried a change.

@@ -233,6 +233,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         log_reading_ended=_how_far_the_logs_were_read(account),
         changes=changed.every,
         changes_the_walk_alone_read=changed.by_the_walk_alone,
+        change_reading_ended=_how_far_the_changes_were_read(account),
         deployment_changes=_what_each_deployment_changed(conn, incident_id),
         pull_request=_what_was_proposed(conn, incident_id),
         fix_explanation=reading.explanation if reading is not None else None,
@@ -1109,6 +1110,19 @@ def _how_far_the_logs_were_read(account: list[IncidentEvent]) -> datetime | None
     the reading stopped as where the service did.
     """
     ends = [parse_iso(event.window_end) for event in account if isinstance(event, LogsRetrieved)]
+
+    return max(ends, default=None)
+
+
+def _how_far_the_changes_were_read(account: list[IncidentEvent]) -> datetime | None:
+    """Where the furthest of the investigation's reads of the changes ended -
+    nothing it was handed was made after it - or `None` where none was.
+
+    What tells a change the walk alone found past that end from one the read
+    should have returned: the investigation picks its own windows.
+    """
+    ends = [parse_iso(event.window_end) for event in account
+            if isinstance(event, ChangesRetrieved)]
 
     return max(ends, default=None)
 

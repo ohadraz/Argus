@@ -673,6 +673,12 @@ _A_SAFEGUARD_NOBODY_SAW: Final = (
 # the onset by design - and the check that refuses the Investigator named beside
 # such a change refused it, so the line baited the refusal it is there to spare.
 _THE_WALK_ALONE_READ_IT: Final = " - found only by Argus's read of the flag provider's history"
+# And why, where the record says: made after the investigation's reads of the
+# changes ended, a contrast "only" leaves open was read as the changes feed
+# failing to return it, and the feed was asked to be fixed.
+_MADE_AFTER_THE_READS_ENDED: Final = (
+    ": it came after {ended}, where the investigation's reads of the changes ended"
+)
 
 # Said beneath what Code-Fix read. Its reading was restated more absolutely
 # than it was given, both ways: "nothing in main does that" became "nothing in
@@ -1357,8 +1363,9 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         (_WHAT_ARGUS_DID, narration, None if narration else NOTHING),
         ("Changes to production it read:",
          [CitedEvidence(label=cited.label,
-                        text=f"{_a_change_as_a_line(cited.change)}"
-                             f"{_THE_WALK_ALONE_READ_IT if cited.change in walk_alone else ''}")
+                        text=_a_change_as_a_line(cited.change)
+                             + (_who_found_it(cited.change, evidence)
+                                if cited.change in walk_alone else ""))
           for cited in changes],
          changes_not_listed(evidence.deploys_reading, evidence.flags_reading,
                             {cited.change.kind for cited in changes})),
@@ -1767,6 +1774,21 @@ def _a_line_of_the_narration(entry: TimelineEntry) -> str:
     """One line of the narration, worded as the document's timeline words it -
     the candidates it formed named by label."""
     return f"{to_iso(entry.at)} {entry.who}: {said_of_a_line(entry)}"
+
+
+def _who_found_it(change: ChangeEvent, evidence: IncidentEvidence) -> str:
+    """Said beside a change only the walk's own read of the flag history found:
+    that it did, and that it was made after the investigation's reads of the
+    changes ended, where it was.
+
+    Nothing more where it was made at or before that end: whether a read should
+    have returned it is not something the record settles.
+    """
+    ended = evidence.change_reading_ended
+    if ended is None or parse_iso(change.occurred_at) <= ended:
+        return _THE_WALK_ALONE_READ_IT
+
+    return _THE_WALK_ALONE_READ_IT + _MADE_AFTER_THE_READS_ENDED.format(ended=to_iso(ended))
 
 
 def _a_change_as_a_line(change: ChangeEvent) -> str:

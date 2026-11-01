@@ -483,6 +483,53 @@ def test_an_incident_that_read_no_logs_says_no_reading_of_them_ended(
 
 
 @pytest.mark.component
+def test_the_evidence_carries_where_the_furthest_read_of_the_changes_ended(
+        a_clean_database: None) -> None:
+    # What tells a change only the walk found, made past the end of the
+    # investigation's reads, from one a read should have returned. The furthest
+    # end of any read, whatever order the reads came in.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T11:30:00Z",
+                    window_end="2026-09-02T12:30:00Z",
+                    changes=[]
+                ))),
+                calling(lambda: events.record(conn, ChangesRetrieved(
+                    incident_id=incident_id,
+                    window_start="2026-09-02T12:00:00Z",
+                    window_end="2026-09-02T12:05:30Z",
+                    changes=[]
+                )))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_changes_were_read_until(parse_iso("2026-09-02T12:30:00Z"))
+            )
+
+
+@pytest.mark.component
+def test_an_incident_that_read_no_changes_says_no_reading_of_them_ended(
+        a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _the_changes_were_read_until(None)
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_changes_the_investigation_read(a_clean_database: None) -> None:
     # What dates the trigger: the change the confirmed candidate blamed is one
     # of these, and the moment it was made is the one the record holds - not a
@@ -3309,6 +3356,18 @@ def _the_logs_were_read_until(expected: datetime | None) -> Assertion[IncidentEv
             raise AssertionError(
                 f"Expected the logs to have been read until {expected}, and the evidence "
                 f"says {evidence.log_reading_ended}.")
+
+        return True
+
+    return assertion
+
+
+def _the_changes_were_read_until(expected: datetime | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.change_reading_ended != expected:
+            raise AssertionError(
+                f"Expected the changes to have been read until {expected}, and the evidence "
+                f"says {evidence.change_reading_ended}.")
 
         return True
 

@@ -111,7 +111,7 @@ from agent_postmortem.prompting import (
     the_deployment_changes_labelled,
     the_evidence_labelled,
 )
-from argus_core import to_iso
+from argus_core import parse_iso, to_iso
 from argus_core.models import (
     ActionItemType,
     ActionProgress,
@@ -594,6 +594,59 @@ def test_a_change_only_argus_read_is_told_as_not_the_investigator_s() -> None:
             # check refusing the Investigator named beside such a change
             # refused it.
             _does_not_say("did not return it")
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_only_argus_read_made_after_the_investigation_s_reads_ended_is_told_so() -> None:
+    # Told only that Argus alone found it, a write-up read the contrast as the
+    # changes feed failing to return a flag made five minutes after the read
+    # of it ended, and asked for the feed to be fixed.
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature",
+                                         occurred_at="2026-09-02T12:04:00Z")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[the_flag_only_argus_read]
+            ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                                 "change_reading_ended": parse_iso("2026-09-02T11:59:00Z"),
+                                 "deploys_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line("[P1]", "an-unrelated-feature",
+                              "found only by Argus's read of the flag provider's history: "
+                              "it came after 2026-09-02T11:59:00Z",
+                              "where the investigation's reads of the changes ended")
+        )
+
+
+@pytest.mark.unit
+def test_a_change_only_argus_read_made_by_the_end_of_the_investigation_s_reads_is_told_no_reason(
+) -> None:
+    # Whether a read should have returned it is not something the record
+    # settles, so nothing is said of why.
+    the_flag_only_argus_read = _a_change(reference="an-unrelated-feature",
+                                         occurred_at="2026-09-02T12:04:00Z")
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[the_flag_only_argus_read]
+            ).model_copy(update={"changes_the_walk_alone_read": [the_flag_only_argus_read],
+                                 "change_reading_ended": parse_iso("2026-09-02T12:30:00Z"),
+                                 "deploys_reading": ChannelReading.READ})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(all_of(
+            _says_on_one_line("[P1]", "an-unrelated-feature",
+                              "found only by Argus's read of the flag provider's history"),
+            _does_not_say("it came after")
         ))
 
 
