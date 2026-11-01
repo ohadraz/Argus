@@ -1,5 +1,6 @@
 """How it was found: when it began, when the alert fired, how long that took,
-and how long the rule waits before it fires.
+and how long the rule waits before it fires - where the lesson on detection
+does not weigh the gap against it.
 
 No gap where no onset was recorded: an alert time alone measures nothing.
 """
@@ -70,7 +71,8 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
     else:
         gap = ""
 
-    if said_after := gap + _the_rules_wait(detection):
+    if said_after := gap + _the_rules_wait(detection,
+                                           weighed=postmortem.detection_lesson is not None):
         runs.append(Run(text=said_after))
 
     runs.append(Run(text="."))
@@ -84,9 +86,11 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
                                   if said is not None else None))
 
 
-def _the_rules_wait(detection: Detection) -> str:
+def _the_rules_wait(detection: Detection, weighed: bool) -> str:
     """How long the rule's condition must hold before it fires, said beside the
-    gap and never inside it - and nothing where no rule paged.
+    gap and never inside it - and nothing where no rule paged, or where the
+    lesson on detection weighs the gap against it (`weighed`), with every other
+    part the rule spends: said here as well, a page told the wait twice.
 
     A rule fires only once its condition has held for its wait, so an alert
     fewer minutes after the onset than that claims the condition held before
@@ -114,5 +118,8 @@ def _the_rules_wait(detection: Detection) -> str:
         shorter = shorter_than_the_rules_wait(said_as_a_span(waits),
                                               detection.held_before_the_onset)
         return f" - {shorter}"
+
+    if weighed:
+        return ""
 
     return f" - its rule fires only once its condition has held for {said_as_a_span(waits)}"

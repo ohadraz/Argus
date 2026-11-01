@@ -8,7 +8,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from argus_core.models import AlarmClaim, Alert, CitedEvidence, Detection, TimelineMarker
+from argus_core.models import (
+    AlarmClaim,
+    Alert,
+    CitedEvidence,
+    Detection,
+    DetectionLesson,
+    DetectionMeasuredFrom,
+    TimelineMarker,
+)
 from argus_testkit import Scenario, the_answer_was
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.lines import Line, Role, Run
@@ -165,6 +173,40 @@ def test_detection_says_the_rules_wait_beside_the_gap(
                                       Run(text=". HighErrorRate fired at "),
                                       Run.a_moment(some_alert),
                                       Run(text=said),
+                                      Run(text=".")))))
+
+
+@pytest.mark.unit
+def test_a_wait_the_lesson_on_detection_weighs_is_not_said_beside_the_gap() -> None:
+    # The lesson weighs the gap against the wait and everything else the rule
+    # spends; said here as well, a page told the wait twice.
+    some_alert = SOME_ONSET + timedelta(minutes=5, seconds=7)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=some_alert, rule="dont care",
+                                    onset_at=SOME_ONSET, gap=timedelta(minutes=5, seconds=7),
+                                    rule_waits=timedelta(minutes=5)),
+                detection_lesson=DetectionLesson(
+                    gap=timedelta(minutes=5, seconds=7),
+                    measured_from=DetectionMeasuredFrom.ONSET,
+                    rule_waits=timedelta(minutes=5),
+                    rule_looks_back=timedelta(minutes=1),
+                    rule_evaluated_every=timedelta(minutes=1),
+                    scraping_and_storing=timedelta(seconds=30)))
+        ) \
+        .when(
+            lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line
+        ) \
+        .then(
+            the_answer_was(Line(runs=(Run(text="The incident on "),
+                                      Run(text="io-shop", role=Role.CODE),
+                                      Run(text=" began at "),
+                                      Run.a_moment(SOME_ONSET),
+                                      Run(text=". HighErrorRate fired at "),
+                                      Run.a_moment(some_alert),
+                                      Run(text=", 5 minutes 7 seconds later"),
                                       Run(text=".")))))
 
 

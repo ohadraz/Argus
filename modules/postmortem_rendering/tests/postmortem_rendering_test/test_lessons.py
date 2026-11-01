@@ -81,7 +81,9 @@ def test_a_document_with_no_lessons_still_has_all_three_lists() -> None:
 def test_an_alert_within_what_was_accounted_for_is_said_first_under_what_went_well() -> None:
     # Plain, not prose: the words are worked out here, not the model's. The
     # time to scrape and store is an allowance nobody measured, and said as
-    # the rule's own parts are it would read as a fact about the stack.
+    # the rule's own parts are it would read as a fact about the stack. With
+    # no gap of its own: from the onset, the Detection section says it, and
+    # said here as well, a page told it twice.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
@@ -99,8 +101,8 @@ def test_an_alert_within_what_was_accounted_for_is_said_first_under_what_went_we
         ) \
         .then(
             the_answer_was((
-                Line(runs=(Run(text="The alert came 5 minutes 53 seconds after the onset, "
-                                    "within the 7 minutes 30 seconds accounted for by its "
+                Line(runs=(Run(text="The alert came within the 7 minutes 30 seconds "
+                                    "accounted for by its "
                                     "condition looking back over 5 minutes, its evaluation at "
                                     "intervals of 1 minute, an unmeasured allowance of 30 "
                                     "seconds for scraping and storing its samples and the "
@@ -146,10 +148,35 @@ def test_an_alert_later_than_what_was_accounted_for_is_said_first_under_what_wen
 
 
 @pytest.mark.unit
-def test_where_the_metrics_stopped_at_the_onset_the_alert_is_said_after_their_stopping(
+def test_an_alert_later_than_what_was_accounted_for_from_the_onset_says_how_much_later(
+) -> None:
+    # From the onset, the Detection section says how long the alert took; the
+    # lesson says only what of it was not accounted for.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(detection_lesson=DetectionLesson(
+                gap=timedelta(minutes=9),
+                measured_from=DetectionMeasuredFrom.ONSET,
+                rule_waits=timedelta(0),
+                rule_looks_back=timedelta(minutes=5),
+                rule_evaluated_every=timedelta(minutes=1),
+                scraping_and_storing=timedelta(seconds=30)))
+        ) \
+        .when(
+            lambda: the_lessons(some_postmortem)
+        ) \
+        .then(
+            _the_lesson_says(1, "The alert came 1 minute 30 seconds later than the 7 minutes "
+                                "30 seconds accounted for by")
+        )
+
+
+@pytest.mark.unit
+def test_where_the_metrics_stopped_at_the_onset_the_lesson_counts_the_minute_of_their_stopping(
 ) -> None:
     # What the onset dates there is the metrics stopping, and the service may
-    # have gone on serving as before.
+    # have gone on serving as before. How long after, the Detection section
+    # says.
     Scenario() \
         .given(
             some_postmortem := a_postmortem(detection_lesson=DetectionLesson(
@@ -164,7 +191,7 @@ def test_where_the_metrics_stopped_at_the_onset_the_alert_is_said_after_their_st
             lambda: the_lessons(some_postmortem)
         ) \
         .then(
-            _the_lesson_says(0, "The alert came 5 minutes after the metrics stopped",
+            _the_lesson_says(0, "The alert came within the",
                              "the whole minute the metrics' stopping is measured to.")
         )
 
