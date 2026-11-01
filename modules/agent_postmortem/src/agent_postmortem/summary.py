@@ -44,11 +44,13 @@ from agent_postmortem.figures import (
 )
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sections import (
+    ACTION_ITEM_PREFIX,
     CANDIDATE_PREFIX,
     SYNC_GOES_BACK_ON,
-    UNTIL_SYNC_IS_BACK_ON,
+    TURN_SYNC_BACK_ON,
     causes_of,
     inside_a_sentence,
+    record_action_items_of,
     resolution_of,
 )
 
@@ -59,8 +61,9 @@ type _Written = Callable[[str], str]
 _PLACES: Final = ("first", "second", "third", "fourth", "fifth", "sixth", "seventh",
                   "eighth", "ninth", "tenth")
 
-# A candidate's label as the summary writes it after the candidate's place.
-_A_CANDIDATES_LABEL: Final = re.compile(rf" \({CANDIDATE_PREFIX}\d+\)")
+# A candidate's label as the summary writes it after the candidate's place, and
+# an action item's after what it is about.
+_A_ROW_S_LABEL: Final = re.compile(rf" \((?:{CANDIDATE_PREFIX}\d+|{ACTION_ITEM_PREFIX}\d+)\)")
 
 
 def the_executive_summary(evidence: IncidentEvidence,
@@ -93,7 +96,7 @@ def the_executive_summary(evidence: IncidentEvidence,
             f"disproven at {written(ARGUS_STOPPED_FIGURE)}.",
             *([cause] if cause else []),
             *_what_argus_did(evidence, measured, written),
-            *_what_it_left_to_a_person(evidence),
+            *_what_it_left_to_a_person(evidence, measured),
             *([still_at_risk] if still_at_risk else [])
         ])
 
@@ -105,16 +108,17 @@ def the_executive_summary(evidence: IncidentEvidence,
         _what_customers_lost(measured, written),
         *([cause] if cause else []),
         *_what_argus_did(evidence, measured, written),
-        *_what_it_left_to_a_person(evidence),
+        *_what_it_left_to_a_person(evidence, measured),
         *([still_at_risk] if still_at_risk else [])
     ])
 
 
 def said_off_the_page(summary: str) -> str:
     """The summary as said where the document's rows are not: without the
-    label after each candidate's place, which leads to its row on the page and
-    to nothing anywhere else. The place before it still says which it was."""
-    return _A_CANDIDATES_LABEL.sub("", summary)
+    label after each candidate's place or an action item's subject, which leads
+    to its row on the page and to nothing anywhere else. What comes before it
+    still says which it was."""
+    return _A_ROW_S_LABEL.sub("", summary)
 
 
 def _when_and_for_how_long(measured: Measurements,
@@ -305,7 +309,8 @@ def _what_it_came_to_before(action: ActionRecord) -> str:
             f"{taken}: it was {came_to}.")
 
 
-def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
+def _what_it_left_to_a_person(evidence: IncidentEvidence,
+                              measured: Measurements) -> list[str]:
     """That Argus handed the incident to a person, where it ran out of moves;
     each cause Argus held back from testing, with why in its own words - not
     its row's "never tried: ...", which would say it twice - the draft fix,
@@ -313,10 +318,12 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     taken. Never as having fixed anything: nothing ran the fix, and nothing
     took the recommendation.
 
-    Sync left off with when it goes back on and what sooner does: it decides
-    whether merging the draft does anything, and turning it on too soon is the
-    one move that puts the fault back. Once for each application, after the
-    fix, as the action items take it.
+    Sync left off with when it goes back on, and the record's item that turns
+    it back on: what turning it on sooner does the item says, where whoever
+    turns it on reads it - said here as well, the page carried the sentence
+    twice, word for word. The when stays, because off the page the item's label
+    goes and a channel reading only that it was left off is told neither. Once
+    for each application, after the fix, as the action items take it.
 
     A cause by its place, not its summary: that is the investigator's own
     sentences, and set inside this one they run on into the reason. Its place
@@ -334,6 +341,8 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
     recommended = evidence.recommended_action
     left_off = dict.fromkeys(action.paused_sync_of for action in evidence.actions
                              if action.paused_sync_of is not None)
+    numbered = {item.text: item.number
+                for item in record_action_items_of(evidence, measured.back_to_normal_at)}
 
     return [*(["Argus handed the incident to a person."] if evidence.escalated else []),
             *held_back,
@@ -341,7 +350,8 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence) -> list[str]:
                f"merge.{_what_merging_it_alone_does(evidence)}"]
               if pull_request is not None else []),
             *(f"Argus left automatic sync of {application} off, to be turned back on "
-              f"{SYNC_GOES_BACK_ON}: {UNTIL_SYNC_IS_BACK_ON}."
+              f"{SYNC_GOES_BACK_ON} "
+              f"({numbered[TURN_SYNC_BACK_ON.format(application=application)]})."
               for application in left_off),
             *([f"Argus recommends this and did not take it: "
                f"{inside_a_sentence(recommended).rstrip('.')}."]

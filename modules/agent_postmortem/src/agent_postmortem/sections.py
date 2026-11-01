@@ -110,8 +110,9 @@ USES_OUTSIDE_PREFIX: Final = "U"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
-# When automatic sync an action left off goes back on, and what it does until
-# then and sooner - one way, for the action item and the summary alike.
+# When automatic sync an action left off goes back on, for the action item and
+# the summary alike, and what it does until then and sooner, for the item alone:
+# whoever turns it on reads the item, and the summary names the item by its label.
 SYNC_GOES_BACK_ON: Final = "once its repository says what should run"
 UNTIL_SYNC_IS_BACK_ON: Final = ("until then nothing merged reaches it, and turned on sooner "
                                 "it puts back what the repository says, undoing what Argus "
