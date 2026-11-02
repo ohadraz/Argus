@@ -15,11 +15,12 @@ strategy says what would help, and has no business also saying what is
 permitted.
 
 A second question is asked of the registry rather than of any strategy, and
-`why_no_mitigation_answers` is it: whether this kind of failure is left without
-an answer on purpose, and why. The gate needs it to tell two silences apart - a
-mitigation that could not identify what to act on, and a mode Argus takes
-nothing for - and asking it here is what keeps the gate from holding its own
-copy of what Argus can do.
+`why_nothing_was_proposed` is it: why a candidate reached the gate with no
+action. The gate needs it to tell three silences apart - a mitigation that
+could not identify what to act on, a change the candidate named that the record
+does not hold, and a mode Argus takes nothing for (`why_no_mitigation_answers`)
+- and asking it here is what keeps the gate from holding its own copy of what
+Argus can do.
 """
 
 from __future__ import annotations
@@ -69,7 +70,8 @@ __all__ = [
     "Strategies",
     "UndoTheRecordedChangeStrategy",
     "Reasons",
-    "why_no_mitigation_answers"
+    "why_no_mitigation_answers",
+    "why_nothing_was_proposed"
 ]
 
 
@@ -643,10 +645,9 @@ def why_no_mitigation_answers(failure_mode: FailureMode,
     """Why Argus takes nothing for this kind of failure, or `None` where a
     mitigation answers it.
 
-    Asked by the gate, which has to tell two silences apart: an incident that
-    reached it with no action because Argus takes nothing for the mode, and one
-    that reached it with no action because the mitigation that does answer the
-    mode could not identify what to act on. Both end the same way and mean
+    Asked first by `why_nothing_was_proposed`, which tells an incident that
+    reached the gate with no action because Argus takes nothing for the mode
+    from one whose mode a mitigation does answer. They end differently and mean
     different things to whoever picks the incident up - and the first has two
     reasons, which mean different things again.
 
@@ -666,6 +667,50 @@ def why_no_mitigation_answers(failure_mode: FailureMode,
         return None
 
     return because[failure_mode]
+
+
+def why_nothing_was_proposed(hypothesis: Hypothesis | None,
+                             circumstances: Circumstances | None,
+                             strategies: Strategies = DEFAULT_STRATEGIES,
+                             because: Reasons = NO_MITIGATION_BECAUSE) -> Refusal:
+    """Why no action was proposed for `hypothesis` - asked by the gate, of a
+    candidate that reached it with none.
+
+    Three silences, each sent to a different reader. A mode Argus takes nothing
+    for says why (`why_no_mitigation_answers`). A candidate that named the
+    change it blames, answered by a mitigation that undoes a recorded change,
+    with no such change in the record that was read, is left to a person: the
+    candidate said what to undo, and nothing says which way to put it back.
+    Everything else is the evidence not saying what to act on - no candidate,
+    no mode, a record nobody could read, or a subject that is no change.
+
+    Read off the record rather than off which strategy proposed nothing: a
+    subject the record holds, under a strategy that did not act on it, is no
+    change missing from the record.
+    """
+    if hypothesis is None or hypothesis.failure_mode is None:
+        return Refusal.NO_MITIGATION_PROPOSED
+
+    reason = why_no_mitigation_answers(hypothesis.failure_mode, strategies, because)
+    if reason is not None:
+        return reason
+
+    if (circumstances is not None
+            and REVERT_FEATURE_FLAG in strategies[hypothesis.failure_mode].action_types
+            and _names_a_change_nothing_recorded(hypothesis.subject, circumstances)):
+        return Refusal.NAMED_CHANGE_NOT_RECORDED
+
+    return Refusal.NO_MITIGATION_PROPOSED
+
+
+def _names_a_change_nothing_recorded(subject: str | None, circumstances: Circumstances) -> bool:
+    """Whether `subject` names something, and neither record read holds it."""
+    if subject is None:
+        return False
+
+    return (all(change.flag != subject for change in circumstances.flag_changes)
+            and all(deployment.reference != subject
+                    for deployment in circumstances.deployments))
 
 
 def _the_change_to_undo(subject: str | None,

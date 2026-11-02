@@ -52,6 +52,7 @@ from agent_mitigation.strategies import (
     ScaleOutStrategy,
     Strategies,
     why_no_mitigation_answers,
+    why_nothing_was_proposed,
 )
 from agent_mitigation.tools import (
     DeploymentsBetween,
@@ -118,5 +119,6 @@ __all__ = [
     "propose_action",
     "take_action",
     "undo_change",
-    "why_no_mitigation_answers"
+    "why_no_mitigation_answers",
+    "why_nothing_was_proposed"
 ]

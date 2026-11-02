@@ -30,13 +30,20 @@ class Refusal(StrEnum):
     disagreeing.
     """
 
-    # There was a mitigation for this cause and it could not say what to act
-    # on - a flag the provider never recorded moving, a window naming two
-    # changes and no way to choose. Not a failure of the gate: there was never
-    # an action for it to judge, and what is missing is evidence.
+    # There was a mitigation for this cause and the evidence did not say what
+    # to act on - a candidate naming nothing, a dependency nobody named, a
+    # record nobody could read. Not a failure of the gate: there was never an
+    # action for it to judge, and what is missing is evidence.
     NO_MITIGATION_PROPOSED = "no-mitigation-proposed"
+    # The candidate named the change it blames, and the record of what changed
+    # holds no such change - a flag the provider never recorded moving. Not the
+    # silence above, though it too reaches the gate with no action: the
+    # candidate said what to undo, and only the record could say which way to
+    # put it back. Said as that silence, a write-up read it as Argus having no
+    # mitigation for a flag and never told a person to switch the flag off.
+    NAMED_CHANGE_NOT_RECORDED = "named-change-not-recorded"
     # The cause is known and the fault is in a service another company runs, which
-    # nothing Argus may do reaches. The other silence that reaches the gate with
+    # nothing Argus may do reaches. A third silence that reaches the gate with
     # no action, and a different thing to say to whoever picks the incident up:
     # not "work out what to do" but "this is not ours to do anything about".
     SOMEBODY_ELSES_SERVICE = "somebody-elses-service"
@@ -99,7 +106,15 @@ class Refusal(StrEnum):
 # a bare "it" or "the action" a meaning. The cap says "the action" alone: the
 # review never shows it, and "would test" is wrong of a candidate that was.
 _WHY_IT_WAS_REFUSED = {
-    Refusal.NO_MITIGATION_PROPOSED: "no mitigation was proposed for the candidate",
+    # Said as what was missing rather than as what did not happen. "No
+    # mitigation was proposed" reads as Argus having none for the candidate,
+    # and a reader who believed it would ask for one to be built.
+    Refusal.NO_MITIGATION_PROPOSED: "nothing in the evidence said what to act on to test "
+                                    "the candidate",
+    # The person, because the next step is theirs: the candidate says what to
+    # undo, and nothing Argus read says which way.
+    Refusal.NAMED_CHANGE_NOT_RECORDED: "the change the candidate names is not in the record "
+                                       "of what changed, so undoing it is left to a person",
     # Said as what it is rather than as an absence. These two are Argus having
     # understood the incident and taking nothing for it - a reader who took
     # either for a thin investigation would go looking for evidence instead of

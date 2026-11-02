@@ -6,8 +6,9 @@ them to try after one was refuted. One question with one answer, so a
 candidate the walk would skip is never the one the investigation begins
 with.
 
-What an action is worked out from is built here too, for those two and for the
-proposal node, so that all three reason from the same circumstances.
+What an action is worked out from is built here too, for those two, the
+proposal node and the gate, so that all four reason from the same
+circumstances.
 """
 
 from __future__ import annotations
@@ -38,11 +39,12 @@ def the_circumstances(alert: Alert,
     """What every candidate in a round is answered from, or `None` where the
     flag history could not be read.
 
-    Built here, once, for the three nodes that ask what a candidate would be
+    Built here, once, for the four nodes that ask what a candidate would be
     answered with - the investigation ordering its candidates, the walk choosing
-    the next one, and the proposal node answering the one chosen. Built by each
-    of them, they could come to disagree, and the walk would skip a candidate on
-    the strength of an action the proposal node then declines to take.
+    the next one, the proposal node answering the one chosen, and the gate
+    saying why nothing answered it. Built by each of them, they could come to
+    disagree, and the walk would skip a candidate on the strength of an action
+    the proposal node then declines to take.
 
     The alert's service, because an action addressed to a service is addressed
     to the one the incident is about. The alert's keys for the same reason and

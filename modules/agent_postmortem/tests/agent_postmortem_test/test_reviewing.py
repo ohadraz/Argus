@@ -517,6 +517,29 @@ def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm
 
 
 @pytest.mark.unit
+def test_a_test_held_back_for_a_change_nothing_recorded_is_left_to_a_person() -> None:
+    # The candidate named its change and the record held none to undo: the
+    # analysis went as far as Argus could take it, and undoing the change is a
+    # person's. Said as "none was tried", the review read as an analysis that
+    # fell short.
+    Scenario() \
+        .given(
+            a_document_held_for_an_unrecorded_change := _a_document(
+                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
+                                                 result="never tried", label="C1")],
+                resolution=[_a_refusal(Refusal.NAMED_CHANGE_NOT_RECORDED)])
+        ) \
+        .when(
+            lambda: review_of(a_document_held_for_an_unrecorded_change, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=None,
+                          because=why_it_was_refused(Refusal.NAMED_CHANGE_NOT_RECORDED))
+        )
+
+
+@pytest.mark.unit
 def test_an_analysis_with_no_mitigation_proposed_is_still_not_complete() -> None:
     # Nothing proposed is evidence missing, not a boundary Argus held: the
     # analysis fell short.

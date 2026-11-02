@@ -38,6 +38,7 @@ from argus_core.models import (
     Attempt,
     DiscardCacheEntries,
     FailureMode,
+    FlagChange,
     FlagUndo,
     Hypothesis,
     IncidentStatus,
@@ -465,20 +466,51 @@ def test_a_mode_argus_takes_nothing_for_ends_the_mitigation_phase(
 def test_a_cause_nobody_could_act_on_is_still_refused_as_unproposed(
     record_outcome: MagicMock
 ) -> None:
-    # The other silence, kept as it was. A flag toggle is answered by a revert,
-    # so an incident that reached the gate without one had a mitigation and no
-    # subject to point it at - which is the evidence being thin rather than
-    # Argus having nothing to offer.
+    # The evidence's silence. A flag toggle is answered by a revert, so an
+    # incident that reached the gate without one, its flag record read, had a
+    # mitigation and no subject to point it at - which is the evidence being
+    # thin rather than Argus having nothing to offer.
     published: list[IncidentEvent] = []
 
     Scenario() \
-        .given(a_gated_incident := _a_mitigating_incident()) \
+        .given(a_gated_incident := _a_mitigating_incident(whose_flag_record_reads=[])) \
         .when(lambda: tier_gate_node(a_gated_incident,
                                      record_outcome=record_outcome,
                                      admitted=_a_kind_argus_may_take(),
                                      attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
                                      publisher=published.append)) \
         .then(_the_refusal_was_published(Refusal.NO_MITIGATION_PROPOSED, published))
+
+
+@pytest.mark.unit
+def test_a_candidate_naming_a_flag_the_provider_never_recorded_is_left_to_a_person(
+    record_outcome: MagicMock
+) -> None:
+    # The provider was read and holds no change to the flag the candidate
+    # blames, so nothing says which way to put it back. Said as "no mitigation
+    # was proposed", a write-up read it as Argus having no flag mitigation and
+    # never told a person to switch the flag off.
+    published: list[IncidentEvent] = []
+    some_candidate = a_determined_hypothesis(a_random_id()).model_copy(
+        update={"subject": "kuki-flag"})
+
+    Scenario() \
+        .given(
+            a_gated_incident := _a_mitigating_incident(about=some_candidate,
+                                                       whose_flag_record_reads=[])
+        ) \
+        .when(lambda: tier_gate_node(a_gated_incident,
+                                     record_outcome=record_outcome,
+                                     admitted=_a_kind_argus_may_take(),
+                                     attempts_per_subject=DONT_CARE_ATTEMPT_CAP,
+                                     publisher=published.append)) \
+        .then(all_of(
+            _the_refusal_was_published(Refusal.NAMED_CHANGE_NOT_RECORDED, published),
+            _the_candidate_was_recorded_as_untried(
+                some_candidate, why_it_was_refused(Refusal.NAMED_CHANGE_NOT_RECORDED),
+                record_outcome),
+            _the_incident_was_moved_nowhere()
+        ))
 
 
 @pytest.mark.unit
@@ -862,7 +894,8 @@ def _a_mitigating_incident(proposing: Action | None = None,
                            listing: list[ServiceDependency] | None = None,
                            dated_by_the_alert: datetime | None = None,
                            whose_minutes_were_read: bool = True,
-                           whose_mode_has_no_mitigation: bool = False
+                           whose_mode_has_no_mitigation: bool = False,
+                           whose_flag_record_reads: list[FlagChange] | None = None
                            ) -> IncidentState:
     some_incident_id = a_random_id()
     some_alert = Alert(
@@ -880,7 +913,8 @@ def _a_mitigating_incident(proposing: Action | None = None,
         attempts=already_tried or [],
         dependencies=listing or [],
         readings_cover_the_incident=whose_minutes_were_read,
-        the_mode_has_no_mitigation=whose_mode_has_no_mitigation
+        the_mode_has_no_mitigation=whose_mode_has_no_mitigation,
+        flag_changes=whose_flag_record_reads
     )
 
 

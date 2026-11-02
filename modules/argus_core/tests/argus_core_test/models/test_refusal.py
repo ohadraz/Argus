@@ -16,7 +16,10 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 @pytest.mark.unit
 @pytest.mark.parametrize(("refusal", "said"), [
     (Refusal.NO_MITIGATION_PROPOSED,
-     "no mitigation was proposed for the candidate"),
+     "nothing in the evidence said what to act on to test the candidate"),
+    (Refusal.NAMED_CHANGE_NOT_RECORDED,
+     "the change the candidate names is not in the record of what changed, so undoing "
+     "it is left to a person"),
     (Refusal.SOMEBODY_ELSES_SERVICE,
      "the failure is in a service another company runs, and nothing Argus can do "
      "reaches it"),
@@ -35,15 +38,21 @@ from argus_testkit import Assertion, Scenario, the_answer_was
     (Refusal.NOTHING_COULD_CONFIRM_IT,
      "nothing would say whether the action that would test the candidate worked "
      "inside the time Argus waits, so it is recommended rather than taken")
-], ids=["no-mitigation-proposed", "somebody-elses-service", "would-undo-a-meant-change",
-        "not-a-generic-mitigation", "already-tried-enough", "outside-what-argus-may-touch",
-        "nothing-could-confirm-it"])
+], ids=["no-mitigation-proposed", "named-change-not-recorded", "somebody-elses-service",
+        "would-undo-a-meant-change", "not-a-generic-mitigation", "already-tried-enough",
+        "outside-what-argus-may-touch", "nothing-could-confirm-it"])
 def test_each_refusal_is_said_in_its_one_sentence(refusal: Refusal, said: str) -> None:
     # Every one the review can show names what it is about - "the candidate",
     # "the action that would test the candidate" - because a review's reason
     # has no line before it to lend a bare "it" or "the action" a meaning. The
     # cap is the exception: the review never shows it, and "would test" is
     # wrong of a candidate that was tested.
+    #
+    # The two that reach the gate with no action say what was missing rather
+    # than that nothing was proposed. Told "no mitigation was proposed for the
+    # candidate" of a flag the provider had no record of changing, a write-up
+    # said Argus had no mitigation for a flag, asked for one to be built, and
+    # never told a person to switch the flag off.
     Scenario() \
         .given(refusal) \
         .when(lambda: why_it_was_refused(refusal)) \

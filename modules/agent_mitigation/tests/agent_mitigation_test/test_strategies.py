@@ -22,6 +22,7 @@ from agent_mitigation import (
     Strategies,
     propose_action,
     why_no_mitigation_answers,
+    why_nothing_was_proposed,
 )
 from agent_mitigation.strategies import DEFAULT_STRATEGIES, NO_MITIGATION_BECAUSE
 from argus_core.models import (
@@ -265,9 +266,9 @@ def test_nothing_answers_monitoring_configuration_drift_though_a_revision_is_the
 @pytest.mark.unit
 def test_nothing_answers_an_upstream_failure_because_the_service_is_somebody_elses() -> None:
     # Asked of the policy that holds the mapping, because the gate has to tell
-    # two silences apart - a mode with no mitigation at all, and a mode whose
-    # mitigation could not identify what to act on - and a gate holding its own
-    # copy of the set would be a second place for the answer to drift.
+    # a mode with no mitigation at all from a mode whose mitigation proposed
+    # nothing - and a gate holding its own copy of the set would be a second
+    # place for the answer to drift.
     Scenario() \
         .given(
             an_upstream_failure := FailureMode.UPSTREAM_DEPENDENCY_FAILURE
@@ -310,6 +311,84 @@ def test_a_mode_with_a_strategy_has_no_reason_to_lack_one() -> None:
         ) \
         .then(
             _the_refusal_is(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", [FailureMode.FEATURE_FLAG_TOGGLE,
+                                  FailureMode.SILENT_DATA_CORRUPTION],
+                         ids=["a-flag-toggle", "damage-a-change-left"])
+def test_a_candidate_naming_a_change_nothing_recorded_is_left_to_a_person(
+        mode: FailureMode) -> None:
+    # The flag the candidate blames is not in the provider's record, so there
+    # is nothing to say which way to put it back. Said as "no mitigation was
+    # proposed", a write-up read it as Argus having no flag mitigation, asked
+    # for one to be built, and never told a person to switch the flag off.
+    Scenario() \
+        .given(
+            a_candidate_naming_an_unrecorded_flag := a_hypothesis_blaming(
+                mode, subject="kuki-flag")
+        ) \
+        .when(
+            lambda: why_nothing_was_proposed(
+                a_candidate_naming_an_unrecorded_flag,
+                Circumstances(service=DONT_CARE_SERVICE,
+                              flag_changes=[an_enabling_of("another-flag")],
+                              deployments=[a_deployment()]))
+        ) \
+        .then(
+            _the_refusal_is(Refusal.NAMED_CHANGE_NOT_RECORDED)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("candidate", "circumstances"), [
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)),
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE, subject="kuki-flag"), None),
+    (a_hypothesis_blaming(FailureMode.INTERNAL_DEPENDENCY_FAILURE, subject="kuki-service"),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)),
+    (None, Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED)),
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE, subject="kuki-flag"),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=[an_enabling_of("kuki-flag")])),
+    (a_hypothesis_blaming(FailureMode.FEATURE_FLAG_TOGGLE,
+                          subject=(a_recorded_deployment := a_deployment()).reference),
+     Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED,
+                   deployments=[a_recorded_deployment]))
+], ids=["names-nothing", "the-record-was-not-read", "a-mitigation-that-undoes-no-change",
+        "no-candidate", "a-flag-the-record-holds", "a-revision-the-record-holds"])
+def test_a_candidate_whose_evidence_said_nothing_to_act_on_is_said_so(
+        candidate: Hypothesis | None, circumstances: Circumstances | None) -> None:
+    # Not a change missing from the record. A candidate naming nothing, a
+    # record nobody could read, a mitigation that does not undo a change, and
+    # a change the record does hold each leave nothing the record could be
+    # said to lack.
+    Scenario() \
+        .given(candidate) \
+        .when(
+            lambda: why_nothing_was_proposed(candidate, circumstances)
+        ) \
+        .then(
+            _the_refusal_is(Refusal.NO_MITIGATION_PROPOSED)
+        )
+
+
+@pytest.mark.unit
+def test_a_mode_argus_takes_nothing_for_is_said_as_its_reason_whatever_it_names() -> None:
+    # The mode's reason comes first: another company's outage is not Argus's
+    # to undo, whether or not its candidate names something the record lacks.
+    Scenario() \
+        .given(
+            an_upstream_failure := a_hypothesis_blaming(
+                FailureMode.UPSTREAM_DEPENDENCY_FAILURE, subject="kuki-flag")
+        ) \
+        .when(
+            lambda: why_nothing_was_proposed(
+                an_upstream_failure,
+                Circumstances(service=DONT_CARE_SERVICE, flag_changes=NO_FLAGS_CHANGED))
+        ) \
+        .then(
+            _the_refusal_is(Refusal.SOMEBODY_ELSES_SERVICE)
         )
 
 

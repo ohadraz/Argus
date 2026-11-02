@@ -97,11 +97,14 @@ def review_of(document: PostmortemDocument,
 
 # The refusals that hold the leading candidate's test back at a boundary of
 # Argus's, each said in its own sentence - the refusals send a reader to
-# different people, and one sentence for all of them misstates most. Not
+# different people, and one sentence for all of them misstates most. A change
+# the candidate named and the record does not hold is one: the analysis said
+# what to undo, and undoing it without the record is a person's. Not
 # `NO_MITIGATION_PROPOSED`, which is evidence missing - an analysis short of
 # what it needed - nor `ALREADY_TRIED_ENOUGH`, which follows a test rather than
 # standing in for one.
 _HELD_AT_A_BOUNDARY: Final = frozenset({
+    Refusal.NAMED_CHANGE_NOT_RECORDED,
     Refusal.WOULD_UNDO_A_MEANT_CHANGE,
     Refusal.NOT_A_GENERIC_MITIGATION,
     Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH,

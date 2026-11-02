@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from agent_mitigation import is_within_reach, why_no_mitigation_answers
+from agent_mitigation import is_within_reach, why_nothing_was_proposed
 from argus_core.events import (
     ActionRecommended,
     ActionRefused,
@@ -16,7 +16,8 @@ from argus_core.events import (
 from argus_core.models import (
     Action,
     Attempt,
-    FailureMode,
+    Circumstances,
+    Hypothesis,
     Refusal,
     ServiceDependency,
     reports_what_it_changed,
@@ -25,6 +26,7 @@ from argus_core.models import (
     why_it_was_refused,
 )
 
+from orchestrator.walk.candidates import the_circumstances
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import Admitted, RecordOutcome
 from orchestrator.walk.routes import (
@@ -63,7 +65,7 @@ def tier_gate_node(
     however it is labelled. An incident with no action at all has nothing for
     this stage to admit.
 
-    Four of the seven rejections are recorded and the walk moves on, rather than
+    Five of the eight rejections are recorded and the walk moves on, rather than
     ending the incident. The gate is judging *this* action, and the explanations
     after it on the list may be answered by a mitigation that is admitted -
     stopping there would let one unauthorised proposal spend the whole of
@@ -78,7 +80,7 @@ def tier_gate_node(
     change somebody meant: the candidate in hand is the likeliest explanation
     still standing, and acting on a less likely one would be acting against it.
 
-    Those four refusals move the incident nowhere - a rejection is the end of
+    Those five refusals move the incident nowhere - a rejection is the end of
     this attempt, not of the incident, so the status is `mitigating` before and
     after. The three that stop do move it, because none is an attempt that
     failed but an ending: one leaves a recommendation and the other two a mode
@@ -117,7 +119,11 @@ def tier_gate_node(
         state.dependencies,
         state.attempts,
         attempts_per_subject,
-        state.hypothesis.failure_mode if state.hypothesis is not None else None,
+        state.hypothesis,
+        # Built as the proposal node built them, so the gate says why nothing
+        # was proposed from the record the proposal was made against.
+        the_circumstances(state.alert, state.flag_changes, state.deployments,
+                          state.placement),
         # The two facts confirmability is read off. Dated by the alert rather
         # than measured from the service's own series, and whether any reading
         # covers the incident's minutes - both properties of the evidence, and
@@ -194,7 +200,7 @@ def tier_gate_node(
         proposed_action=None,
         recommended_action=recommended,
         # Only where there is a recommendation, because only then does this
-        # return move the incident. The other four refusals that reach it end an
+        # return move the incident. The other five refusals that reach it end an
         # attempt and leave the status where it was, and the walk refuses a move
         # nothing accounts for - which is how this was found, one case after the
         # ending was written.
@@ -215,25 +221,27 @@ def _why_the_action_cannot_proceed(action: Action | None,
                                    dependencies: Sequence[ServiceDependency],
                                    attempts: Sequence[Attempt],
                                    attempts_per_subject: int,
-                                   failure_mode: FailureMode | None,
+                                   hypothesis: Hypothesis | None,
+                                   circumstances: Circumstances | None,
                                    dated_by_the_alert: bool,
                                    readings_cover_the_incident: bool) -> Refusal | None:
     """Which refusal this is, or `None` when there is none to give.
 
     The rejections reach their statuses for different reasons, and a human
     reading the incident needs to know which: a kind of failure Argus takes
-    nothing for and why, nothing to do about a cause that does have an answer,
-    something to do that nobody pre-authorised, something aimed at a service
+    nothing for and why, a change the candidate named that the record does not
+    hold, nothing to do about a cause that does have an answer, something to
+    do that nobody pre-authorised, something aimed at a service
     Argus may not touch, or something that has already been done to this subject
     as often as it may be. Answered as the value, so that the sentence a reader
     sees is derived from it in one place rather than written here and matched on
     somewhere else.
 
-    The first two are both "no action arrived", and telling them apart is the
-    whole reason the mode is read here. Which modes have an answer, and why the
-    others have none, is asked of the policy that holds the mapping rather than
-    looked up locally: a gate keeping its own copy of what Argus can do is a
-    second copy to fall out of step with the first.
+    The first three are all "no action arrived", and telling them apart is the
+    whole reason the candidate and the record it was proposed against are read
+    here. Which is which is asked of the policy that holds the mapping rather
+    than worked out locally: a gate keeping its own copy of what Argus can do
+    is a second copy to fall out of step with the first.
 
     Admission is asked of the set of declared mitigations rather than read off
     the action. Nothing about an instance can put its kind in or out of that
@@ -287,14 +295,7 @@ def _why_the_action_cannot_proceed(action: Action | None,
     minute, left as a recommendation, on an incident that reads as handled.
     """
     if action is None:
-        # A mode nobody determined is not a mode Argus takes nothing for. There was
-        # nothing to look a mitigation up by, which is the investigation coming
-        # up short - and telling a reader that this kind of failure has no
-        # answer would be saying something about a kind nobody named.
-        if failure_mode is None:
-            return Refusal.NO_MITIGATION_PROPOSED
-
-        return why_no_mitigation_answers(failure_mode) or Refusal.NO_MITIGATION_PROPOSED
+        return why_nothing_was_proposed(hypothesis, circumstances)
 
     if not admitted(action):
         return Refusal.NOT_A_GENERIC_MITIGATION
