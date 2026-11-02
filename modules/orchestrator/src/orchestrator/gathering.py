@@ -89,6 +89,7 @@ from argus_core.models import (
     Verdict,
     as_a_change,
     the_identity_recorded,
+    whether_it_can_be_put_back,
 )
 from argus_core.replay import Recorder, Replay
 from argus_core.replay import nobody as records_nothing
@@ -1079,7 +1080,9 @@ def _what_became_of(taken_action: TakenAction) -> str:
         return "not known whether anything was changed"
 
     if not taken_action.has_a_way_back:
-        return "nothing to put back"
+        # In the words the page's Kind column says it, which the table reads
+        # to say it once.
+        return whether_it_can_be_put_back(False, left_behind_known=True)
 
     # Refuted, and left as somebody else had since set it: not put back, and a
     # reader told it was would take the subject for Argus's again.

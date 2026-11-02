@@ -275,6 +275,13 @@ class ResolutionStep(BaseModel):
     has_a_way_back: bool
     outcome: str
     label: str | None
+    # The two halves of `outcome` - what the action came to, and whether it
+    # still stands - for the one place that says the second beside a column
+    # that may say it already. `None` for a standing on a refusal, which
+    # leaves nothing, and for both on a document written before they were
+    # carried.
+    came_to: str | None = None
+    standing: str | None = None
     # Which refusal a step is, on a refusal to act, and `None` on an action -
     # what the review reads to say whether the next step is a person's: a test
     # refused as not Argus's to take is the analysis gone as far as Argus may.

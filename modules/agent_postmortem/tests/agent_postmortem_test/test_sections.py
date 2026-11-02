@@ -1750,6 +1750,8 @@ def test_resolution_lists_each_action_as_argus_took_it() -> None:
                 by="Argus",
                 has_a_way_back=True,
                 outcome="confirmed, still in place",
+                came_to="confirmed",
+                standing="still in place",
                 label="M1"
             )])
         )
@@ -1784,7 +1786,9 @@ def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> N
     # the one rollback that would answer it undoing a change made on purpose.
     # Said and dated as the timeline's line says it, and under no label:
     # nothing was done, so no prose cites it as an action. And which refusal it
-    # was, which is what the review reads to say whose the next step is.
+    # was, which is what the review reads to say whose the next step is. What
+    # each came to and whether it stands, apart as well as together - a refusal
+    # stands as nothing.
     the_refusal = STARTED_AT + timedelta(minutes=1)
     the_action = STARTED_AT + timedelta(minutes=2)
 
@@ -1799,15 +1803,16 @@ def test_resolution_lists_a_refusal_to_act_in_its_place_among_the_actions() -> N
                 RefusalRecord(line=0, refusal=Refusal.WOULD_UNDO_A_MEANT_CHANGE)]})
         ) \
         .when(
-            lambda: [(step.at, step.action, step.has_a_way_back, step.outcome, step.label,
-                      step.refused)
+            lambda: [(step.at, step.action, step.has_a_way_back, step.outcome, step.came_to,
+                      step.standing, step.label, step.refused)
                      for step in resolution_of(evidence)]
         ) \
         .then(
             the_answer_was([
-                (the_refusal, "Refused to act - some reason", False, "not taken", None,
-                 Refusal.WOULD_UNDO_A_MEANT_CHANGE),
-                (the_action, "dont care", True, "confirmed, still in place", "M1", None)
+                (the_refusal, "Refused to act - some reason", False, "not taken", "not taken",
+                 None, None, Refusal.WOULD_UNDO_A_MEANT_CHANGE),
+                (the_action, "dont care", True, "confirmed, still in place", "confirmed",
+                 "still in place", "M1", None)
             ])
         )
 

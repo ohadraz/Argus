@@ -817,6 +817,8 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        has_a_way_back=action.has_a_way_back,
                        outcome=(f"{what_it_came_to(action.verdict, action.progress)}, "
                                 f"{action.standing}"),
+                       came_to=what_it_came_to(action.verdict, action.progress),
+                       standing=action.standing,
                        label=label_of(ACTION_PREFIX, position),
                        sync_left_off=action.paused_sync_of is not None,
                        left_behind_known=action.left_behind_known,
@@ -830,6 +832,7 @@ def resolution_of(evidence: IncidentEvidence) -> list[ResolutionStep]:
                        by=TAKEN_BY,
                        has_a_way_back=False,
                        outcome=NOT_TAKEN,
+                       came_to=NOT_TAKEN,
                        label=None,
                        refused=refused.refusal,
                        # Refused before anything was asked of anybody.

@@ -44,7 +44,9 @@ class StepRow(BaseModel):
     `sync_left_off` whether it left the platform's automatic sync off, which
     the table says beside the outcome and nothing else does - the one row is
     where whether the action still stands is explained, and said in the
-    outcome it would be said wherever the action is cited."""
+    outcome it would be said wherever the action is cited. `came_to` and
+    `standing` are the outcome's two halves, where the step carries them.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -55,11 +57,18 @@ class StepRow(BaseModel):
     kind: str
     outcome: str
     sync_left_off: bool = False
+    came_to: str | None = None
+    standing: str | None = None
 
     @property
     def outcome_in_the_table(self) -> str:
-        """The outcome as the table's row says it."""
-        return f"{self.outcome}{_SYNC_LEFT_OFF if self.sync_left_off else ''}"
+        """The outcome as the table's row says it: whether the action still
+        stands left out where the Kind beside it says it already - "nothing
+        to put back" in both cells said it twice."""
+        said = (self.came_to if self.came_to is not None
+                and self.standing in (None, self.kind) else self.outcome)
+
+        return f"{said}{_SYNC_LEFT_OFF if self.sync_left_off else ''}"
 
 
 class ActionsTakenSection(BaseModel):
@@ -98,7 +107,9 @@ def the_actions_taken(postmortem: PostmortemDocument,
                           kind=whether_it_can_be_put_back(step.has_a_way_back,
                                                           step.left_behind_known),
                           outcome=step.outcome,
-                          sync_left_off=step.sync_left_off)
+                          sync_left_off=step.sync_left_off,
+                          came_to=step.came_to,
+                          standing=step.standing)
                   for step in postmortem.resolution)
 
     fix = None

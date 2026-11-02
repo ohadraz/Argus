@@ -148,6 +148,84 @@ def test_an_action_with_nothing_to_put_back_says_so() -> None:
 
 
 @pytest.mark.unit
+def test_an_action_with_nothing_to_put_back_does_not_say_it_again_in_its_outcome() -> None:
+    # The Kind beside it says it already: "nothing to put back" in both cells
+    # of one row said it twice.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="restarted io-pricing", by="Argus",
+                               has_a_way_back=False,
+                               outcome="confirmed, nothing to put back",
+                               came_to="confirmed", standing="nothing to put back",
+                               label="M1")])
+        ) \
+        .when(
+            lambda: [(step.kind, step.outcome_in_the_table) for step in
+                     the_actions_taken(some_postmortem, resolution=None, day=None).steps]
+        ) \
+        .then(
+            the_answer_was([("nothing to put back", "confirmed")]))
+
+
+@pytest.mark.unit
+def test_a_standing_its_kind_does_not_say_is_kept_in_its_outcome() -> None:
+    # "Nothing was changed" is more than "nothing to put back": the action was
+    # never made.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="dont care", by="Argus",
+                               has_a_way_back=False,
+                               outcome="escalated, nothing was changed",
+                               came_to="escalated", standing="nothing was changed",
+                               label="M1")])
+        ) \
+        .when(
+            lambda: [step.outcome_in_the_table for step in
+                     the_actions_taken(some_postmortem, resolution=None, day=None).steps]
+        ) \
+        .then(
+            the_answer_was(["escalated, nothing was changed"]))
+
+
+@pytest.mark.unit
+def test_a_refusal_s_outcome_is_what_it_came_to_alone() -> None:
+    # Nothing was done, so nothing stands.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="Refused to act - some reason",
+                               by="Argus", has_a_way_back=False, outcome="not taken",
+                               came_to="not taken", standing=None, label=None,
+                               refused=Refusal.WOULD_UNDO_A_MEANT_CHANGE)])
+        ) \
+        .when(
+            lambda: [step.outcome_in_the_table for step in
+                     the_actions_taken(some_postmortem, resolution=None, day=None).steps]
+        ) \
+        .then(
+            the_answer_was(["not taken"]))
+
+
+@pytest.mark.unit
+def test_a_step_written_before_its_parts_were_carried_shows_its_outcome_as_written() -> None:
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(resolution=[
+                ResolutionStep(at=SOME_MOMENT, action="dont care", by="Argus",
+                               has_a_way_back=False,
+                               outcome="confirmed, nothing to put back", label="M1")])
+        ) \
+        .when(
+            lambda: [step.outcome_in_the_table for step in
+                     the_actions_taken(some_postmortem, resolution=None, day=None).steps]
+        ) \
+        .then(
+            the_answer_was(["confirmed, nothing to put back"]))
+
+
+@pytest.mark.unit
 def test_an_action_nobody_can_account_for_is_not_said_to_leave_nothing_to_put_back() -> None:
     # An outcome saying nobody knows whether anything was changed, beside a
     # Kind saying there is nothing to put back, contradicts itself.
