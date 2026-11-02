@@ -66,6 +66,7 @@ from agent_postmortem.sections import (
     resolution_of,
     timeline_of,
     trigger_of,
+    why_no_trigger,
 )
 from agent_postmortem.sources import EngagementAnswer, NotPaged, Sources
 from agent_postmortem.summary import the_executive_summary
@@ -200,6 +201,7 @@ def write_postmortem(evidence: IncidentEvidence,
                                rule_wait_unread=measured.rule_wait_unread,
                                held_before_the_onset=measured.rule_held_before_the_onset),
         trigger=trigger_of(evidence),
+        no_trigger=why_no_trigger(evidence),
         resolution=resolution_of(evidence),
         hypotheses=hypotheses_of(evidence),
         # Ending at the measured recovery, where the duration beside it ends.

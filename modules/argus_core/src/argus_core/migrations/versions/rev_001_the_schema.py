@@ -338,6 +338,7 @@ CREATE TABLE IF NOT EXISTS postmortem (
     impact JSONB,
     detection JSONB,
     trigger JSONB,
+    no_trigger JSONB,
     resolution JSONB NOT NULL DEFAULT '[]'::jsonb,
     causal_chain JSONB NOT NULL DEFAULT '[]'::jsonb,
     contributing_factors JSONB NOT NULL DEFAULT '[]'::jsonb,

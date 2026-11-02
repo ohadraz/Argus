@@ -54,6 +54,7 @@ from argus_core.models import (
     Lessons,
     LogsInTheGap,
     MetricBucket,
+    NoTrigger,
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
@@ -72,6 +73,7 @@ from argus_core.models import (
     Undone,
     Verdict,
     Weighing,
+    WhyNoTrigger,
 )
 from argus_incidents.repository import events, hypotheses, incidents, postmortems, taken_actions
 from argus_testkit import Assertion, Scenario, all_of
@@ -1669,6 +1671,34 @@ def test_a_postmortem_that_names_no_symptom_is_titled_by_its_alert() -> None:
 
 
 @pytest.mark.component
+def test_a_confirmed_cause_with_no_trigger_says_why_rather_than_none_established() -> None:
+    # Beside a confirmed cause, "No trigger was established" reads as the
+    # cause being in doubt.
+    some_alert = Alert(service="io-shop", alert_name="HighLatency")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with(no_trigger=NoTrigger(
+            why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD, candidate="C1",
+            service="io-pricing"
+        )),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            _the_page_reads("C1 was confirmed; it blames io-pricing"),
+            _the_page_reads("whose deploys Argus did not read."),
+            _the_page_does_not_read("No trigger was established")
+        ))
+
+
+@pytest.mark.component
 def test_the_trigger_says_what_kind_of_change_it_was_and_between_which_states() -> None:
     # A name alone reads as anything. Said as a flag, its two states are the
     # ones it moved between - the one it left, and the one it went to.
@@ -3261,6 +3291,7 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
                      resolution: list[ResolutionStep] | None = None,
                      symptom: str | None = None,
                      trigger: Trigger | None = None,
+                     no_trigger: NoTrigger | None = None,
                      impact: Impact | None = None,
                      detection: Detection | None = None) -> PostmortemDocument:
     """A document with nothing in any section but the ones it is given."""
@@ -3279,6 +3310,7 @@ def _a_document_with(timeline: list[TimelineEntry] | None = None,
         resolution=resolution or [],
         symptom=symptom,
         trigger=trigger,
+        no_trigger=no_trigger,
         impact=impact,
         detection=detection
     )

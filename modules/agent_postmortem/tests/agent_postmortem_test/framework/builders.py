@@ -70,6 +70,7 @@ from argus_core.models import (
     ActionProgress,
     AlertRuleStanding,
     ChangeEvent,
+    ChannelReading,
     Meaning,
     MetricBucket,
     OpenedPullRequest,
@@ -189,7 +190,10 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
                        log_reading_ended: datetime | None = None,
                        escalated: bool = False,
                        onset_stated_by_the_alert: datetime | None = None,
-                       disproven: bool = False
+                       disproven: bool = False,
+                       service: str = "io-shop",
+                       deploys_reading: ChannelReading = ChannelReading.NOT_ASKED,
+                       flags_reading: ChannelReading = ChannelReading.NOT_ASKED
                        ) -> IncidentEvidence:
     """The incident as the Orchestrator hands it over.
 
@@ -217,6 +221,10 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
 
     Not disproven by default: an alarm the window contradicts is the
     exception, and a bundle closed as one would measure no incident at all.
+
+    Neither the deploys nor the flags asked for by default, as the record
+    says of a channel it holds nothing about - a test about a reading says
+    what came of it.
     """
     return IncidentEvidence(
         incident_id=DONT_CARE_INCIDENT_ID,
@@ -245,7 +253,10 @@ def an_evidence_bundle(started_at: datetime = STARTED_AT,
         log_reading_ended=log_reading_ended,
         escalated=escalated,
         onset_stated_by_the_alert=onset_stated_by_the_alert,
-        disproven=disproven
+        disproven=disproven,
+        service=service,
+        deploys_reading=deploys_reading,
+        flags_reading=flags_reading
     )
 
 
@@ -265,9 +276,11 @@ def a_candidate(summary: str,
                 tested: bool = False,
                 result: str | None = None,
                 confidence: float | None = 0.8,
-                failure_mode: str = "feature-flag-toggle") -> CandidateRecord:
+                failure_mode: str = "feature-flag-toggle",
+                faulting_service: str | None = None) -> CandidateRecord:
     """One candidate the investigation ranked - never tried, unless a test
-    says what became of it."""
+    says what became of it, and blaming no other service, unless a test
+    names the one it blames."""
     return CandidateRecord(summary=summary,
                            failure_mode=failure_mode,
                            confidence=confidence,
@@ -275,7 +288,8 @@ def a_candidate(summary: str,
                            from_state=from_state,
                            to_state=to_state,
                            tested=tested,
-                           result=result)
+                           result=result,
+                           faulting_service=faulting_service)
 
 
 def an_action(action: str,

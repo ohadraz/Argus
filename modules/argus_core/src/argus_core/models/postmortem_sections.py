@@ -613,6 +613,57 @@ class Trigger(BaseModel):
     dated_by: str | None = None
 
 
+class WhyNoTrigger(StrEnum):
+    """Why a confirmed cause came to no trigger - each a different fact about
+    what was read, and so a different sentence. "No trigger was established"
+    beside a confirmed cause reads as the cause in doubt, and is true only
+    where nothing was confirmed.
+
+    - `CARRIED_BY_SEVERAL_BY_THE_ONSET`, `CARRIED_BY_SEVERAL`: more than one
+      deploy read changed what it blames, by the onset or - with no onset -
+      at all, and which set it off a diff cannot say.
+    - `CARRIED_AFTER_THE_ONSET`: only deploys after the onset changed it.
+    - `ANOTHER_SERVICE_S_DEPLOYS_UNREAD`: it blames a service other than the
+      one alerting, and only the alerting service's deploys are read.
+    - `NAMES_NOTHING_SPECIFIC`: it names nothing a change could be to.
+    - `CHANGES_UNREAD`: the deploys or the flag history were not read, or
+      went unanswered - which the document says from its own readings.
+    - `THE_SERVICE_ITSELF`: it blames the alerting service as a whole, and a
+      deploy's reference is a revision, never the service's name.
+    - `NO_DEPLOYS_READ`, `NO_DEPLOY_READ_CHANGED_IT`,
+      `NOT_EVERY_DEPLOY_READ_IN_FULL`, `NO_DEPLOY_READ_IN_FULL`: it blames a
+      file, and the deploys read came to none, changed it in none of their
+      full listings, or were not all read in full.
+    - `NOT_TIED`: anything else - nothing read was tied to it.
+    """
+
+    CARRIED_BY_SEVERAL_BY_THE_ONSET = "carried_by_several_by_the_onset"
+    CARRIED_BY_SEVERAL = "carried_by_several"
+    CARRIED_AFTER_THE_ONSET = "carried_after_the_onset"
+    ANOTHER_SERVICE_S_DEPLOYS_UNREAD = "another_service_s_deploys_unread"
+    NAMES_NOTHING_SPECIFIC = "names_nothing_specific"
+    CHANGES_UNREAD = "changes_unread"
+    THE_SERVICE_ITSELF = "the_service_itself"
+    NO_DEPLOYS_READ = "no_deploys_read"
+    NO_DEPLOY_READ_CHANGED_IT = "no_deploy_read_changed_it"
+    NOT_EVERY_DEPLOY_READ_IN_FULL = "not_every_deploy_read_in_full"
+    NO_DEPLOY_READ_IN_FULL = "no_deploy_read_in_full"
+    NOT_TIED = "not_tied"
+
+
+class NoTrigger(BaseModel):
+    """Why the confirmed cause, `candidate` (`C1`), came to no trigger - and
+    what the sentence saying so names: what it blames (`subject`), the service
+    (`service`), and the deploys, by the labels the changes read go by
+    (`deploys`). Each `None` or empty where the reason says none of it."""
+
+    why: WhyNoTrigger
+    candidate: str
+    subject: str | None = None
+    service: str | None = None
+    deploys: list[str] = []
+
+
 class ReviewCriterion(BaseModel):
     """One of Google's review criteria, and whether the document meets it.
 

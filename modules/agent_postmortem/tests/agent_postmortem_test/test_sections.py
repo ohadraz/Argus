@@ -30,6 +30,7 @@ from agent_postmortem.sections import (
     resolution_of,
     timeline_of,
     trigger_of,
+    why_no_trigger,
 )
 from argus_core import parse_iso, to_iso
 from argus_core.events import PATCH_LINE_INDENT, a_changed_file_line
@@ -41,6 +42,7 @@ from argus_core.models import (
     CandidateConsidered,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedEvidence,
     Detection,
     ErrorRateLevels,
@@ -50,6 +52,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     LogsInTheGap,
+    NoTrigger,
     OpenedPullRequest,
     Refusal,
     ReportChannel,
@@ -60,6 +63,7 @@ from argus_core.models import (
     TimelineMarker,
     Trigger,
     Verdict,
+    WhyNoTrigger,
 )
 from argus_testkit import Scenario, the_answer_was
 
@@ -79,6 +83,10 @@ SOME_FLAG = "monthly-spend-feature"
 SOME_RULE = "kuki-rule"
 SOME_REVISION = "5e07d73148d0a704b8fefe5f379bc652bb773655"
 SOME_EARLIER_REVISION = "70dbcfde2b549d110a3817d92d60b6dd9786e78b"
+SOME_THIRD_REVISION = "9a41c07be3d2f8165c0e7a92d4b8f3e6a1c5d720"
+SOME_FILE = "deploy/values-production.yaml"
+SOME_OTHER_FILE = "src/io_shop/pricing_service.py"
+SOME_DEPENDENCY = "io-pricing"
 
 
 @pytest.mark.unit
@@ -1209,6 +1217,512 @@ def test_a_file_named_only_inside_a_deploys_patch_was_not_changed_by_it() -> Non
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_trigger_established_leaves_nothing_to_say_why_there_is_none() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        from_state="off", to_state="on",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to(SOME_FLAG, at="2026-09-02T11:58:00Z")])
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_nothing_confirmed_leaves_nothing_to_say_why_there_is_no_trigger() -> None:
+    # The document's own "No trigger was established." is true there, and
+    # says it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject="some-dependency",
+                                        tested=True, result=Verdict.REFUTED)])
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_a_file_two_deploys_changed_by_the_onset_names_both() -> None:
+    # Which of two set it off is not something a diff can say, so neither is
+    # the trigger - but both are tied to the cause, and "none is" would be
+    # false. One at the onset's own minute counts as by then. Each named by
+    # its place among every change read, as the page looks it up - a flag
+    # toggle before them included.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to("some-other-flag",
+                                      at=to_iso(ONSET - timedelta(minutes=20))),
+                         _a_deploy_of(SOME_EARLIER_REVISION,
+                                      at=to_iso(ONSET - timedelta(minutes=10))),
+                         _a_deploy_of(SOME_REVISION, at=to_iso(ONSET))],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, _A_CHANGE),
+                                    _what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P2", "P3"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_two_deploys_changed_with_no_onset_names_both_and_no_moment() -> None:
+    # With no onset, every deploy that changed it counts, and there is no
+    # moment to say they changed it by.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=None,
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-09-02T11:50:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, _A_CHANGE),
+                                    _what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CARRIED_BY_SEVERAL,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P1", "P2"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_changed_only_after_the_onset_names_the_deploys_that_changed_it() -> None:
+    # A change made after the incident began did not begin it - but it is
+    # tied to the cause, and the reader is owed which one it was.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at=to_iso(ONSET + timedelta(minutes=5)))],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CARRIED_AFTER_THE_ONSET,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P1"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_in_another_service_names_the_service_whose_deploys_went_unread() -> None:
+    # Only the alerting service's deploys are read: "no change was tied to it"
+    # would say Argus looked at the dependency's, and it never did.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject=SOME_DEPENDENCY,
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD,
+                                     candidate="C1",
+                                     service=SOME_DEPENDENCY))
+        )
+
+
+@pytest.mark.unit
+def test_another_service_is_named_by_the_service_that_failed_not_by_what_the_cause_names() -> None:
+    # A cause naming a setting inside the dependency would otherwise be said
+    # to have deploys.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject="pricing.timeoutMs",
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "service", None)
+        ) \
+        .then(
+            the_answer_was(SOME_DEPENDENCY)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_in_another_service_naming_nothing_specific_is_still_that_service_s() -> None:
+    # It names a service, if nothing in it: "names nothing specific" would be
+    # false of it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject=None,
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "why", None)
+        ) \
+        .then(
+            the_answer_was(WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_in_another_service_two_deploys_read_changed_names_both() -> None:
+    # The deploys read that changed it are facts about what was read, which
+    # "whose deploys Argus did not read" says nothing of.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        failure_mode="internal-dependency-failure",
+                                        faulting_service=SOME_DEPENDENCY,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION,
+                                      at=to_iso(ONSET - timedelta(minutes=10))),
+                         _a_deploy_of(SOME_REVISION, at=to_iso(ONSET - timedelta(minutes=2)))],
+                deployment_changes=[_what_the_deploy_of(SOME_EARLIER_REVISION, _A_CHANGE),
+                                    _what_the_deploy_of(SOME_REVISION, _A_CHANGE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "why", None)
+        ) \
+        .then(
+            the_answer_was(WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_that_names_nothing_specific_says_so() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=None,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NAMES_NOTHING_SPECIFIC,
+                                     candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_whose_deploys_nobody_asked_for_says_what_went_unread() -> None:
+    # Which channels went unread, and how, the document already carries: the
+    # sentence reads them from there.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.NOT_ASKED,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_whose_deploys_nobody_asked_for_is_not_said_to_have_none_in_a_window() -> None:
+    # No window was read, so "found no deploys in the window it read" would be
+    # false: what went unread is said first.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[],
+                deploys_reading=ChannelReading.NOT_ASKED,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_whose_deploys_went_unanswered_is_not_said_to_have_none_in_a_window() -> None:
+    # Asked for and never answered is no window read either.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[],
+                deploys_reading=ChannelReading.UNANSWERED,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_whose_flag_history_went_unanswered_says_so() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.UNANSWERED)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_flag_history_read_only_since_argus_acted_was_read() -> None:
+    # The history was read; what came back was only what changed once Argus
+    # acted. Not a channel left unread.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.ONLY_SINCE_ARGUS_ACTED)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "why", None)
+        ) \
+        .then(
+            the_answer_was(WhyNoTrigger.NOT_TIED)
+        )
+
+
+@pytest.mark.unit
+def test_a_cause_blaming_the_service_itself_says_it_names_no_change_to_it() -> None:
+    # A deploy of the service is read but never tied to it: its reference is a
+    # revision, never the service's name.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                service="io-shop",
+                candidates=[a_candidate("dont care", subject="io-shop",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.THE_SERVICE_ITSELF,
+                                     candidate="C1",
+                                     service="io-shop"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_no_deploy_read_in_full_changed_says_none_did() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[_everything_the_deploy_of(SOME_REVISION, SOME_OTHER_FILE)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_CHANGED_IT,
+                                     candidate="C1",
+                                     subject=SOME_FILE))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_with_no_deploys_read_says_none_came_back() -> None:
+    # "None of the deploys Argus read" is true of none, and says nothing.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NO_DEPLOYS_READ, candidate="C1"))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_a_deploy_was_not_read_in_full_for_names_that_deploy() -> None:
+    # Lines that do not list every file say nothing of a file they leave out,
+    # and a deploy whose changes were never asked for says nothing at all.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_EARLIER_REVISION, at="2026-09-02T11:40:00Z"),
+                         _a_deploy_of(SOME_REVISION, at="2026-09-02T11:50:00Z"),
+                         _a_deploy_of(SOME_THIRD_REVISION, at="2026-09-02T11:58:00Z")],
+                deployment_changes=[
+                    _everything_the_deploy_of(SOME_EARLIER_REVISION, SOME_OTHER_FILE),
+                    DeploymentChangesRecord(
+                        revision=SOME_REVISION,
+                        said=[a_changed_file_line("modified", SOME_OTHER_FILE)],
+                        lists_every_file=False)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NOT_EVERY_DEPLOY_READ_IN_FULL,
+                                     candidate="C1",
+                                     subject=SOME_FILE,
+                                     deploys=["P2", "P3"]))
+        )
+
+
+@pytest.mark.unit
+def test_a_file_no_deploy_was_read_in_full_for_names_each() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at="2026-09-02T11:58:00Z")],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_IN_FULL,
+                                     candidate="C1",
+                                     deploys=["P1"]))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", [SOME_FLAG, "ports.metrics.portName"])
+def test_any_other_cause_could_not_be_tied_to_a_change_read(subject: str) -> None:
+    # A flag no change read names, or a key named with no file - whose changes
+    # are never looked for in a diff. Either way Argus tied nothing to it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=subject,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_change_to("some-other-flag", at="2026-09-02T11:58:00Z")],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: why_no_trigger(evidence)
+        ) \
+        .then(
+            the_answer_was(NoTrigger(why=WhyNoTrigger.NOT_TIED,
+                                     candidate="C1",
+                                     subject=subject))
+        )
+
+
+@pytest.mark.unit
+def test_the_cause_without_a_trigger_is_named_by_its_own_label() -> None:
+    # The first confirmed, under the label the Hypotheses table shows it by.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.REFUTED),
+                            a_candidate("dont care", subject=None,
+                                        tested=True, result=Verdict.CONFIRMED)],
+                deploys_reading=ChannelReading.READ,
+                flags_reading=ChannelReading.READ)
+        ) \
+        .when(
+            lambda: getattr(why_no_trigger(evidence), "candidate", None)
+        ) \
+        .then(
+            the_answer_was("C2")
         )
 
 
@@ -2659,12 +3173,27 @@ def _a_change_to(subject: str, at: str) -> ChangeEvent:
                        summary="dont care")
 
 
+# A change to `SOME_FILE`, the file `_what_the_deploy_of` names - any will do,
+# since a file named with no key and no states is carried by any change to it.
+_A_CHANGE = ["@@ -1,1 +1,1 @@", "-replicas: 2", "+replicas: 3"]
+
+
+def _everything_the_deploy_of(revision: str, changed_file: str) -> DeploymentChangesRecord:
+    """What the deploy of `revision` changed, read in full: a listing of every
+    file it changed, which is `changed_file` alone."""
+    return DeploymentChangesRecord(revision=revision, said=[
+        f"Deployment of revision {revision} to io-shop, compared against "
+        f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
+        a_changed_file_line("modified", changed_file)
+    ], lists_every_file=True)
+
+
 def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesRecord:
     """What the deploy of `revision` changed, as the read tier says it: one file,
     its patch lines as `changed` gives them."""
     return DeploymentChangesRecord(revision=revision, said=[
         f"Deployment of revision {revision} to io-shop, compared against "
         f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
-        a_changed_file_line("modified", "deploy/values-production.yaml"),
+        a_changed_file_line("modified", SOME_FILE),
         *(f"{PATCH_LINE_INDENT}{line}" for line in changed)
     ])

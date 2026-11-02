@@ -292,6 +292,53 @@ def test_a_candidate_carries_what_it_blamed_and_what_became_of_it(
 
 
 @pytest.mark.component
+def test_a_candidate_carries_the_service_it_blames(a_clean_database: None) -> None:
+    # Only the alerting service's deploys are read, so a cause in another
+    # service is one whose changes nobody looked at - which the document says,
+    # and can only say knowing which service that is.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: hypotheses.record(conn, Hypothesis(
+                    incident_id=incident_id,
+                    summary="dont care",
+                    failure_mode=FailureMode.INTERNAL_DEPENDENCY_FAILURE,
+                    confidence=0.8,
+                    supporting_evidence=[],
+                    subject="pricing.timeoutMs",
+                    faulting_service="io-pricing"
+                )))
+            ) \
+            .when(
+                lambda: [candidate.faulting_service
+                         for candidate in gather_evidence(conn, incident_id).candidates]
+            ) \
+            .then(
+                the_answer_was(["io-pricing"])
+            )
+
+
+@pytest.mark.component
+def test_the_evidence_carries_the_service_the_alert_named(a_clean_database: None) -> None:
+    # Whose deploys were read: the investigation reads the alerting service's
+    # and no other.
+    some_service = "some-service"
+
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn, service=some_service)
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id).service
+            ) \
+            .then(
+                the_answer_was(some_service)
+            )
+
+
+@pytest.mark.component
 def test_a_line_that_formed_candidates_names_them_among_the_evidence_s_own(
     a_clean_database: None
 ) -> None:
@@ -3491,16 +3538,17 @@ def _an_incident_that_ended(conn: psycopg.Connection,
                             summary: str | None = None,
                             started_at: datetime | None = None,
                             stated_onset: datetime | None = None,
-                            ending: IncidentStatus = IncidentStatus.RESOLVED) -> str:
+                            ending: IncidentStatus = IncidentStatus.RESOLVED,
+                            service: str = "io-shop") -> str:
     """An incident with both a row and an account of itself, ended as
-    `ending` - resolved, unless a test says otherwise.
+    `ending` - resolved, unless a test says otherwise - on `service`.
 
     The events as well as the rows, because the document is written from the
     account now rather than from the status column: an incident whose rows
     moved and whose story says nothing is one the postmortem has nothing to
     read.
     """
-    some_alert = Alert(service="io-shop", alert_name="HighErrorRate", rule=rule, summary=summary,
+    some_alert = Alert(service=service, alert_name="HighErrorRate", rule=rule, summary=summary,
                        started_at=started_at, stated_onset=stated_onset)
     incident_id = incidents.create(conn, some_alert, at=utc_now())
     events.record(conn, AlertAcknowledged(incident_id=incident_id, alert=some_alert))

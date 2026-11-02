@@ -25,6 +25,7 @@ from argus_core.models import (
     CandidateConsidered,
     ChangeEvent,
     ChangeKind,
+    ChannelReading,
     CitedEvidence,
     Detection,
     ErrorRateLevels,
@@ -32,6 +33,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     LogsInTheGap,
+    NoTrigger,
     ResolutionStep,
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
@@ -39,6 +41,7 @@ from argus_core.models import (
     TimelineMarker,
     Trigger,
     Verdict,
+    WhyNoTrigger,
 )
 
 from agent_postmortem.estimate import Unmeasured
@@ -349,6 +352,96 @@ def trigger_of(evidence: IncidentEvidence) -> Trigger | None:
                              if found is not None else None))
 
 
+def why_no_trigger(evidence: IncidentEvidence) -> NoTrigger | None:
+    """Why the confirmed cause came to no trigger, where it did - `None` where
+    nothing was confirmed, which "no trigger was established" says truly, and
+    where there is a trigger.
+
+    The first that holds, in this order: deploys read that changed what it
+    blames, more than one by the onset or only after it - facts about what was
+    read, which come before anything about what was not; a cause in another
+    service, whose deploys are never read, named by the service it blames and
+    not by what in it the cause names; a cause naming nothing; a deploy or a
+    flag history unread or unanswered; the alerting service blamed whole; and,
+    for a file, what the deploys read say of it, read in full or not.
+    Anything else nothing read was tied to.
+
+    Never told to the model: the brief says nothing where there is no
+    trigger, and this is the page's alone.
+    """
+    confirmed = _the_confirmed(evidence.candidates)
+    if confirmed is None or trigger_of(evidence) is not None:
+        return None
+
+    candidate = label_of(CANDIDATE_PREFIX, next(
+        position for position, each in enumerate(evidence.candidates, start=1)
+        if each is confirmed))
+    subject = confirmed.subject
+    carriers = _the_deploys_that_carried(confirmed, evidence)
+    by_the_onset = _by_the_onset(carriers, evidence)
+
+    if len(by_the_onset) > 1:
+        return NoTrigger(why=(WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET
+                              if evidence.onset_at is not None
+                              else WhyNoTrigger.CARRIED_BY_SEVERAL),
+                         candidate=candidate, subject=subject,
+                         deploys=_the_labels_of(by_the_onset))
+
+    if carriers and not by_the_onset:
+        return NoTrigger(why=WhyNoTrigger.CARRIED_AFTER_THE_ONSET,
+                         candidate=candidate, subject=subject,
+                         deploys=_the_labels_of(carriers))
+
+    if confirmed.faulting_service is not None and confirmed.faulting_service != evidence.service:
+        return NoTrigger(why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD,
+                         candidate=candidate, service=confirmed.faulting_service)
+
+    if subject is None:
+        return NoTrigger(why=WhyNoTrigger.NAMES_NOTHING_SPECIFIC, candidate=candidate)
+
+    if {evidence.deploys_reading, evidence.flags_reading} & _UNREAD:
+        return NoTrigger(why=WhyNoTrigger.CHANGES_UNREAD, candidate=candidate)
+
+    if subject == evidence.service:
+        return NoTrigger(why=WhyNoTrigger.THE_SERVICE_ITSELF,
+                         candidate=candidate, service=subject)
+
+    path, _ = _the_file_and_key(subject, evidence.deployment_changes)
+    if path is None:
+        return NoTrigger(why=WhyNoTrigger.NOT_TIED, candidate=candidate, subject=subject)
+
+    deploys = [(position, change) for position, change in enumerate(evidence.changes, start=1)
+               if change.kind is ChangeKind.DEPLOY]
+    if not deploys:
+        return NoTrigger(why=WhyNoTrigger.NO_DEPLOYS_READ, candidate=candidate)
+
+    # Only a listing of every file says anything of a file it leaves out.
+    in_full = {read.revision for read in evidence.deployment_changes if read.lists_every_file}
+    partly = [(position, change) for position, change in deploys
+              if change.reference not in in_full]
+    if not partly:
+        return NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_CHANGED_IT,
+                         candidate=candidate, subject=subject)
+
+    if len(partly) == len(deploys):
+        return NoTrigger(why=WhyNoTrigger.NO_DEPLOY_READ_IN_FULL,
+                         candidate=candidate, deploys=_the_labels_of(partly))
+
+    return NoTrigger(why=WhyNoTrigger.NOT_EVERY_DEPLOY_READ_IN_FULL,
+                     candidate=candidate, subject=subject, deploys=_the_labels_of(partly))
+
+
+# What came of reading a kind of change that leaves it unread: never asked for,
+# or asked for and never answered. Changes made only since Argus acted were
+# read, and are none of these.
+_UNREAD: Final = frozenset({ChannelReading.NOT_ASKED, ChannelReading.UNANSWERED})
+
+
+def _the_labels_of(changes: list[tuple[int, ChangeEvent]]) -> list[str]:
+    """The labels the changes read go by, for those of them given by place."""
+    return [label_of(PRODUCTION_CHANGE_PREFIX, position) for position, _ in changes]
+
+
 def _the_revision_deployed_before(deploy: ChangeEvent, evidence: IncidentEvidence) -> str | None:
     """The revision `deploy` replaced: the one the deploy just before it put
     out, which is what its own diff is compared against - or `None` where no
@@ -389,19 +482,34 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
     named alone with two states blames the one key in it that went between
     them (`_one_key_moves`).
     """
+    carriers = _by_the_onset(_the_deploys_that_carried(blamed, evidence), evidence)
+
+    return carriers[0] if len(carriers) == 1 else None
+
+
+def _the_deploys_that_carried(blamed: CandidateRecord,
+                              evidence: IncidentEvidence) -> list[tuple[int, ChangeEvent]]:
+    """Every deploy read whose diff carries what the candidate blamed, as
+    `_the_deploy_that_carried` finds one, with its place among the changes
+    read - whenever it was made."""
     subject, from_state, to_state = blamed.subject, blamed.from_state, blamed.to_state
     if subject is None or (from_state is None) != (to_state is None):
-        return None
+        return []
 
     path, key = _the_file_and_key(subject, evidence.deployment_changes)
     moved = {looked_into.revision for looked_into in evidence.deployment_changes
              if _it_carries(looked_into.said, path, key, from_state, to_state)}
-    carriers = [(position, change) for position, change in enumerate(evidence.changes, start=1)
-                if change.kind is ChangeKind.DEPLOY and change.reference in moved
-                and (evidence.onset_at is None
-                     or parse_iso(change.occurred_at) <= evidence.onset_at)]
 
-    return carriers[0] if len(carriers) == 1 else None
+    return [(position, change) for position, change in enumerate(evidence.changes, start=1)
+            if change.kind is ChangeKind.DEPLOY and change.reference in moved]
+
+
+def _by_the_onset(changes: list[tuple[int, ChangeEvent]],
+                  evidence: IncidentEvidence) -> list[tuple[int, ChangeEvent]]:
+    """Those of `changes` made at or before the onset - every one where none
+    was measured."""
+    return [(position, change) for position, change in changes
+            if evidence.onset_at is None or parse_iso(change.occurred_at) <= evidence.onset_at]
 
 
 def _the_file_and_key(subject: str,

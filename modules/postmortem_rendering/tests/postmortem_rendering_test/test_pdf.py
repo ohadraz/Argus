@@ -33,6 +33,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     Lessons,
+    NoTrigger,
     OpenedPullRequest,
     Postmortem,
     PostmortemLead,
@@ -44,6 +45,7 @@ from argus_core.models import (
     TimelineEntry,
     TimelineMarker,
     Trigger,
+    WhyNoTrigger,
 )
 from argus_testkit import Assertion, Scenario, all_of
 from fpdf import FPDF
@@ -139,6 +141,26 @@ def test_a_person_s_resolution_is_carried_into_the_head_and_the_resolution() -> 
         .then(
             _it_reads_in_order("Ended by Kuki Buki", "Turned it off by hand.",
                                "Resolved by Kuki Buki", "Turned it off by hand."))
+
+
+@pytest.mark.unit
+def test_a_confirmed_cause_with_no_trigger_is_printed_saying_why() -> None:
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(trigger=None, no_trigger=NoTrigger(
+                    why=WhyNoTrigger.ANOTHER_SERVICE_S_DEPLOYS_UNREAD, candidate="C1",
+                    service="io-pricing")),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order("Trigger",
+                               "C1 was confirmed; it blames io-pricing, whose deploys Argus "
+                               "did not read.",
+                               "Resolution"))
 
 
 @pytest.mark.unit

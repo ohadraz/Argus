@@ -26,6 +26,7 @@ from argus_core.models import (
     Impact,
     ImpactExtent,
     Lessons,
+    NoTrigger,
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
@@ -37,6 +38,7 @@ from argus_core.models import (
     TimelineMarker,
     Trigger,
     Weighing,
+    WhyNoTrigger,
 )
 from argus_incidents.repository import incidents, postmortems
 from argus_testkit import Assertion, Scenario, all_of
@@ -401,6 +403,13 @@ def _every_section_of_the_template() -> dict[str, Any]:
             from_state="off",
             to_state="on",
             changed_at=SOME_MOMENT - timedelta(seconds=8)
+        ),
+        "no_trigger": NoTrigger(
+            why=WhyNoTrigger.CARRIED_BY_SEVERAL_BY_THE_ONSET,
+            candidate="C1",
+            subject="deploy/values-production.yaml",
+            service="io-pricing",
+            deploys=["P1"]
         ),
         "resolution": [ResolutionStep(
             at=SOME_MOMENT + timedelta(minutes=5),

@@ -1248,6 +1248,8 @@ def _the_trigger(pdf: _Sheet, rendered: RenderedPostmortem) -> None:
     trigger = rendered.trigger
     if trigger.line is not None:
         _a_paragraph(pdf, trigger.line)
+    elif trigger.unestablished is not None:
+        _a_paragraph(pdf, trigger.unestablished)
     elif trigger.absent:
         _quiet(pdf, trigger.absent)
 

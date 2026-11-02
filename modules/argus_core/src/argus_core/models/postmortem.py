@@ -36,6 +36,7 @@ from argus_core.models.postmortem_sections import (
     HypothesisConsidered,
     Impact,
     Lessons,
+    NoTrigger,
     ResolutionStep,
     ReviewCriterion,
     TimelineEntry,
@@ -169,6 +170,10 @@ class PostmortemDocument(BaseModel):
     impact: Impact | None = None
     detection: Detection | None = None
     trigger: Trigger | None = None
+    # Why a confirmed cause came to no trigger - `None` where there is one,
+    # where nothing was confirmed, and on a document written before it was
+    # carried.
+    no_trigger: NoTrigger | None = None
     resolution: list[ResolutionStep] = []
     causal_chain: list[ChainStep] = []
     contributing_factors: list[ContributingFactor] = []

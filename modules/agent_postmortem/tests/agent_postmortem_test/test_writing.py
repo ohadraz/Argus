@@ -59,6 +59,7 @@ from agent_postmortem.sections import (
     resolution_of,
     timeline_of,
     trigger_of,
+    why_no_trigger,
 )
 from agent_postmortem.sources import EngagedResponder, NotPaged
 from agent_postmortem.summary import the_executive_summary
@@ -475,14 +476,20 @@ def test_a_cause_resting_on_an_unrun_reading_is_called_unverified_beside_it() ->
 
 @pytest.mark.unit
 def test_the_sections_the_record_holds_are_the_sections_published() -> None:
-    # Each written by code from the record, and never asked of the model.
+    # Each written by code from the record, and never asked of the model. A
+    # flag change read, so the trigger is one and not nothing.
     Scenario() \
         .given(
             evidence := an_evidence_bundle(
                 candidates=[a_candidate("a flag change", subject=SOME_FLAG,
+                                        from_state="off", to_state="on",
                                         tested=True, result=Verdict.CONFIRMED)],
                 actions=[an_action(f"revert_feature_flag on {SOME_FLAG}",
-                                   verdict=Verdict.CONFIRMED)])
+                                   verdict=Verdict.CONFIRMED)],
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at=to_iso(ONSET - timedelta(minutes=2)),
+                                     reference=SOME_FLAG,
+                                     summary="dont care")])
         ) \
         .when(
             lambda: write_postmortem(evidence,
@@ -504,6 +511,31 @@ def test_the_sections_the_record_holds_are_the_sections_published() -> None:
                 _publishes("the hypotheses",
                            lambda document: document.hypotheses, hypotheses_of(evidence))
             )
+        )
+
+
+@pytest.mark.unit
+def test_why_a_confirmed_cause_has_no_trigger_is_published() -> None:
+    # Confirmed, with no change read: the document says why there is no
+    # trigger rather than that none was established.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("a flag change", subject=SOME_FLAG,
+                                        tested=True, result=Verdict.CONFIRMED)])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("why there is no trigger",
+                       lambda document: document.no_trigger, why_no_trigger(evidence))
         )
 
 

@@ -206,6 +206,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
 
     return IncidentEvidence(
         incident_id=incident_id,
+        service=Alert.model_validate(incident.alert_payload).service,
         started_at=incident.created_at,
         ended_at=incident.ended_at,
         alerted_at=_when_it_was_alerted(incident.alert_payload) or incident.created_at,
@@ -706,7 +707,8 @@ def _a_candidate(hypothesis: Hypothesis, action: TakenAction | None) -> Candidat
                            tested=hypothesis.tested,
                            result=hypothesis.result,
                            progress=action.progress if action is not None else None,
-                           verdict_recorded=action is not None and action.outcome is not None)
+                           verdict_recorded=action is not None and action.outcome is not None,
+                           faulting_service=hypothesis.faulting_service)
 
 
 def _what_was_done(conn: psycopg.Connection,

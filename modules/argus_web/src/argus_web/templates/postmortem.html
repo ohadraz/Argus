@@ -231,6 +231,8 @@ document.addEventListener('DOMContentLoaded', function () {
 <h2>{{ headings["trigger"] }}</h2>
 {% if trigger.line %}
 <p data-trigger="{{ 'suspected' if trigger.suspected else 'confirmed' }}"{% if trigger.states_are_revisions %} class="revisions"{% endif %}>{{ said(trigger.line) }}</p>
+{% elif trigger.unestablished %}
+<p>{{ said(trigger.unestablished) }}</p>
 {% else %}
 <p class="empty">{{ trigger.absent }}</p>
 {% endif %}

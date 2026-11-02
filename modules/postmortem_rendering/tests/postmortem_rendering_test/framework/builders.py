@@ -29,6 +29,7 @@ from argus_core.models import (
     Impact,
     IncidentStatus,
     Lessons,
+    NoTrigger,
     OpenedPullRequest,
     Postmortem,
     PostmortemLead,
@@ -86,6 +87,7 @@ class _WhatAPostmortemHolds(TypedDict, total=False):
     impact: Impact | None
     detection: Detection | None
     trigger: Trigger | None
+    no_trigger: NoTrigger | None
     resolution: list[ResolutionStep]
     causal_chain: list[ChainStep]
     contributing_factors: list[ContributingFactor]
@@ -142,27 +144,28 @@ def a_change_read(label: str = "P1", summary: str = "dont care") -> CitedChange:
                        short_reference="dont-care")
 
 
-def a_deploy_read(label: str = "P1") -> CitedChange:
-    """`SOME_DEPLOYED_REVISION` deployed by kuki from the `deploy/` directory of
-    the repository at `SOME_REPOSITORY_ADDRESS`, read under `label` and said as
+def a_deploy_read(label: str = "P1", revision: str = SOME_DEPLOYED_REVISION) -> CitedChange:
+    """`revision` - `SOME_DEPLOYED_REVISION` unless a test needs two deploys
+    told apart - deployed by kuki from the `deploy/` directory of the
+    repository at `SOME_REPOSITORY_ADDRESS`, read under `label` and said as
     the read tier says a deploy."""
     return CitedChange(
         label=label,
         change=ChangeEvent(
             kind=ChangeKind.DEPLOY,
             occurred_at="2026-10-11T14:00:00Z",
-            reference=SOME_DEPLOYED_REVISION,
-            summary=(f"deployed revision {SOME_DEPLOYED_REVISION} from the acme/shop "
+            reference=revision,
+            summary=(f"deployed revision {revision} from the acme/shop "
                      f"repository's deploy/ directory"),
             actor="kuki",
             revision_source=RevisionSource(
                 repository="acme/shop",
                 repository_address=SOME_REPOSITORY_ADDRESS,
-                revision_address=f"{SOME_REPOSITORY_ADDRESS}/commit/{SOME_DEPLOYED_REVISION}",
+                revision_address=f"{SOME_REPOSITORY_ADDRESS}/commit/{revision}",
                 directory="deploy",
                 directory_address=(f"{SOME_REPOSITORY_ADDRESS}/tree/"
-                                   f"{SOME_DEPLOYED_REVISION}/deploy"))),
-        short_reference=SOME_DEPLOYED_REVISION[:7])
+                                   f"{revision}/deploy"))),
+        short_reference=revision[:7])
 
 
 def the_page_of(incident_id: str) -> str:

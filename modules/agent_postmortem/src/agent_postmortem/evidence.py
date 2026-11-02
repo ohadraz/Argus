@@ -57,6 +57,10 @@ class CandidateRecord(BaseModel):
     # verdict on file was never judged, or was judged by a worker that died
     # before writing it down, and the row cannot tell which.
     verdict_recorded: bool = False
+    # The service the fault is in, where it is not the one that alerted - a
+    # dependency. Only the alerting service's deploys are read, so a cause in
+    # another is one whose changes nobody looked at. `None` everywhere else.
+    faulting_service: str | None = None
 
 
 class ActionRecord(BaseModel):
@@ -166,6 +170,9 @@ class IncidentEvidence(BaseModel):
     """
 
     incident_id: str
+    # The service the alert named - the one whose deploys the investigation
+    # reads, and no other's.
+    service: str
     started_at: datetime
     ended_at: datetime
     # When the alert fired, as its sender dated it - not when the incident
