@@ -42,6 +42,10 @@ class CitedEvidence(BaseModel):
     # one cause with another goes by both - so a citation of either is known
     # for what it names. Its figures are named by `label` alone.
     also: list[str] = []
+    # Where a reader opens it, where it can be opened: a file as it ran, at the
+    # revision that ran. `None` for everything else, and on a document written
+    # before it was carried.
+    address: str | None = None
 
 
 class CitedChange(BaseModel):

@@ -153,6 +153,7 @@ def test_a_deploy_says_its_revision_and_which_repository_and_directory_it_came_f
      RevisionSource(repository="kuki/k8s-configs",
                     repository_address="https://github.com/kuki/k8s-configs",
                     revision_address="https://github.com/kuki/k8s-configs/commit/9f4c1e7b",
+                    files_address="https://github.com/kuki/k8s-configs/blob/9f4c1e7b",
                     directory="deploy",
                     directory_address="https://github.com/kuki/k8s-configs/tree/9f4c1e7b/deploy")),
     (None, None)

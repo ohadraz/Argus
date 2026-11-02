@@ -1626,13 +1626,24 @@ def the_files_as_they_ran_labelled(evidence: IncidentEvidence) -> list[CitedEvid
     Numbered in the order of their paths, not the order the reading names
     them: a reworded reading swapped two files' labels under a write-up
     recorded against the old ones, citing each for the other's claim.
+
+    Each where it opens at the revision that ran, off the deploy read of that
+    revision: the document names the file and leaves its text to the model,
+    so a reader needs somewhere to open it. Nowhere, where no deploy read
+    says where its files open.
     """
     shown = sorted((ran for ran in evidence.files_as_they_ran
                     if not ran.as_read and ran.content),
                    key=lambda ran: ran.path)
+    files_open_at = {change.reference: change.revision_source.files_address
+                     for change in evidence.changes
+                     if change.revision_source is not None
+                     and change.revision_source.files_address is not None}
 
     return [CitedEvidence(label=label_of(AS_IT_RAN_PREFIX, position),
-                          text=f"{ran.path} at {ran.revision[:7]}\n{ran.content}")
+                          text=f"{ran.path} at {ran.revision[:7]}\n{ran.content}",
+                          address=(f"{files_open_at[ran.revision]}/{ran.path}"
+                                   if ran.revision in files_open_at else None))
             for position, ran in enumerate(shown, start=1)]
 
 

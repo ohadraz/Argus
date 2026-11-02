@@ -4,7 +4,8 @@ A deployment platform names the repository it synced from by the address it
 clones, which is not the address a reader opens. On GitHub the two are close:
 the clone address over HTTPS, less its `.git` - and the commit and the
 directory at that commit are pages under it. A host whose pages this does not
-know gets no addresses at all, rather than ones that lead nowhere.
+know gets no addresses at all, rather than ones that lead nowhere. A file at that
+commit is a page under it too, its path after the address its files open at.
 
 The repository is named by owner and name on any host, since that is what tells
 two repositories apart and takes no knowledge of the host's pages.
@@ -42,6 +43,7 @@ def test_a_revision_on_github_is_opened_at_its_commit_and_its_directory(cloned_f
                 repository="ohadraz/Argus-Demo-Target-App",
                 repository_address=THE_REPOSITORY,
                 revision_address=f"{THE_REPOSITORY}/commit/{SOME_REVISION}",
+                files_address=f"{THE_REPOSITORY}/blob/{SOME_REVISION}",
                 directory="deploy",
                 directory_address=f"{THE_REPOSITORY}/tree/{SOME_REVISION}/deploy"))
         )
@@ -58,6 +60,7 @@ def test_a_directory_is_opened_by_its_path_without_the_slashes_around_it() -> No
                 repository="ohadraz/Argus-Demo-Target-App",
                 repository_address=THE_REPOSITORY,
                 revision_address=f"{THE_REPOSITORY}/commit/{SOME_REVISION}",
+                files_address=f"{THE_REPOSITORY}/blob/{SOME_REVISION}",
                 directory="apps/shop",
                 directory_address=f"{THE_REPOSITORY}/tree/{SOME_REVISION}/apps/shop"))
         )
@@ -79,7 +82,8 @@ def test_a_revision_synced_from_the_root_or_from_nowhere_said_has_no_directory_t
             the_answer_was(RevisionSource(
                 repository="ohadraz/Argus-Demo-Target-App",
                 repository_address=THE_REPOSITORY,
-                revision_address=f"{THE_REPOSITORY}/commit/{SOME_REVISION}"))
+                revision_address=f"{THE_REPOSITORY}/commit/{SOME_REVISION}",
+                files_address=f"{THE_REPOSITORY}/blob/{SOME_REVISION}"))
         )
 
 

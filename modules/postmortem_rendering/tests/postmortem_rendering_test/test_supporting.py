@@ -640,9 +640,33 @@ def test_an_incident_code_fix_said_nothing_of_has_no_row_for_it() -> None:
 
 
 @pytest.mark.unit
-def test_a_file_as_it_ran_is_a_row_under_its_label() -> None:
+def test_a_file_as_it_ran_is_a_row_naming_it_and_opening_it_where_it_ran() -> None:
     # What settles a reading made on a branch that is other text, and a row
-    # for the same reason the reading is: a citation of it leads here.
+    # for the same reason the reading is: a citation of it leads here. Named,
+    # not printed: the text is the model's to read, and printed whole two
+    # files took six pages of fourteen. A reader opens it at the revision.
+    some_address = "https://github.invalid/acme/shop/blob/53f02e9f/deploy/scrape.yaml"
+    some_file = CitedEvidence(label="S1",
+                              text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics\n",
+                              address=some_address)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(as_it_ran_read=[some_file])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="S1", said=Line(runs=(
+                Run(text="deploy/scrape.yaml", role=Role.LINK, address=some_address),
+                Run(text=" at 53f02e9")))),)))
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_with_nowhere_to_open_is_named_alone() -> None:
+    # A document written before the address was carried, or a deploy from a
+    # host whose pages Argus does not know.
     some_file = CitedEvidence(label="S1",
                               text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics\n")
 
@@ -654,8 +678,8 @@ def test_a_file_as_it_ran_is_a_row_under_its_label() -> None:
             lambda: the_supporting_information(some_postmortem, SOME_INCIDENT_ADDRESS).as_it_ran
         ) \
         .then(
-            the_answer_was((EvidenceRow(label="S1",
-                                        said=Line(runs=(Run(text=some_file.text),))),)))
+            the_answer_was((EvidenceRow(label="S1", said=Line(runs=(
+                Run(text="deploy/scrape.yaml at 53f02e9"),))),)))
 
 
 @pytest.mark.unit

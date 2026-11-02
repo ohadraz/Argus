@@ -116,6 +116,7 @@ from agent_postmortem.prompting import (
     the_changes_labelled,
     the_deployment_changes_labelled,
     the_evidence_labelled,
+    the_files_as_they_ran_labelled,
 )
 from argus_core import parse_iso, to_iso
 from argus_core.models import (
@@ -135,6 +136,7 @@ from argus_core.models import (
     LogsInTheGap,
     OpenedPullRequest,
     ReportChannel,
+    RevisionSource,
     Standing,
     ToolCall,
     ToolDefinition,
@@ -1068,6 +1070,50 @@ def test_the_files_as_they_ran_are_labelled_in_the_order_of_their_paths() -> Non
             _labelled_in_order([("F1", "some account of the code"),
                                 ("S1", "deploy/scrape.yaml at 53f02e9"),
                                 ("S2", "deploy/values-production.yaml at 53f02e9")])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_opens_at_its_path_where_the_deploy_that_ran_it_can_be_opened() -> None:
+    # The document names the file and leaves its text to the model's brief, so
+    # a reader who wants the text needs somewhere to open it - at the revision
+    # that ran, not on a branch that has moved on since.
+    some_files_address = f"https://github.invalid/acme/shop/blob/{SOME_DEPLOYED_REVISION}"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"changes": [_a_deploy_of(SOME_DEPLOYED_REVISION, some_files_address)],
+                        "files_as_they_ran": [FileAsItRan(
+                            path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                            as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: [cited.address for cited in the_files_as_they_ran_labelled(evidence)]
+        ) \
+        .then(
+            the_answer_was([f"{some_files_address}/deploy/scrape.yaml"])
+        )
+
+
+@pytest.mark.unit
+def test_a_file_as_it_ran_whose_deploy_cannot_be_opened_opens_nowhere() -> None:
+    # A deploy read before its files' address was carried, like one from a host
+    # whose pages Argus does not know: an address made up for it would lead
+    # nowhere.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(fix_explanation="dont care").model_copy(
+                update={"changes": [_a_deploy_of(SOME_DEPLOYED_REVISION, files_address=None)],
+                        "files_as_they_ran": [FileAsItRan(
+                            path="deploy/scrape.yaml", revision=SOME_DEPLOYED_REVISION,
+                            as_read=False, content="selector:\n  port: metrics\n")]})
+        ) \
+        .when(
+            lambda: [cited.address for cited in the_files_as_they_ran_labelled(evidence)]
+        ) \
+        .then(
+            the_answer_was([None])
         )
 
 
@@ -6524,3 +6570,17 @@ def _what_was_said(transcript: Transcript) -> str:
             said.extend(result.content for result in entry.results)
 
     return "\n".join(said)
+
+
+def _a_deploy_of(revision: str, files_address: str | None) -> ChangeEvent:
+    """A deploy of `revision`, whose files open at `files_address` - nowhere,
+    where it is `None`."""
+    return ChangeEvent(kind=ChangeKind.DEPLOY,
+                       occurred_at="2026-09-02T11:58:00Z",
+                       reference=revision,
+                       summary="dont care",
+                       revision_source=RevisionSource(
+                           repository="acme/shop",
+                           repository_address="https://github.invalid/acme/shop",
+                           revision_address=f"https://github.invalid/acme/shop/commit/{revision}",
+                           files_address=files_address))

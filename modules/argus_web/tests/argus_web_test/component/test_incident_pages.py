@@ -2619,15 +2619,17 @@ def test_what_code_fix_read_the_root_cause_names_links_to_its_row() -> None:
 
 @pytest.mark.component
 def test_a_file_as_it_ran_the_root_cause_names_links_to_its_row() -> None:
-    # "As S1 shows" leads to the file as it ran, every line of it.
+    # "As S1 shows" leads to the file's row, and the row to the file as it ran.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    where_it_opens = "https://github.invalid/acme/shop/blob/53f02e9f/deploy/scrape.yaml"
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
         postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
             "root_cause": "As S1 shows, the scrape still selects the port named metrics.",
             "as_it_ran_read": [CitedEvidence(
-                label="S1", text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics")]
+                label="S1", text="deploy/scrape.yaml at 53f02e9\nselector:\n  port: metrics",
+                address=where_it_opens)]
         }),
         at=utc_now())
 
@@ -2641,7 +2643,7 @@ def test_a_file_as_it_ran_the_root_cause_names_links_to_its_row() -> None:
         .then(all_of(
             the_page_links_to("#S1"),
             the_page_says('id="S1"'),
-            the_page_says("  port: metrics")
+            the_page_links_to(where_it_opens)
         ))
 
 

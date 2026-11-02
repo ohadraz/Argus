@@ -72,8 +72,8 @@ class SupportingSection(BaseModel):
     Code-Fix read in the source and proposed is a row of its own for the same
     reason, and headed as one whose test and fix nothing ran, which is how a
     cause resting on it is weighed. Each file it names that ran as other text
-    than it read is a row too, named by its path at the revision and said as
-    a diff's row is - what settles a reading made on other text. The log
+    than it read is a row too, named by its path at the revision and leading
+    to the file there - what settles a reading made on other text. The log
     messages' heading names the zone their times are in, since each row says a
     time as the model was shown it; a change's row says its moment with its
     zone.
@@ -158,7 +158,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                                                              cited.text, shorts,
                                                              revision_addresses))
                                              for cited in postmortem.code_read),
-                             as_it_ran=tuple(_a_diff_row(cited, revision_addresses, shorts)
+                             as_it_ran=tuple(_a_file_row(cited, revision_addresses, shorts)
                                              for cited in postmortem.as_it_ran_read),
                              uses_outside_heading=_the_uses_outside_heading(
                                  postmortem.fix_branch_read),
@@ -322,6 +322,28 @@ def _a_diff_row(cited: CitedEvidence, addresses: dict[str, str],
                        said=Line(runs=_shortened(
                            Run(text=cited.text).with_links({**addresses, **beside}),
                            {**shorts, **beside_short})))
+
+
+def _a_file_row(cited: CitedEvidence, addresses: dict[str, str],
+                shorts: dict[str, str]) -> EvidenceRow:
+    """A file as it ran, as its row says it: its path at the revision, the
+    path leading to the file there and the revision to its commit, where each
+    opens.
+
+    Named, not printed: the file's text is the model's to read, and printed
+    whole two files took six pages of a write-up's fourteen."""
+    named = cited.text.split("\n", 1)[0]
+    path = named.rsplit(_AT_THE_REVISION, 1)[0]
+    opens = {path: cited.address} if cited.address is not None else {}
+
+    return EvidenceRow(label=cited.label,
+                       said=Line(runs=_shortened(
+                           Run(text=named).with_links({**addresses, **opens}), shorts)))
+
+
+# What sits between a file's path and the revision it ran at, as its row is
+# named: "deploy/scrape.yaml at 53f02e9".
+_AT_THE_REVISION: Final = " at "
 
 
 def _the_revisions_beside(said: str, addresses: dict[str, str],

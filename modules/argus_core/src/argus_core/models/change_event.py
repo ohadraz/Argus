@@ -26,19 +26,22 @@ class ChangeKind(StrEnum):
 
 class RevisionSource(BaseModel):
     """Where a deployed revision can be opened: the repository by owner and name,
-    and the addresses a person reads it at - the repository, the commit, and the
-    directory it was synced from at that commit.
+    and the addresses a person reads it at - the repository, the commit, its
+    files, and the directory it was synced from at that commit.
 
     Addresses rather than the parts to build them from, because which page a
     commit is on is the repository host's to say, and whoever reads the change
     afterwards - a page, a PDF - would otherwise have to know whose host it is.
-    `directory` is the path as the summary names it, and both directory fields
-    are `None` where the deploy came from the root or from nowhere said.
+    `files_address` is where a file at that commit opens with its path after it,
+    `None` on a change read before it was carried. `directory` is the path as
+    the summary names it, and both directory fields are `None` where the deploy
+    came from the root or from nowhere said.
     """
 
     repository: str
     repository_address: str
     revision_address: str
+    files_address: str | None = None
     directory: str | None = None
     directory_address: str | None = None
 
