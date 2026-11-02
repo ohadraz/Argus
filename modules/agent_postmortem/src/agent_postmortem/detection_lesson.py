@@ -16,6 +16,7 @@ series at all - it runs from the onset, look-back and all.
 from __future__ import annotations
 
 from datetime import timedelta
+from enum import StrEnum
 from typing import Final
 
 from argus_core.models import DetectionLesson, DetectionMeasuredFrom
@@ -27,6 +28,40 @@ from agent_postmortem.measuring import Measurements
 # evaluate it - time Argus reads nothing of, and which an alert seconds past
 # everything else the rule spends would otherwise be called slow for.
 SCRAPING_AND_STORING: Final = timedelta(seconds=30)
+
+
+class NoStartFromTheLine(StrEnum):
+    """Why the rule's series, read with its line, shows no start the alert
+    can be weighed from: never past it before the alert, or first read past
+    it less than the rule's wait before the alert - when the rule held before
+    the first minute read past, which can lag its own evaluation."""
+
+    NEVER_PAST = "never past"
+    PAST_TOO_LATE = "past too late"
+
+
+def no_start_from_the_line(evidence: IncidentEvidence,
+                           measured: Measurements) -> NoStartFromTheLine | None:
+    """Where the rule's series was read with its line and bears out no start
+    the alert can be weighed from - `None` everywhere else.
+
+    Counted from the onset there, what came after the rule's wait is the
+    fault's own growth, said as slow detection. Not where the alert came
+    sooner after the onset than the wait, or before it, which is said as that
+    from either start.
+    """
+    if (measured.onset_at is None or measured.rule_waits is None
+            or not measured.rule_line_read
+            or evidence.alerted_at - measured.onset_at < measured.rule_waits):
+        return None
+
+    if measured.rule_past_its_line_at is None:
+        return NoStartFromTheLine.NEVER_PAST
+
+    if evidence.alerted_at - measured.rule_past_its_line_at < measured.rule_waits:
+        return NoStartFromTheLine.PAST_TOO_LATE
+
+    return None
 
 
 def the_detection_lesson(evidence: IncidentEvidence,

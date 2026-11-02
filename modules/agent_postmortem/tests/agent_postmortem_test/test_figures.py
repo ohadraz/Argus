@@ -24,6 +24,7 @@ import pytest
 from agent_postmortem import EngagementAnswer, NotPaged
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
 from agent_postmortem.figures import (
+    ACCOUNTED_FOR_FIGURE,
     ACTED_FIGURE,
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
@@ -31,7 +32,9 @@ from agent_postmortem.figures import (
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
+    BEYOND_ACCOUNTED_FOR_FIGURE,
     CUSTOMER_LOSS_FIGURE,
+    DETECTION_GAP_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -42,8 +45,10 @@ from agent_postmortem.figures import (
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
     METRICS_STOPPED_AT_FIGURE,
+    RULE_EVALUATED_EVERY_FIGURE,
     RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
+    SCRAPING_ALLOWANCE_FIGURE,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     SERIES_WHILE_BROKEN_FIGURE,
@@ -1412,6 +1417,152 @@ def test_what_came_after_the_wait_is_no_figure_below_a_minute_or_without_an_onse
         ) \
         .then(
             _the_figures_leave_out(AFTER_THE_WAIT_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_where_the_page_weighs_detection_from_the_line_each_part_it_names_is_a_figure() -> None:
+    # The brief says the page's own lesson, each span by its name. Nothing it
+    # does not name: from the line, the look-back is in each reading, and a
+    # figure for it beside the lesson invites counting it twice.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7, seconds=2)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=1),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(all_of(
+            _the_figures_include({
+                DETECTION_GAP_FIGURE: Figure(given="6 minutes 2 seconds",
+                                             written="6 minutes 2 seconds"),
+                ACCOUNTED_FOR_FIGURE: Figure(given="7 minutes 30 seconds",
+                                             written="7 minutes 30 seconds"),
+                RULE_EVALUATED_EVERY_FIGURE: Figure(given="1 minute", written="1 minute"),
+                SCRAPING_ALLOWANCE_FIGURE: Figure(given="30 seconds", written="30 seconds")
+            }),
+            _the_figures_leave_out(AFTER_THE_WAIT_FIGURE, RULE_LOOKS_BACK_FIGURE,
+                                   BEYOND_ACCOUNTED_FOR_FIGURE)
+        ))
+
+
+@pytest.mark.unit
+def test_where_the_page_weighs_detection_from_the_onset_how_much_later_is_a_figure() -> None:
+    # From the onset the gap is Detection's to say, and the look-back is one
+    # of the parts.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(all_of(
+            _the_figures_include({
+                BEYOND_ACCOUNTED_FOR_FIGURE: Figure(given="10 minutes 30 seconds",
+                                                    written="10 minutes 30 seconds"),
+                RULE_LOOKS_BACK_FIGURE: Figure(given="2 minutes", written="2 minutes")
+            }),
+            _the_figures_leave_out(AFTER_THE_WAIT_FIGURE, DETECTION_GAP_FIGURE)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_names_no_lag_after_the_onset_beside_a_lesson() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=2)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(0),
+                                            rule_looks_back=timedelta(0),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(ALERTED_AFTER_THE_ONSET_FIGURE)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("past_its_line_at", [None, ONSET + timedelta(minutes=3)],
+                         ids=["never-past", "past-less-than-the-wait-before-the-alert"])
+def test_where_the_line_shows_no_start_to_weigh_from_no_lag_or_lesson_is_a_figure(
+        past_its_line_at: datetime | None) -> None:
+    # Counted from the onset there, what came after the wait is the fault's
+    # own growth.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=past_its_line_at,
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(AFTER_THE_WAIT_FIGURE, DETECTION_GAP_FIGURE,
+                                   ACCOUNTED_FOR_FIGURE, BEYOND_ACCOUNTED_FOR_FIGURE,
+                                   RULE_EVALUATED_EVERY_FIGURE, SCRAPING_ALLOWANCE_FIGURE)
+        )
+
+
+@pytest.mark.unit
+def test_a_series_past_its_line_at_the_onset_names_no_look_back_or_gap() -> None:
+    # From the onset, the gap is Detection's to say; and the look-back is in
+    # the readings of the rule's own series.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET, rule_line_read=True)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_leave_out(RULE_LOOKS_BACK_FIGURE, DETECTION_GAP_FIGURE)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("working", "said"), [
+    (f"{{{ACCOUNTED_FOR_FIGURE} - {DETECTION_GAP_FIGURE}}}", "1 minute 28 seconds"),
+    (f"{{{RULE_EVALUATED_EVERY_FIGURE} + {SCRAPING_ALLOWANCE_FIGURE}}}", "1 minute 30 seconds")
+], ids=["accounted-for-less-the-gap", "evaluation-and-allowance"])
+def test_the_lesson_s_spans_are_worked_with_as_spans(working: str, said: str) -> None:
+    # A figure with no kind cannot be worked with: the answer naming one would
+    # be refused and asked for again.
+    Scenario() \
+        .given(
+            figures := figures_of(
+                an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7, seconds=2)),
+                a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                    rule_looks_back=timedelta(minutes=2),
+                                    rule_evaluated_every=timedelta(minutes=1),
+                                    rule_past_its_line_at=ONSET + timedelta(minutes=1),
+                                    rule_line_read=True)),
+            an_answer_working_with_them := SubmittedPostmortem(
+                root_cause=f"It took {working}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_working_with_them, figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(root_cause=f"It took {said}."))
         )
 
 

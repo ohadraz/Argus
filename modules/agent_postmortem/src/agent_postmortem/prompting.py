@@ -36,6 +36,7 @@ from argus_core.models import (
     CitedChange,
     CitedEvidence,
     DeploymentComparison,
+    DetectionLesson,
     FailureMode,
     FirstTold,
     Lessons,
@@ -53,11 +54,17 @@ from argus_core.models import (
     labelled,
     no_logs_listed,
     shorter_than_the_rules_wait,
+    the_detection_lesson_said,
     whether_it_can_be_put_back,
 )
 from argus_narration import where_a_report_came_from
 from pydantic import BaseModel, field_validator, model_validator
 
+from agent_postmortem.detection_lesson import (
+    NoStartFromTheLine,
+    no_start_from_the_line,
+    the_detection_lesson,
+)
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.evidence import ActionRecord, DeploymentChangesRecord, IncidentEvidence
 from agent_postmortem.figures import (
@@ -70,6 +77,7 @@ from agent_postmortem.figures import (
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
     CUSTOMER_LOSS_FIGURE,
+    DETECTION_PART_FIGURES,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
@@ -2448,6 +2456,12 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
     wait as a fact of the rule and nothing of the time from the onset to the
     alert: no onset was measured to count from, and told to count the wait into
     that time, a model was pointed at a span the record does not hold.
+
+    Where the page weighs detection, its own lesson, each span by its figure's
+    name, and nothing to count beside it: counted from the onset instead, a
+    write-up was handed a lag the page counts as the rule's own time. Where
+    the rule's series shows no start to weigh from, that, and no lag after
+    the wait: from the onset there, it is the fault's own growth.
     """
     if measured.rule_wait_unread:
         return ["How long the alert rule waits before it fires could not be read."]
@@ -2455,19 +2469,51 @@ def _how_long_the_rule_waits(evidence: IncidentEvidence,
     if measured.rule_waits is None:
         return []
 
+    lesson = the_detection_lesson(evidence, measured)
+    no_start = no_start_from_the_line(evidence, measured)
+
     if not measured.rule_waits:
-        return [f"The alert rule fires as soon as its condition holds."
-                f"{_the_alert_against_no_wait(evidence, measured, figures)}"
-                f"{_the_condition_s_window(measured, figures)}"]
+        rule = "The alert rule fires as soon as its condition holds."
+        if lesson is not None:
+            return [f"{rule} {_the_lesson_said(lesson, figures)}"]
+
+        against = (_NO_START_SAID[no_start] if no_start is not None
+                   else _the_alert_against_no_wait(evidence, measured, figures))
+        return [f"{rule}{against}{_the_condition_s_window(measured, figures)}"]
+
+    if lesson is not None:
+        return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
+                f"condition holding before it fires. {_the_lesson_said(lesson, figures)}"]
 
     timed = ("" if measured.onset_at is None else
              ": that wait is part of the time from the onset to the alert - count it "
              "before calling detection slow")
 
+    against = (_NO_START_SAID[no_start] if no_start is not None
+               else _the_alert_against_its_wait(evidence, measured, figures))
+
     return [f"The alert rule waits {_shown(RULE_WAITS_FIGURE, figures)} with its "
-            f"condition holding before it fires{timed}."
-            f"{_the_alert_against_its_wait(evidence, measured, figures)}"
+            f"condition holding before it fires{timed}.{against}"
             f"{_the_condition_s_window(measured, figures)}"]
+
+
+# What is said in place of how the alert came against its rule's wait, where
+# the rule's series shows no start to weigh it from.
+_NO_START_SAID: Final = {
+    NoStartFromTheLine.NEVER_PAST: (
+        " Its series was past its line in no minute read before the alert, so when its "
+        "rule could first fire is not known."),
+    NoStartFromTheLine.PAST_TOO_LATE: (
+        " Its series was first read past its line less than its rule's wait before the "
+        "alert, so when its rule could first fire is not known.")
+}
+
+
+def _the_lesson_said(lesson: DetectionLesson, figures: Mapping[str, Figure]) -> str:
+    """The page's lesson on detection, as the page says it, each span shown
+    by its figure's name."""
+    return the_detection_lesson_said(
+        lesson, lambda part, _: _shown(DETECTION_PART_FIGURES[part], figures))
 
 
 def _the_alert_against_no_wait(evidence: IncidentEvidence,

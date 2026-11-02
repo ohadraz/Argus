@@ -39,21 +39,26 @@ from agent_postmortem import (
 )
 from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
+    ACCOUNTED_FOR_FIGURE,
     AFTER_THE_WAIT_FIGURE,
     ALERT_RAISED_FIGURE,
     ALERTED_AFTER_THE_ONSET_FIGURE,
     ARGUS_STOPPED_FIGURE,
     BACK_TO_NORMAL_FIGURE,
     BEGAN_FIGURE,
+    BEYOND_ACCOUNTED_FOR_FIGURE,
     CUSTOMER_LOSS_FIGURE,
+    DETECTION_GAP_FIGURE,
     DURATION_FIGURE,
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    RULE_EVALUATED_EVERY_FIGURE,
     RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
+    SCRAPING_ALLOWANCE_FIGURE,
     Figure,
     figures_of,
     named,
@@ -2155,6 +2160,195 @@ def test_an_alert_dated_before_the_onset_is_told_as_the_page_says_it() -> None:
         .then(all_of(
             _says("The alert came before the measured onset."),
             _does_not_say("shorter than")
+        ))
+
+
+@pytest.mark.unit
+def test_where_the_page_weighs_detection_the_brief_says_the_page_s_own_lesson() -> None:
+    # Counted from the onset, "after that wait ended" named a lag the page
+    # counts as the rule's own time: 2 minutes 2 seconds against the page's
+    # "within 7 minutes 30 seconds" from where the series passed its line. One
+    # working for both, and the look-back not counted twice.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7, seconds=2)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=1),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert rule waits 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition "
+                  f"holding before it fires. The alert came 6 minutes 2 seconds "
+                  f"{{{DETECTION_GAP_FIGURE}}} after its series passed its line, within the "
+                  f"7 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} accounted for by its rule "
+                  f"waiting 5 minutes {{{RULE_WAITS_FIGURE}}} with its condition holding, its "
+                  f"evaluation at intervals of 1 minute {{{RULE_EVALUATED_EVERY_FIGURE}}}, an "
+                  f"unmeasured allowance of 30 seconds {{{SCRAPING_ALLOWANCE_FIGURE}}} for "
+                  f"scraping and storing its samples and the whole minute its series is read "
+                  f"in."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("count it"),
+            _does_not_say("looks back over")
+        ))
+
+
+@pytest.mark.unit
+def test_a_lesson_from_the_onset_says_how_much_later_than_what_was_accounted_for() -> None:
+    # No line read: weighed from the onset, look-back and all - the page's
+    # sentence, which says the rest is not known.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=20)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert came 10 minutes 30 seconds {{{BEYOND_ACCOUNTED_FOR_FIGURE}}} "
+                  f"later than the 9 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} accounted "
+                  f"for by its rule waiting 5 minutes {{{RULE_WAITS_FIGURE}}} with its "
+                  f"condition holding, its condition looking back over 2 minutes "
+                  f"{{{RULE_LOOKS_BACK_FIGURE}}}, its evaluation at intervals of 1 minute "
+                  f"{{{RULE_EVALUATED_EVERY_FIGURE}}}, an unmeasured allowance of 30 seconds "
+                  f"{{{SCRAPING_ALLOWANCE_FIGURE}}} for scraping and storing its samples and "
+                  f"the whole minute the onset is measured to. The record does not show what "
+                  f"took the rest."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("window filling"),
+            _does_not_say("count it")
+        ))
+
+
+@pytest.mark.unit
+def test_a_series_past_its_line_at_the_onset_is_weighed_from_it_with_no_look_back() -> None:
+    # Past it in the onset's own minute: from the onset, but the series is the
+    # rule's own query, so the look-back is in its readings - named, it would
+    # be counted twice.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=7)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET, rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert came within the 7 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} "
+                  f"accounted for by its rule waiting 5 minutes {{{RULE_WAITS_FIGURE}}} with "
+                  f"its condition holding, its evaluation at intervals of 1 minute "
+                  f"{{{RULE_EVALUATED_EVERY_FIGURE}}}, an unmeasured allowance of 30 seconds "
+                  f"{{{SCRAPING_ALLOWANCE_FIGURE}}} for scraping and storing its samples and "
+                  f"the whole minute the onset is measured to."),
+            _does_not_say("looks back over"),
+            _does_not_say("looking back over")
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_that_waits_for_nothing_says_the_page_s_lesson_where_it_weighs_detection(
+) -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=2)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(0),
+                                            rule_looks_back=timedelta(0),
+                                            rule_evaluated_every=timedelta(minutes=1))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The alert rule fires as soon as its condition holds. The alert came "
+                  f"within the 2 minutes 30 seconds {{{ACCOUNTED_FOR_FIGURE}}} accounted for "
+                  f"by its evaluation at intervals of 1 minute "
+                  f"{{{RULE_EVALUATED_EVERY_FIGURE}}}, an unmeasured allowance of 30 seconds "
+                  f"{{{SCRAPING_ALLOWANCE_FIGURE}}} for scraping and storing its samples and "
+                  f"the whole minute the onset is measured to."),
+            _does_not_say(f"{{{ALERTED_AFTER_THE_ONSET_FIGURE}}}")
+        ))
+
+
+@pytest.mark.unit
+def test_a_series_never_past_its_line_before_the_alert_names_no_lag_after_the_wait() -> None:
+    # Counted from the onset instead, the fault's own growth reads as slow
+    # detection.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=None, rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("Its series was past its line in no minute read before the alert, so when "
+                  "its rule could first fire is not known."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("as soon as that wait allowed")
+        ))
+
+
+@pytest.mark.unit
+def test_a_series_first_past_its_line_less_than_the_wait_before_the_alert_names_no_lag(
+) -> None:
+    # The minute readings can lag the rule's own evaluation, so the rule held
+    # before the first minute read past the line - and counted from the onset,
+    # what is left after the wait is the fault's growth again.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=6, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=3),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("Its series was first read past its line less than its rule's wait before "
+                  "the alert, so when its rule could first fire is not known."),
+            _does_not_say("after that wait ended"),
+            _does_not_say("as soon as that wait allowed")
+        ))
+
+
+@pytest.mark.unit
+def test_an_alert_sooner_than_the_wait_after_the_onset_is_still_shorter_than_the_wait(
+) -> None:
+    # True from either start, so said as it always was - not as a series read
+    # past its line too late.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(alerted_at=ONSET + timedelta(minutes=4, seconds=30)),
+            measured := a_measured_incident(onset_at=ONSET, rule_waits=timedelta(minutes=5),
+                                            rule_looks_back=timedelta(minutes=2),
+                                            rule_evaluated_every=timedelta(minutes=1),
+                                            rule_past_its_line_at=ONSET + timedelta(minutes=1),
+                                            rule_line_read=True)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says(f"The time from the onset to the alert is shorter than the 5 minutes "
+                  f"{{{RULE_WAITS_FIGURE}}} its rule's condition must hold before it fires"),
+            _does_not_say("first read past its line")
         ))
 
 

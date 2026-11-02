@@ -45,9 +45,17 @@ from argus_core import (
     to_iso,
 )
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT
-from argus_core.models import CitedEvidence, FirstTold, said_as_money
+from argus_core.models import (
+    CitedEvidence,
+    DetectionLesson,
+    DetectionPart,
+    FirstTold,
+    said_as_money,
+    the_detection_lesson_said,
+)
 from pydantic import BaseModel
 
+from agent_postmortem.detection_lesson import no_start_from_the_line, the_detection_lesson
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sources import NotPaged
@@ -74,6 +82,22 @@ RULE_WAITS_FIGURE: Final = "rule_waits"
 RULE_LOOKS_BACK_FIGURE: Final = "rule_looks_back"
 AFTER_THE_WAIT_FIGURE: Final = "after_the_wait"
 ALERTED_AFTER_THE_ONSET_FIGURE: Final = "alerted_after_the_onset"
+# The spans the lesson on detection says, where the page weighs detection -
+# by the parts it names (`DETECTION_PART_FIGURES`).
+DETECTION_GAP_FIGURE: Final = "detection_gap"
+RULE_EVALUATED_EVERY_FIGURE: Final = "rule_evaluated_every"
+SCRAPING_ALLOWANCE_FIGURE: Final = "scraping_allowance"
+ACCOUNTED_FOR_FIGURE: Final = "accounted_for"
+BEYOND_ACCOUNTED_FOR_FIGURE: Final = "beyond_accounted_for"
+DETECTION_PART_FIGURES: Final = {
+    DetectionPart.GAP: DETECTION_GAP_FIGURE,
+    DetectionPart.RULE_WAITS: RULE_WAITS_FIGURE,
+    DetectionPart.RULE_LOOKS_BACK: RULE_LOOKS_BACK_FIGURE,
+    DetectionPart.RULE_EVALUATED_EVERY: RULE_EVALUATED_EVERY_FIGURE,
+    DetectionPart.SCRAPING_AND_STORING: SCRAPING_ALLOWANCE_FIGURE,
+    DetectionPart.ACCOUNTED_FOR: ACCOUNTED_FOR_FIGURE,
+    DetectionPart.BEYOND: BEYOND_ACCOUNTED_FOR_FIGURE
+}
 ARGUS_STOPPED_FIGURE: Final = "argus_stopped"
 ACTED_FIGURE: Final = "acted"
 FIRST_TOLD_FIGURE: Final = "first_told"
@@ -216,6 +240,11 @@ _KINDS: Final = {
     RULE_LOOKS_BACK_FIGURE: _Kind.SPAN,
     AFTER_THE_WAIT_FIGURE: _Kind.SPAN,
     ALERTED_AFTER_THE_ONSET_FIGURE: _Kind.SPAN,
+    DETECTION_GAP_FIGURE: _Kind.SPAN,
+    RULE_EVALUATED_EVERY_FIGURE: _Kind.SPAN,
+    SCRAPING_ALLOWANCE_FIGURE: _Kind.SPAN,
+    ACCOUNTED_FOR_FIGURE: _Kind.SPAN,
+    BEYOND_ACCOUNTED_FOR_FIGURE: _Kind.SPAN,
     ERRORS_BEFORE_FIGURE: _Kind.SHARE,
     ERRORS_WHILE_BROKEN_FIGURE: _Kind.SHARE,
     ERRORS_AT_WORST_FIGURE: _Kind.SHARE,
@@ -377,21 +406,36 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     if measured.rule_waits:
         figures[RULE_WAITS_FIGURE] = _a_span(measured.rule_waits / timedelta(hours=1))
 
-    # How much of the time from the onset to the alert can be the condition's
-    # own window filling - nothing named for a check that looks back over no
-    # range, as a wait of nothing is said in words.
-    if measured.rule_looks_back:
-        figures[RULE_LOOKS_BACK_FIGURE] = _a_span(measured.rule_looks_back / timedelta(hours=1))
+    # Where the page weighs detection, the brief says the page's own lesson,
+    # and each span it names is a figure - and nothing it does not name: from
+    # the rule's own series the look-back is in every reading, and a figure
+    # for it beside the lesson invites counting it twice.
+    lesson = the_detection_lesson(evidence, measured)
+    if lesson is not None:
+        figures |= {DETECTION_PART_FIGURES[part]: _a_span(span / timedelta(hours=1))
+                    for part, span in _the_detection_parts_named(lesson)}
+    else:
+        # How much of the time from the onset to the alert can be the
+        # condition's own window filling - nothing named for a check that
+        # looks back over no range, as a wait of nothing is said in words.
+        if measured.rule_looks_back:
+            figures[RULE_LOOKS_BACK_FIGURE] = _a_span(
+                measured.rule_looks_back / timedelta(hours=1))
 
-    # Only from a minute up: a measured onset is a whole minute, so less than
-    # one after the wait is inside what the onset can tell, and a name for it
-    # would be a lag in seconds nobody measured. Named for the onset under a
-    # rule that waits for nothing: beside a sentence saying so, a model citing
-    # the wait's name cites a wait that is not there.
-    after_the_wait = what_came_after_the_wait(evidence, measured)
-    if after_the_wait is not None and after_the_wait >= A_MINUTE:
-        name = AFTER_THE_WAIT_FIGURE if measured.rule_waits else ALERTED_AFTER_THE_ONSET_FIGURE
-        figures[name] = _a_span(after_the_wait / timedelta(hours=1))
+        # Only from a minute up: a measured onset is a whole minute, so less
+        # than one after the wait is inside what the onset can tell, and a
+        # name for it would be a lag in seconds nobody measured. Named for the
+        # onset under a rule that waits for nothing: beside a sentence saying
+        # so, a model citing the wait's name cites a wait that is not there.
+        # None where the rule's series shows no start to weigh from: counted
+        # from the onset there, what came after the wait is the fault's own
+        # growth.
+        after_the_wait = what_came_after_the_wait(evidence, measured)
+        if (after_the_wait is not None and after_the_wait >= A_MINUTE
+                and no_start_from_the_line(evidence, measured) is None):
+            name = (AFTER_THE_WAIT_FIGURE if measured.rule_waits
+                    else ALERTED_AFTER_THE_ONSET_FIGURE)
+            figures[name] = _a_span(after_the_wait / timedelta(hours=1))
 
     # Only where it is said: the service back before the action credited with
     # it, which the write-up cannot say without the action's time.
@@ -495,6 +539,19 @@ def _the_instant_it_began(evidence: IncidentEvidence, measured: Measurements) ->
     where none was - the instant the incident is dated from either way, here,
     in the duration (`measuring`) and in the page's head."""
     return measured.onset_at or evidence.alerted_at
+
+
+def _the_detection_parts_named(lesson: DetectionLesson) -> list[tuple[DetectionPart, timedelta]]:
+    """Each span the lesson's sentence names, and only those - read off the
+    sentence itself, so a figure is registered exactly where it is said."""
+    named: list[tuple[DetectionPart, timedelta]] = []
+
+    def noted(part: DetectionPart, span: timedelta) -> str:
+        named.append((part, span))
+        return ""
+
+    the_detection_lesson_said(lesson, noted)
+    return named
 
 
 def what_came_after_the_wait(evidence: IncidentEvidence,
