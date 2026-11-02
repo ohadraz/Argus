@@ -414,6 +414,75 @@ def test_each_action_is_said_as_the_narration_words_it_after_the_first() -> None
 
 
 @pytest.mark.unit
+def test_an_action_never_performed_that_changed_nothing_is_not_said_as_what_argus_did() -> None:
+    # There is nothing Argus did to say, and the cause it was for is said as
+    # untested, with why, a sentence later - listed here as well, the one
+    # rollback was said twice.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.PLATFORM_UNREACHABLE,
+                          progress=ActionProgress.NOT_PERFORMED,
+                          standing="nothing was changed", has_a_way_back=False),
+                an_action(SOME_ACTION, verdict=Verdict.CONFIRMED, standing="still in place")])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(all_of(
+            _says("What Argus did: reverted the feature flag checkout-v2 (can be put back) - "
+                  "confirmed, still in place."),
+            _does_not_say("roll back")
+        ))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_one_action_never_performed_changed_nothing_says_nothing_it_did() -> None:
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.PLATFORM_UNREACHABLE,
+                          progress=ActionProgress.NOT_PERFORMED,
+                          standing="nothing was changed", has_a_way_back=False)])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _does_not_say("What Argus did")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("left_something", "left_behind_known", "standing"), [
+    (True, True, "not made; what it changed on the way is still in place"),
+    (False, False, "not known whether anything was changed")
+], ids=["left-a-change-on-the-way", "not-known-what-it-left"])
+def test_an_action_never_performed_that_may_have_changed_something_is_said(
+        left_something: bool, left_behind_known: bool, standing: str) -> None:
+    # A rollback that suspended the sync before the platform refused it left
+    # that change standing, and one whose answer was lost may have: the
+    # summary is where a reader learns a change of Argus's is still out there.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[
+                an_action("Did not roll back the deployment of io-shop",
+                          verdict=Verdict.PLATFORM_UNREACHABLE,
+                          progress=ActionProgress.NOT_PERFORMED,
+                          standing=standing, has_a_way_back=left_something,
+                          left_behind_known=left_behind_known)])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("What Argus did: did not roll back the deployment of io-shop")
+        )
+
+
+@pytest.mark.unit
 def test_an_action_an_earlier_incident_had_tried_says_what_it_came_to_there() -> None:
     # Told only what this incident did, a revert reads as a fresh experiment
     # where it repeated one that had already failed - and nothing else a reader

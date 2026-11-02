@@ -45,11 +45,13 @@ from agent_postmortem.figures import (
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sections import (
     ACTION_ITEM_PREFIX,
+    ACTION_PREFIX,
     CANDIDATE_PREFIX,
     SYNC_GOES_BACK_ON,
     TURN_SYNC_BACK_ON,
     causes_of,
     inside_a_sentence,
+    label_of,
     record_action_items_of,
     resolution_of,
 )
@@ -258,9 +260,19 @@ def _what_argus_did(evidence: IncidentEvidence,
     """Each action with what it came to, in the resolution's words; each one an
     earlier incident like this one had already tried, with what it came to
     there; and where the service was back before the action credited with it,
-    that it was, so the action is not read as what brought it back."""
+    that it was, so the action is not read as what brought it back.
+
+    Not one never performed and known to have changed nothing: there is
+    nothing Argus did to say, and where a tier said why, its cause is said
+    untested with that why a sentence later (`_what_it_left_to_a_person`) -
+    listed here too, the one attempt was said twice. One never performed that
+    left something on the way, or may have, is said: that change still
+    stands."""
+    to_say = {label_of(ACTION_PREFIX, position)
+              for position, action in enumerate(evidence.actions, start=1)
+              if not _changed_nothing(action)}
     taken = [_an_action_taken(step)
-             for step in resolution_of(evidence) if step.label is not None]
+             for step in resolution_of(evidence) if step.label in to_say]
     said = [f"What Argus did: {'; '.join(taken)}."] if taken else []
     said.extend(_what_it_came_to_before(action)
                 for action in evidence.actions
@@ -273,6 +285,15 @@ def _what_argus_did(evidence: IncidentEvidence,
                     f"{written(ACTED_FIGURE)} - so not because of it.")
 
     return said
+
+
+def _changed_nothing(action: ActionRecord) -> bool:
+    """Whether an action is known to have changed nothing: never performed,
+    nothing of it to put back, and what it left known. For one never
+    performed, something to put back is something it left on the way."""
+    return (action.progress is ActionProgress.NOT_PERFORMED
+            and not action.has_a_way_back
+            and action.left_behind_known)
 
 
 def _an_action_taken(step: ResolutionStep) -> str:
