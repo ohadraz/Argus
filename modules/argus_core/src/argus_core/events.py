@@ -589,17 +589,18 @@ class CandidateSelected(_Event):
     Which candidate is under test now is not derivable from the ranked list the
     investigation published: the walk skips any it cannot act on, so a reader
     following along has no way to work out which explanation an attempt belongs
-    to. The summary and the confidence travel because they are what the reader
-    would otherwise go back to the list for, and a list read later is a list
-    that may have been added to since.
+    to.
+
+    Not its words: they are the Investigator's claims, said by the candidate's
+    own line, which the id finds however much the list has grown since.
     """
 
     kind: Literal["candidate-selected"] = "candidate-selected"
     hypothesis_id: UuidStr
-    summary: str
-    # Nullable because a hypothesis's is: a candidate that named no cause has
-    # no confidence to state, and `HypothesisFormed` carries it the same way.
-    confidence: float | None
+    # The number of the candidate (`Hypothesis.number`), so the line names it as
+    # every line acting for it does. `None` on an event written before it was
+    # carried.
+    candidate_number: int | None = None
 
 
 class ActionRefused(_Event):

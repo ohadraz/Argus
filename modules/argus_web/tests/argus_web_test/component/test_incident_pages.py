@@ -20,11 +20,11 @@ import psycopg
 import pytest
 from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
-    CandidateSelected,
     ChangesRetrieved,
     HypothesisFormed,
     LogsRetrieved,
     MetricsRetrieved,
+    PostmortemWritten,
     QuestionAnswered,
     StatusChanged,
 )
@@ -2888,9 +2888,10 @@ def test_a_revision_the_walk_names_opens_its_commit_from_the_incident_page() -> 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
         events.record(conn, _a_deploy_read_on(incident_id, some_revision, some_repository))
-        events.record(conn, CandidateSelected(incident_id=incident_id, hypothesis_id=new_id(),
-                                              summary=f"[{some_revision}] made every page slow",
-                                              confidence=None))
+        events.record(conn, PostmortemWritten(
+            incident_id=incident_id,
+            executive_summary=f"[{some_revision}] made every page slow",
+            cause_in_plain_words=f"[{some_revision}] made every page slow"))
 
     Scenario() \
         .given(

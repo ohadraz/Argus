@@ -460,12 +460,28 @@ def test_a_candidate_selected_reads_back_as_the_one_now_under_test() -> None:
             published := CandidateSelected(
                 incident_id=new_id(),
                 hypothesis_id=new_id(),
-                summary="the checkout flag was toggled on",
-                confidence=0.72
+                candidate_number=2
             )
         ) \
         .when(lambda: parse_event(published.model_dump(mode="json"))) \
         .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_a_candidate_selected_stored_with_its_words_still_reads_back() -> None:
+    # An event written when the move carried the candidate's summary and
+    # confidence: the account it belongs to is read whole, so one line that
+    # failed to parse would take the incident's page and write-up with it.
+    some_move = CandidateSelected(incident_id=new_id(), hypothesis_id=new_id())
+
+    Scenario() \
+        .given(
+            stored := {**some_move.model_dump(mode="json"),
+                       "summary": "the checkout flag was toggled on",
+                       "confidence": 0.72}
+        ) \
+        .when(lambda: parse_event(stored)) \
+        .then(_it_is(some_move))
 
 
 @pytest.mark.unit

@@ -111,7 +111,7 @@ def test_moving_to_the_next_candidate_is_published_rather_than_narrated() -> Non
     # of one, so the only account of it has to be an event - and which
     # explanation is now under test is the thing the lines after this are about.
     incident_id = a_random_id()
-    the_next_candidate = a_determined_hypothesis(incident_id)
+    the_next_candidate = a_determined_hypothesis(incident_id).model_copy(update={"number": 2})
     published: list[IncidentEvent] = []
 
     Scenario() \
@@ -887,7 +887,8 @@ def _the_candidate_selected_was(expected: Hypothesis,
 
     Published rather than left to be inferred from the ranked list: the walk
     skips any candidate it cannot act on, so a reader given only the ranking
-    cannot tell which one an attempt belongs to.
+    cannot tell which one an attempt belongs to. With its number, which is how
+    every line acting for it names it.
     """
     def assertion(dont_care_updates: StateDelta) -> bool:
         selected = [event for event in published if isinstance(event, CandidateSelected)]
@@ -898,10 +899,12 @@ def _the_candidate_selected_was(expected: Hypothesis,
                 f"{[event.kind for event in published]}."
             )
 
-        if selected[0].hypothesis_id != expected.id:
+        named = (selected[0].hypothesis_id, selected[0].candidate_number)
+
+        if named != (expected.id, expected.number):
             raise AssertionError(
-                f"Expected [{expected.id}] published, got "
-                f"[{selected[0].hypothesis_id}]."
+                f"Expected [{expected.id}] published as number [{expected.number}], got "
+                f"[{named[0]}] as number [{named[1]}]."
             )
 
         return True

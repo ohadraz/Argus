@@ -27,7 +27,6 @@ from agent_communicator.saying import a_chat_destination, a_destination_per_regi
 from argus_core import connect_from_env, new_id, utc_now
 from argus_core.events import (
     ActionTaken,
-    CandidateSelected,
     ChangesRetrieved,
     CommunicationFailed,
     FixAttempted,
@@ -300,7 +299,7 @@ def test_a_name_the_walk_quoted_is_said_as_code(
                 say := _a_destination_pointed_at(slack)
             ) \
             .when(lambda: say(incident_id,
-                                  a_narration_line(_a_candidate_quoting_names_on(incident_id)),
+                                  a_narration_line(_a_postmortem_quoting_names_on(incident_id)),
                                   Register.ANNOUNCED)) \
             .then(
                 _that_message_marks(slack, "`categoriser.model` went from `v1` to `v2`")
@@ -327,8 +326,8 @@ def test_a_revision_the_incident_read_is_said_short_and_opens_its_commit(
                 say := _a_destination_pointed_at(slack)
             ) \
             .when(lambda: say(incident_id,
-                                  a_narration_line(_a_candidate_naming_on(incident_id,
-                                                                          some_revision)),
+                                  a_narration_line(_a_postmortem_naming_on(incident_id,
+                                                                           some_revision)),
                                   Register.ANNOUNCED)) \
             .then(
                 _that_message_marks(slack,
@@ -1067,11 +1066,12 @@ def _a_fix_proposed_on(incident_id: str, url: str) -> IncidentEvent:
                         detail="dont care what the node said")
 
 
-def _a_candidate_quoting_names_on(incident_id: str) -> IncidentEvent:
-    return CandidateSelected(incident_id=incident_id,
-                             hypothesis_id=new_id(),
-                             summary="[categoriser.model] went from [v1] to [v2]",
-                             confidence=None)
+def _a_postmortem_quoting_names_on(incident_id: str) -> IncidentEvent:
+    """A write-up whose cause - the part its line marks - quotes names."""
+    some_cause = "[categoriser.model] went from [v1] to [v2]"
+    return PostmortemWritten(incident_id=incident_id,
+                             executive_summary=some_cause,
+                             cause_in_plain_words=some_cause)
 
 
 def _a_deploy_read_on(incident_id: str, revision: str) -> IncidentEvent:
@@ -1089,11 +1089,12 @@ def _a_deploy_read_on(incident_id: str, revision: str) -> IncidentEvent:
                                                    f"commit/{revision}")))])
 
 
-def _a_candidate_naming_on(incident_id: str, revision: str) -> IncidentEvent:
-    return CandidateSelected(incident_id=incident_id,
-                             hypothesis_id=new_id(),
-                             summary=f"[{revision}] made every page slow",
-                             confidence=None)
+def _a_postmortem_naming_on(incident_id: str, revision: str) -> IncidentEvent:
+    """A write-up whose cause - the part its line marks - names `revision`."""
+    some_cause = f"[{revision}] made every page slow"
+    return PostmortemWritten(incident_id=incident_id,
+                             executive_summary=some_cause,
+                             cause_in_plain_words=some_cause)
 
 
 def _a_candidate_formed_on(incident_id: str,

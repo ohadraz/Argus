@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stores, for every commit a scenario deploys, the files its real comparison lists.
+Stores, for every commit a scenario deploys, every file the commit holds.
 
 A recording is captured against the real repository, and the walk it captures
 reads a deployment's diff there - GitHub's patch, numbered from where each
@@ -9,9 +9,16 @@ GitHub double instead, which compares the two texts a case staged. Staged as
 excerpts, every file starts at line one and the patch a replay reads is not the
 patch its recording read; staged whole, as the commit holds them, the two agree.
 
+Every file, not only those the comparison lists: Code-Fix reads files at the
+revision that ran, and a file the case did not stage is answered from the
+double's own copy of the shop's main - so a replay told a file was unchanged
+since that revision when its recording, reading GitHub, was told otherwise. The
+comparison is unchanged by it, since the double lists only the paths whose text
+differs.
+
 So each commit's files are taken from the shop's own history rather than written
-about it: every path `git diff` names between a pair's two commits, at each of
-them, with `git show <sha>:<path>`. Run when a pair is added to
+about it: every path `git ls-tree` names at each of a pair's two commits, with
+`git show <sha>:<path>`. Run when a pair is added to
 `tests/e2e/framework/deployments.py`:
 
     uv run python -m scripts.snapshot_the_commits
@@ -44,17 +51,14 @@ def _git(*arguments: str) -> bytes:
     ).stdout
 
 
-def the_paths_changed(before: str, after: str) -> list[str]:
-    """Every path the comparison of the two commits lists, as GitHub lists it."""
-    return _git("diff", "--name-only", before, after).decode().split()
+def the_paths_held(sha: str) -> list[str]:
+    """Every file the commit holds, by its path in the repository."""
+    return _git("ls-tree", "-r", "--name-only", sha).decode().splitlines()
 
 
-def the_file_at(sha: str, path: str) -> bytes | None:
-    """The file as the commit holds it, or `None` where the commit has none."""
-    try:
-        return _git("show", f"{sha}:{path}")
-    except subprocess.CalledProcessError:
-        return None
+def the_file_at(sha: str, path: str) -> bytes:
+    """The file as the commit holds it."""
+    return _git("show", f"{sha}:{path}")
 
 
 def main() -> None:
@@ -72,16 +76,12 @@ def main() -> None:
 
     for pair in EVERY_PAIR:
         for sha in (pair.before, pair.after):
-            for path in the_paths_changed(pair.before, pair.after):
-                held = the_file_at(sha, path)
-
-                if held is None:
-                    continue
-
+            for path in the_paths_held(sha):
                 stored = into / sha[:7] / f"{path}{STORED_AS}"
                 stored.parent.mkdir(parents=True, exist_ok=True)
-                stored.write_bytes(held)
-                print(f"  {sha[:7]} {path}")
+                stored.write_bytes(the_file_at(sha, path))
+
+            print(f"  {sha[:7]}")
 
 
 if __name__ == "__main__":

@@ -515,8 +515,7 @@ def _what_argus_found_and_did() -> list[IncidentEvent]:
         CandidateSelected(
             incident_id=AN_INCIDENT,
             hypothesis_id=new_id(),
-            summary="the monthly-spend flag was turned on",
-            confidence=0.8
+            candidate_number=1
         ),
         ActionRefused(
             incident_id=AN_INCIDENT,

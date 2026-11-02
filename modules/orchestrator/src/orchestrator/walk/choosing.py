@@ -102,8 +102,7 @@ def next_candidate_node(state: IncidentState,
             CandidateSelected(
                 incident_id=state.incident_id,
                 hypothesis_id=next_candidate.id,
-                summary=next_candidate.summary,
-                confidence=next_candidate.confidence
+                candidate_number=next_candidate.number
             ),
             publisher
         )

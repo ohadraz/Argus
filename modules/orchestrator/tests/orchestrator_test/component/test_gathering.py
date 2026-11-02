@@ -58,6 +58,7 @@ from argus_core.events import (
     RetrievalUnanswered,
     SimilarIncidentsRecalled,
     StatusChanged,
+    VerdictReached,
 )
 from argus_core.llm import ClientFor, LLMClient
 from argus_core.models import (
@@ -2248,6 +2249,30 @@ def test_an_action_is_dated_by_when_it_was_taken_not_by_when_it_was_claimed(
 
 
 @pytest.mark.component
+def test_an_action_never_performed_is_dated_by_the_verdict_that_says_so(
+        a_clean_database: None) -> None:
+    # An attempt that ended before its write is announced by nothing, and its
+    # verdict is the one line that says it. Dated by its claim, a roll-back the
+    # platform refused stood before the agent reaching for it was called in.
+    some_verdict_at = parse_iso("2026-11-02T17:41:11Z")
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_claimed_then_not_performed(conn, incident_id,
+                                                                      some_verdict_at))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _dates_its_one_action_at(some_verdict_at)
+            )
+
+
+@pytest.mark.component
 def test_each_action_points_at_its_own_line_once_each_wait_is_told_once(
         a_clean_database: None) -> None:
     # The document marks the line that took the action credited with the
@@ -2996,6 +3021,36 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                     action_type=REVERT_FEATURE_FLAG,
                                     subject=SOME_FLAG,
                                     at=taken_at))
+
+
+def _an_action_claimed_then_not_performed(conn: psycopg.Connection,
+                                          incident_id: str,
+                                          verdict_at: datetime) -> None:
+    """One action whose row was claimed and whose platform refused it before
+    its write, said by its verdict at `verdict_at` and by nothing else."""
+    candidate = Hypothesis(incident_id=incident_id,
+                           summary="dont care",
+                           failure_mode=FailureMode.BAD_DEPLOYMENT,
+                           confidence=0.8,
+                           supporting_evidence=[])
+    hypotheses.record(conn, candidate)
+    taken_actions.record(conn, incident_id,
+                         hypothesis_id=candidate.id,
+                         action_type=ROLL_BACK_DEPLOYMENT,
+                         subject="dont-care",
+                         outcome=Verdict.PLATFORM_UNREACHABLE,
+                         undo_descriptor=None,
+                         at=verdict_at - timedelta(milliseconds=860),
+                         performed=False,
+                         left_behind_known=True)
+    events.record(conn, VerdictReached(incident_id=incident_id,
+                                       hypothesis_id=candidate.id,
+                                       outcome=Verdict.PLATFORM_UNREACHABLE,
+                                       action_type=ROLL_BACK_DEPLOYMENT,
+                                       subject="dont-care",
+                                       performed=False,
+                                       judged=False,
+                                       at=verdict_at))
 
 
 def _a_candidate_acted_on(conn: psycopg.Connection,

@@ -1638,26 +1638,44 @@ def test_a_platform_that_took_one_action_says_that_one() -> None:
 
 
 @pytest.mark.unit
-def test_moving_to_the_next_candidate_marks_the_explanation_now_under_test() -> None:
-    # The ranked list was published once, and the walk skips any candidate it
-    # cannot act on - so which explanation an attempt belongs to is not
-    # derivable from that list. The summary is marked because it is what the
-    # next few lines are about, and a reader who missed it reads an action on
-    # nothing in particular.
-    some_summary = "the checkout fallback flag was switched off"
+def test_moving_to_the_next_candidate_names_it_as_the_lines_acting_for_it_do() -> None:
+    # The walk skips any candidate it cannot act on, so which explanation the
+    # next few lines are about is not derivable from the ranked list. Named by
+    # its number, as every line acting for it is, and never in its own words:
+    # a summary is the Investigator's claims, and said on Argus's line they
+    # read as what happened.
+    some_hypothesis = new_id()
     some_move = CandidateSelected(
         incident_id=new_id(),
-        hypothesis_id=new_id(),
-        summary=some_summary,
-        confidence=0.72
+        hypothesis_id=some_hypothesis,
+        candidate_number=2
     )
 
     Scenario() \
         .given(some_move) \
         .when(lambda: build_narration([some_move])) \
         .then(all_of(
-            _the_only_line_marks(some_summary),
+            _the_only_line_reads("Moving on to candidate cause #2"),
+            _the_only_line_names_the_candidate(CandidateNamed(hypothesis_id=some_hypothesis,
+                                                              said_as="candidate cause #2")),
             _the_lines_are_credited_to(["Argus"])))
+
+
+@pytest.mark.unit
+def test_moving_to_a_candidate_whose_number_was_never_carried_names_none() -> None:
+    # An event written before the number travelled: the move is still said,
+    # and no candidate it cannot name is claimed for it.
+    some_move = CandidateSelected(
+        incident_id=new_id(),
+        hypothesis_id=new_id()
+    )
+
+    Scenario() \
+        .given(some_move) \
+        .when(lambda: build_narration([some_move])) \
+        .then(all_of(
+            _the_only_line_reads("Moving on to the next candidate cause"),
+            _the_only_line_names_the_candidate(None)))
 
 
 @pytest.mark.unit
@@ -4002,6 +4020,21 @@ def _the_only_line_names_the_incident(expected: str) -> Assertion[list[Narration
                 f"Expected the line to name incident [{expected}], got "
                 f"[{line.names_incident}]."
             )
+
+        return True
+
+    return assertion
+
+
+def _the_only_line_names_the_candidate(
+        expected: CandidateNamed | None) -> Assertion[list[NarrationLine]]:
+    def assertion(narration: list[NarrationLine]) -> bool:
+        line = _the_only(narration)
+
+        if line.names_candidate != expected:
+            raise AssertionError(
+                f"Expected the line to name the candidate [{expected}], got "
+                f"[{line.names_candidate}].")
 
         return True
 

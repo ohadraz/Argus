@@ -14,13 +14,16 @@ history, right until the next scenario named two other commits and 404'd on the
 comparison. Kept here rather than in each case because two of them are seeded by
 more than one file.
 
-Each commit is staged with every file the real comparison lists, whole and as
+Each commit is staged with every file it holds, whole and as
 `Argus-Demo-Target-App` holds it at that commit - stored under
 `tests/e2e/committed/<sha7>/`, written there by `scripts/snapshot_the_commits.py`.
 Whole rather than an excerpt, because a recording is captured against the real
 repository: GitHub's patch numbers its hunks from where the change sits in the
 file and heads each with the line above it, and an excerpt starts every file at
 line one, so the walk a replay reads would not be the walk its recording read.
+Every file rather than the ones the comparison lists, because Code-Fix reads
+others at the revision that ran, and one not staged is answered from the
+double's copy of main.
 """
 
 from __future__ import annotations

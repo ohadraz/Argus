@@ -24,7 +24,6 @@ import pytest
 from argus_core import new_id
 from argus_core.events import (
     ActionTaken,
-    CandidateSelected,
     ChangesRetrieved,
     FixAttempted,
     FlagChangesRetrieved,
@@ -32,6 +31,7 @@ from argus_core.events import (
     LogsRetrieved,
     MetricsRetrieved,
     OnsetDetected,
+    PostmortemWritten,
     StatusChanged,
 )
 from argus_core.models import (
@@ -265,12 +265,12 @@ def test_a_name_the_walk_quoted_is_shown_as_code() -> None:
     # of the page needs it marked off too. The marked word is shown alike.
     Scenario() \
         .given(
-            a_candidate_quoting_names := [
-                _a_candidate_selected("[categoriser.model] went from [v1] to [v2]")]
+            a_postmortem_quoting_names := [
+                _a_postmortem_written("[categoriser.model] went from [v1] to [v2]")]
         ) \
-        .when(lambda: build_story(a_candidate_quoting_names)) \
+        .when(lambda: build_story(a_postmortem_quoting_names)) \
         .then(_the_narration_shown_is([
-            ("Moving on to `categoriser.model` went from `v1` to `v2`",
+            ("Wrote the postmortem - `categoriser.model` went from `v1` to `v2`",
              "`categoriser.model` went from `v1` to `v2`")
         ]))
 
@@ -281,12 +281,13 @@ def test_a_revision_the_incident_read_is_shown_short() -> None:
     # Short as the postmortem says it, and only where the line is shown.
     Scenario() \
         .given(
-            a_candidate_naming_a_revision := [
+            a_postmortem_naming_a_revision := [
                 _changes_showing_a_deploy_of(SOME_REVISION),
-                _a_candidate_selected(f"[{SOME_REVISION}] made every page slow")]
+                _a_postmortem_written(f"[{SOME_REVISION}] made every page slow")]
         ) \
-        .when(lambda: build_story(a_candidate_naming_a_revision)) \
-        .then(_a_line_shown_reads(f"Moving on to {SOME_REVISION[:7]} made every page slow",
+        .when(lambda: build_story(a_postmortem_naming_a_revision)) \
+        .then(_a_line_shown_reads(f"Wrote the postmortem - {SOME_REVISION[:7]} made every "
+                                  f"page slow",
                                   f"{SOME_REVISION[:7]} made every page slow"))
 
 
@@ -295,11 +296,11 @@ def test_a_revision_a_line_names_opens_its_commit() -> None:
     # Short, it is a name a reader cannot look up by hand.
     Scenario() \
         .given(
-            a_candidate_naming_a_revision := [
+            a_postmortem_naming_a_revision := [
                 _changes_showing_a_deploy_of(SOME_REVISION),
-                _a_candidate_selected(f"[{SOME_REVISION}] made every page slow")]
+                _a_postmortem_written(f"[{SOME_REVISION}] made every page slow")]
         ) \
-        .when(lambda: build_story(a_candidate_naming_a_revision)) \
+        .when(lambda: build_story(a_postmortem_naming_a_revision)) \
         .then(_a_line_shown_links({SOME_REVISION[:7]: _the_commit_of(SOME_REVISION)}))
 
 
@@ -602,9 +603,10 @@ def _escalated_with(detail: str) -> IncidentEvent:
     return StatusChanged(incident_id=new_id(), to_status=IncidentStatus.ESCALATED, detail=detail)
 
 
-def _a_candidate_selected(summary: str) -> CandidateSelected:
-    return CandidateSelected(incident_id=new_id(), hypothesis_id=new_id(),
-                             summary=summary, confidence=None)
+def _a_postmortem_written(cause: str) -> PostmortemWritten:
+    """A write-up whose cause - the part its line marks - is `cause`."""
+    return PostmortemWritten(incident_id=new_id(), executive_summary=cause,
+                             cause_in_plain_words=cause)
 
 
 def _it_has_been_running_for(expected: int) -> Assertion[LiveIncident]:

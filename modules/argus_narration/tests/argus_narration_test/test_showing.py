@@ -206,7 +206,7 @@ def test_a_revision_named_by_a_start_of_it_is_shown_short_and_leads_to_its_commi
     # The model names a revision by as much of it as it likes - eight
     # characters, often. Shown as it wrote it, one page names one revision two
     # ways, and only one of them opens.
-    some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="candidate-selected",
+    some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="hypothesis-formed",
                               who="Investigator",
                               text=f"[{SOME_REVISION[:8]}] made every page slow")
 
@@ -228,7 +228,7 @@ def test_a_revision_named_by_a_start_of_it_is_shown_short_and_leads_to_its_commi
 def test_a_start_two_revisions_share_is_shown_as_code_leading_nowhere() -> None:
     # It names neither, so nothing here can say which: a name like any other,
     # and opening nowhere.
-    some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="candidate-selected",
+    some_line = NarrationLine(at=DONT_CARE_MOMENT, kind="hypothesis-formed",
                               who="Investigator",
                               text=f"[{SOME_REVISION[:7]}] made every page slow")
 

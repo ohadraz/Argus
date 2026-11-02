@@ -35,15 +35,15 @@ for a reason that was never about that candidate.
 **Narrowing rather than escalating.** The rollback failing is the first thing
 that happens, and it would be the last if Argus escalated on it. What the walk
 has to do instead is work out which of its remaining candidates are reachable,
-pass over the three that are not, and go on - so the assertion is not merely
-that the incident was mitigated but that exactly one action was ever attempted
-through the platform that went away.
+pass over any that are not, and go on - so the assertion is not merely that the
+incident was mitigated but that exactly one action was ever attempted through
+the platform that went away.
 
-**The record says which four went with it.** An incident that ended on the one
-action Argus had left reads, with nothing else in the timeline, as though Argus
-had simply preferred that action. `PlatformUnavailable` is what stops it being
-read that way, and it is asserted here as one event naming four kinds, not as
-one event per candidate skipped.
+**The record says what went with it.** An incident that ended on the one action
+Argus had left reads, with nothing else in the timeline, as though Argus had
+simply preferred that action. `PlatformUnavailable` is what stops it being read
+that way, and it is asserted here as one event naming every kind of action the
+platform carries, not as one event per candidate skipped.
 
 Recorded under `both` alone. Nothing in "a platform that will not act" varies by
 which tool the model found a file with.
@@ -239,11 +239,10 @@ def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx2.Resp
     platform, and repeated against each candidate it teaches a reader to skim
     exactly the sentence that explains the outcome.
 
-    The four kinds are compared against the mapping rather than written out
-    here, so a sixth mitigation placed on the deployment platform is carried
-    into this assertion by the same type check that carries it everywhere else -
-    and one placed on the flag provider does not silently widen what this
-    accepts.
+    The kinds are compared against the mapping rather than written out here, so
+    a sixth mitigation placed on the deployment platform is carried into this
+    assertion by the same type check that carries it everywhere else - and one
+    placed on the flag provider does not silently widen what this accepts.
     """
     def assertion(response: httpx2.Response) -> bool:
         recorded = the_incidents_events(incident_id_from(response))
@@ -255,8 +254,9 @@ def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx2.Resp
             raise AssertionError(
                 f"Expected the incident to record the platform going away "
                 f"exactly once, and it recorded it [{len(unavailable)}] time(s) - "
-                f"so the record either does not explain why three candidates "
-                f"went untried, or repeats the explanation against each of them."
+                f"so the record either does not explain why the actions through "
+                f"it went untried, or repeats the explanation against each "
+                f"candidate."
             )
 
         if unavailable[0].platform != DEPLOYMENT_PLATFORM:
@@ -284,7 +284,7 @@ def _what_the_platform_took_with_it_was_recorded_once() -> Assertion[httpx2.Resp
 
 
 def _only_the_one_action_was_ever_attempted_through_it() -> Assertion[httpx2.Response]:
-    """The three remaining platform candidates were passed over, not tried.
+    """Any other candidate on the platform was passed over, not tried.
 
     Stated as a count of attempts because that is where passing over is
     visible: a candidate the walk declines to act on proposes no action and

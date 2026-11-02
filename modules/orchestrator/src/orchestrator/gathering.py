@@ -728,8 +728,9 @@ def _what_was_done(conn: psycopg.Connection,
     the row is a claim written before anything happens, and dated by it the
     action comes before the agent was even called in to take it. Said in the
     account's words for the same reason: the line is the action as a reader
-    met it, where the row holds only its tag. The row stands only where the
-    account holds no such line.
+    met it, where the row holds only its tag. An attempt that ended before its
+    write has no such line, and is dated by its verdict saying so
+    (`when_it_was_taken`). The row stands only where the account holds neither.
 
     And where that line sits in `told`, the timeline the document numbers, so
     the document can mark the line rather than say the action again beside it.
@@ -751,7 +752,7 @@ def _what_was_done(conn: psycopg.Connection,
     before = _what_each_was_before(account)
 
     return [
-        ActionRecord(taken_at=when_it_was_taken(taken_action, announced),
+        ActionRecord(taken_at=when_it_was_taken(taken_action, account),
                      action=_what_it_did(taken_action, said),
                      has_a_way_back=_whether_it_left_a_way_back(taken_action),
                      verdict=taken_action.outcome,

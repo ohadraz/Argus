@@ -611,11 +611,15 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             text = _the_postmortem_in_short(event)
         case CandidateSelected():
             who = _ARGUS
-            # The summary rather than the rank. Which number in the list this
-            # was is a fact about the list; what is being tested now is what
-            # the next few lines are about.
-            emphasis = event.summary
-            text = f"Moving on to {emphasis}"
+            # The number rather than the summary, as every line acting for the
+            # candidate names it. The summary is the Investigator's claims, and
+            # said on Argus's own line they read as what happened; they stay in
+            # the candidate's row, which the number leads to. The number is the
+            # candidate's from when it was formed, so a list added to since
+            # does not move it.
+            text = (f"Moving on to {a_candidate_cause(event.candidate_number)}"
+                    if event.candidate_number is not None else
+                    "Moving on to the next candidate cause")
         case ActionRefused():
             who = _ARGUS
             # The reason, for the same reason a refused message marks its
@@ -1566,10 +1570,11 @@ def a_candidate_cause(number: int) -> str:
 
 
 def _the_candidate_it_names(event: IncidentEvent, text: str) -> CandidateNamed | None:
-    """The candidate a line acting for one names, where `text` names it - an
-    action taken or reached for, a refusal, a recommendation."""
+    """The candidate a line acting for one names, where `text` names it - the
+    move on to it, an action taken or reached for, a refusal, a recommendation."""
     match event:
-        case ActionTaken() | VerdictReached() | ActionRefused() | ActionRecommended():
+        case (CandidateSelected() | ActionTaken() | VerdictReached() | ActionRefused()
+              | ActionRecommended()):
             if event.hypothesis_id is None or event.candidate_number is None:
                 return None
             said_as = a_candidate_cause(event.candidate_number)
