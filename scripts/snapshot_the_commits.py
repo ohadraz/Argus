@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Stores, for every commit a scenario deploys, every file the commit holds.
+Stores, for every commit a scenario deploys, the files a walk reads at it.
 
 A recording is captured against the real repository, and the walk it captures
 reads a deployment's diff there - GitHub's patch, numbered from where each
@@ -9,17 +9,19 @@ GitHub double instead, which compares the two texts a case staged. Staged as
 excerpts, every file starts at line one and the patch a replay reads is not the
 patch its recording read; staged whole, as the commit holds them, the two agree.
 
-Every file, not only those the comparison lists: Code-Fix reads files at the
-revision that ran, and a file the case did not stage is answered from the
-double's own copy of the shop's main - so a replay told a file was unchanged
-since that revision when its recording, reading GitHub, was told otherwise. The
-comparison is unchanged by it, since the double lists only the paths whose text
-differs.
+Two kinds of file, and nothing else, because nothing else is read. Every path
+the pair changes, so the comparison names what GitHub's named. And each path in
+the pair's `also_read`: the files Code-Fix's reading names, and the ones holding
+a use of what its patch changes, are read again at the revision that ran, and a
+staged commit holds only what the case staged - so a file left out is a 404 in
+the replay where its recording, reading GitHub, read it. Both kinds at both
+commits: the comparison reads the two staged trees whole, and a file staged at
+one only would be named as added.
 
 So each commit's files are taken from the shop's own history rather than written
-about it: every path `git ls-tree` names at each of a pair's two commits, with
+about it: each of those paths `git ls-tree` finds at the commit, with
 `git show <sha>:<path>`. Run when a pair is added to
-`tests/e2e/framework/deployments.py`:
+`tests/e2e/framework/deployments.py`, or its `also_read` grows:
 
     uv run python -m scripts.snapshot_the_commits
 
@@ -37,12 +39,9 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import Final
 
+from scripts.snapshot_the_shop import THE_SHOP
 from tests.e2e.framework.deployments import COMMITTED, EVERY_PAIR, STORED_AS
-
-HERE: Final = Path(__file__).resolve().parent.parent
-THE_SHOP: Final = HERE.parent / "Argus-Demo-Target-App"
 
 
 def _git(*arguments: str) -> bytes:
@@ -51,9 +50,18 @@ def _git(*arguments: str) -> bytes:
     ).stdout
 
 
-def the_paths_held(sha: str) -> list[str]:
-    """Every file the commit holds, by its path in the repository."""
-    return _git("ls-tree", "-r", "--name-only", sha).decode().splitlines()
+def the_paths_changed(before: str, after: str) -> list[str]:
+    """Every path that differs between the pair's two commits."""
+    return _git("diff", "--name-only", before, after).decode().splitlines()
+
+
+def the_paths_held(sha: str, wanted: list[str]) -> list[str]:
+    """Each of `wanted` the commit holds - none where nothing is wanted, since
+    `ls-tree` given no path names every file."""
+    if not wanted:
+        return []
+
+    return _git("ls-tree", "-r", "--name-only", sha, "--", *wanted).decode().splitlines()
 
 
 def the_file_at(sha: str, path: str) -> bytes:
@@ -75,8 +83,10 @@ def main() -> None:
         sys.exit(1)
 
     for pair in EVERY_PAIR:
+        wanted = [*the_paths_changed(pair.before, pair.after), *pair.also_read]
+
         for sha in (pair.before, pair.after):
-            for path in the_paths_held(sha):
+            for path in the_paths_held(sha, wanted):
                 stored = into / sha[:7] / f"{path}{STORED_AS}"
                 stored.parent.mkdir(parents=True, exist_ok=True)
                 stored.write_bytes(the_file_at(sha, path))

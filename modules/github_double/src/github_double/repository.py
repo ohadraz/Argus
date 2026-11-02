@@ -187,14 +187,15 @@ class Repository:
         what names them - this double depends on nothing in the workspace and
         would otherwise be keeping a copy of another repository's history.
 
-        The fixture's own files are underneath, so a comparison answers with
-        the paths that differ and not with the whole tree.
+        The commit holds the files given and nothing else, as a commit holds
+        its tree: a path it was not staged with is a 404 at it, as at GitHub,
+        where the fixture's copy would answer for a file the commit never had.
 
         `parents` is the commit's history, as the case knows it: which commit
         it was made on is as much a fact of the scenario as what it holds, and
         it is what a comparison reads to say how two commits stand.
         """
-        self._commits[sha] = self.write_tree({**DEFAULT_FILES, **files})
+        self._commits[sha] = self.write_tree(dict(files))
         self._parents[sha] = list(parents or [])
 
     def stage_history_of(self, branch: str, parents: list[str]) -> None:

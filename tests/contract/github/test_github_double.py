@@ -204,6 +204,7 @@ def _the_double_compared() -> SourceDifference:
         json={
             "sha": some_commit,
             "files": {
+                **DEFAULT_FILES,
                 some_path: f"{some_source}\n# edited by a contract check\n",
                 "some_module_a_contract_check_added.py": "print('added')\n"
             }

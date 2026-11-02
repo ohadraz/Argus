@@ -411,8 +411,8 @@ async def stage_a_commit(request: Request) -> JSONResponse:
     of another repository's history, right until the next scenario names two
     other commits and 404s exactly as this one did.
 
-    The fixture's own files sit underneath whatever is given, so a comparison
-    answers with the paths that differ rather than with the whole tree.
+    The commit holds these files and nothing else: a path not given is a 404
+    at it, as at GitHub for a file the commit never had.
 
     `parents`, where given, is the commit the staged one was made on - the
     history a comparison reads to say how two commits stand.

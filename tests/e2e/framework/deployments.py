@@ -14,16 +14,19 @@ history, right until the next scenario named two other commits and 404'd on the
 comparison. Kept here rather than in each case because two of them are seeded by
 more than one file.
 
-Each commit is staged with every file it holds, whole and as
-`Argus-Demo-Target-App` holds it at that commit - stored under
+Each commit is staged with the files a walk reads at it, whole and as
+`Argus-Demo-Target-App` holds them at that commit - stored under
 `tests/e2e/committed/<sha7>/`, written there by `scripts/snapshot_the_commits.py`.
 Whole rather than an excerpt, because a recording is captured against the real
 repository: GitHub's patch numbers its hunks from where the change sits in the
 file and heads each with the line above it, and an excerpt starts every file at
 line one, so the walk a replay reads would not be the walk its recording read.
-Every file rather than the ones the comparison lists, because Code-Fix reads
-others at the revision that ran, and one not staged is answered from the
-double's copy of main.
+The files the pair changes, for the comparison; and the ones Code-Fix's reading
+names or that hold a use of what its patch changes, which are read again at
+`after` - one not staged is a 404 in the replay where its recording read it.
+Both kinds at both commits, since the comparison reads the two staged trees
+whole and a file staged on one side only would be named as added. Nothing else,
+because nothing else is read.
 """
 
 from __future__ import annotations
@@ -55,11 +58,18 @@ class DeploymentPair:
     revision from a branch of its own that was never merged, and Code-Fix reads
     `main` - so whether what ran is there is a fact of the scenario, staged with
     the rest of it, and what Code-Fix is told turns on it.
+
+    `also_read` is every file the walk reads at `after` that the pair does not
+    change: in any mode's recordings, the ones the final Code-Fix reading names
+    and the ones holding a use of what its patch changes, each read again where
+    it ran. A fact of the recording rather than of the history, so a re-record
+    that reads another file there adds it here.
     """
 
     before: str
     after: str
     on_main: bool
+    also_read: tuple[str, ...] = ()
 
 
 def as_committed(sha: str) -> dict[str, str]:
@@ -119,7 +129,8 @@ THE_METRICS_PORT_RENAMED = DeploymentPair(
 THE_PORTS_NAMED_FOR_THEIR_PROTOCOL = DeploymentPair(
     before="2c8f7311966cf37dee314695fe0060867e1ca954",
     after="c3c36da3c66c07707f227b7e70b26813083061f3",
-    on_main=False
+    on_main=False,
+    also_read=("deploy/scrape.yaml",)
 )
 
 # `cache-misconfigured`: the cache's port moved in the values the shop ships.
@@ -134,7 +145,14 @@ THE_CACHE_PORT_MOVED = DeploymentPair(
 THE_AVERAGE_SLOWED = DeploymentPair(
     before="70dbcfde2b549d110a3817d92d60b6dd9786e78b",
     after="5e07d73148d0a704b8fefe5f379bc652bb773655",
-    on_main=True
+    on_main=True,
+    also_read=(
+        "src/io_shop/account_page.py",
+        "src/io_shop/accounts.py",
+        "src/io_shop/monthly_statement.py",
+        "src/io_shop/typical_spend.py",
+        "tests/io_shop/test_typical_spend.py"
+    )
 )
 
 # `control-plane-unreachable`: which purchases fall in this month, decided from
@@ -143,7 +161,12 @@ THE_AVERAGE_SLOWED = DeploymentPair(
 THE_MONTH_BOUNDARY_MOVED = DeploymentPair(
     before="65279ee05d2cfae49802712847428bc55e794bb3",
     after="383534e9bb182bb778e01fd22ba63f88885362e3",
-    on_main=False
+    on_main=False,
+    also_read=(
+        "src/io_shop/account_page.py",
+        "src/io_shop/monthly_statement.py",
+        "tests/io_shop/test_spend_summary.py"
+    )
 )
 
 # `half-finished-rollout`: what the summary cache stores changed shape, with no
@@ -159,7 +182,13 @@ THE_CACHE_ENTRY_RESHAPED = DeploymentPair(
 THE_MONTH_STOPPED_BEING_CARRIED = DeploymentPair(
     before="4c810f22894e612ced87f5ee3f3062dfeb785050",
     after="26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2",
-    on_main=False
+    on_main=False,
+    also_read=(
+        "src/io_shop/monthly_statement.py",
+        "src/io_shop/spend_reconciliation.py",
+        "src/io_shop/spend_summary.py",
+        "tests/io_shop/test_purchase_ledger.py"
+    )
 )
 
 # `categoriser-model-upgraded`: the categoriser moved from model v1 to v2.
