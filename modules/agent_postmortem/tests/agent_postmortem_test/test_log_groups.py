@@ -12,15 +12,18 @@ another.
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from agent_postmortem.figures import the_log_group_figures
 from agent_postmortem.log_groups import (
     LOG_GROUP_PREFIX,
+    LogGroup,
     grouped,
     labels_reaching_into,
     the_groups_of,
 )
+from argus_core import to_iso
 from argus_core.models import CitedEvidence
 from argus_testkit import Assertion, Scenario, the_answer_was
 
@@ -97,7 +100,7 @@ def test_a_span_across_midnight_is_counted_across_it() -> None:
             lambda: [group.text for group in grouped(some_lines, None, ONSET_DAY)]
         ) \
         .then(
-            the_answer_was([f"{SOME_ERROR} - 2 occurrences in 3 minutes, 23:59 – Oct 12 00:01"])
+            the_answer_was([f"{SOME_ERROR} - 2 occurrences in 3 minutes, 23:59–00:01"])
         )
 
 
@@ -452,23 +455,36 @@ def test_a_message_is_said_whole_unless_all_its_lines_are_dated_and_fall_both_si
     ([f"2026-10-12T00:05:00Z {SOME_ERROR}", f"2026-10-12T00:07:00Z {SOME_ERROR}"],
      f"{SOME_ERROR} - 2 occurrences in 3 minutes, Oct 12 00:05–00:07"),
     ([f"2026-10-11T23:58:00Z {SOME_ERROR}", f"2026-10-12T00:04:00Z {SOME_ERROR}"],
-     f"{SOME_ERROR} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04"),
+     f"{SOME_ERROR} - 2 occurrences in 7 minutes, 23:58–00:04"),
+    ([f"2026-10-12T23:58:00Z {SOME_ERROR}", f"2026-10-13T00:04:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 2 occurrences in 7 minutes, Oct 12 23:58–00:04"),
     ([f"2026-10-11T23:58:00Z {SOME_RATE.format('2.5')}",
       f"2026-10-12T00:04:00Z {SOME_RATE.format('7.5')}"],
-     f"{SOME_RATE.format('#')} - 2 occurrences in 7 minutes, 23:58 – Oct 12 00:04; "
+     f"{SOME_RATE.format('#')} - 2 occurrences in 7 minutes, 23:58–00:04; "
      f"# was 2.5% to 7.5%, typically 2.5%, highest at Oct 12 00:04"),
+    ([f"2026-10-11T23:58:00Z {SOME_ERROR}", f"2026-10-12T23:57:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 2 occurrences in 1440 minutes, 23:58–23:57"),
+    ([f"2026-10-11T23:58:00Z {SOME_ERROR}", f"2026-10-12T23:58:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 2 occurrences in 1441 minutes, 23:58 – Oct 12 23:58"),
+    ([f"2026-10-11T23:58:00Z {SOME_ERROR}", f"2026-10-14T00:04:00Z {SOME_ERROR}"],
+     f"{SOME_ERROR} - 2 occurrences in 2887 minutes, 23:58 – Oct 14 00:04"),
     ([f"2026-10-12T00:05:00 {SOME_ERROR}"],
      f"{SOME_ERROR} - 1 occurrence in 1 minute, Oct 12 00:05")
-], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "its-highest-minute",
+], ids=["one-line", "a-span-on-one-day", "a-span-into-the-next", "a-span-from-a-later-day",
+        "its-highest-minute", "a-day-less-a-minute", "a-day-to-the-minute", "days",
         "a-stamp-with-no-zone"])
 def test_a_minute_off_the_day_the_incident_began_is_said_with_its_day(lines: list[str],
                                                                       said: str) -> None:
     # Said bare in an incident whose logs ran on another day, the model and
-    # the reader both took it for a minute of the onset's day. A span on one
-    # day says it once; one into the next spaces its dash, so each end is a
-    # figure of its own and the second is read on its day. A stamp with no
-    # zone is UTC's: read as the host's, its day was whichever the host's
-    # clock put it on.
+    # the reader both took it for a minute of the onset's day. A span shorter
+    # than a day is one figure wherever midnight falls, its first day said
+    # once: spaced into two where it crossed midnight, a replay run across
+    # midnight named every figure after it one place on from the daytime run
+    # its answer was recorded in: "peaked at 0.5%" of a rate whose peak was
+    # 36%. A day or more spaces its dash, so each end is
+    # read on its own day - two figures in every run. A stamp with no zone is
+    # UTC's: read as the host's, its day was whichever the host's clock put
+    # it on.
     Scenario() \
         .given(lines) \
         .when(
@@ -476,6 +492,30 @@ def test_a_minute_off_the_day_the_incident_began_is_said_with_its_day(lines: lis
         ) \
         .then(
             the_answer_was([said])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("first_minute", [
+    datetime(2026, 10, 11, 14, 11, tzinfo=UTC),
+    datetime(2026, 10, 11, 23, 51, tzinfo=UTC)
+], ids=["by-day", "across-midnight"])
+def test_a_group_names_its_figures_alike_wherever_midnight_falls(first_minute: datetime) -> None:
+    # An answer recorded in a daytime run is replayed in runs across
+    # midnight, and cites a group's figures by their place. With the span two
+    # figures there, every one after it moved a place: "peaked at 0.5%" of a
+    # rate whose peak was 36%.
+    some_lines = [f"{to_iso(first_minute + timedelta(minutes=minute))} "
+                  f"{SOME_RATE.format(rate)}"
+                  for minute, rate in ((0, "0.50"), (18, "36.00"), (37, "2.00"))]
+
+    Scenario() \
+        .given(some_lines) \
+        .when(
+            lambda: the_groups_of(some_lines, None, ONSET_DAY)
+        ) \
+        .then(
+            _its_figure(5, "36%")
         )
 
 
@@ -501,6 +541,22 @@ def test_a_group_says_where_in_its_row_the_message_it_quotes_sits(lines: list[st
 
 def _label_of(message: str, groups: list[CitedEvidence]) -> str:
     return next(group.label for group in groups if message in group.text)
+
+
+def _its_figure(place: int, expected: str) -> Assertion[list[LogGroup]]:
+    def assertion(groups: list[LogGroup]) -> bool:
+        group = groups[0]
+        name = f"{group.cited.label}.{place}"
+        figures = the_log_group_figures([(group.cited, group.quoted)], ONSET_DAY)
+
+        if name not in figures or figures[name].written != expected:
+            raise AssertionError(f"Expected [{name}] of [{group.cited.text}] written in as "
+                                 f"[{expected}], and it was "
+                                 f"[{figures[name].written if name in figures else 'no figure'}].")
+
+        return True
+
+    return assertion
 
 
 def _groups_say_in_order(*expected: str) -> Assertion[list[CitedEvidence]]:

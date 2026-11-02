@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Final, NamedTuple
 
 from argus_core import said_as_a_day
@@ -36,10 +36,14 @@ LOG_GROUP_PREFIX: Final = "G"
 # sixty-five thousand, for an incident reading a few dozen distinct messages.
 _DIGEST_LENGTH: Final = 4
 
-# Between the first minute of a span and its last where they fall on
-# different days. Spaced, so each end is a word of its own and the second is
+# Between the first minute of a span and its last where a day or more lies
+# between them. Spaced, so each end is a word of its own and the second is
 # read with the day said beside it.
 _TO_ANOTHER_DAY: Final = f" {SPAN_DASH} "
+
+# The shortest span said as two figures: anything shorter is one, wherever
+# midnight falls in it.
+_A_DAY: Final = timedelta(days=1)
 
 # A number inside a message - the part that varies from minute to minute.
 _A_NUMBER: Final = re.compile(r"(\d+(?:\.\d+)?)")
@@ -86,7 +90,9 @@ def the_groups_of(log_lines: Sequence[str],
 
     Every minute is said with its day where that is not the `day` the incident
     began: said bare in an incident whose logs run on another day, the model
-    and the reader both took it for a minute of the onset's day.
+    and the reader both took it for a minute of the onset's day. The one
+    exception is the end of a span shorter than a day, which is on the day its
+    start is or, read earlier on the clock, the day after (`_how_often`).
     """
     groups: dict[str, list[tuple[datetime | None, list[str]]]] = {}
     for line in log_lines:
@@ -275,10 +281,14 @@ def _how_often(occurrences: list[tuple[datetime | None, list[str]]], day: date) 
     two failures. A line with no stamp is counted and dates nothing, since a
     span made up for it would be a guess.
 
-    A span on one day says that day once, before it, and only where it is not
-    the `day` the incident began. One running into another day says each end
-    as `_clock` does, the dash spaced: joined, the first end and the dash read
-    as one word and the second end's day as part of it.
+    A span shorter than a day is one figure wherever midnight falls in it: it
+    says its first day once, before it, and only where that is not the `day`
+    the incident began, and an end earlier on the clock than its start is on
+    the next day. Two figures across midnight, a replay run across it named
+    every figure after the span one place on from the daytime run its answer
+    was recorded in. A day or more says each end as `_clock` does, the dash
+    spaced - joined, the first end and the dash read as one word and the
+    second end's day as part of it - and is two figures in every run.
     """
     counted = f"{len(occurrences)} {'occurrence' if len(occurrences) == 1 else 'occurrences'}"
     stamped = sorted(logged_at.replace(second=0, microsecond=0)
@@ -293,7 +303,7 @@ def _how_often(occurrences: list[tuple[datetime | None, list[str]]], day: date) 
     if minutes == 1:
         return f"{counted} in 1 minute, {_clock(first, day)}"
 
-    if first.date() != last.date():
+    if last - first >= _A_DAY:
         return (f"{counted} in {minutes} minutes, "
                 f"{_clock(first, day)}{_TO_ANOTHER_DAY}{_clock(last, day)}")
 

@@ -869,15 +869,25 @@ def test_a_time_beside_a_day_in_the_alert_is_written_as_its_sender_gave_it() -> 
      "Oct 12, 00:05–00:07 UTC"),
     ("ERROR checkout - 2 occurrences in 3 minutes, 23:41–23:43", (0, 14), "G1.3",
      "23:41–23:43 UTC"),
+    ("ERROR checkout - 2 occurrences in 7 minutes, 23:58–00:04", (0, 14), "G1.3",
+     "23:58–Oct 12, 00:04 UTC"),
+    ("ERROR checkout - 2 occurrences in 7 minutes, Oct 12 23:58–00:04", (0, 14), "G1.3",
+     "Oct 12, 23:58–Oct 13, 00:04 UTC"),
+    ("ERROR checkout - 2 occurrences in 7 minutes, 23:58–00:04; # was 1% to 2%", (0, 14),
+     "G1.4", "1%"),
     ("14:59 ERROR checkout", (6, 20), "G1.1", "14:59 UTC")
 ], ids=["argus-s-minute", "a-minute-the-message-says", "argus-s-span",
-        "a-span-on-the-day-it-began", "a-minute-on-the-day-it-began"])
+        "a-span-on-the-day-it-began", "a-span-across-midnight",
+        "a-span-across-midnight-from-a-later-day", "the-figure-after-a-span-across-midnight",
+        "a-minute-on-the-day-it-began"])
 def test_a_log_group_s_own_minutes_are_read_on_their_day_and_its_message_as_given(
         text: str, quoted: tuple[int, int], name: str, written: str) -> None:
     # The minutes are Argus's, said from the lines' stamps in UTC; the message
     # is its writer's, whose day and zone Argus does not know. Written as a
     # bare time, a minute of the next day read as one of the onset's - and a
     # minute of the onset's day, said bare on its row, is a time of that day.
+    # A span whose end reads earlier than its start ran past midnight, and is
+    # one figure whose end is written on the next day.
     Scenario() \
         .given(
             some_group := CitedEvidence(label="G1", text=text)
@@ -957,6 +967,7 @@ def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> Non
                 "G1.3": Figure(given="21:35–21:39", written="21:35–21:39 UTC"),
                 "A1": Figure(given="2026-10-11T16:10:00Z", written="16:10 UTC"),
                 "G2.1": Figure(given="06:00", written="06:00"),
+                "G3.3": Figure(given="23:58–00:04", written="23:58–Oct 12, 00:04 UTC"),
                 "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")
             }
         ) \
@@ -967,6 +978,7 @@ def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> Non
             the_answer_was({
                 "T1.2": Figure(given="07:44:29", written="Oct 11, 07:44:29 UTC"),
                 "G1.3": Figure(given="21:35–21:39", written="Oct 11, 21:35–21:39 UTC"),
+                "G3.3": Figure(given="23:58–00:04", written="Oct 11, 23:58–Oct 12, 00:04 UTC"),
                 "A1": Figure(given="2026-10-11T16:10:00Z", written="Oct 11, 16:10 UTC"),
                 "G2.1": Figure(given="06:00", written="06:00"),
                 "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")

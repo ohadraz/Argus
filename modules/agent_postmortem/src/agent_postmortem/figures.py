@@ -318,15 +318,18 @@ _A_MEASUREMENT: Final = re.compile(
     r"(\d[\d,]*)\.(\d*?)0*"
     r"(%|ms|s|secs?|m|mins?|minutes?|h|hrs?|hours?|d|days?|weeks?|x|[KMGT]i?B)")
 
-# What joins the two ends of a span on one day, as a log group says one.
+# What joins the two ends of a span shorter than a day, as a log group says one.
 SPAN_DASH: Final = "–"
 
 # An instant or a span of them as the page writes one on the day the incident
-# began: in UTC, and without the day, which the page's head says once.
+# began: in UTC, and without the day, which the page's head says once - a span
+# past midnight says the day its end fell on.
 _A_TIME_WITHOUT_ITS_DAY: Final = re.compile(
-    rf"\d{{2}}:\d{{2}}(?::\d{{2}})?(?:{SPAN_DASH}\d{{2}}:\d{{2}}(?::\d{{2}})?)? UTC")
+    rf"\d{{2}}:\d{{2}}(?::\d{{2}})?"
+    rf"(?:{SPAN_DASH}(?:{A_DAY_SAID.pattern}, )?\d{{2}}:\d{{2}}(?::\d{{2}})?)? UTC")
 
-# A span between two times of one day, `21:35–21:39`.
+# A span between two times less than a day apart, `21:35–21:39` - or `23:58–00:04`,
+# whose end is on the next day.
 _A_SPAN_OF_THE_CLOCK: Final = re.compile(
     rf"(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?{SPAN_DASH}(\d{{2}}):(\d{{2}})(?::(\d{{2}}))?")
 
@@ -637,9 +640,10 @@ def the_log_group_figures(groups: Sequence[tuple[CitedEvidence, tuple[int, int]]
     That message is in its writer's words, and written in as given, as every
     quoted figure is. The rest of the row - how often, over which minutes, how
     far each number ranged - is Argus's, said from the lines' stamps in UTC:
-    there a time of day, or a span of them, is on the day said beside it, and
-    said bare on the day the incident began, the one day the row leaves
-    unsaid.
+    there a time of day, or the start of a span of them, is on the day said
+    beside it, and said bare on the day the incident began, the one day the
+    row leaves unsaid. A span's end earlier on the clock than its start is on
+    the day after.
     """
     return {name: figure
             for cited, quoted in groups
@@ -1107,7 +1111,11 @@ def _on_its_day(figure: str, on: date | None, day: date) -> Figure:
     that is not the `day` the incident began, as every instant is - and a span
     between two times of that day the same way, its day said once; as it was
     given where it is neither or `on` is not known. Shown to the model as it
-    was given either way."""
+    was given either way.
+
+    A span whose end reads earlier than its start ran past midnight, and its
+    end is written with the day after `on`: said bare, it read as a minute of
+    the day the span began."""
     if on is None:
         return _as_the_alert_gave_it(figure, day)
 
@@ -1115,9 +1123,14 @@ def _on_its_day(figure: str, on: date | None, day: date) -> Figure:
         return Figure(given=figure, written=_as_a_reader_says(_at(on, clock, 1), day))
 
     if span := _A_SPAN_OF_THE_CLOCK.fullmatch(figure):
-        first = _as_a_reader_says(_at(on, span, 1), day).removesuffix(" UTC")
-        return Figure(given=figure,
-                      written=f"{first}{SPAN_DASH}{said_as_a_time(_at(on, span, 4))} UTC")
+        began, ended = _at(on, span, 1), _at(on, span, 4)
+        first = _as_a_reader_says(began, day).removesuffix(" UTC")
+
+        if ended < began:
+            return Figure(given=figure,
+                          written=f"{first}{SPAN_DASH}{_with_its_day(ended + timedelta(days=1))}")
+
+        return Figure(given=figure, written=f"{first}{SPAN_DASH}{said_as_a_time(ended)} UTC")
 
     return _as_the_alert_gave_it(figure, day)
 
