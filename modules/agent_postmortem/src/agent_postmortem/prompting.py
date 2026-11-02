@@ -805,10 +805,9 @@ SUBMIT_POSTMORTEM = ToolDefinition(
                 "nothing was. Not whether the service or its metrics were back, nor "
                 "why - the summary says both. Not what Argus left to a person - a "
                 "draft fix, automatic sync left off, a recommended action - which the "
-                "document says itself. Not how the fault works: the summary says "
-                f"that ahead of this sentence, from {CAUSE_IN_PLAIN_WORDS_FIELD}, where "
-                "you give it. Say only "
-                "what the record says: nothing of the service after that was read."
+                "document says itself. Say what could happen, never why it would: no "
+                "\"because\". The summary says the cause, or that none was found. Say "
+                "only what the record says: nothing of the service after that was read."
             )
         },
         SYMPTOM_FIELD: {

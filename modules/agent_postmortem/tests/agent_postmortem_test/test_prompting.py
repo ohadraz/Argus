@@ -4912,16 +4912,18 @@ def test_what_is_still_at_risk_is_asked_for_in_one_sentence_or_none() -> None:
 
 @pytest.mark.unit
 def test_what_is_still_at_risk_is_asked_not_to_say_how_the_fault_works_again() -> None:
-    # A write-up's sentence on what was still at risk ended on why - the shop
-    # still passes titles without lowercasing them - which the cause sentence
-    # ahead of it in the same summary had just said.
+    # A write-up's sentence on what was still at risk ended on why - "because
+    # the shop's code still passes titles to the model without lowercasing
+    # them" - which the cause sentence in the same summary had just said. The
+    # summary always says the cause, or that none was found, wherever in it
+    # that falls.
     Scenario() \
         .when(
             lambda: SUBMIT_POSTMORTEM.properties[STILL_AT_RISK_FIELD]["description"]
         ) \
         .then(
-            _the_description_mentions("Not how the fault works",
-                                      f"ahead of this sentence, from {CAUSE_IN_PLAIN_WORDS_FIELD}")
+            _the_description_mentions("never why it would: no \"because\"",
+                                      "The summary says the cause, or that none was found")
         )
 
 
