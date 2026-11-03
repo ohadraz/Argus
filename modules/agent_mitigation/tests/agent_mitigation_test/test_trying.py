@@ -4566,39 +4566,47 @@ def test_a_rule_still_firing_when_the_time_runs_out_refutes_the_action() -> None
 
 
 @pytest.mark.unit
-def test_a_rule_that_was_normal_before_the_action_does_not_confirm_it() -> None:
+@pytest.mark.parametrize("is_normal", [False, True], ids=["firing", "quiet"])
+def test_a_rule_evaluated_only_over_minutes_before_the_action_reaches_no_verdict(
+        is_normal: bool) -> None:
     # An evaluation whose range began before the action says nothing about the
-    # action - the rule may have gone quiet in a lull the action had no part in.
+    # action. A quiet one may have gone quiet in a lull the action had no part
+    # in, and a firing one may be firing on minutes the action never touched. A
+    # wait that read nothing else measured nothing, and refuting on it put back
+    # a revert that had worked.
     Scenario() \
         .given(
-            the_rule_was_quiet_already := _a_rule_reading(_a_rule_standing(
-                is_normal=True, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+            the_rule_judged_nothing_since := _a_rule_reading(_a_rule_standing(
+                is_normal=is_normal, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
             ))
         ) \
         .when(
             lambda: _an_action_judged_by_the_rule(
-                the_rule_was_quiet_already,
+                the_rule_judged_nothing_since,
                 metrics=a_recovered_window(),
                 clock=a_clock_that_runs_out_after_one_look(ACTION_TIME)
             )
         ) \
-        .then(
-            the_verdict_is(Verdict.REFUTED)
-        )
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions("no evaluation of the rule that fired")
+        ))
 
 
 @pytest.mark.unit
 def test_the_wait_is_read_off_the_rule() -> None:
     # The rule's range, plus one evaluation of its group, plus how long it keeps
-    # firing, plus the metrics source's lag: two minutes, one, thirty seconds and
-    # one minute, 270 seconds. Watched that long rather than for the configured
-    # wait - still firing at 200 seconds is looked at again, and refuted at 270.
+    # firing, plus the metrics source's lag - two minutes, one, thirty seconds and
+    # one minute - takes an action at 11:10:30 to 11:15:00, itself an evaluation,
+    # so the wait runs to the next one, 330 seconds. Watched that long rather than
+    # for the configured wait - still firing at 200 seconds is looked at again,
+    # and refuted at 330.
     Scenario() \
         .given(
             published := _a_page_listening(),
             the_rule_still_fires := _a_rule_reading(_a_rule_standing(
                 is_normal=False,
-                evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
+                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
                 range_seconds=120,
                 interval_seconds=60,
                 keep_firing_for_seconds=30
@@ -4608,15 +4616,70 @@ def test_the_wait_is_read_off_the_rule() -> None:
             lambda: _an_action_judged_by_the_rule(
                 the_rule_still_fires,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 200, 270),
+                clock=a_clock_reading_at(ACTION_TIME, 200, 330),
                 publisher=published.append,
                 reporting_lag_minutes=1
             )
         ) \
         .then(all_of(
             the_verdict_is(Verdict.REFUTED),
-            _the_wait_allowed(published, 270),
+            _the_wait_allowed(published, 330),
             _each_look_reported(published, False, False)
+        ))
+
+
+@pytest.mark.unit
+def test_the_wait_ends_at_the_rules_next_evaluation_after_it() -> None:
+    # The range and one evaluation take an action at 11:10:30 to 11:13:30, and the
+    # rule evaluates on whole minutes - so the wait runs to 11:14:00, 210 seconds.
+    # Still firing at 200 seconds is looked at again, and refuted at 210.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False,
+                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                range_seconds=120
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_still_fires,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 200, 210),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, 210)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_with_no_interval_is_waited_on_without_being_carried_to_an_evaluation() -> None:
+    # Nothing to carry the wait to, and no evaluation to add: the range alone, 120 seconds.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            the_rule_still_fires := _a_rule_reading(_a_rule_standing(
+                is_normal=False,
+                evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                range_seconds=120,
+                interval_seconds=0
+            ))
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_still_fires,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 120),
+                publisher=published.append
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_wait_allowed(published, 120)
         ))
 
 
@@ -4854,6 +4917,43 @@ def test_an_evaluation_whose_range_begins_as_the_change_arrived_confirms_it() ->
 
 
 @pytest.mark.unit
+def test_a_change_arriving_as_a_minute_turns_is_watched_past_the_first_evaluation_of_it() -> None:
+    # The rule judges a change only by an evaluation whose whole range followed
+    # it, and it evaluates on its own interval - so a change arriving a tenth of
+    # a second after a minute turned is first judged a whole interval after its
+    # range has passed. A wait ending there left its looks a tenth of a second to
+    # read that evaluation, the one look left read the evaluation before, and a
+    # revert that had worked was put back.
+    just_after_a_minute = datetime(2026, 8, 20, 11, 10, 0, 100000, tzinfo=UTC)
+
+    Scenario() \
+        .given(
+            the_rule_judges_it_late := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False,
+                    evaluated_at=datetime(2026, 8, 20, 11, 12, tzinfo=UTC),
+                    range_seconds=120
+                ),
+                _a_rule_standing(
+                    is_normal=True,
+                    evaluated_at=datetime(2026, 8, 20, 11, 13, tzinfo=UTC),
+                    range_seconds=120
+                )
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_judges_it_late,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(just_after_a_minute, 180.2, 200)
+            )
+        ) \
+        .then(
+            the_verdict_is(Verdict.CONFIRMED)
+        )
+
+
+@pytest.mark.unit
 def test_a_rule_unreadable_at_first_is_judged_once_it_can_be_read() -> None:
     Scenario() \
         .given(
@@ -4899,6 +4999,32 @@ def test_a_rule_read_firing_and_unreadable_at_its_deadline_refutes() -> None:
         .then(
             the_verdict_is(Verdict.REFUTED)
         )
+
+
+@pytest.mark.unit
+def test_a_rule_unreadable_at_its_deadline_and_never_read_since_the_change_escalates() -> None:
+    # Unlike a rule read firing since the change: the last thing it said was
+    # about minutes from before it, so it never said the change had not helped.
+    Scenario() \
+        .given(
+            the_rule_goes_quiet_unjudged := _a_rule_reading_in_turn(
+                _a_rule_standing(
+                    is_normal=False, evaluated_at=datetime(2026, 8, 20, 11, 11, tzinfo=UTC)
+                ),
+                McpToolError("the rule could not be read")
+            )
+        ) \
+        .when(
+            lambda: _an_action_judged_by_the_rule(
+                the_rule_goes_quiet_unjudged,
+                metrics=a_still_failing_window(),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 3600)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.ESCALATED),
+            _the_detail_mentions("no evaluation of the rule that fired")
+        ))
 
 
 @pytest.mark.unit
@@ -5007,7 +5133,7 @@ def test_the_rules_deadline_is_read_off_its_first_reading() -> None:
             lambda: _an_action_judged_by_the_rule(
                 the_rule_widens,
                 metrics=a_still_failing_window(),
-                clock=a_clock_reading_at(ACTION_TIME, 10, 130, 7200),
+                clock=a_clock_reading_at(ACTION_TIME, 10, 190, 7200),
                 publisher=published.append
             )
         ) \

@@ -705,6 +705,16 @@ _ENDED_DURING_THE_WAIT = _Settled(
     "a person ended the incident before the verification wait reached a verdict"
 )
 
+# What a wait on the rule that paged settles as where the rule was read and every
+# evaluation read still spanned minutes from before the change. `ESCALATED`, not
+# `REFUTED`: none of them judged anything the change did, so refuting would put
+# back a change that may have worked, on a measurement nobody took.
+_NO_EVALUATION_SINCE_THE_CHANGE = _Settled(
+    Verdict.ESCALATED,
+    "no evaluation of the rule that fired covered only the time since the change "
+    "before the time allowed ran out - so nothing was measured either way"
+)
+
 
 def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBucket]],
                                        has_arrived: HasArrived,
@@ -828,9 +838,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     # of the two questions above is asked. `None` until a read answers, because it
     # is measured from a window rather than declared by a caller.
     the_sight_was_absent: bool | None = None
-    # Whether the rule that paged was ever read, which decides what running out
-    # of time means on that path, as `anything_was_read` does on this one.
+    # Whether the rule that paged was ever read, and whether any evaluation read
+    # covered only the time since the change. The second is what decides what
+    # running out of time means on that path, as `anything_was_read` does on
+    # this one: an evaluation over minutes from before the change judged nothing
+    # the change did, so a wait that read only those measured nothing.
     the_rule_was_read = False
+    an_evaluation_since_the_change_was_read = False
 
     while True:
         # Asked before each look rather than only after it. A walk somebody
@@ -966,19 +980,22 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                         minute=first_whole_minute
                     ))
 
-                # Not refuted where the rule was never read: nothing said it was
-                # still firing, and refuting puts the change back on a
-                # measurement nobody took.
+                # Not refuted where no evaluation since the change was read:
+                # nothing said the rule was still firing on the change's
+                # minutes, and refuting puts the change back on a measurement
+                # nobody took.
                 if now() >= watch_until:
-                    if not the_rule_was_read:
-                        logger.warning("nothing was measured before the deadline")
-
-                    return (
-                        _Settled(
+                    if an_evaluation_since_the_change_was_read:
+                        return _Settled(
                             Verdict.REFUTED,
                             "the rule that fired was still firing when the time "
                             "it allows ran out"
                         )
+
+                    logger.warning("nothing was measured before the deadline")
+
+                    return (
+                        _NO_EVALUATION_SINCE_THE_CHANGE
                         if the_rule_was_read else
                         _Settled(
                             Verdict.ESCALATED,
@@ -1021,6 +1038,9 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 >= arrived_at
             )
             resolved = standing.is_normal and followed_the_change
+            an_evaluation_since_the_change_was_read = (
+                an_evaluation_since_the_change_was_read or followed_the_change
+            )
             came_back_at = (
                 find_recovery(buckets, thresholds, since=incident_began)
                 if resolved else None
@@ -1044,6 +1064,10 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 )
 
             if now() >= watch_until:
+                if not an_evaluation_since_the_change_was_read:
+                    logger.warning("nothing was measured before the deadline")
+                    return _NO_EVALUATION_SINCE_THE_CHANGE
+
                 return _Settled(
                     Verdict.REFUTED,
                     "the rule that fired was still firing when the time it "
@@ -1297,16 +1321,24 @@ def _when_the_rule_would_have_resolved(arrived_at: datetime,
     """The moment past which a rule still firing is an answer.
 
     A change that worked has left the rule's range once the range has passed
-    since it arrived; the next evaluation sees that, and a rule that keeps firing
+    since it arrived, and the next evaluation sees that. A rule that keeps firing
     for a while after its condition clears says so that much later. The source's
     lag is added for the reason the metrics' deadline adds it: the minutes the
     rule reads arrive `reporting_lag_minutes` late from a source that reports
     them once they end.
 
+    The sum is then carried to the rule's next evaluation after it, because the
+    rule evaluates on its own ticks and not on the change's: a change arriving a
+    tenth of a second after a minute turned is first judged a whole interval
+    after its range has passed, and a deadline ending a tenth of a second after
+    that evaluation left one look to read it, which read the evaluation before -
+    and a revert that had worked was put back.
+
     Every term but the lag is the rule's own; the lag is the one setting, and
     the levels' deadline adds the same one.
     """
-    return arrived_at + timedelta(
+    interval = timedelta(seconds=standing.interval_seconds)
+    unrounded = arrived_at + timedelta(
         seconds=(
             standing.range_seconds
             + standing.interval_seconds
@@ -1314,6 +1346,12 @@ def _when_the_rule_would_have_resolved(arrived_at: datetime,
         ),
         minutes=reporting_lag_minutes
     )
+
+    # A rule with no interval has no next evaluation to carry the wait to.
+    if not interval:
+        return unrounded
+
+    return standing.evaluated_at + ((unrounded - standing.evaluated_at) // interval + 1) * interval
 
 
 def _nothing_was_seen_between(buckets: Sequence[MetricBucket],
