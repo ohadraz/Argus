@@ -124,7 +124,7 @@ class ProposedFix(BaseModel):
     not in the code, because..." is a finding as much as a fix is. A static
     reading - nothing ran it - and `None` where the model gave none.
 
-    `needs_code_outside` is a fix the model wrote and Argus did not open,
+    `needs_code_outside` is a fix the model wrote and Argus did not keep,
     because the model said it helps nobody until code outside the repository
     changes too. Neither a proposal nor "nothing to change": the explanation is
     then what would have to change there, in the model's words.

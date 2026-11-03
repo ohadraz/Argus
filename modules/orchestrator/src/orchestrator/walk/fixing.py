@@ -154,14 +154,14 @@ def codefix_node(state: IncidentState,
         )
 
     if proposed.needs_code_outside:
-        # Written and held back. Not "no fix found": the model found one and
+        # Written and not kept. Not "no fix found": the model found one and
         # said what else it needs, and that is what the explanation carries.
         return _said(
             narrator,
             found=False,
             outcome=FixOutcome.NOT_OPENED,
             proposal=None,
-            action="a code-level fix was written but not opened",
+            action="a code-level fix was written and not kept",
             detail="the fix Code-Fix wrote helps only once code outside the repository "
                    "changes as well",
             read=proposed

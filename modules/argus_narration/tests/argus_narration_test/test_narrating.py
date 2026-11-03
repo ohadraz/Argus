@@ -2876,7 +2876,7 @@ def test_a_fix_that_was_not_warranted_reads_as_a_verdict_on_the_code() -> None:
 
 
 @pytest.mark.unit
-def test_a_fix_that_needs_code_outside_reads_as_written_and_not_opened() -> None:
+def test_a_fix_that_needs_code_outside_reads_as_written_and_not_kept() -> None:
     # Neither a proposal nor a verdict. The model wrote a fix and said it helps
     # nobody until code outside the repository changes too - so a reader told
     # "no code-level fix" would close the question the fix answers.
@@ -2890,7 +2890,7 @@ def test_a_fix_that_needs_code_outside_reads_as_written_and_not_opened() -> None
     Scenario() \
         .given(not_opened) \
         .when(lambda: build_narration([not_opened])) \
-        .then(all_of(_the_only_line_mentions("did not open it"),
+        .then(all_of(_the_only_line_mentions("kept none of it"),
                      _the_lines_are_credited_to(["Code-Fix Agent"])))
 
 

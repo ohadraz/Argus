@@ -1236,7 +1236,7 @@ def _what_it_says_beside_itself(event: IncidentEvent) -> str:
 
     By whether a pull request holds the explanation rather than by a list of
     outcomes: a proposal's explanation is in the pull request it opened, and
-    every other outcome that carries one - nothing to change, a fix held back,
+    every other outcome that carries one - nothing to change, a fix not kept,
     a model that declined and said why - is the one place a reader learns what
     would have to change instead.
     """
@@ -1288,9 +1288,11 @@ def _what_came_of_looking_at_the_code(event: FixAttempted) -> tuple[str, str]:
             declined = "The model declined to propose a fix"
             return "", f"{declined} - {event.detail}" if event.detail else declined
         case FixOutcome.NOT_OPENED:
-            # Neither a proposal nor a verdict: a fix exists, and what else it
-            # needs is the reason it is not on a branch.
-            return "", f"Wrote a fix and did not open it - {event.detail}"
+            # Neither a proposal nor a verdict: a fix was written and none of it
+            # kept, and what else it needs is the reason. Said as not kept: "did not
+            # open it" read as a draft waiting somewhere, and two write-ups asked for
+            # it to be opened.
+            return "", f"Wrote a fix and kept none of it - {event.detail}"
         case unreachable:
             assert_never(unreachable)
 

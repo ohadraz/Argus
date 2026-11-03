@@ -1629,13 +1629,13 @@ def test_a_submitted_fix_is_asked_whether_it_needs_code_outside_this_repository(
             all_of(
                 _a_result_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED),
                 _a_pull_request_was_opened(repository),
-                _it_was_not_held_back()
+                _it_came_back_needing_no_code_outside()
             )
         )
 
 
 @pytest.mark.unit
-def test_a_fix_that_helps_only_once_code_outside_changes_is_written_but_not_opened() -> None:
+def test_a_fix_that_helps_only_once_code_outside_changes_is_written_and_not_kept() -> None:
     # Not a proposal, because merged alone it spares nobody - and not "nothing
     # to change", because the model found a change and said what else it
     # needs. What comes back is why, in the model's words, for the person who
@@ -1661,7 +1661,7 @@ def test_a_fix_that_helps_only_once_code_outside_changes_is_written_but_not_open
             all_of(
                 _no_branch_was_written(repository),
                 _nothing_was_proposed(),
-                _it_was_held_back(),
+                _it_came_back_needing_code_outside(),
                 _it_explained(some_explanation)
             )
         )
@@ -1721,7 +1721,7 @@ def test_an_answer_sent_with_the_submission_is_not_its_answer() -> None:
             all_of(
                 _the_model_was_told(model, NO_QUESTION_IS_OPEN),
                 _no_branch_was_written(repository),
-                _it_was_held_back()
+                _it_came_back_needing_code_outside()
             )
         )
 
@@ -1748,7 +1748,7 @@ def test_reporting_nothing_to_change_once_asked_proposes_nothing() -> None:
             all_of(
                 _nothing_was_proposed(),
                 _no_branch_was_written(repository),
-                _it_was_not_held_back()
+                _it_came_back_needing_no_code_outside()
             )
         )
 
@@ -1808,7 +1808,7 @@ def test_a_fix_submitted_on_the_last_call_is_still_asked_about() -> None:
 @pytest.mark.unit
 def test_a_fix_whose_question_is_never_answered_did_not_finish() -> None:
     # One turn of room for the answer, and no more. A patch nobody said works
-    # on its own is neither a proposal nor a fix held back - it is a run that
+    # on its own is neither a proposal nor a fix that needs code outside - it is a run that
     # stopped before it was done, and is reported as one.
     one_call = 1
     repository = a_repository()
@@ -3483,12 +3483,12 @@ def _it_read(expected: str) -> Assertion[ProposedFix]:
     return assertion
 
 
-def _it_was_held_back() -> Assertion[ProposedFix]:
+def _it_came_back_needing_code_outside() -> Assertion[ProposedFix]:
     def assertion(came_back: ProposedFix) -> bool:
         if not came_back.needs_code_outside:
             raise AssertionError(
-                "Expected the fix to come back held back for needing code "
-                "outside the repository, and it came back as not needing any."
+                "Expected the fix to come back as needing code outside the "
+                "repository, and it came back as not needing any."
             )
 
         return True
@@ -3496,12 +3496,12 @@ def _it_was_held_back() -> Assertion[ProposedFix]:
     return assertion
 
 
-def _it_was_not_held_back() -> Assertion[ProposedFix]:
+def _it_came_back_needing_no_code_outside() -> Assertion[ProposedFix]:
     def assertion(came_back: ProposedFix) -> bool:
         if came_back.needs_code_outside:
             raise AssertionError(
-                "Expected the fix not to come back held back for needing code "
-                "outside the repository, and it did."
+                "Expected the fix to come back as not needing code outside the "
+                "repository, and it did."
             )
 
         return True

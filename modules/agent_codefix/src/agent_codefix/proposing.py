@@ -389,10 +389,10 @@ def propose_fix(hypothesis: Hypothesis | None,
                                         read_file=read_file)
 
     if isinstance(submitted, AnswerToTheQuestion):
-        # Written and not opened: merged alone it spares nobody. What comes
+        # Written and not kept: merged alone it spares nobody. What comes
         # back is what would have to change outside, for whoever takes it
         # there.
-        logger.info("fix not opened, it needs code outside the repository")
+        logger.info("fix not kept, it needs code outside the repository")
         return ProposedFix(pull_request=None,
                            explanation=submitted.explanation,
                            needs_code_outside=True,
