@@ -308,6 +308,10 @@ class IncidentEvidence(BaseModel):
     # changes nothing that runs once merged, not until a deploy carries it.
     fix_branch_read: str | None = None
     fix_holds_what_ran: bool | None = None
+    # Whether that reading's fix helps only once code outside the repository
+    # changes too - and so was not kept: nothing of it is anywhere to open, and
+    # its change to the repository has to be written again with the one outside.
+    fix_needs_code_outside: bool = False
     # Each file that reading names, read again at the revision that ran - the
     # file as it ran where it differs from what was read, and what settles a
     # reading made on other text. Empty where none was read.

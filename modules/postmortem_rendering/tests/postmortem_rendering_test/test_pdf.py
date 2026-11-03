@@ -1260,8 +1260,7 @@ def test_a_review_row_at_the_foot_of_a_page_is_set_whole_on_one_page(
     pytest.param(866, 80, "Changes to production read", id="changes-read"),
     pytest.param(818, 80, "Log messages read (UTC)", id="log-messages-read"),
     pytest.param(376, 40, "What each deployment looked into changed", id="deployments"),
-    pytest.param(492, 80, "What Code-Fix read in the source and proposed - "
-                          "nothing ran its test or its fix",
+    pytest.param(492, 80, "What Code-Fix read in the source - nothing ran to check it",
                  id="code-fix-read"),
     pytest.param(316, 80, "What went wrong", id="what-went-wrong"),
     pytest.param(278, 80, "Where it got lucky", id="where-it-got-lucky"),

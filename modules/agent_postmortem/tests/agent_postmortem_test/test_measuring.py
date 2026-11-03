@@ -1026,6 +1026,34 @@ def test_a_service_back_to_normal_in_the_minute_its_fix_landed_ended_at_the_fix(
 
 
 @pytest.mark.unit
+def test_the_broken_stretch_stops_before_the_normal_minute_the_fix_landed_in() -> None:
+    # The incident ends at the fix, seconds into the first normal minute - and
+    # that minute read normal, so it is no part of the broken stretch. Counted
+    # in, it pulled the rate while broken down towards the baseline. How long
+    # it lasted still runs to the fix.
+    some_baseline_error_rate = 0.02
+    some_error_rate_while_broken = 0.30
+    the_fix = RECOVERED_AT + timedelta(seconds=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=RECORDED_RECOVERY_AT,
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=the_fix)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_that_recovered(
+                baseline=some_baseline_error_rate,
+                during=some_error_rate_while_broken)))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(the_fix),
+            _ran_for(hours_between(ONSET, the_fix)),
+            _the_rise_was(some_error_rate_while_broken - some_baseline_error_rate)
+        ))
+
+
+@pytest.mark.unit
 def test_a_service_back_to_normal_before_its_fix_landed_is_found_so() -> None:
     # A whole normal minute ending before the action: the service was back
     # before Argus acted, so the action credited with it did not bring it back -
@@ -1389,6 +1417,44 @@ def test_the_rules_series_is_measured_over_the_stretch_the_service_was_broken() 
                 worse_when="below"
             ))
         )
+
+
+@pytest.mark.unit
+def test_the_rules_series_stops_before_the_normal_minute_the_fix_landed_in() -> None:
+    # As the error rate does: the incident ends at the fix, seconds into the
+    # first normal minute, and that minute is no part of the broken stretch.
+    # Its reading is the worst of all, so a stretch that ran on to the fix
+    # would say so.
+    some_calm_share = 0.95
+    a_bad_minute = 0.42
+    the_worst_minute = 0.38
+    an_even_worse_minute_once_recovered = 0.10
+    the_fix = ENDED_AT + timedelta(seconds=20)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                recorded_recovery_at=ENDED_AT,
+                actions=[an_action("dont care", verdict=Verdict.CONFIRMED, taken_at=the_fix)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_whose_rule_series_went(
+                baseline=some_calm_share,
+                while_broken=a_bad_minute,
+                at_its_worst=the_worst_minute,
+                worse_when="below",
+                once_recovered=an_even_worse_minute_once_recovered
+            )))
+        ) \
+        .then(all_of(
+            _it_was_back_to_normal_at(the_fix),
+            _the_rules_series_was(RuleSeriesLevels(
+                baseline=some_calm_share,
+                while_broken=(a_bad_minute + the_worst_minute) / 2,
+                at_its_worst=the_worst_minute,
+                worse_when="below"
+            ))
+        ))
 
 
 @pytest.mark.unit

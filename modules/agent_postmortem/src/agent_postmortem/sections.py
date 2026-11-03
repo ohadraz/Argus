@@ -113,6 +113,13 @@ USES_OUTSIDE_PREFIX: Final = "U"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
+# The fix Code-Fix wrote and did not keep, since it helps only once code outside
+# the repository changes too. Both halves, named by code: left to the model,
+# write-ups asked for the change outside alone, and done alone it leaves the
+# repository's half unwritten.
+WRITE_THE_FIX_AGAIN: Final = ("Write the fix again: its change to the repository and the "
+                              "change outside the repository that Code-Fix's reading names, "
+                              "made together - Code-Fix kept none of the fix it wrote")
 # When automatic sync an action left off goes back on, for the action item and
 # the summary alike, and what it does until then and sooner, for the item alone:
 # whoever turns it on reads the item, and the summary names the item by its label.
@@ -1021,10 +1028,11 @@ def record_action_items_of(evidence: IncidentEvidence,
                            back_to_normal_at: datetime | None) -> list[ActionItem]:
     """The action items the record implies, numbered from `AI-1`.
 
-    What brought recovery is done, and is Argus's. The fix proposed and the
-    action Argus declined are open, and nobody's: Argus edits no item after the
-    document is written, so whoever takes one on does so somewhere else. An
-    action that did not help is in the resolution and is not left to do.
+    What brought recovery is done, and is Argus's. The fix proposed, the fix
+    written and not kept, and the action Argus declined are open, and
+    nobody's: Argus edits no item after the document is written, so whoever
+    takes one on does so somewhere else. An action that did not help is in the
+    resolution and is not left to do.
 
     The fix prevents a recurrence where the service is known back
     (`back_to_normal_at` - the metrics show it, or a person reported it over),
@@ -1049,6 +1057,8 @@ def record_action_items_of(evidence: IncidentEvidence,
           for action in evidence.actions if action.verdict == Verdict.CONFIRMED),
         *([_an_item(the_fix_is, REVIEW_THE_FIX, tracking=evidence.pull_request.url)]
           if evidence.pull_request is not None else []),
+        *([_an_item(the_fix_is, WRITE_THE_FIX_AGAIN)]
+          if evidence.fix_needs_code_outside else []),
         *(_an_item(ActionItemType.MITIGATE, TURN_SYNC_BACK_ON.format(application=application))
           for application in left_off),
         *([_an_item(ActionItemType.MITIGATE, evidence.recommended_action)]

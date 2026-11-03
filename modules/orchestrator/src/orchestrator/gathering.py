@@ -72,6 +72,7 @@ from argus_core.models import (
     ChannelReading,
     DeploymentRollbackUndo,
     FirstTold,
+    FixOutcome,
     FlagUndo,
     ForCandidate,
     Hypothesis,
@@ -244,6 +245,8 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         fix_explanation=reading.explanation if reading is not None else None,
         fix_branch_read=reading.branch_read if reading is not None else None,
         fix_holds_what_ran=reading.holds_what_ran if reading is not None else None,
+        fix_needs_code_outside=(reading is not None
+                                and reading.outcome is FixOutcome.NOT_OPENED),
         files_as_they_ran=reading.as_it_ran if reading is not None else [],
         uses_outside=reading.uses_outside if reading is not None else [],
         recommended_action=_what_is_still_owed(conn, incident_id),

@@ -670,6 +670,24 @@ def test_a_draft_fix_written_against_a_branch_without_what_ran_is_said_to_need_a
 
 
 @pytest.mark.unit
+def test_a_fix_written_and_not_kept_is_said_with_the_item_that_writes_it_again() -> None:
+    # Every open item the record holds is said as left to a person, this one
+    # with its label: "did not open it" alone read as a draft waiting somewhere.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"fix_needs_code_outside": True})
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("Code-Fix kept none of the fix it wrote, which helps only once code outside "
+                  "the repository changes as well: writing it again is AI-1.")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("holds_what_ran", [True, None], ids=["it-does", "nobody-established"])
 def test_a_draft_fix_whose_branch_is_not_known_to_lack_what_ran_needs_no_deploy_said(
         holds_what_ran: bool | None) -> None:

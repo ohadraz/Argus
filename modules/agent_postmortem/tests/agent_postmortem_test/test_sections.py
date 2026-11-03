@@ -2238,6 +2238,33 @@ def test_the_record_implies_its_action_items_and_numbers_them_first() -> None:
 
 
 @pytest.mark.unit
+def test_a_fix_written_and_not_kept_is_an_item_to_write_it_again_on_both_sides() -> None:
+    # Code-Fix kept none of it, so there is nothing to review: what is left is
+    # writing it again, the repository's half with the one outside. Left to the
+    # model, write-ups asked for the outside half alone.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                actions=[an_action("rolled back io-shop", verdict=Verdict.CONFIRMED)]
+            ).model_copy(update={"fix_needs_code_outside": True}),
+            the_service_back := STARTED_AT + timedelta(minutes=9)
+        ) \
+        .when(
+            lambda: [(item.number, item.text, item.type, item.status)
+                     for item in record_action_items_of(evidence, the_service_back)]
+        ) \
+        .then(
+            the_answer_was([
+                ("AI-1", "rolled back io-shop", ActionItemType.MITIGATE, ActionItemStatus.DONE),
+                ("AI-2", "Write the fix again: its change to the repository and the change "
+                         "outside the repository that Code-Fix's reading names, made together "
+                         "- Code-Fix kept none of the fix it wrote",
+                 ActionItemType.PREVENT, ActionItemStatus.OPEN)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
     # The resolution says sync was left off; this is somebody turning it back
     # on, without which nothing merged reaches the service. After the fix, since

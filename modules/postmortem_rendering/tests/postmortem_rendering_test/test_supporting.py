@@ -610,20 +610,27 @@ def test_a_revision_what_code_fix_read_names_is_said_short_and_leads_where_it_op
 
 
 @pytest.mark.unit
-def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran() -> None:
+@pytest.mark.parametrize(("pull_request", "heading"), [
+    (OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7", branch="dont care"),
+     "What Code-Fix read in the source and proposed - nothing ran its test or its fix"),
+    (None, "What Code-Fix read in the source - nothing ran to check it")
+], ids=["proposed", "nothing-proposed"])
+def test_what_code_fix_read_is_headed_as_a_reading_nothing_ran(
+        pull_request: OpenedPullRequest | None, heading: str) -> None:
     # The mechanism as it was read off the source: a reader weighs a cause
-    # resting on it by knowing that nothing ran it.
+    # resting on it by knowing that nothing ran it. "Proposed" only where a
+    # pull request holds what it proposed: said of a fix nobody opened, it was
+    # false.
     Scenario() \
         .given(
-            dont_care_postmortem := a_postmortem()
+            some_postmortem := a_postmortem(pull_request=pull_request)
         ) \
         .when(
             lambda: the_supporting_information(
-                dont_care_postmortem, SOME_INCIDENT_ADDRESS).code_read_heading
+                some_postmortem, SOME_INCIDENT_ADDRESS).code_read_heading
         ) \
         .then(
-            the_answer_was("What Code-Fix read in the source and proposed - "
-                           "nothing ran its test or its fix"))
+            the_answer_was(heading))
 
 
 @pytest.mark.unit

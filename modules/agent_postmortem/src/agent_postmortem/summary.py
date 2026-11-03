@@ -49,6 +49,7 @@ from agent_postmortem.sections import (
     CANDIDATE_PREFIX,
     SYNC_GOES_BACK_ON,
     TURN_SYNC_BACK_ON,
+    WRITE_THE_FIX_AGAIN,
     causes_of,
     inside_a_sentence,
     label_of,
@@ -334,7 +335,8 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence,
                               measured: Measurements) -> list[str]:
     """That Argus handed the incident to a person, where it ran out of moves;
     each cause Argus held back from testing, with why in its own words - not
-    its row's "never tried: ...", which would say it twice - the draft fix,
+    its row's "never tried: ...", which would say it twice - the draft fix, or
+    the fix written and not kept with the record's item that writes it again,
     automatic sync an action left off, and the action recommended and not
     taken. Never as having fixed anything: nothing ran the fix, and nothing
     took the recommendation.
@@ -370,6 +372,10 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence,
             *([f"Argus opened a draft fix, {pull_request.name}, for a person to review and "
                f"merge.{_what_merging_it_alone_does(evidence)}"]
               if pull_request is not None else []),
+            *([f"Code-Fix kept none of the fix it wrote, which helps only once code outside "
+               f"the repository changes as well: writing it again is "
+               f"{numbered[WRITE_THE_FIX_AGAIN]}."]
+              if evidence.fix_needs_code_outside else []),
             *(f"Argus left automatic sync of {application} off, to be turned back on "
               f"{SYNC_GOES_BACK_ON} "
               f"({numbered[TURN_SYNC_BACK_ON.format(application=application)]})."

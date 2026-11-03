@@ -116,6 +116,7 @@ from agent_postmortem.sections import (
     DEPLOYMENT_CHANGES_PREFIX,
     PRODUCTION_CHANGE_PREFIX,
     USES_OUTSIDE_PREFIX,
+    WRITE_THE_FIX_AGAIN,
     OneCause,
     a_hypothesis_of,
     causes_of,
@@ -1275,6 +1276,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *(_the_record_items(evidence, measured) or [f"  - {NOTHING}"]),
         *([note] if (note := _rewriting_is_left_to_a_person(evidence)) else []),
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
+        *_what_the_record_holds_of_a_fix_not_kept(evidence, measured),
         *_what_set_it_off(evidence),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label. In a contributing "
@@ -1434,8 +1436,13 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
         *([("What each deployment it looked into changed:", looked_into,
             _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
+        # Headed by what came of it, as the page heads it: "proposed" and "its
+        # test or its fix" were false where nothing was.
         *([(f"What Code-Fix read in the source and proposed, in Code-Fix's words - nothing "
-            f"ran its test or its fix, and what it claims {_NOT_WHAT_HAPPENED}:",
+            f"ran its test or its fix, and what it claims {_NOT_WHAT_HAPPENED}:"
+            if evidence.pull_request is not None
+            else f"What Code-Fix read in the source, in Code-Fix's words - nothing ran to "
+                 f"check it, and what it claims {_NOT_WHAT_HAPPENED}:",
             read_in_the_source,
             " ".join(note for note in (_SAY_IT_NO_WIDER_THAN_IT_WAS_READ,
                                        _what_its_branch_did_not_hold(evidence),
@@ -1777,6 +1784,26 @@ def _what_the_record_holds_of_the_fix(pull_request: OpenedPullRequest | None) ->
             f"was reviewed, approved or merged, or that it was not - nor that the "
             f"record holds nothing, which the document says itself. Nothing ran its "
             f"test or its fix: say what it proposes, not that it corrects anything."]
+
+
+def _what_the_record_holds_of_a_fix_not_kept(evidence: IncidentEvidence,
+                                             measured: Measurements) -> list[str]:
+    """That Code-Fix kept none of the fix it wrote, and which of the record's
+    items writes it again - or nothing, where no fix was written and dropped.
+
+    Said beside the item because write-ups proposed the change outside the
+    repository as an item of their own in four of four, and an item holding
+    half of what the record's item holds reads as the whole fix.
+    """
+    if not evidence.fix_needs_code_outside:
+        return []
+
+    numbered = {item.text: item.number
+                for item in record_action_items_of(evidence, measured.back_to_normal_at)}
+
+    return [f"Code-Fix kept none of the fix it wrote: {numbered[WRITE_THE_FIX_AGAIN]} is "
+            f"writing it again, both its change to the repository and the change outside "
+            f"it - propose neither again."]
 
 
 def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:

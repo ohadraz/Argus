@@ -2480,6 +2480,39 @@ def test_the_evidence_carries_which_branch_code_fix_read_off_the_reading_that_st
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("outcome", "pull_request", "needs_code_outside"), [
+    (FixOutcome.NOT_OPENED, None, True),
+    (FixOutcome.NOT_WARRANTED, None, False),
+    (FixOutcome.PROPOSED,
+     OpenedPullRequest(number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                       branch="argus/fix-abc"),
+     False)
+], ids=["not-opened", "not-warranted", "proposed"])
+def test_the_evidence_carries_whether_the_fix_that_stands_needs_code_outside(
+    outcome: FixOutcome, pull_request: OpenedPullRequest | None, needs_code_outside: bool,
+    a_clean_database: None
+) -> None:
+    # A fix needing code outside the repository was written and not kept, and
+    # the document has its change to the repository written again. Nothing
+    # else is: a reading with nothing to change had nothing to keep, and a
+    # proposed fix was kept.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=outcome, pull_request=pull_request,
+                    detail="dont care", explanation="dont care what it said")))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_a_fix_needing_code_outside(needs_code_outside)
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_files_as_they_ran_off_the_reading_that_stands(
     a_clean_database: None
 ) -> None:
@@ -3396,6 +3429,18 @@ def _carries_what_code_fix_read(branch: str | None,
 
     return assertion
 
+
+
+def _carries_a_fix_needing_code_outside(expected: bool) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if evidence.fix_needs_code_outside is not expected:
+            raise AssertionError(
+                f"Expected the evidence to carry a fix needing code outside the "
+                f"repository [{expected}], got [{evidence.fix_needs_code_outside}].")
+
+        return True
+
+    return assertion
 
 
 def _carries_the_leads(expected: list[ThreadMessage]) -> Assertion[IncidentEvidence]:

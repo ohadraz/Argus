@@ -852,27 +852,38 @@ def test_a_deployment_with_no_comparison_behind_it_is_said_in_the_write_up_s_own
 
 
 @pytest.mark.unit
-def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothing_ran() -> None:
+@pytest.mark.parametrize(("pull_request", "heading"), [
+    (OpenedPullRequest(number=7, url="https://github.invalid/ohadraz/io-shop/pull/7",
+                       branch="argus/fix-abc"),
+     "What Code-Fix read in the source and proposed, in Code-Fix's words - nothing ran its "
+     "test or its fix, and what it claims is not what happened unless a row of the record "
+     "shows it:"),
+    (None,
+     "What Code-Fix read in the source, in Code-Fix's words - nothing ran to check it, and "
+     "what it claims is not what happened unless a row of the record shows it:")
+], ids=["proposed", "nothing-proposed"])
+def test_the_model_is_shown_what_code_fix_read_in_the_source_as_a_reading_nothing_ran(
+        pull_request: OpenedPullRequest | None, heading: str) -> None:
     # The mechanism, as Code-Fix read it off the code - and said to be a
     # reading, since nothing ran it: a cause resting on it rests on that.
+    # Nothing ran the test or the fix either, and an explanation that said its
+    # test fails was repeated as fact - so the heading says so of both, where
+    # there are both. And whose words they are: its "samples stop while the
+    # shop keeps serving" came back as the chain's own claim. "Proposed" only
+    # where something was: said of a fix nobody opened, it was false.
     some_reading = "v2's vocabulary is lowercase, and the categoriser does not lowercase"
 
     Scenario() \
         .given(
-            evidence := an_evidence_bundle(fix_explanation=some_reading)
+            evidence := an_evidence_bundle(fix_explanation=some_reading,
+                                           pull_request=pull_request)
         ) \
         .when(
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(all_of(
             _says_on_one_line("[F1]", some_reading),
-            # Nothing ran the test or the fix either, and an explanation that
-            # said its test fails was repeated as fact - so the heading says so
-            # of both, not of "it". And whose words they are: its "samples stop
-            # while the shop keeps serving" came back as the chain's own claim.
-            _says("What Code-Fix read in the source and proposed, in Code-Fix's words - "
-                  "nothing ran its test or its fix, and what it claims is not what "
-                  "happened unless a row of the record shows it:")
+            _says(heading)
         ))
 
 
@@ -1653,6 +1664,25 @@ def test_the_model_is_told_the_action_items_the_record_already_holds() -> None:
         ) \
         .then(
             _says("AI-1", "Review and merge the proposed fix")
+        )
+
+
+@pytest.mark.unit
+def test_the_model_is_told_the_fix_not_kept_is_written_again_by_the_record_s_item() -> None:
+    # With no item for it, write-ups proposed the change outside the repository
+    # as an item of their own in four of four - half of what this item holds -
+    # and no check refuses an item repeating one the record holds.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"fix_needs_code_outside": True})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("Code-Fix kept none of the fix it wrote: AI-1 is writing it again, both its "
+                  "change to the repository and the change outside it - propose neither again.")
         )
 
 

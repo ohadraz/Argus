@@ -238,18 +238,16 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # Where the service came back is judged on the hour before it, as it always
     # was: the readers find their own quiet half in what they are handed, and a
     # noisier stretch hours earlier would move the bar a minute is told apart by.
-    back_to_normal_at, back_before_the_action = _found_back_before(
-        _when_the_service_came_back(
-            evidence.recorded_recovery_at,
-            evidence.resolution.at if evidence.resolution is not None else None,
-            evidence.watched_and_never_recovered,
-            [bucket for bucket in metrics
-             if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
-            sources.thresholds,
-            began
-        ),
-        evidence
+    found_back = _when_the_service_came_back(
+        evidence.recorded_recovery_at,
+        evidence.resolution.at if evidence.resolution is not None else None,
+        evidence.watched_and_never_recovered,
+        [bucket for bucket in metrics
+         if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
+        sources.thresholds,
+        began
     )
+    back_to_normal_at, back_before_the_action = _found_back_before(found_back, evidence)
     # The read has to end somewhere even when nothing says the service came
     # back, so it ends at the close - the boundary a query needs. What must
     # not happen is the substitution going unmarked, and `back_to_normal_at` is the
@@ -302,7 +300,12 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         # The end of the harm itself, not the bound the read fell back to. Where
         # the service never came back there is no first well minute to stop at,
         # and every minute read is part of the incident.
-        error_rates=error_rates_over(metrics, began, back_to_normal_at),
+        #
+        # The first well minute as found, not the end moved to an action inside
+        # it: that minute read normal, and stopping at the action counted it as
+        # broken - a healthy minute inside the stretch, pulling it towards the
+        # baseline.
+        error_rates=error_rates_over(metrics, began, found_back),
         loss=loss,
         currency=sources.reporting_currency if loss is not None else None,
         baseline_revenue=baseline_revenue,
@@ -318,8 +321,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         metrics_stopped_at=_when_the_sight_was_lost(
             metrics, began, evidence.ended_at, sources.metrics_reporting_lag_minutes),
         # Over the same stretch as the error rate, for the same reason.
-        rule_series=rule_series_over(metrics, began, back_to_normal_at),
-        error_rates_unmeasured=why_no_error_rates(metrics, began, back_to_normal_at),
+        rule_series=rule_series_over(metrics, began, found_back),
+        error_rates_unmeasured=why_no_error_rates(metrics, began, found_back),
         rule_waits=timedelta(seconds=waits) if waits is not None else None,
         rule_looks_back=(timedelta(seconds=alert_rule.range_seconds)
                          if alert_rule is not None else None),

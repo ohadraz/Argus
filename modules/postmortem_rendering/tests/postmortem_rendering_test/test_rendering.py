@@ -660,8 +660,7 @@ def test_what_code_fix_read_is_named_by_its_heading_when_cited() -> None:
         ) \
         .then(
             _the_first_step_rests_on(
-                "F1 What Code-Fix read in the source and proposed - "
-                "nothing ran its test or its fix"))
+                "F1 What Code-Fix read in the source - nothing ran to check it"))
 
 
 @pytest.mark.unit

@@ -37,6 +37,13 @@ _NONE_READ: Final = "None read."
 # not something the document knows. Said the same wherever the fix is.
 OPENED_AS_A_DRAFT: Final = "opened as a draft"
 
+# What Code-Fix read in the source, headed by what came of it: "and proposed"
+# only where a pull request holds what it proposed, and "its test or its fix"
+# only where there is one to have run.
+_CODE_READ_AND_PROPOSED: Final = ("What Code-Fix read in the source and proposed - "
+                                  "nothing ran its test or its fix")
+_CODE_READ_ALONE: Final = "What Code-Fix read in the source - nothing ran to check it"
+
 # Who a change no one is named for was made by, as the model is told it too.
 _NOBODY_NAMED: Final = "someone unnamed"
 
@@ -69,11 +76,12 @@ class SupportingSection(BaseModel):
     its diff, a line of the document to each line of it, and is no row at all
     where no deployment was looked into - most incidents look into none, and
     "none read" under a heading for them would say a read was missed. What
-    Code-Fix read in the source and proposed is a row of its own for the same
-    reason, and headed as one whose test and fix nothing ran, which is how a
-    cause resting on it is weighed. Each file it names that ran as other text
-    than it read is a row too, named by its path at the revision and leading
-    to the file there - what settles a reading made on other text. The log
+    Code-Fix read in the source is a row of its own for the same reason, and
+    headed as a reading nothing ran - which is how a cause resting on it is
+    weighed - and as proposed only where a pull request holds what it
+    proposed. Each file it names that ran as other text than it read is a row
+    too, named by its path at the revision and leading to the file there -
+    what settles a reading made on other text. The log
     messages' heading names the zone their times are in, since each row says a
     time as the model was shown it; a change's row says its moment with its
     zone.
@@ -100,8 +108,7 @@ class SupportingSection(BaseModel):
     log_messages_absent: str | None
     deployment_changes_heading: str = "What each deployment looked into changed"
     deployment_changes: tuple[EvidenceRow, ...] = ()
-    code_read_heading: str = ("What Code-Fix read in the source and proposed - "
-                              "nothing ran its test or its fix")
+    code_read_heading: str = _CODE_READ_AND_PROPOSED
     code_read: tuple[EvidenceRow, ...] = ()
     as_it_ran_heading: str = "What ran, read at the revision running when the alert fired"
     as_it_ran: tuple[EvidenceRow, ...] = ()
@@ -153,6 +160,8 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              log_messages_absent=(None if log_messages
                                                   else _no_log_messages(postmortem.logs_reading)),
                              deployment_changes=deployment_changes,
+                             code_read_heading=(_CODE_READ_AND_PROPOSED if fix is not None
+                                                else _CODE_READ_ALONE),
                              code_read=tuple(EvidenceRow(label=cited.label,
                                                          said=_as_its_markdown_sets_it(
                                                              cited.text, shorts,
