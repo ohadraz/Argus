@@ -1808,8 +1808,8 @@ def test_a_fix_submitted_on_the_last_call_is_still_asked_about() -> None:
 @pytest.mark.unit
 def test_a_fix_whose_question_is_never_answered_did_not_finish() -> None:
     # One turn of room for the answer, and no more. A patch nobody said works
-    # on its own is neither a proposal nor a fix that needs code outside - it is a run that
-    # stopped before it was done, and is reported as one.
+    # on its own is neither a proposal nor a fix that needs code outside - it
+    # is a run that stopped before it was done, and is reported as one.
     one_call = 1
     repository = a_repository()
     model = a_model_that(submits_a_fix_touching(SOME_PATH), asks_to_list_files())
