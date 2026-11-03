@@ -347,6 +347,34 @@ def test_what_code_fix_said_of_the_code_is_shown_with_the_line_about_it() -> Non
 
 
 @pytest.mark.component
+def test_what_code_fix_said_of_the_code_is_shown_formatted() -> None:
+    # Code-Fix writes its explanation in Markdown, being a pull request's body.
+    # Shown as written, `**` and all, it reads as markup nobody rendered.
+    some_explanation = "**The extra latency is not caused here.**\n- scrape.yaml names the old port"
+
+    with connect_from_env() as conn:
+        _no_incidents_at_all(conn)
+        incident_id = incidents.create(conn, _an_alert("io-shop"), at=utc_now())
+        _recorded(conn, FixAttempted(incident_id=incident_id,
+                                     outcome=FixOutcome.NOT_WARRANTED,
+                                     detail="dont care what the node said",
+                                     explanation=some_explanation))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at("/")
+        ) \
+        .then(all_of(
+            the_page_says("<strong>The extra latency is not caused here.</strong>"),
+            the_page_says("<ul><li>scrape.yaml names the old port</li></ul>"),
+            _the_page_does_not_say("**The extra latency")
+        ))
+
+
+@pytest.mark.component
 def test_the_front_page_reaches_the_history_and_the_incidents_own_page() -> None:
     # Both without knowing a URL: somebody watching the live page is one click
     # from an older incident, and one click from this one's whole walk.

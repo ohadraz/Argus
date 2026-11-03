@@ -265,7 +265,8 @@ class NarrationLine(BaseModel):
     # A sentence to show under the line rather than in it - so far, what
     # Code-Fix said of the code where no pull request holds its explanation,
     # labelled as a reading nothing ran so it is not taken for a plan of
-    # Argus's. Left out of `said_in_full`: the postmortem carries it already.
+    # Argus's. Markdown, as Code-Fix wrote it for a pull request's body. Left
+    # out of `said_in_full`: the postmortem carries it already.
     aside: str = ""
     # Each word of the line as it is shown that opens somewhere, and where - so
     # far, a revision the incident read, said short and leading to its commit.

@@ -103,7 +103,8 @@ def as_slack_says_it(line: Line) -> str:
     the text rather than in a block: a section block holds 3,000 characters
     and what Code-Fix says of the code runs longer, where a message's text is
     cut only past 40,000 (docs.slack.dev, "Section block", "chat.postMessage").
-    No line with a button carries one, so the blocks never repeat it.
+    No line with a button carries one, so the blocks never repeat it. It is
+    said in Slack's own markup, being Code-Fix's Markdown.
 
     A marked part written in Markdown is said in Slack's own markup rather
     than set apart: it is a model's whole answer, paragraphs and lists, and one
@@ -116,7 +117,7 @@ def as_slack_says_it(line: Line) -> str:
               else f"{_BOLD}{as_said(line.emphasis)}{_BOLD}")
     said = (f"{as_said(line.before_emphasis)}{marked}{as_said(line.after_emphasis)}"
             if line.emphasis else as_said(line.text))
-    aside = f"\n\n{as_said(line.aside)}" if line.aside else ""
+    aside = f"\n\n{_in_slack_markup(as_said(line.aside))}" if line.aside else ""
     linked = (f"\n{_LINK.format(url=line.link.url, label=line.link.label)}"
               if line.link is not None else "")
 

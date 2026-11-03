@@ -55,9 +55,10 @@
           <span class="repeated">&times;{{ line.repeated }}</span>
         {% endif %}
         {# What a line says beside itself - Code-Fix's reading of the code,
-           where no pull request holds it - under the sentence, not in it. #}
+           where no pull request holds it - under the sentence, not in it, and
+           formatted as an answer is: it is Markdown, a pull request's body. #}
         {% if line.aside %}
-          <p class="aside">{{ line.aside }}</p>
+          <div class="aside">{{ line.aside | from_markdown }}</div>
         {% endif %}
 
         {# The explanations, best first and each by its number, with what it

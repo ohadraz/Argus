@@ -98,6 +98,20 @@ def test_an_aside_is_said_as_text() -> None:
 
 
 @pytest.mark.unit
+def test_an_aside_written_in_markdown_is_said_in_slack_s_own_markup() -> None:
+    # What Code-Fix says of the code is Markdown, being a pull request's body,
+    # and Slack's bold is one star and its italic an underscore (docs.slack.dev,
+    # "Formatting text for app surfaces").
+    some_line = Line(who=SOME_AGENT, text="Read the code and found no code-level fix to make",
+                     aside="**Not caused here.**\n- Reverted *the* flag & <waited>")
+
+    Scenario() \
+        .when(lambda: as_slack_says_it(some_line)) \
+        .then(_it_says(f"{SOME_AGENT}: Read the code and found no code-level fix to make"
+                       f"\n\n*Not caused here.*\n- Reverted _the_ flag &amp; &lt;waited&gt;"))
+
+
+@pytest.mark.unit
 def test_a_word_the_line_leads_somewhere_is_linked_where_it_is_said() -> None:
     # A revision's link belongs to the word naming it, not to the line.
     some_line = Line(who=SOME_AGENT, text="Rolled io-shop back off revision 26f1d7e",
