@@ -1325,10 +1325,10 @@ def test_the_uses_outside_the_patch_are_said_to_be_read_on_the_branch_code_fix_r
     ((True, False),
      "src/io_shop/spend_reconciliation.py is on main as it was at 53f02e9, which ran: what "
      "these lines say of it holds for what ran; what they say of src/io_shop/spend_summary.py "
-     "does not."),
+     "is not known to."),
     ((False, False),
-     "These lines were read on main, not at 53f02e9, which ran: what they say does not hold "
-     "for what ran.")
+     "These lines were read on main, not at 53f02e9, which ran: what they say is not known "
+     "to hold for what ran.")
 ], ids=["all-as-they-ran", "some", "none"])
 def test_what_the_uses_outside_the_patch_say_holds_for_what_ran_where_their_files_did(
         ran_as_read: tuple[bool, bool], said: str) -> None:

@@ -1582,7 +1582,11 @@ def _what_the_uses_say_of_what_ran(evidence: IncidentEvidence) -> str | None:
 
     The lines are read on the branch, and a write-up applied them to the
     revision that ran - true that once only because nothing else had changed.
-    Said as F1's files are: named where they hold, the rest said not to."""
+    Named where they hold, and the rest said not to be known to: a file that
+    differs on the branch can still hold the same lines, and said not to hold,
+    a line that ran as read was once called false. F1's rest is said not to
+    hold all the same - softened, that sentence sent write-ups to read code the
+    evidence already showed."""
     compared = [use for use in evidence.uses_outside if use.revision is not None]
     if not compared:
         return None
@@ -1595,7 +1599,7 @@ def _what_the_uses_say_of_what_ran(evidence: IncidentEvidence) -> str | None:
 
     if not holding:
         return (f"These lines were read on {branch}, not at {revision}, which ran: what they "
-                f"say does not hold for what ran.")
+                f"say is not known to hold for what ran.")
 
     one = len(holding) == 1
     said = (f"{_listed(holding)} {'is' if one else 'are'} on {branch} as "
@@ -1605,7 +1609,7 @@ def _what_the_uses_say_of_what_ran(evidence: IncidentEvidence) -> str | None:
     if not not_holding:
         return f"{said}."
 
-    return f"{said}; what they say of {_listed(not_holding)} does not."
+    return f"{said}; what they say of {_listed(not_holding)} is not known to."
 
 
 def _listed(names: list[str]) -> str:
