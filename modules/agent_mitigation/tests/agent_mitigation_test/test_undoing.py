@@ -594,6 +594,48 @@ def test_a_capacity_restorer_that_raises_leaves_the_resize_not_established() -> 
 
 
 @pytest.mark.unit
+def test_a_scale_out_from_one_replica_put_back_says_one_replica() -> None:
+    # The count agrees with its noun: "[1] replicas" is the line a reader
+    # stops at.
+    Scenario() \
+        .given(descriptor := a_resize_descriptor_for(SOME_APPLICATION, was_replicas=1)) \
+        .when(
+            lambda: undo_change(
+                descriptor,
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=_a_capacity_restorer_that_puts_back(),
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
+            )
+        ) \
+        .then(_it_says_what_is_still_changed("put back to [1] replica, and"))
+
+
+@pytest.mark.unit
+def test_a_scale_out_from_one_replica_that_could_not_be_put_back_says_one_replica() -> None:
+    dont_care_failure = "the platform would not answer"
+    restore: MagicMock = create_autospec(CapacityRestorer, instance=True)
+    restore.side_effect = RuntimeError(dont_care_failure)
+
+    Scenario() \
+        .given(descriptor := a_resize_descriptor_for(SOME_APPLICATION, was_replicas=1)) \
+        .when(
+            lambda: undo_change(
+                descriptor,
+                set_state=_a_flag_setter(),
+                changed_from_outside=nobody_changed_it(),
+                restore_deployment=a_restorer_nobody_calls(),
+                restore_capacity=restore,
+                restore_autoscaling=an_autoscaling_restorer_nobody_calls(),
+                restore_accelerator_pin=an_accelerator_pin_restorer_nobody_calls()
+            )
+        ) \
+        .then(_it_says_what_is_still_changed("put back to [1] replica:"))
+
+
+@pytest.mark.unit
 def test_a_pin_is_put_back_by_the_autoscaling_restorer_and_nothing_else() -> None:
     # The dispatch, for the fourth kind. A pin sent to the capacity restorer
     # would put a replica *count* back on a deployment whose count Argus never
@@ -1136,10 +1178,11 @@ def _it_does_not_name_its_subject() -> Assertion[UndoAttempt]:
 
 
 def a_resize_descriptor_for(application: str,
-                            was_syncing_itself: bool = True) -> ReplicaUndo:
+                            was_syncing_itself: bool = True,
+                            was_replicas: int = THE_COUNT_IT_WAS_RUNNING) -> ReplicaUndo:
     return ReplicaUndo(
         application=application,
-        was_replicas=THE_COUNT_IT_WAS_RUNNING,
+        was_replicas=was_replicas,
         was_syncing_itself=was_syncing_itself
     )
 

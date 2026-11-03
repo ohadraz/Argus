@@ -105,6 +105,34 @@ def test_a_split_fleet_running_its_deployment_s_size_says_no_size_beside_it() ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("on_record", [True, False], ids=["named", "not-on-record"])
+def test_a_converged_deployment_of_one_replica_is_said_in_the_singular(on_record: bool) -> None:
+    # "all 1 replicas are running" is the line a reader stops at.
+    Scenario() \
+        .given(platform := a_platform_reporting(RolloutAccount(
+            progress=RolloutProgress(replicas_wanted=1, replicas_serving=1, replicas_updated=1),
+            going_out=a_deploy_being_rolled_out() if on_record else None, before_it=None))) \
+        .when(lambda: read_the_rollout(SOME_CALL, SOME_SERVICE, platform, DONT_CARE_NARRATOR)) \
+        .then(_the_answer_mentions("has converged: its 1 replica is running"))
+
+
+@pytest.mark.unit
+def test_a_split_fleet_with_one_replica_on_each_side_is_said_in_the_singular() -> None:
+    # A deployment of one surging to its replacement: one replica on each
+    # revision, and a size of one.
+    Scenario() \
+        .given(platform := a_platform_reporting(RolloutAccount(
+            progress=RolloutProgress(replicas_wanted=1, replicas_serving=2, replicas_updated=1),
+            going_out=a_deploy_being_rolled_out(), before_it=a_deploy_still_serving()))) \
+        .when(lambda: read_the_rollout(SOME_CALL, SOME_SERVICE, platform, DONT_CARE_NARRATOR)) \
+        .then(all_of(
+            _the_answer_mentions("1 of 2 replicas is running"),
+            _the_answer_mentions("and 1 is still running"),
+            _the_answer_mentions("The deployment is sized for 1 replica.")
+        ))
+
+
+@pytest.mark.unit
 def test_a_converged_deployment_is_said_as_the_model_has_always_read_it() -> None:
     # The ordinary answer, and evidence rather than a blank: a reader weighing a
     # deploy at the onset has been told it is not half-applied, which rules the

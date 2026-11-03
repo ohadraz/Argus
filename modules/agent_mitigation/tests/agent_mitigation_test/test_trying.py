@@ -2077,6 +2077,35 @@ def test_a_refuted_scale_out_says_which_count_it_was_put_back_to() -> None:
 
 
 @pytest.mark.unit
+def test_a_refuted_scale_out_from_one_replica_says_one_replica() -> None:
+    # Both places the count is said - where it was scaled out from and what it
+    # was put back to - agree with it: "[1] replicas" is the line a reader
+    # stops at.
+    Scenario() \
+        .given(undo := _an_undo_that_puts_the_count_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_scale_out_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    scale_out=_a_scaler_returning(SOME_APPLICATION, was_replicas=1)
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("from [1] replica,"),
+            _the_detail_mentions("to [1] replica"),
+            _the_detail_does_not_mention("[1] replicas")
+        ))
+
+
+@pytest.mark.unit
 def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated() -> None:
     # The verdict that exists so a bound Argus holds does not wake anybody. The
     # tier was reached, it answered, and its answer is that a floor already meets
@@ -2495,6 +2524,37 @@ def test_a_confirmed_pin_says_which_floor_it_raised_and_to_what() -> None:
             _the_detail_mentions(f"from [{SOME_FLOOR_IT_COULD_FALL_TO}] replicas"),
             _the_detail_mentions(f"to [{THE_FLOOR_IT_WAS_HELD_AT}]"),
             _the_detail_does_not_mention("its ceiling")
+        ))
+
+
+@pytest.mark.unit
+def test_a_refuted_pin_from_a_floor_of_one_replica_says_one_replica() -> None:
+    # Both places the floor is said - where it was raised from and what it was
+    # put back to - agree with the count: "[1] replicas" is the line a reader
+    # stops at.
+    Scenario() \
+        .given(undo := an_undo_that_put_it_back(SOME_APPLICATION)) \
+        .when(
+            lambda: take_action(
+                _a_pin_of(SOME_APPLICATION),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                writes=the_writes(
+                    pin=_a_pinner_holding_it_at(
+                        SOME_APPLICATION, THE_FLOOR_IT_WAS_HELD_AT, was_min_replicas=1
+                    )
+                ),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_detail_mentions("from [1] replica to"),
+            _the_detail_mentions("an autoscaler floor of [1] replica"),
+            _the_detail_does_not_mention("[1] replicas")
         ))
 
 
@@ -3959,7 +4019,8 @@ def _a_replica_descriptor_for(
     )
 
 
-def _a_scaler_returning(application: str) -> MagicMock:
+def _a_scaler_returning(application: str,
+                        was_replicas: int = SOME_COUNT_IT_WAS_RUNNING) -> MagicMock:
     """Answers as the real scaler does - with the descriptor recording both
     things it changed.
 
@@ -3968,7 +4029,7 @@ def _a_scaler_returning(application: str) -> MagicMock:
     repository holds at its next sync, which is the size that was too small.
     """
     scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
-    scale_out.return_value = _a_replica_descriptor_for(application)
+    scale_out.return_value = _a_replica_descriptor_for(application, was_replicas)
 
     return scale_out
 
@@ -4085,7 +4146,8 @@ def _a_pinner_that_cannot(failure: str) -> MagicMock:
     return pin
 
 
-def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock:
+def _a_pinner_holding_it_at(application: str, floor_asked_for: int,
+                            was_min_replicas: int = SOME_FLOOR_IT_COULD_FALL_TO) -> MagicMock:
     """Answers as the tier does when the pin went through.
 
     Both floors on the descriptor, because both are what the tier knew: the one the
@@ -4096,7 +4158,7 @@ def _a_pinner_holding_it_at(application: str, floor_asked_for: int) -> MagicMock
     pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
     pin.return_value = AutoscalerUndo(
         application=application,
-        was_min_replicas=SOME_FLOOR_IT_COULD_FALL_TO,
+        was_min_replicas=was_min_replicas,
         min_replicas_asked_for=floor_asked_for,
         was_syncing_itself=True
     )

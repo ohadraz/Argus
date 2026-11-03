@@ -487,7 +487,7 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                     # it went is the tier's to have decided, and it reports that
                     # figure nowhere a verdict can quote it.
                     f"scaled [{action.application}] out from "
-                    f"[{scaled.was_replicas}] replicas"
+                    f"[{scaled.was_replicas}] {_replicas(scaled.was_replicas)}"
                 ),
                 undo_descriptor=scaled
             )
@@ -512,7 +512,7 @@ def _perform(action: Action, writes: PerformingWrites) -> Performed:
                     # than to anything Argus wrote. The tier records what it
                     # asked for, which is why this can say it.
                     f"raised [{action.application}]'s autoscaler floor from "
-                    f"[{pinned.was_min_replicas}] replicas to "
+                    f"[{pinned.was_min_replicas}] {_replicas(pinned.was_min_replicas)} to "
                     f"[{pinned.min_replicas_asked_for}]"
                 ),
                 undo_descriptor=pinned
@@ -572,10 +572,12 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
         case AutoscalerUndo():
             return (
                 f"to an autoscaler floor of "
-                f"[{undo_descriptor.was_min_replicas}] replicas"
+                f"[{undo_descriptor.was_min_replicas}] "
+                f"{_replicas(undo_descriptor.was_min_replicas)}"
             )
         case ReplicaUndo():
-            return f"to [{undo_descriptor.was_replicas}] replicas"
+            return (f"to [{undo_descriptor.was_replicas}] "
+                    f"{_replicas(undo_descriptor.was_replicas)}")
         case AcceleratorPinUndo():
             # Two endings, and a sentence saying "let go" for both would report
             # a pin somebody else had set as one removed.
@@ -585,6 +587,10 @@ def _how_it_was_put_back(undo_descriptor: UndoDescriptor) -> str:
             return f"to holding its pods to [{undo_descriptor.was_pinned_to}]"
         case _:
             assert_never(undo_descriptor)
+
+
+def _replicas(count: int) -> str:
+    return "replica" if count == 1 else "replicas"
 
 
 def _the_card_in_words(card: str | None) -> str:

@@ -186,8 +186,8 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
             subject=application,
             outcome=Undone.NOT_ESTABLISHED,
             detail=(
-                f"could not be put back to "
-                f"[{undo_descriptor.was_replicas}] replicas: {error}"
+                f"could not be put back to [{undo_descriptor.was_replicas}] "
+                f"replica{'' if undo_descriptor.was_replicas == 1 else 's'}: {error}"
             ),
         )
 
@@ -196,9 +196,9 @@ def _put_a_size_back(undo_descriptor: ReplicaUndo,
             subject=application,
             outcome=Undone.RESTORED,
             detail=(
-                f"was put back to "
-                f"[{undo_descriptor.was_replicas}] replicas, and its automated "
-                f"sync was restored"
+                f"was put back to [{undo_descriptor.was_replicas}] "
+                f"replica{'' if undo_descriptor.was_replicas == 1 else 's'}, and its "
+                f"automated sync was restored"
             ),
         )
 

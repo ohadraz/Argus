@@ -123,7 +123,8 @@ def pin_autoscaler(application: str,
         raise AlreadyHeldStill(
             an_exhausted_action(
                 f"[{application}]'s autoscaler may fall to [{bounds.floor}] "
-                f"replicas and rise to [{bounds.ceiling}], and the highest floor "
+                f"replica{'' if bounds.floor == 1 else 's'} and rise to "
+                f"[{bounds.ceiling}], and the highest floor "
                 f"Argus may ask for is [{the_floor_to_ask_for}] - so there is no "
                 f"room left between the two and nothing here for a pin to stop"
             )

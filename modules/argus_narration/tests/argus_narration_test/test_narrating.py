@@ -520,6 +520,45 @@ def test_a_split_rollout_running_its_size_says_no_size_beside_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_converged_rollout_of_one_replica_is_said_in_the_singular() -> None:
+    # "all 1 replicas run" is the line a reader stops at.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=1, replicas_serving=1, replicas_updated=1),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=None))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_mentions("its 1 replica runs revision 9c1f0ab2d4e6"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("serving", "updated", "said_of_the_new", "said_of_the_old"), [
+    (2, 1, "1 of 2 replicas runs revision 9c1f0ab2d4e6", "1 still runs revision 544cef36a8ea"),
+    (1, 0, "0 of 1 replica run revision 9c1f0ab2d4e6", "1 still runs revision 544cef36a8ea")
+], ids=["one-on-each-side", "one-serving"])
+def test_a_split_rollout_with_one_replica_on_a_side_says_that_side_in_the_singular(
+        serving: int, updated: int, said_of_the_new: str, said_of_the_old: str) -> None:
+    # Each count agrees with what it counts: "1 still run" is the line a
+    # reader stops at.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=1, replicas_serving=serving,
+                                 replicas_updated=updated),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions(said_of_the_new),
+                     _the_only_line_mentions(said_of_the_old)))
+
+
+@pytest.mark.unit
 def test_a_split_rollout_with_nothing_before_it_says_the_older_revision_is_not_named() -> None:
     # The replicas not yet updated run *something*, and the history cannot say
     # what - said, rather than left out, or the split reads as one revision.

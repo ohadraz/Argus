@@ -87,16 +87,21 @@ def _converged(service: str, serving: int, going_out: ChangeEvent | None) -> lis
     """
     if going_out is None:
         return [
-            f"Deployment of {service} has converged: all {serving} replicas are "
+            f"Deployment of {service} has converged: {_every_replica(serving)} "
             f"running the same revision. The deployment history holds no "
             f"deployment at all, so nothing here names which."
         ]
 
     return [
-        f"Deployment of {service} has converged: all {serving} replicas are "
+        f"Deployment of {service} has converged: {_every_replica(serving)} "
         f"running revision [{going_out.reference}], deployed at "
         f"{going_out.occurred_at}."
     ]
+
+
+def _every_replica(serving: int) -> str:
+    """Every replica serving, agreeing in number with how many there are."""
+    return "its 1 replica is" if serving == 1 else f"all {serving} replicas are"
 
 
 def _still_converging(service: str, account: RolloutAccount) -> list[str]:
@@ -109,18 +114,23 @@ def _still_converging(service: str, account: RolloutAccount) -> list[str]:
     progress = account.progress
     serving = progress.replicas_serving
     updated = progress.replicas_updated
+    behind = serving - updated
     said = [
         f"Deployment of {service} has not converged: {updated} of {serving} "
-        f"replicas are running {_the_revision_going_out(account.going_out)}, and "
-        f"{serving - updated} are still running "
+        f"replica{'' if serving == 1 else 's'} {'is' if updated == 1 else 'are'} "
+        f"running {_the_revision_going_out(account.going_out)}, and "
+        f"{behind} {'is' if behind == 1 else 'are'} still running "
         f"{_the_revision_before_it(account.before_it)}."
     ]
 
     # A rolling update can run more replicas than the deployment is sized for
     # while it surges. The count serving alone reads as the fleet the rollout
     # finishes with, so the size is said wherever the two differ.
-    if serving != progress.replicas_wanted:
-        said.append(f"The deployment is sized for {progress.replicas_wanted} replicas.")
+    wanted = progress.replicas_wanted
+    if serving != wanted:
+        said.append(
+            f"The deployment is sized for {wanted} replica{'' if wanted == 1 else 's'}."
+        )
 
     if progress.is_paused:
         said.append(

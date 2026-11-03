@@ -49,6 +49,7 @@ from argus_testkit import (
     attempting,
     calling,
     one_record_was_logged,
+    the_error_mentioned,
 )
 from deployment_platform import (
     Autoscaler,
@@ -280,6 +281,20 @@ def test_an_autoscaler_already_held_still_is_refused_before_anything_changes() -
         .then(all_of(
             an_error_was_raised(AlreadyHeldStill),
             _nothing_was_changed(platform)
+        ))
+
+
+@pytest.mark.unit
+def test_an_autoscaler_held_at_one_replica_is_refused_in_the_singular() -> None:
+    # A floor and a ceiling of one: "[1] replicas" is the line a reader stops at.
+    platform = a_platform(floor=1, ceiling=1)
+
+    Scenario() \
+        .given(platform) \
+        .when(attempting(lambda: _pinning(platform))) \
+        .then(all_of(
+            an_error_was_raised(AlreadyHeldStill),
+            the_error_mentioned("may fall to [1] replica and")
         ))
 
 

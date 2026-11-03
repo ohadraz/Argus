@@ -1191,11 +1191,11 @@ def _how_far_it_rolled_out(account: RolloutAccount, beside: str) -> str:
     serving = progress.replicas_serving
 
     if progress.has_converged:
+        every = "its 1 replica runs" if serving == 1 else f"all {serving} replicas run"
         if account.going_out is None:
-            return (f"all {serving} replicas run one revision, which the history "
-                    f"does not name")
+            return f"{every} one revision, which the history does not name"
 
-        return (f"all {serving} replicas run revision {account.going_out.reference}, "
+        return (f"{every} revision {account.going_out.reference}, "
                 f"deployed at {a_moment(account.going_out.occurred_at, beside=beside)}")
 
     updated = progress.replicas_updated
@@ -1211,8 +1211,11 @@ def _how_far_it_rolled_out(account: RolloutAccount, beside: str) -> str:
              if serving != progress.replicas_wanted else "")
     paused = "; its rolling update is paused" if progress.is_paused else ""
 
-    return (f"{updated} of {serving} replicas run {going_out} and {serving - updated} "
-            f"still run {before_it}{sized}{paused}")
+    behind = serving - updated
+
+    return (f"{updated} of {serving} replica{'' if serving == 1 else 's'} "
+            f"run{'s' if updated == 1 else ''} {going_out} and {behind} "
+            f"still run{'s' if behind == 1 else ''} {before_it}{sized}{paused}")
 
 
 def _the_address_it_names(event: IncidentEvent) -> str:
