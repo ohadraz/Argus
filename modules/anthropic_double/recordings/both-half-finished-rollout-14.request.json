@@ -1,0 +1,256 @@
+{
+  "cache_control": {
+    "type": "ephemeral"
+  },
+  "max_tokens": 16000,
+  "messages": [
+    {
+      "content": "Write the postmortem for the incident below.\n\nAlert: HighErrorRate on io-shop\nWhat the alert said [AL1]: Error rate above threshold for 5m {A1}\nAlert raised: 2026-11-03T14:03:02Z {alert_raised}\nNobody was paged: no on-call incident was linked to this one. An alert rule fires; a person is paged. Argus first posted about the incident in Slack at 2026-11-03T14:03:26Z {first_told}, and the document says so already: leave that post out, and do not say that no person was told. That nobody was paged is a finding of its own.\nThe alert rule waits 5 minutes {rule_waits} with its condition holding before it fires. The alert came within the 7 minutes 30 seconds {accounted_for} accounted for by its rule waiting 5 minutes {rule_waits} with its condition holding, its evaluation at intervals of 1 minute {rule_evaluated_every}, an unmeasured allowance of 30 seconds {scraping_allowance} for scraping and storing its samples and the whole minute the onset is measured to.\nBroken from 2026-11-03T13:57:00Z {began} (the onset) to 2026-11-03T14:05:00Z {back_to_normal}, when the metrics show it back to normal.\nThat is 8 minutes {duration}, and every impact figure below is measured over that stretch.\nArgus held the incident for 2 minutes 46 seconds {held}, until 2026-11-03T14:06:09Z {argus_stopped}. That is not how long the fault lasted, nor how long Argus went on working - leave it out of your answer.\nThe service's error rate over all its requests, before it began: 1.0% {errors_before}.\nThe same rate while it was broken: 21.3% {errors_while_broken}, peaking at 27.5% {errors_at_worst}.\nRise above baseline: 20.3% {errors_rise} of traffic failed that otherwise would not have.\nThe series behind the alert, `sum(rate(http_requests_total{code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m]))` - its alert said \"Error rate above threshold for 5m {A1}\" - which its alert rule evaluates and calls worse rising: 0.975% {series_before} before it began, 21.3125% {series_while_broken} on average while it was broken, and 27.5% {series_at_worst} at its worst. Say what it measures in words, not by its query.\nCustomer loss: 3,742.30 USD {customer_loss} - how far the shop's takings over the incident fell short of the same hours whole weeks earlier, beyond how much those hours vary on their own.\n\nWhat Argus did, in order:\n  - [T1] 2026-11-03T14:03:23Z {T1.1} Argus: Received HighErrorRate on io-shop\n  - [T2] 2026-11-03T14:03:32Z {T2.1} Argus: Moved the incident to INVESTIGATING - a worker took the incident up\n  - [T3] 2026-11-03T14:03:32Z {T3.1} Argus: Called in the Investigator Agent\n  - [T4] 2026-11-03T14:03:50Z {T4.1} Investigator Agent: Asked for the service's per-minute metrics, anchored on 14:03:02 {T4.2}\n  - [T5] 2026-11-03T14:03:58Z {T5.1} Investigator Agent: Read back 360 {T5.2} minutes of metrics\n  - [T6] 2026-11-03T14:03:59Z {T6.1} Investigator Agent: Placed the start of the incident at 13:57 {T6.2}\n  - [T7] 2026-11-03T14:04:00Z {T7.1} Investigator Agent: Recorded where the 3 {T7.2} replicas run - all on Tesla-V100-SXM2-16GB\n  - [T8] 2026-11-03T14:04:01Z {T8.1} Investigator Agent: Asked for production change events - deploys, releases and flag changes on the service, the 1 {T8.2} day before Nov 03 13:57 {T8.3}\n  - [T9] 2026-11-03T14:04:03Z {T9.1} Investigator Agent: Read back 2 {T9.2} production changes\n  - [T10] 2026-11-03T14:04:03Z {T10.1} Investigator Agent: Read how far the deployment had rolled out - 3 {T10.2} of 6 {T10.3} replicas run revision 696c33a68b36aed6456cdc5b3806f33038488515, deployed at 13:57 {T10.4}, and 3 {T10.5} still run revision 5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e, of a deployment sized for 3 {T10.6}; its rolling update is paused\n  - [T11] 2026-11-03T14:04:04Z {T11.1} Investigator Agent: Asked for the service's log lines, the 36 {T11.2} minutes 2 {T11.3} seconds before 14:03:02 {T11.4}\n  - [T12] 2026-11-03T14:04:04Z {T12.1} Investigator Agent: Read back 99 {T12.2} log lines\n  - [T13] 2026-11-03T14:04:14Z {T13.1} Investigator Agent: Read what the deployment of 696c33a68b36aed6456cdc5b3806f33038488515 changed\n  - [T14] 2026-11-03T14:04:16Z {T14.1} Investigator Agent: Formed 2 {T14.2} candidate causes, best first: C1, C2\n  - [T15] 2026-11-03T14:04:16Z {T15.1} Investigator Agent: Read every channel available\n  - [T16] 2026-11-03T14:04:16Z {T16.1} Argus: Read the flag provider's history - 0 {T16.2} flag changes by anyone but Argus, the 1 {T16.3} hour before 14:04:16 {T16.4}\n  - [T17] 2026-11-03T14:04:24Z {T17.1} Argus: Moved the incident to MITIGATING to act on a candidate\n  - [T18] 2026-11-03T14:04:25Z {T18.1} Argus: Called in the Mitigation Agent\n  - [T19] 2026-11-03T14:04:26Z {T19.1} Mitigation Agent: Rolled back the deployment of io-shop for C1\n  - [T20] 2026-11-03T14:05:00Z {T20.1} Mitigation Agent: Waiting to see whether the service is still at the incident's level, from 14:05 {T20.2} - up to 120s {T20.3}\n  - [T21] 2026-11-03T14:06:09Z {T21.1} Mitigation Agent: Looked at the service - no longer at the incident's level since 14:05 {T21.2}\n  - [T22] 2026-11-03T14:06:09Z {T22.1} Mitigation Agent: Judged the action CONFIRMED\n  - [T23] 2026-11-03T14:06:09Z {T23.1} Argus: Moved the incident to MITIGATED - rolled [io-shop] back off revision [696c33a68b36aed6456cdc5b3806f33038488515] and the rule that fired stopped firing\n  - [T24] 2026-11-03T14:08:35Z {T24.1} Code-Fix Agent: Wrote a fix and kept none of it - the fix Code-Fix wrote helps only once code outside the repository changes as well\n\nChanges to production it read:\n  - [P1] 2026-11-03T09:57:00Z {P1.1} deploy 5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e by kuki: deployed revision 5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - [P2] 2026-11-03T13:57:00Z {P2.1} deploy 696c33a68b36aed6456cdc5b3806f33038488515 by kuki: deployed revision 696c33a68b36aed6456cdc5b3806f33038488515 from the ohadraz/Argus-Demo-Target-App repository's deploy/ directory\n  - Flags read, none came back.\n\nLog lines it read, one per message:\n  - [G46bc] ERROR io-shop: account page request failed - ClientDisconnected: the shopper closed the connection - 41 {G46bc.1} occurrences in 29 {G46bc.2} minutes, 13:27\u201313:55 {G46bc.3}\n  - [Gbac1] WARN io-shop: account page error rate at #% over the last minute - 31 {Gbac1.1} occurrences in 37 {Gbac1.2} minutes, 13:27\u201314:03 {Gbac1.3}; # was 0.50% {Gbac1.4} to 27.50% {Gbac1.5}, typically 1.50% {Gbac1.6}, highest at 14:02 {Gbac1.7}\n  - [Gad41] INFO io-shop: account pages rendered normally - 6 {Gad41.1} occurrences in 22 {Gad41.2} minutes, 13:35\u201313:56 {Gad41.3}\n  - [Gc956] ERROR io-shop: summary cache entry could not be read - ValueError: summary cache entry '2400/8 {Gc956.1}' is not a figure in cents at src/io_shop/summary_cache.py (# of 200 {Gc956.2} requests) - 7 {Gc956.3} occurrences in 7 {Gc956.4} minutes, 13:57\u201314:03 {Gc956.5}; # was 38 {Gc956.6} to 53 {Gc956.7}, typically 42 {Gc956.8}, highest at 14:02 {Gc956.9}\n  - [G3714] ERROR io-shop: account page request failed - ValueError: summary cache entry '2400/8 {G3714.1}' is not a figure in cents at src/io_shop/summary_cache.py - 14 {G3714.2} occurrences in 7 {G3714.3} minutes, 13:57\u201314:03 {G3714.4}\n\nCandidates it considered, in the Investigator's words - name them by their labels, but cite none; what they claim is not what happened unless a row of the record shows it:\n  - [C1, also C2] Candidates blaming the same move of 696c33a68b36aed6456cdc5b3806f33038488515, each reading it as a different kind of failure - different accounts of what it did, not one cause counted twice - each in its own words:\n      C1: The rollout of 696c33a68b36aed6456cdc5b3806f33038488515 stopped half-way, so 3 {C1.1} replicas run the new revision and 3 {C1.2} still run 5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e, and the rolling update is paused. The new revision writes summary cache entries as 'amount/items' (e.g. '2400/8 {C1.3}'). The old revision expects a bare cents figure and fails the account page when it reads one. Neither revision is faulty alone; the failures come from the two versions sharing the cache. [in-flight-compatibility-break, confidence 0.88 {C1.4}, confirmed]\n      C2: The revision 696c33a, which changed the summary cache entry format, is itself the bad code, and the rollout state is incidental. [bad-deployment, confidence 0.08 {C1.5}, confirmed, as tested for C1]\n\nActions it took:\n  - [M1] Rolled back the deployment of io-shop for [C1] (can be put back) - confirmed, still in place\n\nWhat each deployment it looked into changed:\n  - [D1] Deployment of revision 696c33a68b36aed6456cdc5b3806f33038488515 to io-shop, compared against 5470c1a64205bb28f9f2e8a96dc6ffa5eb2e611e - the revision deployed before it.\n      modified src/io_shop/account_page.py\n        @@ -201,7 +201,7 @@ def _the_figure_for(\n                 found, cache_failure = None, str(unreachable)\n         \n             if found is not None:\n        -        return found, True, cache_failure\n        +        return found.amount_cents, True, cache_failure\n         \n             return render_spend_summary(\n                 account,\n      modified src/io_shop/summary_cache.py\n        @@ -1,9 +1,14 @@\n         \"\"\"The spend figure Io has already worked out once, kept so it need not again.\n         \n         Working the figure out means walking a shopper's whole purchase history, and an\n        -account page is the most-visited page the shop has. So the figure is cached\n        -under the shopper it belongs to, and the page reads the cache before it\n        -computes - which is what makes the shop fast rather than merely correct.\n        +account page is the most-visited page the shop has. So what that walk produced\n        +is cached under the shopper it belongs to, and the page reads the cache before\n        +it computes - which is what makes the shop fast rather than merely correct.\n        +\n        +An entry carries the figure and the number of purchases it was worked out over,\n        +written down together as one piece of text. Both, because the page shows both,\n        +and a cache holding only the figure sends the page back to the purchase history\n        +for the count - which is the walk the cache exists to avoid.\n         \n         Nothing here fails a page. A cache that has nothing for this shopper, and a\n         cache that cannot be reached at all, both end the same way: the page works the\n        @@ -31,6 +36,13 @@\n         # comparison that diagnoses this.\n         _ENDPOINT_FORMAT = \"redis://{host}:{port}\"\n         \n        +# How an entry is written down, and what separates the two things it holds.\n        +# Spelled out so that the text a failure quotes is the text the shop wrote -\n        +# a reader setting one against the other is doing the one comparison that says\n        +# whether a writer and a reader agree about the shape.\n        +_ENTRY_FORMAT = \"{amount_cents}/{items_counted}\"\n        +_ENTRY_SEPARATOR = \"/\"\n        +\n         \n         @dataclass(frozen=True)\n         class CacheEndpoint:\n        @@ -48,6 +60,56 @@ def __str__(self) -> str:\n                 return _ENDPOINT_FORMAT.format(host=self.host, port=self.port)\n         \n         \n        +@dataclass(frozen=True)\n        +class SummaryEntry:\n        +    \"\"\"What the cache holds for one shopper: the figure, and what it covers.\n        +\n        +    A value rather than a bare figure, because the two are only a summary\n        +    together. The account page shows what a shopper has spent *and* across how\n        +    many purchases, and an entry carrying the first alone leaves the page\n        +    walking the history for the second - which is the walk this cache exists to\n        +    save.\n        +\n        +    Written down as one piece of text, because that is what a cache stores: the\n        +    entry goes in under the shopper it belongs to and comes back as the same\n        +    characters. `__str__` is therefore the writer, exactly as it is for\n        +    `CacheEndpoint` above - one spelling of an entry, used to put it in and\n        +    quoted whenever something cannot read it back.\n        +    \"\"\"\n        +\n        +    amount_cents: int\n        +    items_counted: int\n        +\n        +    def __str__(self) -> str:\n        +        return _ENTRY_FORMAT.format(\n        +            amount_cents=self.amount_cents, items_counted=self.items_counted\n        +        )\n        +\n        +\n        +def summary_entry_in(written: str) -> SummaryEntry | None:\n        +    \"\"\"The entry this text holds, or `None` where it holds none.\n        +\n        +    The shape above and no other. Text that does not carry the two fields an\n        +    entry has is text this revision has nothing to do with, and passing over it\n        +    is what the shop's fallback is for: the page works the figure out for\n        +    itself, which is the same thing it does for a shopper the cache has never\n        +    seen.\n        +\n        +    `None` rather than an exception for the same reason a miss is `None`. This\n        +    module fails no page - see the docstring at the top - and an entry that\n        +    cannot be read is, to the page in front of it, an entry that is not there.\n        +    \"\"\"\n        +    amount, separator, items = written.partition(_ENTRY_SEPARATOR)\n        +\n        +    if not separator:\n        +        return None\n        +\n        +    try:\n        +        return SummaryEntry(amount_cents=int(amount), items_counted=int(items))\n        +    except ValueError:\n        +        return None\n        +\n        +\n         @dataclass(frozen=True)\n         class CacheAnswer:\n             \"\"\"One reply from the cache: whether it was reached, and what it held.\n        @@ -62,10 +124,15 @@ class CacheAnswer:\n             fetched it, for the reason the provider's status is: turning it into the\n             shop's own words is this module's job, and a fetcher that composed them\n             would put that in as many places as there are ways to reach a cache.\n        +\n        +    What it held is the text the cache had under this shopper, unread. Reading\n        +    it is this module's job too, and a fetcher that handed back a parsed entry\n        +    would be deciding, in as many places as there are ways to reach a cache,\n        +    what an entry is.\n             \"\"\"\n         \n             reached: bool\n        -    summary_cents: int | None = None\n        +    entry: str | None = None\n         \n         \n         class CacheUnreachable(Exception):\n        @@ -88,8 +155,8 @@ class CacheUnreachable(Exception):\n         \n         def cached_summary(shopper_id: str,\n                            look_up: LookUpSummary,\n        -                   endpoint: CacheEndpoint) -> int | None:\n        -    \"\"\"The figure the cache holds for this shopper, or `None` where it holds\n        +                   endpoint: CacheEndpoint) -> SummaryEntry | None:\n        +    \"\"\"The entry the cache holds for this shopper, or `None` where it holds\n             none.\n         \n             Raises `CacheUnreachable` when the cache did not answer, and the message is\n        @@ -104,4 +171,7 @@ def cached_summary(shopper_id: str,\n             if not answer.reached:\n                 raise CacheUnreachable(f\"connection refused to {endpoint}\")\n         \n        -    return answer.summary_cents\n        +    if answer.entry is None:\n        +        return None\n        +\n        +    return summary_entry_in(answer.entry)\n      modified src/target_app/generator.py\n        @@ -41,7 +41,12 @@\n         from io_shop.payment_provider import AskTheProvider, ProviderAnswer, StoredCard\n         from io_shop.pricing_service import AskThePricingService, PricingAnswer\n         from io_shop.rollout import CANARY_SHARE\n        -from io_shop.summary_cache import CacheAnswer, CacheEndpoint, LookUpSummary\n        +from io_shop.summary_cache import (\n        +    CacheAnswer,\n        +    CacheEndpoint,\n        +    LookUpSummary,\n        +    SummaryEntry,\n        +)\n         from target_app.settings import (\n             DeclaredAutoscaler,\n             get_unleash_settings,\n        @@ -323,8 +328,21 @@\n         # What the cache hands back when it holds a shopper's figure. Which figure it\n         # is decides nothing - the page shows it and no metric reads it - and a cached\n         # value disagreeing with a recomputed one would be a staleness bug this\n        -# scenario is not about.\n        +# scenario is not about. The count beside it decides nothing either, for the\n        +# same reason: an entry carries what a shopper spent and over how many\n        +# purchases, and no series here reads either number.\n         _A_CACHED_FIGURE_CENTS = 2400 {D1.1}\n        +_ITEMS_BEHIND_A_CACHED_FIGURE = 8 {D1.2}\n        +# Written by the shop's own writer rather than spelled out here, so that a\n        +# fixture handing an entry to the shop hands it the same text the shop would\n        +# have put in. A second spelling of the entry format is a second answer to what\n        +# an entry looks like, and the whole of this scenario is two answers to that.\n        +_A_CACHED_ENTRY = str(\n        +    SummaryEntry(\n        +        amount_cents=_A_CACHED_FIGURE_CENTS,\n        +        items_counted=_ITEMS_BEHIND_A_CACHED_FIGURE\n        +    )\n        +)\n         \n         # How fast a leaking shop's heap grows. Fast enough that the climb is a climb\n         # within a few minutes of anybody looking, and slow enough that the whole of it\n        @@ -2016,7 +2034,7 @@ def look_up(shopper_id: str) -> CacheAnswer:\n         \n                 return CacheAnswer(\n                     reached=True,\n        -            summary_cents=_A_CACHED_FIGURE_CENTS if held_it else None\n        +            entry=_A_CACHED_ENTRY if held_it else None\n                 )\n         \n             return look_up\n      modified tests/io_shop/test_account_page.py\n      modified tests/io_shop/test_summary_cache.py\n      ... and the changes to 2 {D1.3} more files, not shown: the diffs above reached the 200 {D1.4} lines one answer carries. Those files are named above; what changed inside them is not here.\n  - A file [D1] does not list is as it was at the revision [D1] compares against.\n\nWhat Code-Fix read in the source, in Code-Fix's words - nothing ran to check it, and what it claims is not what happened unless a row of the record shows it:\n  - [F1] Yes. The failures happen in the old revision's reader, which is already deployed and can't be changed now. The fix only stops them if the old revision never sees '2400/8 {F1.1}' under the bare shopper id, and that depends on how the new revision writes entries. That write isn't in this repository: only the `LookUpSummary` read seam and `SummaryEntry.__str__` (the text format) are here. Whatever puts entries into the cache, in the code that supplies the seam to `serve_account_page`, would have to write `str(entry)` under `summary_cache_key(shopper_id)` ('spend-summary:v2:{shopper_id}'), not under the bare shopper id. The fetcher it passes in would also have to accept that key. Until that writer changes, the two-field entries still land where the old revision reads, and this patch on its own would only make the new revision miss its own entries.\n  - Say what the files Code-Fix read do, with the conditions it gives - a default as a default, never as all it does - and no wider: 'nothing in the files it read', never 'nothing in the code'.\n\nHow the code outside Code-Fix's patch uses what it changes, read on main by Argus:\n  - [U1] cached_summary at src/io_shop/account_page.py:237, in _the_figure_for: calls it: found = cached_summary(account.shopper_id, look_up_summary, cache_endpoint)\n  - Where [F1] says otherwise of these lines, they stand. These lines were read on main, not at 696c33a, which ran: what they say is not known to hold for what ran.\n\nAction items the record already holds:\n  - AI-1 (mitigate, done): Rolled back the deployment of io-shop\n  - AI-2 (prevent, open): Write the fix again: its change to the repository and the change outside the repository that Code-Fix's reading names, made together - Code-Fix kept none of the fix it wrote\n  - AI-3 (mitigate, open): Turn automatic sync of io-shop back on once its repository says what should run - until then nothing merged reaches it, and turned on sooner it puts back what the repository says, undoing what Argus changed by hand\nCode-Fix kept none of the fix it wrote: AI-2 is writing it again, both its change to the repository and the change outside it - propose neither again.\nThe document already states what set it off, in a section of its own: the change [P2].\n\nCite evidence in causal_chain by its label. In a contributing factor's addressed_by, name the record's own action items that answer it, by their number; an item you propose names the factors it answers in its answers, by their labels.\n\nCall submit_postmortem with your answer.",
+      "role": "user"
+    },
+    {
+      "content": "Your previous answer could not be used:\n  - the field [root_cause] was missing from your answer\n  - the field [cause_in_plain_words] was missing from your answer\n  - the field [still_at_risk] was missing from your answer\n  - the field [symptom] was missing from your answer\n  - the field [causal_chain] was missing from your answer\n  - the field [contributing_factors] was missing from your answer\n  - the field [action_items] was missing from your answer\n  - the field [lessons] was missing from your answer\n\nAnswer by calling submit_postmortem, and not in prose.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5-5",
+  "output_config": {
+    "effort": "high"
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You write the postmortem for an incident Argus has already handled. One message describes it - what Argus did and read, the candidate causes, the actions and what they came to, and every figure already measured - and you answer by calling submit_postmortem. Nothing is left to look up.\n\nThe candidates are the Investigator's account, written while the incident ran and before anything was tried. The record - the lines saying what Argus did, the changes, the log lines, the actions and their verdicts - is what happened. Where the two disagree, the record is right.\n\nWrite causal_chain as the five whys. The first step is the symptom: what the people using the service saw, with the evidence that shows it. The symptom field is that step in a few words, and the two must agree. Each step after it answers why the step before happened - one cause, no jumps - and cites its evidence from the record, never a candidate: a candidate is a hypothesis, and the chain says what happened. Five is a guide, not a quota: stop where the evidence stops. The root_cause field says the mechanism: the step of the chain that says why the change broke the service.\n\nA why the record cannot answer - a missing test, a missing safeguard, an alert that came late - is a contributing factor rather than a step, and each contributing factor names an action item that answers it. Where one why has several answers, follow the one that leads to the fault and make the others contributing factors.\n\nNever stop at a person. Where somebody's action set the incident off, ask why the system let that action do harm - why it was possible at all - and carry on from there.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "display": "summarized",
+    "type": "adaptive"
+  },
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Submit the postmortem for this incident. Every field is required. Write no figure yourself anywhere in your answer - no time, duration, percentage, count or amount, not in digits and not spelled out in words. Every figure you are shown is followed by its name in braces, like {A3} or {duration}: where your prose states one, write its name, braces and all, and the document writes the figure in. A figure you were not shown but could work out from two you were - the span between two instants, how far one share is above another, how many times one is the other - is written as that working, braces and all: {back_to_normal - began}, {T3.1 - alert_raised}, {errors_at_worst / errors_before}. The document works it out from the figures as you were shown them. Say any other size with no number in it, not even in a word - \"most requests\", \"for several minutes\", never \"twenty minutes\", \"a third\" or \"tripled\". A number is a figure even with a unit or a clock's marks on it (5m, 10ms, 3x, 12:05Z). Any other word with a digit in it is a name - a label (T2, G3fa2, C1, AI-1), a version (v2), a revision, a pod - and is written as given. State only what the evidence you are shown says: where the record does not show something - a check that was or was not run, how many replicas - leave it out or say it was not seen.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_items": {
+            "description": "What should be done that the record does not already hold, each one thing a person could take on: two things to do are two items. Empty where the record's own items answer every factor. Propose nothing to confirm a cause the record already confirmed - a mitigation that worked, a hypothesis marked confirmed - and no check of what the evidence you are shown already shows: a diff states what changed. Where an F row says to check something a D row shows, say what the D row shows, and the item is what follows from it. Where Code-Fix proposed a fix, propose no item to run or check its reading: where the cause rests on it, the review checklist says what would confirm it, under the record's own item for the fix.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "answers": {
+                  "description": "The labels of the contributing factors it answers: CF-1. Empty where it answers none.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "item": {
+                  "type": "string"
+                },
+                "type": {
+                  "enum": [
+                    "mitigate",
+                    "prevent",
+                    "detect",
+                    "process"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "item",
+                "type",
+                "answers"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "assumptions": {
+            "description": "Anything else the reader should know was assumed rather than measured. Empty is a valid answer.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "causal_chain": {
+            "description": "The cause as the five whys, from the symptom down: the first step is what users saw - or, where nobody using the service saw anything wrong, that and what was seen instead - and each step after it answers why the step directly before it happened. The first why says why the symptom happened, not the symptom again in more detail. Where the record holds them, the document says itself how bad it got, which change set it off, what put the service back and the root cause: a step cites the row that shows one of those and does not say it again - no figure the impact gives in the first step, no action Argus took, nor its verdict, in the step naming the change, and, where the chain says why the change broke the service, its last step says that in one sentence, its mechanism left to the root cause. Where the incident needed two things at once - something going wrong, and nothing in place to contain it - follow the one that leads to what set it off; the other is one of the contributing_factors, not named in the chain. A safeguard that did not stop it is never a step of its own: it is one of the contributing_factors. Every step cites at least one piece of evidence by its label. Date a change by its own row's instant - the T or P row that records it - never by an effect it had. A state a row read - how many replicas run a revision, which way a flag is set - is known as of the row that read it, by that row's instant, which is its first figure, as T3.1 is T3's - not from when the change was made. What else the record ruled out - an earlier change, a flag the provider showed unchanged, a candidate refuted - goes in the ruled_out of the step that ties the incident to the change that set it off, citing what ruled it out, and never as a step. An earlier change is ruled out only by the service measured healthy with it in place - in metrics read between it and the onset, in an alert that dates the first harm itself at or after a later change (at, where the two instants are the same), or after a confirmed action that left it there - never by how long before the onset it came. Where the record shows none of these, it was not ruled out: say so in that step itself. Stop where the evidence stops.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cites": {
+                  "description": "The labels of the evidence that shows this step: T3, G3fa2. Not rows that merely happened at the same time.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ruled_out": {
+                  "description": "What else the record ruled out at this step, each what it was and why. Empty on every step but the one that ties the incident to the change that set it off.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cites": {
+                        "description": "The labels of what ruled it out.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "what": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "what",
+                      "cites"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "step": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step",
+                "cites",
+                "ruled_out"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cause_in_plain_words": {
+            "description": "What caused the incident, in one sentence for a reader who does not work on the service: no component names unless they are unavoidable. When it began, for how long, how bad it got, what customers lost and what was done the document says itself - say none of them. Say only what the record says - of a change, of the service, of the people - and nothing it does not. Where part of it rests only on a reading nothing ran, say that part as likely, in plain words, without mentioning the reading.",
+            "type": "string"
+          },
+          "cause_rests_on_an_unrun_reading": {
+            "description": "Whether the mechanism in root_cause rests on an F row - a reading of the code nothing ran - with no S or D row showing what it rests on. Where you answer true, the document says itself, beside the root cause, that the cause is unverified, and leaves its root-cause review box for a person: say neither in root_cause.",
+            "type": "boolean"
+          },
+          "contributing_factors": {
+            "description": "Conditions that had to hold for the incident to happen and did not cause it alone - a safeguard that did not stop it, a gap in detection or review. A factor held before the incident began: what the response did, declined or left behind - an action taken or not, automatic sync left off - is not one; where it went wrong, say it under went_wrong. Not the root cause again in other words: a factor is something that, had it been otherwise, would have stopped or shortened the incident even with what root_cause says still true. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. An alert finds what its rule watches, not the cause behind it: say a fault was found only by what the record shows found it. Each is answered by at least one action item: one of the record's, named in its addressed_by, or one you propose, whose answers name it.",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "addressed_by": {
+                  "description": "The record's own action items that answer it, by the numbers the record gives them: AI-1. Empty where none of them does. Never an item you propose: that item names, in its own answers, the factors it answers. The record's item that merges this incident's fix answers the fault its own tests cover, never a check missing before the change went out: answer that with an item that puts the check in place for every change like it.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "factor": {
+                  "type": "string"
+                },
+                "had_it_been_otherwise": {
+                  "description": "What would have gone differently had this been otherwise - stopped, shortened or caught sooner - with what root_cause says still true. A factor that only says the root cause again cannot answer this: leave it out of the list.",
+                  "type": "string"
+                },
+                "label": {
+                  "description": "CF-1 for the first factor, CF-2 for the next, and so on in the order you give them. Written here and in an item's answers, never in your prose: the reader never sees it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "factor",
+                "had_it_been_otherwise",
+                "addressed_by"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "lessons": {
+            "additionalProperties": false,
+            "description": "What went well, what went wrong, and where the incident got lucky - a risk that went unnoticed this time. Any list may be empty. A safeguard the record does not show is one not seen, never one absent: write that no check was seen, not that none ran. How soon the alert came is weighed by the document already, from what was measured: say nothing of it here.",
+            "properties": {
+              "got_lucky": {
+                "description": "Something the record shows went the fortunate way by chance, and how it kept the harm down - never what would have happened otherwise. Empty where the record shows none. Not what kind of fault it was, which the impact already says, nor a limit of what the record shows, which is said in assumptions as what was assumed. Not how the service did over a stretch its metrics did not cover, nor what a failure there would have done - the document says how it did.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "went_well": {
+                "description": "Only what went well; empty where nothing did. A timed item says one thing, done at its row; what came later goes in an item of its own. Say no span of time, in figures or in words (\"within seconds\"): name the row in timed_by instead, and begin an item timed so with who did it (\"The Investigator Agent ...\", \"Argus ...\"), since the document says the time ahead of it. Set a purpose or a reason beside the action it belongs to, and say it once. Name what Code-Fix proposed without saying what it does: the action items and Code-Fix's own reading say that, with its conditions.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "item": {
+                      "type": "string"
+                    },
+                    "timed_by": {
+                      "description": "The T or XW row the item happened on (T13), where when it happened is part of why it went well: the document says how long after the alert that was. Left out where its time is not the point.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "went_wrong": {
+                "description": "A change the response left in place on purpose, which one of the record's own action items undoes (automatic sync left off), went as designed and did not go wrong; so did what the design leaves to a person - a draft fix to review and merge. Not a limit of what the record shows - logs nobody read, metrics that stop short of the onset: the document says what was read, and anything assumed is said in assumptions. Not the root cause or a contributing factor again - the document says those already. Not that Code-Fix read another revision than the one that ran, or that nothing ran its reading: where the record holds them, the document says the first in its summary and the second beside the root cause.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "went_well",
+              "went_wrong",
+              "got_lucky"
+            ],
+            "type": "object"
+          },
+          "reaches_a_cause": {
+            "description": "Whether the chain says why the change that set the incident off broke the service, rather than stopping at that change. A step resting on F rows - a reading of the code nothing ran - counts: whether that leaves the cause unverified is cause_rests_on_an_unrun_reading's to say. That a new version does worse is what the change did, not why it broke the service: answer false where the chain says the evidence does not show why.",
+            "type": "boolean"
+          },
+          "root_cause": {
+            "description": "What caused the incident, in one or two sentences, written for an engineer who was not on the call: the mechanism - why the change that set it off broke the service, as far as the evidence goes, a missing protection or not. Not the trigger, how it was confirmed, what resolved it or what was ruled out - the document states each of those itself. Not one of the contributing_factors: a safeguard that would have stopped it with this mechanism unchanged is said there, not here. What the service did over the stretch the metrics did not watch is not the mechanism: the document says it itself. Whether it was verified the document says itself, from your answer to cause_rests_on_an_unrun_reading - do not say it.",
+            "type": "string"
+          },
+          "still_at_risk": {
+            "description": "What was still at risk at the end of the time Argus held the incident, in one sentence for the same reader - what the fault still in place then could yet do, or the same thing able to happen again. Empty where nothing was. Not whether the service or its metrics were back, nor why - the summary says both. Not what Argus left to a person - a draft fix, automatic sync left off, a recommended action - which the document says itself. Say what could happen, never why it would: no \"because\". The summary says the cause, or that none was found. Say only what the record says: nothing of the service after that was read.",
+            "type": "string"
+          },
+          "symptom": {
+            "description": "What went wrong as somebody using the service saw it, as short as it can be: it is the document's title. One sentence with no number in it, never over 16 words - the thing that went wrong and what happened to it, with an active verb: 'Account pages failed'. Not the metric the alert fired on, not the cause - the document adds the change it began with itself, after your sentence and a 'while', so end on what went wrong, with no clause after it - and not how it was found, which the document's Detection says. Where nobody using the service saw anything wrong, say that and what was seen instead, in that one sentence.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_cause",
+          "cause_in_plain_words",
+          "still_at_risk",
+          "symptom",
+          "causal_chain",
+          "contributing_factors",
+          "action_items",
+          "lessons",
+          "reaches_a_cause",
+          "cause_rests_on_an_unrun_reading"
+        ],
+        "type": "object"
+      },
+      "name": "submit_postmortem",
+      "strict": true
+    }
+  ]
+}
