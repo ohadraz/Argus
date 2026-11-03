@@ -281,6 +281,10 @@ class Given(BaseModel):
     # an item of what went well may be timed by: another row's first figure
     # is a claim's instant or a count, not when anything was done.
     timeline_rows: frozenset[str] = frozenset()
+    # Each word in braces the evidence holds as its own text and no figure is
+    # named - a format string a candidate or a diff quotes, '{amount_cents}'.
+    # Quoted back, it is the evidence, and nothing is to be written in for it.
+    quoted: frozenset[str] = frozenset()
 
 
 def faults_in(answer: SubmittedPostmortem,
@@ -948,7 +952,8 @@ def _figures_nobody_gave(answer: SubmittedPostmortem, given: Given) -> list[str]
     """Each figure's name in the prose that names no figure the incident gave.
 
     Written in, it would be a blank where a figure goes - and nothing here can
-    know which figure it meant.
+    know which figure it meant. Not a word the evidence itself holds in braces:
+    that is the evidence's text, quoted, and is left as written.
     """
     return [
         f"your answer names [{{{name}}}], which is no figure you were given - write a "
@@ -956,7 +961,7 @@ def _figures_nobody_gave(answer: SubmittedPostmortem, given: Given) -> list[str]
         f"with no number in it"
         for prose in answer.sentences()
         for name in names_in(prose)
-        if name not in given.figures
+        if name not in given.figures and name not in given.quoted
     ]
 
 

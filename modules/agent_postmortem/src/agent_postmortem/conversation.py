@@ -37,6 +37,7 @@ from agent_postmortem.checking import (
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.figures import (
     Figure,
+    names_in,
     the_day_said_off_the_page,
     with_figures_written,
     with_figures_written_with_every_day,
@@ -201,8 +202,9 @@ def _what_was_given(evidence: IncidentEvidence,
     are hypotheses, the items already on the record, the revisions the incident
     read and the one the deploy that set it off went to, the figures it may
     name, each file shown as it ran - named by its first line, its path at
-    its revision - each line outside Code-Fix's patch, under its label, and
-    each change only the walk read, under its label with the flag it switched.
+    its revision - each line outside Code-Fix's patch, under its label, each
+    change only the walk read, under its label with the flag it switched, and
+    each word the evidence holds in braces that names no figure.
 
     Not a walk-alone change whose flag a candidate blamed - its subject, or a
     flag its words name: the walk turns back only a flag a candidate named, so a
@@ -234,7 +236,10 @@ def _what_was_given(evidence: IncidentEvidence,
                                             if cited.label.startswith(LOG_GROUP_PREFIX)]),
         speakers=frozenset(entry.who.split(" ", 1)[0] for entry in evidence.timeline
                            if entry.who),
-        timeline_rows=frozenset(labels_of_the_narration(evidence.timeline))
+        timeline_rows=frozenset(labels_of_the_narration(evidence.timeline)),
+        quoted=frozenset(name for cited in the_evidence_labelled(evidence, measured)
+                         for name in names_in(cited.text)
+                         if name not in figures)
     )
 
 

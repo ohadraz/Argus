@@ -883,6 +883,25 @@ def test_a_figure_named_that_the_incident_never_gave_is_named() -> None:
 
 
 @pytest.mark.unit
+def test_braces_the_evidence_quotes_are_accepted_as_its_text() -> None:
+    # '{amount_cents}' in a candidate's own words is a format string, not a
+    # figure's name: quoted back it is the evidence, with nothing to write in.
+    Scenario() \
+        .given(
+            an_answer_quoting_the_evidence := _an_answer(
+                cause_in_plain_words="it writes '{amount_cents}/{items_counted}'")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_quoting_the_evidence,
+                              given=SOME_GIVEN.model_copy(update={
+                                  "quoted": frozenset({"amount_cents", "items_counted"})}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("before", ["between", "from", "Between"])
 def test_a_range_figure_after_a_word_that_opens_a_range_is_named(before: str) -> None:
     # A range is written in whole, so "between {G}" reads "between 21:41–22:01".

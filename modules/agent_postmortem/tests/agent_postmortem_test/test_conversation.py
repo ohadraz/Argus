@@ -1488,6 +1488,37 @@ def test_a_step_resting_on_a_candidate_shown_under_another_s_label_is_asked_for_
 
 
 @pytest.mark.unit
+def test_braces_the_evidence_itself_quotes_are_kept_as_written() -> None:
+    # A candidate quoting a format string holds braces that name no figure.
+    # Quoted back they are the evidence's own text, and asking again for a
+    # figure by that name asks for one nobody has.
+    asks: Kept[Transcript] = Kept()
+    some_format = "'{amount_cents}/{items_counted}'"
+
+    Scenario() \
+        .given(
+            a_model_quoting_the_evidence := a_model_answering_in_turn(
+                an_answer(cause_in_plain_words=f"The new revision writes {some_format}."),
+                recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model_quoting_the_evidence,
+                an_evidence_bundle(candidates=[
+                    a_candidate(f"The cache entry became the text {some_format}.")]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=1),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD,
+                               f"The new revision writes {some_format}."),
+                _found_no_fault()
+            )
+        )
+
+
+@pytest.mark.unit
 def test_an_answer_asked_for_again_is_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
