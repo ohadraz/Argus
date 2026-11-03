@@ -132,8 +132,9 @@ def _the_leader_s_refusal(document: PostmortemDocument) -> Refusal | None:
 def _what_would_confirm_a_held_test(document: PostmortemDocument, held: Refusal) -> str:
     """Why the leader's test was held back, in that refusal's words, and the
     item the next step is done under: the recommended action, where the test
-    itself is what was recommended, and the proposed fix, which would confirm
-    the cause, where there is one."""
+    itself is what was recommended, and the proposed fix, whose tests would
+    confirm Code-Fix's reading but not that the code it reads is what ran,
+    where there is one."""
     said = why_it_was_refused(held)
     recommended = (_the_item_saying(document, document.recommended_action)
                    if held is Refusal.NOTHING_COULD_CONFIRM_IT else None)
@@ -142,9 +143,13 @@ def _what_would_confirm_a_held_test(document: PostmortemDocument, held: Refusal)
 
     fix = _the_fix_s_item(document)
 
-    # The candidate by name: a bare "it" takes its meaning from the refusal's
-    # sentence before it, which ends on the failure or the action.
-    return f"{said}; the proposed fix would confirm the candidate ({fix})" if fix else said
+    # Code-Fix's reading by name: a bare "it" takes its meaning from the
+    # refusal's sentence before it, which ends on the failure or the action.
+    if not fix:
+        return said
+
+    return (f"{said}; running the proposed fix's tests against the current code would "
+            f"confirm Code-Fix's reading, not that the code it reads is what ran ({fix})")
 
 
 def _the_item_saying(document: PostmortemDocument, text: str | None) -> str | None:
@@ -226,10 +231,10 @@ def _what_would_confirm(document: PostmortemDocument, readings: list[str],
 
     if said_beside_the_cause:
         return (f"running the proposed fix's tests against the current code would confirm "
-                f"the cause ({item})")
+                f"the reading, not that the code it reads is what ran ({item})")
 
     return (f"{rests}; running the proposed fix's tests against the current code would "
-            f"confirm it ({item})")
+            f"confirm that reading, not that the code it reads is what ran ({item})")
 
 
 def _the_fix_s_item(document: PostmortemDocument) -> str | None:

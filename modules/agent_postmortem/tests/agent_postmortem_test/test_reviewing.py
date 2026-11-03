@@ -490,7 +490,7 @@ def test_an_analysis_whose_leader_was_short_of_evidence_is_not_complete_whatever
 
 
 @pytest.mark.unit
-def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm_it() -> None:
+def test_a_test_refused_as_not_argus_s_names_the_fix_whose_tests_confirm_its_reading() -> None:
     some_fix = OpenedPullRequest(number=7, url="https://github.com/acme/shop/pull/7",
                                  branch="dont care")
 
@@ -512,7 +512,9 @@ def test_a_test_refused_as_not_argus_s_names_the_proposed_fix_that_would_confirm
         .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
                           because=f"{why_it_was_refused(Refusal.WOULD_UNDO_A_MEANT_CHANGE)}; "
-                                  f"the proposed fix would confirm the candidate (AI-1)")
+                                  f"running the proposed fix's tests against the current code "
+                                  f"would confirm Code-Fix's reading, not that the code it reads "
+                                  f"is what ran (AI-1)")
         )
 
 
@@ -718,7 +720,8 @@ def test_a_reading_a_proposed_fix_can_confirm_names_the_item_that_would() -> Non
             _says_because(ANALYSIS_COMPLETE, met=None,
                           because="the cause rests on F1, a reading of the source nothing ran; "
                                   "running the proposed fix's tests against the current code "
-                                  "would confirm it (AI-2)")
+                                  "would confirm that reading, not that the code it reads is "
+                                  "what ran (AI-2)")
         )
 
 
@@ -750,7 +753,8 @@ def test_a_reading_the_root_cause_already_names_is_left_to_it_beside_the_fix_s_i
         .then(
             _says_because(ANALYSIS_COMPLETE, met=None,
                           because="running the proposed fix's tests against the current code "
-                                  "would confirm the cause (AI-2)")
+                                  "would confirm the reading, not that the code it reads is "
+                                  "what ran (AI-2)")
         )
 
 
