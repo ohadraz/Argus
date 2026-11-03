@@ -2,24 +2,141 @@
   "container": null,
   "content": [
     {
-      "signature": "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",
-      "thinking": "I'm tracing the monthly-spend-feature flag to the monthly statement code path, since error rates stay flat it's not the ValueError case\u2014so the latency spike must come from the `_band_summaries` loop iterating over purchase bands.\n\nActually, I realize `average_spend_per_item` is the quadratic culprit in the lifetime spend summary, running an O(n\u00b2) cumulative sum per index. That makes me reconsider which path the flag actually controls\u2014if it maps to the monthly summary (which uses the linear `average_spend_per_item_this_month`), enabling it should speed things up, not slow them down, so the statement path itself must hide the real cost, and I need to dig into `_category_summaries` more carefully.\n\n",
+      "signature": "CAQSrlcKEAgTGAI4AUIIdGhpbmtpbmcSDDaQqMyOoH4B9rz3ABoMX13s708RK/Ur5P07IjB+Yg7fFg35mGDUETepjzfPqSAnorEZ/6lBUloW5klCA2zUtiXFtgfjZ379hFDU95Yqy1Y6PL7ebW7WR/FCD1T82ZwrqwEtAdFP/Ya2odFzgcBqbOxUU+ZkzMrgORlne5aIw3BW/kpHt63CSA34YhCBfXCmZ4xIgWVjJ7zQ+8SDbxaWQfPM5rJ6w9ZGkyJI7WjHaDAMJfbQaim98ugYXUV03ca7XYFPtjNWqTELswglNUYymj/NLcKpX2o2mfJ+Co1JTOqiSc2tICz+d10obNfRMD3HCC7nYH1n/EIb7GYQM1DZWaFn8zLxLadFlAecltN0DE//0IptIEDlKR/lw1CH5MBiflDHVJLcvHN7F0LEv4H19EyXdkcF8Q4RylPvt4VWWogCxWNHWe8liyt0NeNS99jLD2QX66hONb2wpzt4UpWtN0rUJB3XqjMuybuAvgCplghPmCxb+RTTJmaqWHcljMRJFQWIIGNosV6KDOGZdVwsr61+KwyJyr/QPeMUtRoRXvx02N/k4n1OXYPGLcfXVhYcPHqjCEhvRsw7ou+mCr5eNdBwdqL6gZl+b8iupjRfIXGurFnf9i5jnJAP76Y/wLh2mfjfvwrLGrOYcu3wC+cA4nd5xq+Mdwu+3aO6EO3YMeCcLd0zelG/0f/z/TwsjaSFuqBim5AJ6kj+vyiDjSXaKKmcDwukLCeEv7EOM6Ai9MoDXXWWEx+pKj7ODAc8UJu4IHOlZXXBqCRjtdOG24HOSPKFYHq1vQ1eQ/Rv6h3C79YfelhVejJgU1VH77hSOhs8CPJMa7ao5hETF4otNeXPdjn1ucgn3ijAwL8JLUFTlz6bcihYq2FiZfBySRkPaAJiz8tUhUSgjrogyAyzj+DaPPX6QtLKtTTlUqapRXp630lN638r2MThz/10MClglRuNRZ1Umn5sv6qPrggPFS/JE4ZnEm339wslevy6XWTf+qCRSv6DaCMhZvllXMTUL16PSPNdsBoODZRUxRZcPN8/eq0eFtA9dGUtyGKCA5MNB7rYX67IO7gi5kPqiA4hiUVM9OidAneWG6dxNH3LYZsigzZjGz8AyjrfmG3DmJ9JhMJvocOkMYz5E+qdPAnUqUex63Rvdo3JtFRKSw8/y6mcq9gadjDGIjkqwrm1lgIOF77iBqP2J7HlLEz2zbsKCJmYB+Izkt0O8LzBX0ON1HCo7HLa6XmcMv7sv1BQW60/27vr+bUwOTWivduIF3yWnJeBCDGL35zi3hcyQXCSpBtuixlS2UF03fXZNuzrdMnl9ubvCwa1n9F0kzahZ2sPVl3A6zhDgTU73KWdT3NnKtYBDLaGkAg4WC/AmtHgintURTc0p5Vu3dj83TB+RfLzMG4uIhf0/FAnfWAcqiwwGWMG926O7OyG1wvHZSR+1cqWd+PkpesR/Z9S3CEfZKDUCXe9E9Etv6azp4SzAS6G/TONn2JOPYa3VEU4QtxPJFtS7uqMpsH5Cpk5kzih9uBbCtfNRz1dqO0g4agGXbkiARpvbYgFll+flP48KVx4MYTa4Wdl7E8xeJesox/9NX3G6kzWhZwD+rLLSHwB5QInEDXHMy1IJepMcXNa/sAs6WyeJZIykBl+UYmtyn/s007TSUxp3VkU3RterPbEAkq3qTqJz2PRMLu+3iXn0+0I2F2cN3KmZO9dqhdFqVAsYtxs6CZtSc8qe9X4ekRH1s/KVylQxbk/Md8HCJ6KsaObKa2KlmMVoa19bqNKpsSL+DQM/iGgkY4RvZ8SjAf7GzRqnSSvs7DCNWI12yCMDTIGSHQnjzjJEpNaCZFORsqnONUMyBT95aT0NftfKUI3DQRHPyGzWQ8pdcVDwaf47yhBtMCJq1TWgEQ96Y5QbRhbpYV1Umu2W/LNEVtRr3gGoh7aPyPN5t7/ZB1c4dx5Gx41nu1pyubGCmPtClYOT5YLPk2IkmMzhnFF/QokKeejQC8TDAHxQd5wsba0iSEz7HoK2hLZUQ0MwbPpda9OiuU0nExLY59TZX2Wzldw+PVGceUaP/P0zzoByLT/7wSaG3PnWEHnt9/BCOh1APOg8fz2a72qa89EHky52yMJCOsQIVmgdIabVZo5QxfV39amDXeGqAR1krZxBZHieAxLnNjGWJZ4mfbo4XpMbzHxFk9O0STpzdcNuZ0O98Q9im1D5dq1TVho+k2vHxjlqFPWJrqUkEtW6yEvI2XYhzYCD9KCBCw48MqH/9GUqdvJErCxX6T5jiCUv8W1Rl48/m4P6lzYxbeuxyL4oYCFEHYN+bqBSZf2h9e25E7NTwy86b753q02lqshgRBSEfjDhs1cJlacTFzttSISwpuKoBkqQ/8f0QAV0W1/jjopVQVvbYKfJ6CgqNO4B8t1f8lBTCdXfH3zfqSX/DtZTNYF9PeYI3M/9SAdJyo6c7C4jUsqkESIYtjyUeektWOq5IlmAy/op8XZi6hNjED3pVRIxCJ8ovgDDCeZvSSbxohhFfmT2Nn5VP4DZ8RewaJ0nrI130lf7YI2EB8DStFCIkmNlwnBMjBZ4WdykYdKJEtopWICSRUmo3BbEQBi4OsA2GCNqBbzovRWPNH5MwqwwgHlUf7txYiZsvsm8SgPn3ouwfhKd4FVOr0ny/0ULH/BN3+E8DzXgWffcGq5PQxAmt0EGyOUGve+f2dpQOlAxdozA3C5JUJpHl3kyarxAalMOLU/uSNmvPVZaZ13DsJKT/rbozcvtLtbUS7wtrfq8dvPPll+7/2nw/CxoVRJrSc19o/aWjtX9Nf9EOyiYAvCleo+gbHSHKx5oo9622jMnN9JDrjqTRi4hKCr5ZzTKMvGT/HDvVy4nWAPX193FbKW97x03zNEAIN6S5MPqPxRN6nMcKhkfepPei8vrQzQLtKeZG48vW2OLPfzIbKj1Yi7mnB4EE1/rlyB3HOaHORxPKfilSCshtczn3hc5qZ351U8K1ROfCMlqOjzuH9yrmP64NDqlbZFiZO7dT7KbFBCuhNq/FarPUNi1T4Hn6eX1kFs1kWPIr0gota5lT4NznaOE9h8VgpZ3bm1WIrRp6optcsUEzwiiIdyN+/taTC/8ISeKyt97/MwibLwBQiTS49WgA8KJdhPAIIDiH++Z8/3xsrHohehWGkqdDdBX+2qTOH+m3LxPXyHqGlJOclZ7nlo9ewAIxQq2UJ5DEBKtxPqTRGzyj2K7yYR59tQgnYehcnv+68cRREORHcP4vjQXrGpmK1fIU/5w+r7B3dV/0Hih0C6BP3nCyEh75n3qzI/4HLjsNTOruFfUBGoKk7j/DoPIhtKToy3gOFXloBSRHQ6YnM2ae9DrUCzXvAkmYqkyGViTRyEozG2zL6Lt+/xcfBLwbD2zci8bC9eyLj4gOp/mk9CZNQojHUir3nUqKhAodETXunUD7Z1wJm2WIUnszMrGnlgGYDC1DWrfd383DN9uH+PkzD83jmMYTNZGo3qquzBJHFcm3BbXj9Fn5i6vXv0F6i6sG4M4ZXEqerGR5kOuGuWK7Zvg6k3jJqLLIu1PX9x4lsiN0pYnJLYeJWWjwf4I028/1822Dfzr28ensZdg8VOWIK93/+akuq/05LTWaYi13CNPO2HXSz3lOHQwuX80T2llVQc4GfukqGljJyOxRdB/F5jbZ5jOmX45OwzkgKqlZXGs/BO0fCoxFJa7yrjCXhOgCRvNVrec2m4bCTvttEUpQiemK0E5tMBl4hcu4pvvvIGn0BG5lUQBdN3H6LucmqwwEbGOLi+ePgIidaNH90o3SoIiAUVYDvkoLjgknHhuixQy382cvNhBXxpimFz4zRV6otZScJZmDkmRWJyKq4sazvtdV1AwJ70AJcaOAffBXgDAbgPdX6CcgkTyg+e09Cc6mCKJmfSZwuOU8bMF0SS16NqR+w9Yvxq3IjA4c+z+JmKNEmAcvjS3nufHZvhxSNIo1Hab6+Cz0PEwWQptwwb6WdqrNsI4CdE/U0qvsB+PZmgx6dmn5k5lhZtGLzTg/+M/t8PK/NdQpvNAuNPI1sfhf6rOPiLeXSJHoBW6sqRX+c6qW9GPgbnvWNBpPNJOMwFwmxcKyx2d9aRGMj3QzdW2G9Cgx1jS/jX+hgjr1FYVRF6waOjDTClrzzN7iImqFqukgtxHz5W0qDvsPATK5PK4N+Va7x78EyD4k6a7lqQIlPFITOLFF7rmswAaYo/a2XdA8rjVyghc3EZsV533dOIIRH4qKg8fc5w+XZA1hQPDcCC+ulYA4yoJRgUJU8SXJAlsUJLNmLsprDx4cbvGJ9ODRoMxRYfg1ODi9kBMXTsXjrR3GxbuDt3m+QVn+F5Qagxbs2Vjbus/9rkUOGLyiF22wV5lUEJSFnnsqVioZeBFgSDlaqFOoV3QQTNwGIWW1uBicTM5Xi5oWTf2nD69DD6u2FWUDKR+MklgSal+AF63nob2Ygf9Q62nbY00D/qHz9PLh8A/u5kL88mkgE4gOhb30fVfmSNxWDMeSBJANtsreEAD7WuywpJlEkEC1FqrenEQVasKF7LQAQHiUxppv46CCz45JyCIkK/ra+CWTocrQW06MSEOyon77F5khkWpJTLriPONbdZRmg/KDu9mdB/mopJ41I5K4jNBSbJpvS+2BeseXJt/8UZjPXZHAfYGSI7tROOdcaXWFDExd3S3xVDnbN9jhXxA0O8ycQsz/z4/Wtdo/GQWfGbA+AjxwbRQmlNG0Q8bOXA2vGJL52cKRoNfe4ybBE6neckpnk3ijWQlNrviGnT+2A7gzUAcUO2gzPJ/DgH5V34S9QCeLDsrlcRUWg0bvgfaHXv0D0NaHpzrOG0cnP25yjOZaSe5Qe7S6CTXPEPLpKCofPFNMpvisIjzGisxJyxfxjQyxBdIQIO0+Aw1dnSfXEvfsPYQSYYU83vPJkt4oUFEBPaipeKCEmOt4z8r+EJHAHTKa/fHURa9fz47yq8rFU8/E9IhKNzLjrl/rOnsbIXnBHIDDZ9uI3dhvvJbWpkj9V5i/cVF4n4g1f6fuOjuAfCn86c0MGXMUASVpAYGl9TkjNuFwGeJw/KLnSPJLrO9kO3o9aPJosjmyC+Wr7LYoHjS1xuItRKkRGOkhw/WioN70A87PsBi23/mx6Qm2yhdsX27Tf43uPOwvBwFAayCmpPV+LfuH1t4Yfr1SXIfy+lwJlHzcMAsVd633rD4Xite/soZaY3pjuF0dIkbCUc0vblK701ozAAJHZhLRXD2Jsd0wCANk7QmLDMisHeX5zI6xiNUttO2abKVPOpatOYHu/jDR93HquNoUGmjoFSqpUk1y7bt70KkyIx5aSSz7c6hxeb5CK1740Dys8vgmryTXNYKUoi/xIEk57QO5QzLlSRXgkT9cluPreUD6McaAu6zDFdpohI+uzsd5gBcJ0Dkg7RIFXBuCxUEdTpFZhwuM3deRUY3FEqi/RMI70ZwN51ZextM8RinCVSexIqb7yhtER73vNzEGwm7EpXM1/XGiZxz54A5cfoAC6OGaGpUXUbZQ3rdBvuc4IO/0iseg96PbomzXFgBHDx9Gy7U+dVQ2MxCSEJ5qrZhHt7u/g+Hu8LM+kyhvjyvYwcfRZcgeuM2S4NCIn4KnDph1LqenUKmg9Mg2bnvTyDy5Tyk4dV+A+7KruWWVj9WSLTBeG7Z8YEDx+Tc/bp1IwFM+SYhavci6XfYIDsiWegQ7thtjwGz+BNF3/YuFsdrOoi9nt0VS7R17RmqvE95Bk4Bmi0VSB2L5z5TgNm+Pr1Vt4YyQfbz77++KE6/5a+d3P3Nl+tLfSp2EXwNl2vI04hRNCuhHtYkohpW6/bK1sgn9l14+MhHhmYXXoBVJZ9ymFe9DYoXdWbez9rY7HQ1W44/YCsqCDw3JhbdIcFjPluHrWBJgWVDrHZup09wsMcU7GMiSG7mTVR1H5WuMiEKY8H37sS3u8aXCbG0LmVLIuH+oFIjRj2tRA8ZNhYpjyTuF1txLJguGyJqKJF+SBb9W+Ge2nFsEIudrEcpboDbw4fHjw4z0bumD+Fce7Ps9o0jvsxribMQEzfs1EYoXK+PoNhQib6+9wQQDG8yJbAAVrpvtrfkKkFhQ2A8OTV3S9fhGPYGaKpytmHmLOhnnazoIXHFgnAIUYfpmv85wHILCJ/Ic4SXz538qc7TsKcwhzUdN9EtQseN0WSNIbT/vL46Cmct5oUGdETEE+7ycsRquQFeYvV7quWAfJ1KvR5Qc8SpmLe+OGx3yx3pI+yi+3TZn6JwK9f6J+PWgGdMgcdjH7MEBgh7szrFF+WCRNPoUYtpY0EQz8uOFGRK7c22F+LEAz8Hzn/7XO0yvmfCNaz0qfWj7T9Zj9imOqTmSITv52XWlh+dWmHt5JQK8bLhZcHmV7SVHQYkFtNTXyWk/dvrjPA28y+y8WvmjTWmI8ATxz0RUp3bM7KIPK/Z3TPpT+kK4E2JSXji/yRt4VhZStCDDBjuj4NvoCd05hrFI5ylY5YDCO0uWX+TqCRrHOICkhATPA4R/2syBiEVlF+3CKiRh7KGt1J6swiGLrWt72kskgqjio9bRlHdrV4Ur5T50wnqHJhBSm/+VU7QunKWAcyT1hb4N1n6Jxh45n+eCRNJPb4FyN06CAyVvfV5/nnzkKs5CMBhZ6eIxoa6SWmZPnjSSa8G5nH7NBd7j2cUWlvbXSCwXjHG84m5ttexZkoCTMyJwRjJDya7jHUf8PLETGlcGsZeiV2wuZSJnahKPYfYpIQ7EqHSnFYh3mRDT7dgOPa9I5CmnOQxnI9vhOtdFYjm12kYE8X/F+KZoKdfLymQz3c5MYruoNFeVg6qLv1PNutEZ9bb2N2ATh+uMJKIKKcea4OLigxTLxlu7BwGtQS9e8x/UsBsVsvFZOGSdILMPBvjZstWtlmRfXLNKg1+LDA6bprAcItHJ+MLDWtGUx1jx8KKd6QNSk7vUP95BpgKoUQ2g+r/19VE4cGIYSc+f3F4GJa3vjy7NziSc4fGvMQSZxLs/M1J0oLrFxgsgzsTAu18Z3lI3IJcPtySIMv9fDQ6qVRrRYPVNJ/NVLfQgncNpBd30xH/XJl+RfsBBcNsPihXY513/g7U6hm6TfsfYwUi35DynzXh5VNv20X+EBmrgT2Cak/i0CmiBLVPMWRZ/BZamV+EMruHnZEE3j1OkZaUCpMpNVPtbE33BLaWiyYyJqavDLqDkl9SWpPHrzQLLWxOWwZB1VCzye6WqUEWVmGncrpE+6RNXsbr9p0FuTfA0C63NM44fdDqrWg37sPS7eDCU1Lv42P3nMCa03g8aSL0wGjna3PQ3mrpLmbQHVizUiK3JYZnZp1knaeO/Y9Gt+i4+K4bVX//wfxI3X/VVyxiIBOeVFJq0IDnv6wfPGV24DSE9DtSLiU5FmZY4Y3nb9ksXYJ+X6ZJSsHC2byA28nxTeTy20bThhs1MTKGlKatDC/5vMYpnjHFXF15va1vzXoPvi8Vcl9M1L2l9ITP8fxJJfJ6zH8TM+IRL+jQRfKrTcBjBp0cOqT9nS5kd+yMX+6qPfQ9HT3PfjpRnrPBGPPGBu5GFZYrZ/Y8Rdj2+QrtQxAfu5mplXhuuF63IeamPtGQC5XhX5rfkv0JZ1lS1XfsHzb9pI8shjjZQUAhmQNq9SjY5bdkRob86++gNu+yQPut9ZHK6dbw3BBmlB1s0XC3DMoPCTLbSg6KRQ4VQc7RDrFxDV7kOI/QJy2Wrj6BAbGC7oKpaGToPXLdjJj90tRU6VCXCBhaYjQXcujpPpNFtGjPie1y2U75xtYNwGIcUS1SFgFQCJeRgZCRQtcwUJItU8M99+LqLQzGND83kcgjngTzMLoOczXsdf+yuewPViKzVMvUJFyKY5KpxsW7m3dlTjuIv31i9ov6punu6ojOJNs9OR/elk23GVMPCbeEBGpAWXUiXogLxRxHoTiy8ec4BlvVFg+9r6y9wPtGd3fmaGORWlJCihQrw9am9FscpHqgOVCL4p/zF9pUntpSV9lfXIB7qyTVIaBuhaqr9FUelMaqjfSKb2GaitaNSznM8PCQSz1YDOJ2KfsMXTJG47jy1aRKySgMMduqMMcP6+mz82p2aM3STcD2+pNY9f9yYopOJ7UXtWFQeYODTIFXQ39Cs3TIPmLEd6RT/qs07QPHjYWdhCjbFXw6dt8qGOu+JsB5r7QF1pY748RY6WNpX6srD7rvOAIEEa4cJdtf9CT/xu0ZmMtyeMinHKH2wn7meBbx3saaIcP24R965Xmxq1OyHewLlGEy10nTJ4A5eQuc07ROd7LwG/ip5OOADQAIluGhIpN8x8FnMcQV8ws9thym4FoYTE4mHUBqbhG7S4dst3AjfSsnnSgqBUGsm7+37sHixOfxiWVdMM0OCsaT2XlEfXRvq96TjooqPiauz+PDOSmyArSiwaGlrPRi3TdjDskqTLKquEYooVx7XnlM3D2InTpoAZLLiMLNFjYX+LmZDpOP2+YptB/YfePLuyCSVQWgdYXH67P5bjRYdw9LfEHoOsCwuHjUmXMMkN71oECttzpah+u62fjytoiD+Swk8UAAPcv9iewv3O/xTooxapU17ZuklPy9a3sizimunfPDaG7GSrODiWp6pdGtiLLUmOrG4iAcNCAKTcfzmnnNcH8ErXmvEnDwt3y7c3shpphUEzMzJbCymrACs/tp97hVnR/GyxLLmc03b2aJmiYw/Kch/CZ9Jdwd1b22YViOWpNWiGhHlNQw5WfZ+0B9zxH0d7RQjxLhEASmohPgL/SWFZWT/zkEH8MRLa2RvdxiErWQIIq5J1IEYILsDmHNNjnXdd3sDa1+9ExCUJGpxr0/q17skpwAZoNFRlC5VTHJRWqwkll3V/QuYENANDtwhvTUb03/4ZyFCQGKRoSBiZB3RWzcinYbBLhm669j2sr76rqXw/tvDhV2r9ZDPKDgWRU2xz1oJRncpjX/ndbZEGpsSXTp9zetrLGP7LD3ncYQOBLQOn+pxM6JqsQ46RNjKT+HyhWiM+4LBDirdwkzAD/LlW4zNiKCKpHzb/RPoeM6UT5dwx9O+dYwnv3V1JCthD5Bf18IsMeKf3Fvx9NPkw15N70R0yr2nfFed5E0Iic7kmOgeY6K25ZpBIYtSl7sZ9S710FeNbRSlmgTv9NjmNURj9uMocOXPYB9/4w/B7e2KDKZsH/U+oBOo1WOFicu51/Tf/ai/sobEPb4tb4jnsxgnEItRnUki05t2No9wdei8X9vUAOHHVmc1ZAoTiP/MDGPmyzp+kSpirORDiBa7ye1WOP5Yr2YZGBJ2sQsDKd3VTATwS+7B9sm7V/mQRc9nPaTA8LScVF/5Tv/wBSUVMBiz6q35oFij3W2NKQS7wszW9Mi1OYyO3NgmTpZWzEl1xWqVi1iSKTCp6M6mgOkcKqqSujxMs3J36SFwMhhM+gkZE9FrFdeO6nfNka/MOWTFf8n75JbmG0rlAoLUz61bazfduwqJDl3V/pRYzUE4l9Cnbyw1AstXc1sProPMlbp+kHa0nZWxOr5cb2Zjfqfj5OqDodQbFZ2lakZQwaIpAUIUdg0pl8cwzZmBI+wzmTFLTtN9eT7Hs9ez2gTQJl+Zbtb8L+wZNeYzlIfSHzkJJzzwPRCe/Kmsj9PrBrfri0LuLg2mctFhILiJkO+fGJD0Lx3xXkgvizcJTPZ+0ou1Y1EpTssMwDDhTNOUfH1gynHctk/VFC6NWi3SZV7Nnh0mhp5WIbDYYgqit2Q54H0JrSqdicNG/d1oTgrgeGJFoRdKaNzlApSaP2Kvdhg/AZB2p4bUxfdGk/9nAHzqKSCA/lF+U4ktRq7ZuWSHG0XfNdHN7q2ymk58deqzObMrxw3TpWBFhb94CX2o+SolXFfI8ASRSPiFMEqur8VCAkjT2lyxCHin6K7n2oKsam6O5G9pQS7icpsUubdV/U42r30n2cqc0+6agElF5b1Fg1kTWgvMR3thSQFLNmsl/q9fsKP+m1raRGd5JxSRp/Snv9qUYMlS7ni0CU/BWQjGHB4JW0p1f8R4S2ljgFw5DaouoURPQXiOeEC73mgipqE4iCFu0XC3RWDFkViX+Owdx17COm1UDkvHjZnUQ25oqlmS2MBzHXiWGD/tpZsBOK7asWbG4QGVygTnEK1bV9Yk3oWsGu7B7xAVuvExoTyaImP/Nd+w8REa5W75dTaWUqkaygVNDv9FslVwr5qyfZI51UcnJ1+ctRZmQVHRwl9VUIOsU1yIg3KDe5siNotzypyvQKzqqHlnlI/t5S9WLGOD6G/REEFze29NFvh+hrzjMrMgYueqoF9uVzbeTaP54ecqx5VEaVfgugyg6hjA/IpU7T47pE9kVljpP3SjOI1z/siolYRgzYEnryGZzP7VWGABvz074nQnJ9MZr3BSrFoVZVP1Y/hTPpZPoVFAU4U4CARVADDE/os3pAO1fGEOkO2cUKtRJkKdxXdyqL6PdqoM4QdzXrdBv5ePur0LwsYtY8DMlxETVG8xaYE8rIhEh4kedtbJFQ1gjHJ7l69igBEMpjs9dWsH0FYuOGNv14gEWW1Tj3ywgh3DQrR9OXnjv5riu5YIEWTNxAUNmbUnB1eFF6se6rhD0Fuh0waCmwiwSEdNfyjnCro1mamVTOZDnF7fMaWE4zalZqlPavG64XGYZZqla8T5qLiQRrMSLHZLyEZAybjarQCPpTNBZOhJoX8uSCQGAUnBPXfVZ66hRP/4Is8x9m83l6GQqXMzc3M/PSp8PVtxT4ZqU/kTiDInvwAlLKdLvSy1cvwBlqBPwl11JKD6UcdboWXbyHHJENuYmzvIddOVQjyzCsPw4mM420eOIHf+86Rp9Mdu1KZYB8oWUFX+PLL3tyxUbSdvJJ5RCjh/ZUP3/i//0Sl13YazeEZpzwtIvQU50hSoZr3e7Dz79ZW9vLO3jppO2B6T6o8+HRktDnhOotuHt5/wt05dNhy3UQWPnU90AssT2jmzZRzNGkORkFG2fmIoRiCdN2AXraN28U/KLfbEYDpO3ykocjIiRdGprJOwlSgZhw8fNGiDgR92OPkM9oLOsSuc5eBBjUolFX01aHAje2211JcdxYJCU0gk0BGp3TrV+RzArR5OTlol8rm3x9Eqy/5rwBcfQPVzpOYkYLOXj1zFW5E7pnnigHGpxi13HWtjGXsyc4Bk43nT1jdczPMhDx+NStyp+t//tPtXBZV/iBWcrvyO1f1w/XJTC8HLRTXMDXtDK7gPwDypjSGdGr8I6UQN6lu17qCDs4bZT62OQwKczb0/t5KQa4Hwcn0OSZdyNH6hcwjVXn346Wf9SfQi6nC1KkH9JsZJ0m2P9Dj7bwWcILqz/xM/5uLD5SysuFBOsktCgEOTZR+sQlhaijfcQDh8UNk3IwNEE7n38nfDYLW9M42JEWHLDK0AuipEQsucQv2sl8xmRIOYQiBKAC0+9rbwH8C7ZJxX5gtuMrBuh3mSFmk3iPVaxSWxkQaJipq8lzhq+Hw/0boV3W/NNMviTdG8SVUFOjxbxpNlkA3/6kMHKHSYcHd0wHjPinjqjLnL0jbDIeMMkVdKQTMFIaU1pAmeq+ri8IRWOuF9zevSQv2Lr72HdEBJMsdCzrPghKCOJrVIM7g1z+IMmVFKqxV6CTde9w99woM4/vJOhAmZ/szDPXHD4v1/6MRljUQv/NbRR/wGu7VDuSEJypBz7n2jY9akUSzHO0uF1CYaouu8r22fVpriqc4B1aYoLywuY/tuvVQr8ZSQIGr++3vREcpfIzRRdKxG9w2HV1VpGGweqAssXCQVKcjLa6O1nee/MmrwZRe/y7oBQbCok/SFicQJKf0PMnNhv0ej+eGreq8f/FjWL2Qh55mF0awvbujlob+8HN4OB3iq8TNy1L024aZpWa6lJSg1NuzhacEb0osgyPghXkWj5SK6TuRTg/+X2d+hrcWszHjYf7zVbglnulS2LsqJSF9UmquLPPUlG+17uKHvicaSPl885P7gZ/Xk8Ci2HSc8BPN0hEaZhjKy43lgc2pRqTvYmqkQ8bL5PD7EjkFRPGrfsg56YvxZxde2MyCKcdNnje4eh9D9P9J8eJ5uYWmnJFZ94kxk+EL5mtqndTZN1nDuel+U7SoFEY1eNNiplW+lJg78IoXHwdA+2b5ltrocIGHEDzuosIc5shKPwxFyNZfMtKduCtUlJz+53rLbz4aiAMWHM3ezkxZdQkcS+go+RLtW6AvemGwSIHshudZs+W7a4G8Fk/0AwwnXa6HzYy0sMl9xGRLHpY7MR8rGQL8xidj7pWx2QQkZOlknxhybGdG7t75AkNky0a/JD3TFk7OiZMnBaNV7fVPKmxR9HJo7TVpyKyn5db5WgazhexsVH7FmcPdD2VfipnLcaypR1wiLGWMq0E+0BSPMvXbxiwFEJdU7RBbToGH+X0bHDStH4SyGMITsVdwT9c2jZLeeT3Z0zJTgAxaTELDBpmmFOf5x+a+//CfIHSfEI7/yHtCPnrW04gwCGi3ika2GQ7HSf/wcVqqXOfrfW+wcO1p1odqLFZQexwPh8qmctnn/bnDNed8LZ0BcW1wnhJ8oKXw50DxOdBtDwofAcWdowmOJSJx0C4WRNnwZka1rV/ZCvPo1kUSJ7tyUr6N1hnzSJCg3AV/IDh76itIhyFhB3fm5E46ylHewi64PjW89bZf1jq2WAMtvpPj1lp2RRJ536+X+QZCYLsmqNBpZ++Tl/s0PoumHTYyRoXILKgCMyH4umDQrsnPQSG6H3Dn2D03qNla6Su2Acl3X6sjFuK3hLD4g4HHY/e/xOhHazVn8x0lXWZzapAulgRp5e/12gkH0vV+rHJEQfiOPx4RvBPntaYT99Dt4LNdDDtXPB3WYUXfEIXS6mXW8E/4+2eyJNA3pmt54paesnqDUSXA4KHBk//QabhhFnxbN40eb+Ew02p6Kx1R25GY1ElwhXrBNY1ILFCgEHcZo96XSLUUeTBN5c7eEKn9t37Bd47hcBSdjq7Hzztmpz4Zet6RMQW/SzMXmuwGWNalsDkJun3EAnJHiVoPAmkcAJEMJA0YxpRZ1QTnFNyFmtz7aTgbjmakC+cnjKOBm+2CsFG9blzNq2pWqqx+CfPc+ehTtx3d5tYDdpzhc18dmLG6iT19U2CAbr76zv7gqoHTV/bTJTaG5dFJ51uStCoXD6/qkKW8hYRYB4/wTkTnWl+unMWSZ2q99kOWdBdPOrRPsCjk+NecRqXi5XAm80pOrmRvBQ4k03tH4WzIO29PJO5GFtFsW9v0XSvEruZ1dkdNjOBJZ/QUfX0f1Bfdh9Xkuye4Sm4i4WsuhuIPLQJ95MDWz8gs2Ju6CwptmJfCGZDsCkgthaIG1L593AgV+4dDiX/deVAeuh+Xb9j9on2osjAvgbKDj/4KqDXk0vU+vVQpweEeTHxJA0A0CI03+0UcGUVGOo0zbowAYV47jkynDx/+RsPYLY9SYfg0mRj1D6GDEPCB2WNmRzAfI3i/bWH5cNHgurNR+uNIqrsDUC03ETLvbzKeX6RmYSkWO5USEtJwwITQSsIxQrar95jdDjjQCe1kcy7nHGMXhRJL5vhkEKoABuWxi8ybMCwYMZ6xgu3pShZTZT9NgtDpsrNjEac3Zv21jxXq6zDYDIcYz865wSpeAlZh0Imaloqn9owRymZl2/QTlsq82h5TvoL+QFsWtTBALeWSu0qYpOAng0dTfO9A9TGK6lLJON1BP6gBdgG008++VmLa+pYWNK1L38VTrTZJOy2AM03SfWJfypL9MD5cDq0fFDJ0y4N2fcZaa1ehmhIWIDngd6qq98Mgvjsm8hfaV6ry/3u02kJOhCQ0UF722wAVWUpftwkDmHmGDDj+lNwItcDZQUQ6TSYKxlFeKj0btqdyeCmOhT0DSHJiKucJqM8/c/vnsH8wYWvZgy+vLqmt2JA6X3VnSnSy5VMU0FharWSji82cHHx9X9MTMEc/sLqZAq24dfTk6+oesE4pZxbhnqMIiYr4KTacmiIygACcenqBCIz4ywY+6x2VwO21kJzvPRXZ5l6B2kUzbITcs/5ChByoupBgRt64kNFJfkG7TUISyXZ1kXYVbLSWN/3qV042eUE/nJPt3b/g+r1MhqOtNLzE2Cpbw+KYtSbmDsUpLVoulirm5TFL/D1gJKxLqsIMVjMjboh9HzST/vGLctXSovFwqQf8fEPL/TZQuFpe5WKpFXmoCHdN9YYvZw1xk/e08QJJ4pB3TGw/id8ZDbLEM3V1UO6UyBj697NxUwV/h2MVxo5pEgscQz6pcIG7V06e3N5JCNfvfXucL1vjlS+nFyhhUsfQ30HAfeJ4XSOVjizUX4hHpPsho3wmguLWtBkC8ZI1S7ITzddH643rJ/c/dBxI2OBWyD1L4+PJ0j4O5QSOYrJUh7P3IHAkICTK7emowiTRtyjf2LuDzFkVUiqd8bp7xvbmdG3CLrHCseC6vIRYQK51VSPRN/FsHASEqm/a+huoCzUi2suzyGqf05i6zQCMQKuB4FDAFlD/IHtJFkvG9Ssl48W3yKfceOWE3XJqzeQBUmhIuRPxOd+HGndKOnvSOoM4v+1zFk21EGrYBZjHQwJKetXcO+ZdkVvfvqaupeCPTwuzHq86deIjyU0aMc38v5Kc8QbHWvysk9Y8wd3oyr7alMwXRPd7LjITtyGZg1v3JplomUn1OqP5hJgQpdmGS3ITv2wP2XMNcSFfDSi4kt1QVk8NQhin4UmMHyMqF/9o/CUtGiTGZs4FGjv709DogdjYQ8nuOeMH7W7VKK1n47HW7uE8UwwkWYSzl35uFtsGVipj8wRL5oTa+7bzz6jMC8T5QK5Hodl3J2bap3JiywKllMFytgvnUCKnjN2V6+/h7Sv7cenGAE=",
+      "thinking": "I'm working out the postmortem symptom statement \u2014 focusing on what users actually experienced: the slowest shop requests got much slower while error rates stayed normal, without citing specific numbers.\n\nNow I'm tracing the causal chain: the flag \"typical-purchase-feature\" was switched on around 18:21 by an admin, which lines up with the latency change. I'm ruling out deploys since the change-events query only returned the one flag flip, and confirming via the revert that turning the flag back off resolved the issue.\n\nFor the mechanism step, I'm noting that with the flag on, render_spend_summary calls typical_spend_per_item, whose cost scales with the square of a shopper's purchase history length\u2014so customers with long histories saw dramatically slower requests, which explains why only the slowest requests got worse while overall failure rates stayed flat.\n\nThis reaches a cause since no other factor explains it. In plain words: enabling a new feature routed requests through a calculation that likely slows dramatically for customers with long purchase histories, and the risk remains since that slow calculation is still in the code \u2014 re-enabling the flag could bring back the slowdown.\n\nOne contributing factor stands out: the flag was switched on almost all at once rather than gradually, which meant the slow path hit nearly everyone immediately instead of surfacing gradually through a staged rollout.\n\nAnother: there's no evidence of a performance or load check on the flag-gated code path before enabling it, especially with large purchase histories \u2014 only narrow unit tests exist. I should propose adding a pre-enable load/performance check for flag-gated paths with realistic large inputs, since nothing currently addresses that gap.\n\nAs for paging, the alert fired but no on-call incident got linked \u2014 though paging likely wouldn't have shortened things since Argus already mitigated quickly. Still, this seems worth noting as a standalone finding under went_wrong rather than as a causal factor, since it doesn't meet the \"would have shortened the incident\" bar.\n\nI also want to flag CF-1: the admin flipped a flag sending all traffic with no staged rollout or guardrail check in place. That needs its own action item requiring staged ramps with latency monitoring at each step. As for AI-2 addressing the underlying code fault directly, I don't think every contributing factor needs a dedicated action item tying back to it, so that should be fine as is.\n\nFor the lessons learned, I'm noting what went well: the Investigator Agent correctly pinpointed the flag switch as candidate cause C1 around 18:21, and the Mitigation Agent then disabled the flag at T18 and verified that the action resolved things.\n\nFor what went wrong, the main gap is that nobody got paged. For got_lucky, I don't see a strong fit\u2014most candidates feel either excluded or too speculative\u2014so I'll leave that section empty rather than force something.\n\nI'm also flagging the key assumptions: that the latency rise was tied to the flag-gated code path comes from Code-Fix's interpretation rather than direct measurement, and that the affected slow requests belonged to accounts with long purchase histories is inferred rather than confirmed.\n\nSeparately, I'm noting that account-page ClientDisconnected errors appeared throughout the whole window, both before and after the incident, so they're treated as background noise rather than incident impact. I'm drafting the symptom and timeline steps\u2014noting that slowest requests got much slower while failure rates stayed within normal variation, and that starting at 18:21 the typical-purchase-feature flag began evaluating \"on\" for nearly all requests instead of \"off\" as before\u2014citing the relevant figures for each claim.\n\nFor the next step, I'm attributing that flag flip to an admin toggling it at a specific timestamp, and ruling out alternative causes: no deploys occurred around that time, and the only flag change recorded in that hour was this one.\n\nNow I'm reordering the chain so each step explains the one before it: the slow requests happened because they ran through the typical-spend-per-item path, whose cost grows quadratically, and that path was only hit because the flag had been switched on by the admin.\n\nched on at P1, causing all subsequent requests to evaluate it as on \u2192 with the flag on, render_spend_summary routes through typical_spend_per_item \u2192 that function's cost scales with the square of purchase history, making long-history requests slow. That final link is the mechanism in one sentence, which works well. I'll avoid mentioning Argus's revert in step 2's text, and I'll format the instant as {P1.1}.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01S1fW7p1Xs5Vbr52Hqi6VXm",
+      "id": "toolu_01K3zkowX88XuA3vrVGWejqk",
       "input": {
-        "query": "monthly_statement"
+        "action_items": [
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Require changes to io-shop feature flags to roll out in stages, with p99 latency checked before each step up.",
+            "type": "prevent"
+          },
+          {
+            "answers": [
+              "CF-2"
+            ],
+            "item": "Add a pre-enable performance check for flag-gated code paths that runs them on realistically large inputs, such as long purchase histories, before a flag can be turned on in production.",
+            "type": "prevent"
+          },
+          {
+            "answers": [],
+            "item": "Link the io-shop HighLatency alert to an on-call rotation so that it pages a person when it fires.",
+            "type": "detect"
+          }
+        ],
+        "causal_chain": [
+          {
+            "cites": [
+              "AL1",
+              "T5",
+              "T6"
+            ],
+            "ruled_out": [],
+            "step": "The shop's slowest requests took much longer to answer than before, and failed requests rose no more than they normally vary."
+          },
+          {
+            "cites": [
+              "P1",
+              "Ga6f5",
+              "Gc8c4",
+              "Gd44a",
+              "T15"
+            ],
+            "ruled_out": [
+              {
+                "cites": [
+                  "T8",
+                  "T9",
+                  "P1"
+                ],
+                "what": "A deploy or release of io-shop: the production change events read for the day before the onset held only the flag change, and no deploys came back."
+              },
+              {
+                "cites": [
+                  "T15",
+                  "P1"
+                ],
+                "what": "Any other flag change: the flag provider's history showed only one flag change by anyone but Argus in the hour read, and that was the switch of typical-purchase-feature."
+              }
+            ],
+            "step": "The feature flag typical-purchase-feature was switched on at {P1.1}. Before that minute the service had evaluated it as off. In the minute of the switch it evaluated on for {Gc8c4.2} of {Gc8c4.3} evaluations, and on for every evaluation in the minutes after."
+          },
+          {
+            "cites": [
+              "U1",
+              "F1"
+            ],
+            "ruled_out": [],
+            "step": "With the flag on, `render_spend_summary` calls `typical_spend_per_item`, so requests that render the spend summary started running that calculation."
+          },
+          {
+            "cites": [
+              "F1"
+            ],
+            "ruled_out": [],
+            "step": "According to Code-Fix's reading, that calculation finds the middle price with work that grows with the square of the number of purchases, so requests for accounts with long histories became slow while short histories stayed cheap."
+          }
+        ],
+        "cause_in_plain_words": "Switching on a new feature sent shoppers' requests through a calculation that probably gets much slower the more purchases a customer has made.",
+        "cause_rests_on_an_unrun_reading": true,
+        "contributing_factors": [
+          {
+            "addressed_by": [],
+            "factor": "The flag change went from off to on for nearly every evaluation within its first minute. The record shows no staged rollout of the flag, and no step that held the change back while latency was watched.",
+            "had_it_been_otherwise": "A staged rollout would have sent only a small share of requests down the slow path at first, and the latency rise could have been caught and the rollout halted before most requests were affected.",
+            "label": "CF-1"
+          },
+          {
+            "addressed_by": [],
+            "factor": "No check was seen of how the code behind typical-purchase-feature performs on long purchase histories before the flag was turned on in production.",
+            "had_it_been_otherwise": "A check with realistic long histories could have shown the slow calculation before the flag reached shoppers, and the flag would not have been turned on with the fault still in place.",
+            "label": "CF-2"
+          }
+        ],
+        "lessons": {
+          "got_lucky": [],
+          "went_well": [
+            {
+              "item": "The Investigator Agent named the switch of typical-purchase-feature as its candidate cause, C1, after reading metrics, change events, the service register and logs.",
+              "timed_by": "T13"
+            },
+            {
+              "item": "The Mitigation Agent turned typical-purchase-feature off, an action that can be put back.",
+              "timed_by": "T18"
+            },
+            {
+              "item": "The Mitigation Agent confirmed the action by watching the service drop back below the incident's level before moving it to mitigated.",
+              "timed_by": "T21"
+            },
+            {
+              "item": "The Code-Fix Agent proposed a fix as draft pull request #416 for a person to review.",
+              "timed_by": "T23"
+            }
+          ],
+          "went_wrong": [
+            "The alert paged nobody: no on-call incident was linked to it."
+          ]
+        },
+        "reaches_a_cause": true,
+        "root_cause": "According to Code-Fix's reading of the source, `typical_spend_per_item` finds the middle price by repeatedly taking out the smallest remaining price, and each of those passes scans the whole list. Its work therefore grows with the square of a shopper's purchase history. Turning typical-purchase-feature on made `render_spend_summary` call this function on requests, so requests for accounts with long histories became slow.",
+        "still_at_risk": "The slow calculation is still in the code, so switching the feature back on could make the slowest requests slow again.",
+        "symptom": "The slowest io-shop requests became much slower for shoppers"
       },
-      "name": "search_repository",
+      "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011Cg9ysCxsVo4wexYypTDe7",
+  "id": "msg_011CggULTcp7cgsyYrweoWDz",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -29,15 +146,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 483
+      "ephemeral_5m_input_tokens": 9765
     },
-    "cache_creation_input_tokens": 483,
-    "cache_read_input_tokens": 35594,
+    "cache_creation_input_tokens": 9765,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 799,
+    "input_tokens": 4,
+    "output_tokens": 5601,
     "output_tokens_details": {
-      "thinking_tokens": 745
+      "thinking_tokens": 3824
     },
     "service_tier": "standard",
     "speed": "standard"
