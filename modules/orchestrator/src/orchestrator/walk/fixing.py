@@ -162,18 +162,22 @@ def codefix_node(state: IncidentState,
             outcome=FixOutcome.NOT_OPENED,
             proposal=None,
             action="a code-level fix was written but not opened",
-            detail="it helps only once code outside the repository changes as well",
+            detail="the fix Code-Fix wrote helps only once code outside the repository "
+                   "changes as well",
             read=proposed
         )
 
     if proposed.pull_request is None:
+        # The reason alone. The move it explains is the hand-over, and every
+        # place that reads it - the move's line, the postmortem's "Ended by" -
+        # has said a person has it before the reason starts.
         return _said(
             narrator,
             found=False,
             outcome=FixOutcome.NOT_WARRANTED,
             proposal=None,
             action="no code-level fix found",
-            detail="no code-level fix found, so the incident goes to a human",
+            detail="no code-level fix found",
             read=proposed
         )
 

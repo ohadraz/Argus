@@ -550,6 +550,30 @@ def test_the_move_after_a_failed_fix_says_what_failed_and_why(error: Exception,
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("holds_back", "the_move_says"), [
+    (False, "no code-level fix found"),
+    (True, "the fix Code-Fix wrote helps only once code outside the repository changes as well")
+], ids=["not-warranted", "not-opened"])
+def test_the_move_after_a_fix_left_unopened_says_why_and_not_that_a_person_has_it(
+        holds_back: bool, the_move_says: str) -> None:
+    # The move is the hand-over, and wherever it is read - its own line, the
+    # postmortem's "Ended by" after "escalated to a person" - that is said
+    # already. The reason says only why, in words that stand without the
+    # attempt's own line before them.
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent := _an_agent_holding_back() if holds_back else _an_agent_offering(None)
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed, an_agent)
+        ) \
+        .then(
+            _the_move_says(the_move_says)
+        )
+
+
+@pytest.mark.unit
 def test_a_fix_stopped_because_nobody_wants_it_any_more_says_nothing() -> None:
     # Not an attempt that ended in any of its outcomes - somebody said stop.
     # Announcing one would put a line on the timeline about a fix nobody asked
