@@ -76,6 +76,35 @@ def test_a_rollout_that_has_not_finished_names_both_revisions_and_the_split() ->
 
 
 @pytest.mark.unit
+def test_a_split_fleet_larger_than_its_deployment_says_the_deployment_s_size() -> None:
+    # A rolling update runs more replicas than the deployment is sized for
+    # while it surges. Said as "3 of 6" alone, a reader takes six for the fleet
+    # the rollout finishes with, and the fleet is three.
+    some_size = 3
+
+    Scenario() \
+        .given(platform := a_platform_reporting(RolloutAccount(
+            progress=RolloutProgress(replicas_wanted=some_size,
+                                     replicas_serving=SOME_FLEET_SIZE,
+                                     replicas_updated=HALF_OF_IT),
+            going_out=a_deploy_being_rolled_out(), before_it=a_deploy_still_serving()))) \
+        .when(lambda: read_the_rollout(SOME_CALL, SOME_SERVICE, platform, DONT_CARE_NARRATOR)) \
+        .then(all_of(
+            _the_answer_mentions(f"{HALF_OF_IT} of {SOME_FLEET_SIZE}"),
+            _the_answer_mentions(f"The deployment is sized for {some_size} replicas")
+        ))
+
+
+@pytest.mark.unit
+def test_a_split_fleet_running_its_deployment_s_size_says_no_size_beside_it() -> None:
+    # Where the counts agree, the size is the count already said.
+    Scenario() \
+        .given(platform := a_platform_reporting(a_split_fleet())) \
+        .when(lambda: read_the_rollout(SOME_CALL, SOME_SERVICE, platform, DONT_CARE_NARRATOR)) \
+        .then(_the_answer_does_not_mention("sized for"))
+
+
+@pytest.mark.unit
 def test_a_converged_deployment_is_said_as_the_model_has_always_read_it() -> None:
     # The ordinary answer, and evidence rather than a blank: a reader weighing a
     # deploy at the onset has been told it is not half-applied, which rules the
@@ -285,6 +314,19 @@ def _the_answer_mentions(expected: str) -> Assertion[Any]:
         if expected not in answer.result.content:
             raise AssertionError(
                 f"Expected the answer to mention [{expected}], and what the "
+                f"model is shown is: {answer.result.content}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_answer_does_not_mention(unexpected: str) -> Assertion[Any]:
+    def assertion(answer: Any) -> bool:
+        if unexpected in answer.result.content:
+            raise AssertionError(
+                f"Expected the answer not to mention [{unexpected}], and what the "
                 f"model is shown is: {answer.result.content}"
             )
 

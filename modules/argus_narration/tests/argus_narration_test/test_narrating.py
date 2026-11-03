@@ -486,6 +486,40 @@ def test_a_split_rollout_names_both_revisions_how_many_run_each_and_a_pause() ->
 
 
 @pytest.mark.unit
+def test_a_split_rollout_running_more_replicas_than_its_size_says_the_size() -> None:
+    # A rolling update surging past its size: "3 of 6" alone reads as a fleet
+    # of six the rollout finishes with, where it finishes with three.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=3, replicas_serving=6, replicas_updated=3),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(all_of(_the_only_line_mentions("3 of 6 replicas run revision 9c1f0ab2d4e6"),
+                     _the_only_line_mentions("of a deployment sized for 3")))
+
+
+@pytest.mark.unit
+def test_a_split_rollout_running_its_size_says_no_size_beside_it() -> None:
+    # Where the counts agree, the size is the count already said.
+    some_read = RolloutRead(incident_id=new_id(), account=RolloutAccount(
+        progress=RolloutProgress(replicas_wanted=6, replicas_serving=6, replicas_updated=2),
+        going_out=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=SOME_MINUTE,
+                              reference="9c1f0ab2d4e6", summary="dont care"),
+        before_it=ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=AN_EARLIER_MINUTE,
+                              reference="544cef36a8ea", summary="dont care")))
+
+    Scenario() \
+        .given(some_read) \
+        .when(lambda: build_narration([some_read])) \
+        .then(_the_only_line_does_not_say("sized for"))
+
+
+@pytest.mark.unit
 def test_a_split_rollout_with_nothing_before_it_says_the_older_revision_is_not_named() -> None:
     # The replicas not yet updated run *something*, and the history cannot say
     # what - said, rather than left out, or the split reads as one revision.

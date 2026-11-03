@@ -1205,10 +1205,14 @@ def _how_far_it_rolled_out(account: RolloutAccount, beside: str) -> str:
                  else "a revision the history does not name")
     before_it = (f"revision {account.before_it.reference}" if account.before_it is not None
                  else "an earlier revision the history does not name")
+    # The size where the update runs more or fewer than it: the count serving
+    # alone reads as the fleet the rollout finishes with.
+    sized = (f", of a deployment sized for {progress.replicas_wanted}"
+             if serving != progress.replicas_wanted else "")
     paused = "; its rolling update is paused" if progress.is_paused else ""
 
     return (f"{updated} of {serving} replicas run {going_out} and {serving - updated} "
-            f"still run {before_it}{paused}")
+            f"still run {before_it}{sized}{paused}")
 
 
 def _the_address_it_names(event: IncidentEvent) -> str:

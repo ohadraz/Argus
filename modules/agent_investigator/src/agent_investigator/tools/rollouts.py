@@ -116,6 +116,12 @@ def _still_converging(service: str, account: RolloutAccount) -> list[str]:
         f"{_the_revision_before_it(account.before_it)}."
     ]
 
+    # A rolling update can run more replicas than the deployment is sized for
+    # while it surges. The count serving alone reads as the fleet the rollout
+    # finishes with, so the size is said wherever the two differ.
+    if serving != progress.replicas_wanted:
+        said.append(f"The deployment is sized for {progress.replicas_wanted} replicas.")
+
     if progress.is_paused:
         said.append(
             "Its rolling update is paused, so the platform is not converging it "
