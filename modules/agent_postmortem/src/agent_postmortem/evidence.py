@@ -312,6 +312,12 @@ class IncidentEvidence(BaseModel):
     # changes too - and so was not kept: nothing of it is anywhere to open, and
     # its change to the repository has to be written again with the one outside.
     fix_needs_code_outside: bool = False
+    # Whether that reading's fix was written and the repository would take no
+    # proposal of it, and the branch it is on - `None` where the branch was
+    # refused too. GitHub answered 500 to a pull request once, and the fix sat
+    # on its branch with nothing saying it was there to open.
+    fix_unproposed: bool = False
+    fix_branch_written: str | None = None
     # Each file that reading names, read again at the revision that ran - the
     # file as it ran where it differs from what was read, and what settles a
     # reading made on other text. Empty where none was read.
@@ -351,3 +357,12 @@ class IncidentEvidence(BaseModel):
         confirmed - or `None` where none was confirmed."""
         return next((action for action in self.actions
                      if action.verdict == Verdict.CONFIRMED), None)
+
+    @property
+    def first_acted_at(self) -> datetime | None:
+        """When Argus first changed anything - the earliest action performed -
+        or `None` where it performed none. Not one never performed, nor one
+        nobody can say was: said as the minute Argus acted, either says a
+        change was made."""
+        return min((action.taken_at for action in self.actions
+                    if action.progress is ActionProgress.PERFORMED), default=None)

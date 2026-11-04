@@ -55,6 +55,7 @@ from agent_postmortem.sections import (
     label_of,
     record_action_items_of,
     resolution_of,
+    the_unproposed_fix_item,
 )
 
 type _Written = Callable[[str], str]
@@ -376,6 +377,7 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence,
                f"the repository changes as well: writing it again is "
                f"{numbered[WRITE_THE_FIX_AGAIN]}."]
               if evidence.fix_needs_code_outside else []),
+            *_the_fix_left_unproposed(evidence, numbered),
             *(f"Argus left automatic sync of {application} off, to be turned back on "
               f"{SYNC_GOES_BACK_ON} "
               f"({numbered[TURN_SYNC_BACK_ON.format(application=application)]})."
@@ -383,6 +385,22 @@ def _what_it_left_to_a_person(evidence: IncidentEvidence,
             *([f"Argus recommends this and did not take it: "
                f"{inside_a_sentence(recommended).rstrip('.')}."]
               if recommended else [])]
+
+
+def _the_fix_left_unproposed(evidence: IncidentEvidence, numbered: dict[str, str]) -> list[str]:
+    """A fix Code-Fix wrote and could propose nowhere, with the record's item
+    that proposes it - or nothing where no such fix was written."""
+    item = the_unproposed_fix_item(evidence)
+
+    if item is None:
+        return []
+
+    if evidence.fix_branch_written is None:
+        return [f"Code-Fix could not put the fix it wrote on a branch: writing it again is "
+                f"{numbered[item]}."]
+
+    return [f"Code-Fix could not propose the fix it wrote: opening its pull request from "
+            f"{evidence.fix_branch_written} is {numbered[item]}."]
 
 
 def _what_merging_it_alone_does(evidence: IncidentEvidence) -> str:

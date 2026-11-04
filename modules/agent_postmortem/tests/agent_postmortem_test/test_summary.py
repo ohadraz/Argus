@@ -688,6 +688,29 @@ def test_a_fix_written_and_not_kept_is_said_with_the_item_that_writes_it_again()
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("branch", "said"), [
+    ("argus/fix-abc", "Code-Fix could not propose the fix it wrote: opening its pull request "
+                      "from argus/fix-abc is AI-1."),
+    (None, "Code-Fix could not put the fix it wrote on a branch: writing it again is AI-1.")
+], ids=["left-on-a-branch", "on-no-branch"])
+def test_a_fix_written_and_not_proposed_is_said_with_the_item_that_proposes_it(
+        branch: str | None, said: str) -> None:
+    # Said as left to a person, with its label, as every open item the record
+    # holds is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"fix_unproposed": True, "fix_branch_written": branch})
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, a_measured_incident(), SOME_CAUSE, "")
+        ) \
+        .then(
+            _says(said)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("holds_what_ran", [True, None], ids=["it-does", "nobody-established"])
 def test_a_draft_fix_whose_branch_is_not_known_to_lack_what_ran_needs_no_deploy_said(
         holds_what_ran: bool | None) -> None:

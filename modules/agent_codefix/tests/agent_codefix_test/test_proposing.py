@@ -25,6 +25,7 @@ from agent_codefix.proposing import (
     BranchWriter,
     FixDeclined,
     FixNotAnswered,
+    FixNotProposed,
     FixStopped,
     PullRequestOpener,
     propose_fix,
@@ -2972,7 +2973,12 @@ def test_a_patch_file_that_is_not_python_is_proposed_as_it_arrived() -> None:
 
 
 @pytest.mark.unit
-def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> None:
+@pytest.mark.parametrize(("refusing", "left_on_a_branch"), [
+    ("write_branch", False),
+    ("open_pull_request", True)
+], ids=["the-branch", "the-pull-request"])
+def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal(
+        refusing: str, left_on_a_branch: bool) -> None:
     # Raised rather than answered with nothing. "No fix was found" and "the fix
     # could not be pushed" reach the same human and only one of them would be
     # true - and the second is a thing somebody can go and fix.
@@ -2981,10 +2987,19 @@ def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> N
     # opens a pull request in production is a tool on another process, so what
     # arrives is the transport's - and a loop catching a specific exception
     # would swallow every other way that call can fail.
-    some_refusal = RuntimeError("the repository refused the pull request")
+    #
+    # Raised carrying what the model said of the code. A pull request GitHub
+    # answered 500 to took the reading with it, and the write-up lost the one
+    # account of the mechanism anybody had read off the source.
+    #
+    # And the branch the fix was left on, where the branch was written and only
+    # the pull request was refused: the fix is there for somebody to open, and
+    # nothing else on this path says so.
+    some_reading = "spend_summary divides by the month's purchase count, 0 for a new shopper"
     repository = a_repository()
-    repository.open_pull_request.side_effect = some_refusal
-    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+    getattr(repository, refusing).side_effect = RuntimeError("the repository refused the work")
+    model = a_model_that(submits_a_fix_touching(SOME_PATH, explanation=some_reading),
+                         answers_it_works_on_its_own())
 
     Scenario() \
         .when(
@@ -3000,9 +3015,47 @@ def test_a_repository_that_refused_the_work_is_not_reported_as_a_proposal() -> N
         ) \
         .then(
             all_of(
-                an_error_was_raised(RuntimeError)
+                an_error_was_raised(FixNotProposed),
+                the_error_mentioned("the repository refused the work"),
+                _the_reading_carried_was(some_reading),
+                _the_branch_carried_was(repository, left_on_a_branch)
             )
         )
+
+
+def _the_branch_carried_was(repository: _Repository,
+                            left_on_a_branch: bool) -> Assertion[Exception | None]:
+    """The branch the fix was written to where the write landed, and none where
+    it did not."""
+    def assertion(error: Exception | None) -> bool:
+        written = repository.write_branch.call_args.kwargs["branch"]
+        expected = written if left_on_a_branch else None
+        carried = error.branch if isinstance(error, FixNotProposed) else None
+
+        if carried != expected:
+            raise AssertionError(
+                f"Expected the failure to carry the branch [{expected}], "
+                f"it carried [{carried}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_reading_carried_was(explanation: str) -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        carried = error.reading.explanation if isinstance(error, FixNotProposed) else None
+
+        if carried != explanation:
+            raise AssertionError(
+                f"Expected the failure to carry the reading [{explanation}], "
+                f"it carried [{carried}]."
+            )
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.unit

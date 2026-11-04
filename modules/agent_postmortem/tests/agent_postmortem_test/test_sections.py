@@ -2265,6 +2265,42 @@ def test_a_fix_written_and_not_kept_is_an_item_to_write_it_again_on_both_sides()
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("branch", "item"), [
+    ("argus/fix-abc", "Open a draft pull request from argus/fix-abc - Code-Fix wrote the "
+                      "fix there and could not open one"),
+    (None, "Write the fix again - Code-Fix wrote one and could not put it on a branch")
+], ids=["left-on-a-branch", "on-no-branch"])
+@pytest.mark.parametrize(("the_service_back", "kind"), [
+    (STARTED_AT + timedelta(minutes=9), ActionItemType.PREVENT),
+    (None, ActionItemType.MITIGATE)
+], ids=["back", "never-back"])
+def test_a_fix_written_and_not_proposed_is_an_item_to_propose_it(
+        branch: str | None, item: str, the_service_back: datetime | None,
+        kind: ActionItemType) -> None:
+    # GitHub refused the pull request, and the fix Code-Fix wrote sat on its
+    # branch with no item asking anyone to open it - the write-up's items lost
+    # the fix to review. Where the branch failed too, nothing is left to open,
+    # and the fix is written again. Typed as every fix item is: what prevents
+    # the next incident once the service is back, and what mitigates this one
+    # while it is not - the incident this was found on never recovered.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                actions=[an_action("rolled back io-shop", verdict=Verdict.CONFIRMED)]
+            ).model_copy(update={"fix_unproposed": True, "fix_branch_written": branch})
+        ) \
+        .when(
+            lambda: [(each.number, each.text, each.type)
+                     for each in record_action_items_of(evidence, the_service_back)][1:]
+        ) \
+        .then(
+            the_answer_was([
+                ("AI-2", item, kind)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_automatic_sync_left_off_is_an_item_left_to_do_after_the_fix() -> None:
     # The resolution says sync was left off; this is somebody turning it back
     # on, without which nothing merged reaches the service. After the fix, since
@@ -3071,10 +3107,12 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
     (ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
                 usual_ceiling=0.02, usual_worst=0.04), True),
     (ErrorRates(baseline=0.01, while_broken=0.009, at_its_worst=0.02,
-                usual_ceiling=0.02, usual_worst=0.04), False)
-], ids=["rose", "did-not-rise"])
+                usual_ceiling=0.02, usual_worst=0.04), False),
+    (ErrorRates(baseline=0.01, while_broken=0.3, at_its_worst=0.42,
+                usual_ceiling=None, usual_worst=None), None)
+], ids=["rose", "did-not-rise", "variation-unknown"])
 def test_impact_carries_the_error_rate_before_and_while_broken_and_whether_it_rose(
-        error_rates: ErrorRates, rose: bool) -> None:
+        error_rates: ErrorRates, rose: bool | None) -> None:
     # A rate that did not rise is still shown, as one that did not: left off,
     # a reader cannot tell it from one nobody measured, and a summary saying
     # pages kept loading rests on it.

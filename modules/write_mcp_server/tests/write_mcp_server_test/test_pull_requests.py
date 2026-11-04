@@ -10,6 +10,7 @@ make it anything else.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 from unittest.mock import create_autospec
 
@@ -28,6 +29,7 @@ from write_mcp_server.pull_requests import (
     open_pull_request,
 )
 
+from write_mcp_server_test.framework.assertions import the_error_did_not_mention
 from write_mcp_server_test.framework.settings import some_repository_settings
 
 DONT_CARE_BRANCH = "dont-care-branch"
@@ -290,6 +292,70 @@ def test_a_repository_answering_without_a_pull_request_is_not_reported_as_one() 
 
 
 @pytest.mark.unit
+def test_a_pull_request_github_failed_to_open_for_a_moment_is_opened_on_the_next_try() -> None:
+    # GitHub answered 500 to one pull request in a live run, during an incident
+    # of its own, and the fix Code-Fix had written was reported as one that
+    # could not be proposed. A server's passing fault is not a refusal.
+    repository = a_repository_that_opens_pull_requests(number=41)
+    repository.post.side_effect = [_github_failed(500), repository.post.return_value]
+    repository.get.return_value = _the_pull_requests_open([])
+
+    Scenario() \
+        .when(lambda: _opening_against(repository, retries=2)) \
+        .then(
+            all_of(
+                _the_pull_request_is_numbered(41),
+                _pull_requests_asked_for(repository, 2)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_pull_request_opened_despite_a_500_is_read_back_rather_than_opened_again() -> None:
+    # A 500 can come back for a request the server carried out. Asked for
+    # again, the pull request is refused as one that already exists - so what
+    # is open is looked for first, and an open one from the branch is the one.
+    some_url = "https://github.invalid/dont-care/dont-care/pull/7"
+    repository = a_repository_that_opens_pull_requests()
+    repository.post.side_effect = [_github_failed(500)]
+    repository.get.return_value = _the_pull_requests_open([{"number": 7, "html_url": some_url}])
+
+    Scenario() \
+        .when(lambda: _opening_against(repository, retries=2)) \
+        .then(
+            all_of(
+                _the_pull_request_is_numbered(7),
+                _the_pull_request_is_readable_at(some_url),
+                _pull_requests_asked_for(repository, 1),
+                _the_open_pull_requests_were_looked_for(
+                    repository, head=f"dont-care:{DONT_CARE_BRANCH}", base=DONT_CARE_BASE
+                )
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_pull_request_github_failed_to_open_is_said_in_github_s_own_terms() -> None:
+    # The HTTP library's own sentence named the address a second time and sent
+    # a reader to a Mozilla page about status codes, on the timeline line and
+    # the move after it both. What failed is GitHub's answer, and that is what
+    # the error says.
+    repository = a_repository_that_opens_pull_requests()
+    repository.post.return_value = _github_failed(500)
+
+    Scenario() \
+        .when(attempting(lambda: _opening_against(repository))) \
+        .then(
+            all_of(
+                an_error_was_raised(PullRequestNotOpened),
+                the_error_mentioned("GitHub answered 500 Internal Server Error"),
+                the_error_did_not_mention("for url"),
+                the_error_did_not_mention("developer.mozilla.org")
+            )
+        )
+
+
+@pytest.mark.unit
 def test_a_pull_request_opened_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     # The proposal a person is now expected to read, and where to read it.
     some_url = "https://github.invalid/io-shop/argus-target-service/pull/41"
@@ -415,7 +481,7 @@ def _request_body(repository: _Repository) -> dict[str, Any]:
     return body
 
 
-def _opening_against(repository: _Repository) -> Any:
+def _opening_against(repository: _Repository, retries: int = 0) -> Any:
     """One call, for the tests that are about how it fails rather than what it
     sent - so a failure case reads as the thing it is asserting and not as a
     fifth repetition of the arguments."""
@@ -424,14 +490,66 @@ def _opening_against(repository: _Repository) -> Any:
         base_branch=DONT_CARE_BASE,
         title=DONT_CARE_TITLE,
         body=DONT_CARE_BODY,
-        settings=some_repository_settings(),
-        post=repository.post
+        settings=some_repository_settings(retries=retries),
+        post=repository.post,
+        get=repository.get,
+        sleep=repository.sleep
     )
+
+
+def _github_failed(status_code: int) -> httpx2.Response:
+    return httpx2.Response(
+        status_code=status_code,
+        request=httpx2.Request("POST", "http://github.invalid/")
+    )
+
+
+def _the_pull_requests_open(open_now: list[dict[str, Any]]) -> httpx2.Response:
+    return httpx2.Response(
+        status_code=200,
+        json=open_now,
+        request=httpx2.Request("GET", "http://github.invalid/")
+    )
+
+
+def _pull_requests_asked_for(repository: _Repository, times: int) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if repository.post.call_count != times:
+            raise AssertionError(
+                f"Expected the pull request asked for {times} times, "
+                f"it was asked for {repository.post.call_count}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_open_pull_requests_were_looked_for(repository: _Repository,
+                                            *,
+                                            head: str,
+                                            base: str) -> Assertion[Any]:
+    """Asked for by the branch, owner first, as GitHub filters on it: a look
+    for every open pull request would pass another proposal off as this one."""
+    def assertion(_: Any) -> bool:
+        asked = [made.kwargs.get("params") for made in repository.get.call_args_list]
+        wanted = {"head": head, "base": base, "state": "open"}
+
+        if wanted not in asked:
+            raise AssertionError(
+                f"Expected the open pull requests looked for as {wanted}, got {asked}."
+            )
+
+        return True
+
+    return assertion
 
 
 class _Repository:
     def __init__(self) -> None:
         self.post: Any = create_autospec(httpx2.post)
+        self.get: Any = create_autospec(httpx2.get)
+        self.sleep: Any = create_autospec(time.sleep)
 
 
 def a_repository_that_opens_pull_requests(

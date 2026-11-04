@@ -31,17 +31,16 @@ branch nobody runs, and that merging is a person's act (§13).
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 import httpx2
 
+from write_mcp_server.github_writes import HttpGet, HttpPost, Sleep, said_of, with_retries
 from write_mcp_server.pull_requests import RepositoryWriteSettings
 
 logger = logging.getLogger(__name__)
-
-HttpGet = Callable[..., httpx2.Response]
-HttpPost = Callable[..., httpx2.Response]
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 
@@ -92,7 +91,8 @@ def commit_to_new_branch(branch: str,
                          message: str,
                          settings: RepositoryWriteSettings,
                          get: HttpGet = httpx2.get,
-                         post: HttpPost = httpx2.post) -> str:
+                         post: HttpPost = httpx2.post,
+                         sleep: Sleep = time.sleep) -> str:
     """Commits `files` as one change and creates `branch` pointing at it.
 
     `files` maps a repository path to that file's **whole** new content, not to
@@ -110,14 +110,25 @@ def commit_to_new_branch(branch: str,
     Raises `BranchNotWritten` if the repository refuses any step. The branch is
     the last thing written, so a failure means there is no branch rather than a
     branch with half a fix on it.
+
+    Each step is asked again where GitHub failed it for a moment, as
+    configured. The reads and the two objects are asked again as they are - an
+    object written twice is one more nothing points at - and the branch is
+    looked for first: a 500 can come back for one GitHub created.
     """
-    base_head = _head_of(base_branch, settings, get)
-    base_tree = _tree_of(base_head, settings, get)
+    def again[T](step: Callable[[], T], landed: Callable[[], T | None] | None = None) -> T:
+        return with_retries(step, retries=settings.github_write_retries,
+                            wait_ms=settings.github_write_retry_wait_ms,
+                            landed=landed, sleep=sleep)
 
-    tree = _write_tree(files, base_tree, settings, post)
-    commit = _write_commit(tree, base_head, message, settings, post)
+    base_head = again(lambda: _head_of(base_branch, settings, get))
+    base_tree = again(lambda: _tree_of(base_head, settings, get))
 
-    _create_branch(branch, commit, settings, post)
+    tree = again(lambda: _write_tree(files, base_tree, settings, post))
+    commit = again(lambda: _write_commit(tree, base_head, message, settings, post))
+
+    again(lambda: _create_branch(branch, commit, settings, post),
+          landed=lambda: _the_branch_at(branch, commit, settings, get))
 
     logger.info("branch written", extra={"branch": branch, "commit": commit})
 
@@ -143,7 +154,7 @@ def _head_of(base_branch: str,
         head = answered[OBJECT_FIELD][SHA_FIELD]
     except Exception as error:
         raise BranchNotWritten(
-            f"could not read the head of [{base_branch}] at [{url}]: {error}"
+            f"could not read the head of [{base_branch}] at [{url}]: {said_of(error)}"
         ) from error
 
     return str(head)
@@ -168,7 +179,7 @@ def _tree_of(commit: str,
         tree = answered[TREE_FIELD][SHA_FIELD]
     except Exception as error:
         raise BranchNotWritten(
-            f"could not read the tree of commit [{commit}] at [{url}]: {error}"
+            f"could not read the tree of commit [{commit}] at [{url}]: {said_of(error)}"
         ) from error
 
     return str(tree)
@@ -253,7 +264,7 @@ def _written(url: str,
         answered: dict[str, Any] = response.json()
         written = answered[SHA_FIELD]
     except Exception as error:
-        raise BranchNotWritten(f"{refused}: {error}") from error
+        raise BranchNotWritten(f"{refused}: {said_of(error)}") from error
 
     return str(written)
 
@@ -261,8 +272,9 @@ def _written(url: str,
 def _create_branch(branch: str,
                    at: str,
                    settings: RepositoryWriteSettings,
-                   post: HttpPost) -> None:
-    """Points a new branch at the finished commit - the last thing written.
+                   post: HttpPost) -> str:
+    """Points a new branch at the finished commit - the last thing written -
+    and returns it.
 
     Until this call nothing in the repository refers to the fix at all. That
     ordering is the module's safety: `main` is never a ref this writes, and a
@@ -280,8 +292,31 @@ def _create_branch(branch: str,
         response.raise_for_status()
     except Exception as error:
         raise BranchNotWritten(
-            f"could not create branch [{branch}] at [{at}]: {error}"
+            f"could not create branch [{branch}] at [{at}]: {said_of(error)}"
         ) from error
+
+    return branch
+
+
+def _the_branch_at(branch: str,
+                   at: str,
+                   settings: RepositoryWriteSettings,
+                   get: HttpGet) -> str | None:
+    """`branch`, where it exists pointing at `at` - the branch this module was
+    creating, created after all - or `None`.
+
+    One pointing anywhere else is not the fix's, and is left for the write to
+    be refused over.
+    """
+    url = f"{_repository(settings)}/git/ref/heads/{branch}"
+    response = get(url, headers=_headers(settings), timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if response.status_code != httpx2.codes.OK:
+        return None
+
+    answered: dict[str, Any] = response.json()
+
+    return branch if answered.get(OBJECT_FIELD, {}).get(SHA_FIELD) == at else None
 
 
 def _repository(settings: RepositoryWriteSettings) -> str:

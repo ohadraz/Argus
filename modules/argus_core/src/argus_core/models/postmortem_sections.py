@@ -554,12 +554,14 @@ class ErrorRateLevels(BaseModel):
 
     Carried where it did not rise as much as where it did: a rate left off the
     page reads as one nobody measured, and a write-up saying the pages kept
-    loading rests on this one.
+    loading rests on this one. `rose` is `None` where the rate went above the
+    calm and nobody could say how high it goes alone: "no rise" is a claim, and
+    nothing measured it.
     """
 
     before: float
     while_broken: float
-    rose: bool
+    rose: bool | None
 
 
 class RuleSeriesHarm(BaseModel):

@@ -2513,6 +2513,35 @@ def test_the_evidence_carries_whether_the_fix_that_stands_needs_code_outside(
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("unproposed", "branch"), [
+    (True, "argus/fix-abc"),
+    (True, None),
+    (False, None)
+], ids=["left-on-a-branch", "on-no-branch", "nothing-written"])
+def test_the_evidence_carries_a_fix_code_fix_wrote_and_could_not_propose(
+    unproposed: bool, branch: str | None, a_clean_database: None
+) -> None:
+    # GitHub answered 500 to the pull request, and the fix stayed on the branch
+    # it had been written to with nothing saying so: no item opened its pull
+    # request. A failure before anything was written left nothing to open.
+    with connect_from_env() as conn:
+        Scenario() \
+            .given(
+                incident_id := _an_incident_that_ended(conn),
+                calling(lambda: events.record(conn, FixAttempted(
+                    incident_id=incident_id, outcome=FixOutcome.NOT_POSSIBLE,
+                    detail="dont care", explanation="dont care what it said",
+                    unproposed=unproposed, branch_written=branch)))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(
+                _carries_a_fix_unproposed_on(unproposed, branch)
+            )
+
+
+@pytest.mark.component
 def test_the_evidence_carries_the_files_as_they_ran_off_the_reading_that_stands(
     a_clean_database: None
 ) -> None:
@@ -3429,6 +3458,20 @@ def _carries_what_code_fix_read(branch: str | None,
 
     return assertion
 
+
+def _carries_a_fix_unproposed_on(unproposed: bool,
+                                 branch: str | None) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        if (evidence.fix_unproposed is not unproposed
+                or evidence.fix_branch_written != branch):
+            raise AssertionError(
+                f"Expected the evidence to carry a fix unproposed [{unproposed}] on "
+                f"[{branch}], got [{evidence.fix_unproposed}] on "
+                f"[{evidence.fix_branch_written}].")
+
+        return True
+
+    return assertion
 
 
 def _carries_a_fix_needing_code_outside(expected: bool) -> Assertion[IncidentEvidence]:

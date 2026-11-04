@@ -174,6 +174,12 @@ class Settings(BaseSettings):
     # - a misconfigured write server should fail loudly rather than quietly
     # authenticate as nobody. It can never merge what it opens (§13).
     github_token: str = Field(default="")
+    # How many times a write to that repository is made again where GitHub
+    # failed it for a moment - never reached, or answered with a 5xx - and how
+    # long before each. Retries, tries after the first: two is three in all. A
+    # refusal, a 4xx, is never made again.
+    github_write_retries: int = Field(default=2, ge=0)
+    github_write_retry_wait_ms: int = Field(default=200, ge=0)
     # The secret GitHub signs its push deliveries with, so Argus can tell a
     # push from anybody who found the endpoint. Empty accepts nothing rather
     # than everything: with no secret configured no signature can match, which

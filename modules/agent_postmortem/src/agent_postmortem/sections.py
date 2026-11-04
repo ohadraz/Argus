@@ -120,6 +120,14 @@ REVIEW_THE_FIX = "Review and merge the proposed fix"
 WRITE_THE_FIX_AGAIN: Final = ("Write the fix again: its change to the repository and the "
                               "change outside the repository that Code-Fix's reading names, "
                               "made together - Code-Fix kept none of the fix it wrote")
+# The fix Code-Fix wrote that the repository would take no proposal of: opened
+# from the branch it sits on, or written again where the branch was refused
+# too. GitHub answered 500 to a pull request once, and the fix sat on its
+# branch with no item asking anyone to open it.
+OPEN_THE_UNPROPOSED_FIX: Final = ("Open a draft pull request from {branch} - Code-Fix wrote "
+                                  "the fix there and could not open one")
+WRITE_THE_FIX_ON_NO_BRANCH_AGAIN: Final = ("Write the fix again - Code-Fix wrote one and "
+                                           "could not put it on a branch")
 # When automatic sync an action left off goes back on, for the action item and
 # the summary alike, and what it does until then and sooner, for the item alone:
 # whoever turns it on reads the item, and the summary names the item by its label.
@@ -262,7 +270,7 @@ def impact_of(measured: Measurements,
                   requests_failed=rates.failed_requests if rates is not None else None,
                   error_rates=ErrorRateLevels(before=rates.baseline,
                                               while_broken=rates.while_broken,
-                                              rose=rates.a_rise_was_measured)
+                                              rose=rates.rose)
                   if rates is not None else None,
                   rule_series_harm=RuleSeriesHarm(before=series.baseline,
                                                   while_broken=series.while_broken,
@@ -1029,7 +1037,8 @@ def record_action_items_of(evidence: IncidentEvidence,
     """The action items the record implies, numbered from `AI-1`.
 
     What brought recovery is done, and is Argus's. The fix proposed, the fix
-    written and not kept, and the action Argus declined are open, and
+    written and not kept, the fix written and proposed nowhere
+    (`the_unproposed_fix_item`), and the action Argus declined are open, and
     nobody's: Argus edits no item after the document is written, so whoever
     takes one on does so somewhere else. An action that did not help is in the
     resolution and is not left to do.
@@ -1051,6 +1060,7 @@ def record_action_items_of(evidence: IncidentEvidence,
                              if action.paused_sync_of is not None)
     the_fix_is = (ActionItemType.PREVENT if back_to_normal_at is not None
                   else ActionItemType.MITIGATE)
+    unproposed = the_unproposed_fix_item(evidence)
     implied = [
         *(_an_item(ActionItemType.MITIGATE, action.action, owner=TAKEN_BY,
                    status=ActionItemStatus.DONE)
@@ -1059,6 +1069,7 @@ def record_action_items_of(evidence: IncidentEvidence,
           if evidence.pull_request is not None else []),
         *([_an_item(the_fix_is, WRITE_THE_FIX_AGAIN)]
           if evidence.fix_needs_code_outside else []),
+        *([_an_item(the_fix_is, unproposed)] if unproposed is not None else []),
         *(_an_item(ActionItemType.MITIGATE, TURN_SYNC_BACK_ON.format(application=application))
           for application in left_off),
         *([_an_item(ActionItemType.MITIGATE, evidence.recommended_action)]
@@ -1067,6 +1078,19 @@ def record_action_items_of(evidence: IncidentEvidence,
 
     return [item.model_copy(update={"number": action_item_number(position)})
             for position, item in enumerate(implied, start=1)]
+
+
+def the_unproposed_fix_item(evidence: IncidentEvidence) -> str | None:
+    """The item a fix Code-Fix wrote and could propose nowhere is left as, or
+    `None` where no such fix was written: open its pull request from the
+    branch it is on, or write it again where it is on none."""
+    if not evidence.fix_unproposed:
+        return None
+
+    if evidence.fix_branch_written is None:
+        return WRITE_THE_FIX_ON_NO_BRANCH_AGAIN
+
+    return OPEN_THE_UNPROPOSED_FIX.format(branch=evidence.fix_branch_written)
 
 
 def timeline_of(evidence: IncidentEvidence,

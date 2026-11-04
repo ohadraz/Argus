@@ -1687,6 +1687,30 @@ def test_the_model_is_told_the_fix_not_kept_is_written_again_by_the_record_s_ite
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("branch", "said"), [
+    ("argus/fix-abc", "Code-Fix could not propose the fix it wrote: AI-1 is opening its pull "
+                      "request from argus/fix-abc - do not propose it again."),
+    (None, "Code-Fix could not put the fix it wrote on a branch: AI-1 is writing it again "
+           "- do not propose it again.")
+], ids=["left-on-a-branch", "on-no-branch"])
+def test_the_model_is_told_the_fix_not_proposed_is_proposed_by_the_record_s_item(
+        branch: str | None, said: str) -> None:
+    # As with a fix not kept: no check refuses an item repeating one the
+    # record holds, so the model is told the record's item has it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[]).model_copy(
+                update={"fix_unproposed": True, "fix_branch_written": branch})
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says(said)
+        )
+
+
+@pytest.mark.unit
 def test_the_model_is_told_the_record_holds_nothing_of_the_pull_request_after_it_opened() -> None:
     # Told only "Review and merge the proposed fix", one write-up said the fix
     # "passed through review" and another that a gap "stayed open until a human
@@ -3683,6 +3707,116 @@ def test_every_figure_a_brief_with_a_split_log_names_is_one_the_answer_may_name(
         .given(
             evidence := an_evidence_bundle(log_lines=some_lines),
             measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: (opening_ask(evidence, measured), figures_shown(evidence, measured))
+        ) \
+        .then(
+            _names_only_figures_it_may_name()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_minutes_acted_at", [[3], [3, 8]],
+                         ids=["one-action", "the-first-of-two"])
+def test_a_message_logged_both_sides_of_where_argus_first_acted_is_shown_in_two(
+        some_minutes_acted_at: list[int]) -> None:
+    # What the service logged after Argus changed it, apart from what it logged
+    # before - the comparison that says whether the change reached it. Summed,
+    # a write-up read a flag's "on" lines as running on through the switch-off.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action(f"some action {minute}",
+                                   taken_at=ONSET + timedelta(minutes=minute))
+                         for minute in some_minutes_acted_at])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
+                              "the minute Argus first acted in", "After it")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.NOT_PERFORMED,
+                                      ActionProgress.CLAIMED,
+                                      ActionProgress.UNKNOWN])
+def test_an_action_nobody_can_say_was_performed_splits_no_message(
+        progress: ActionProgress) -> None:
+    # "The minute Argus first acted in" of a change never made, or one nobody
+    # can say was, says it was made.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action("some action", taken_at=ONSET + timedelta(minutes=3),
+                                   progress=progress)])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("the minute Argus first acted in")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("progress", [ActionProgress.NOT_PERFORMED,
+                                      ActionProgress.CLAIMED,
+                                      ActionProgress.UNKNOWN])
+def test_a_message_is_split_where_the_first_action_performed_was_taken_after_one_that_was_not(
+        progress: ActionProgress) -> None:
+    # A rollback refused, then a revert made: the minute of the refusal is no
+    # act, and taking the first action only where it was performed would
+    # never split such an incident.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=minute))} WARN io-shop: some warning"
+                  for minute in (1, 3, 5)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action("some attempt", taken_at=ONSET + timedelta(minutes=2),
+                                   progress=progress),
+                         an_action("some action", taken_at=ONSET + timedelta(minutes=4))])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
+                              f"{ONSET + timedelta(minutes=1):%H:%M}–"
+                              f"{ONSET + timedelta(minutes=3):%H:%M}",
+                              "After it")
+        )
+
+
+@pytest.mark.unit
+def test_every_figure_a_brief_split_where_argus_acted_names_is_one_the_answer_may_name() -> None:
+    # As with the split where the metrics stopped: a brief and a check that
+    # parted the lines differently would name figures the check refuses.
+    some_rate = "WARN io-shop: account page error rate at {}% over the last minute"
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} {some_rate.format('1.00')}",
+                  f"{to_iso(ONSET + timedelta(minutes=2))} {some_rate.format('2.00')}",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} {some_rate.format('0.50')}",
+                  f"{to_iso(ONSET + timedelta(minutes=7))} {some_rate.format('0.25')}"]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=some_lines,
+                actions=[an_action("some action", taken_at=ONSET + timedelta(minutes=3))]),
+            measured := a_measured_incident()
         ) \
         .when(
             lambda: (opening_ask(evidence, measured), figures_shown(evidence, measured))

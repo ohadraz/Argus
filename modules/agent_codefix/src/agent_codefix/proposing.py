@@ -29,6 +29,7 @@ from collections.abc import Mapping
 from functools import partial
 from typing import Final, NamedTuple, Protocol
 
+from argus_core import was_lost
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.llm import (
     AnswerTruncated,
@@ -161,6 +162,25 @@ class FixStopped(Exception):
     and go no further. Raised rather than returned, because `None` already
     means "the fault is not in the code", which is a conclusion this is not.
     """
+
+
+class FixNotProposed(Exception):
+    """A fix the model wrote that the repository would not take a proposal of.
+
+    Raised carrying what the model said of the code, and the branch the fix
+    was written to - `None` where the branch was refused too. GitHub answered
+    500 to one pull request, and both went with the failure: the write-up had
+    no account of the mechanism, and the fix sat on its branch with nothing
+    saying it was there to open.
+
+    The message is the failure's own, as it was before this carried anything:
+    what stopped it is the one outcome somebody can act on.
+    """
+
+    def __init__(self, reason: str, *, reading: ProposedFix, branch: str | None) -> None:
+        super().__init__(reason)
+        self.reading = reading
+        self.branch = branch
 
 
 # What the proposal half asks of the write tier, and what the walk asks of this
@@ -417,27 +437,38 @@ def propose_fix(hypothesis: Hypothesis | None,
 
     branch = _a_branch_for(incident_id)
     title = submitted.summary or f"fix for incident {incident_id}"
+    reading = ProposedFix(pull_request=None,
+                          explanation=submitted.explanation,
+                          holds_what_ran=holds_what_ran,
+                          branch_read=settings.github_base_branch,
+                          as_it_ran=as_it_ran,
+                          uses_outside=uses_outside)
+    written: str | None = None
 
-    write_branch(
-        branch=branch,
-        base_branch=settings.github_base_branch,
-        files=patch,
-        message=title
-    )
+    try:
+        write_branch(
+            branch=branch,
+            base_branch=settings.github_base_branch,
+            files=patch,
+            message=title
+        )
+        written = branch
 
-    return ProposedFix(
-        pull_request=open_pull_request(
+        opened = open_pull_request(
             head_branch=branch,
             base_branch=settings.github_base_branch,
             title=title,
             body=_the_case_for(submitted, hypothesis, incident_id, uses_outside)
-        ),
-        explanation=submitted.explanation,
-        holds_what_ran=holds_what_ran,
-        branch_read=settings.github_base_branch,
-        as_it_ran=as_it_ran,
-        uses_outside=uses_outside
-    )
+        )
+    except Exception as error:
+        # A lost run is another claim's walk, and nothing is said of it here.
+        if was_lost(error):
+            raise
+
+        raise FixNotProposed(str(error) or type(error).__name__,
+                             reading=reading, branch=written) from error
+
+    return reading.model_copy(update={"pull_request": opened})
 
 
 def _what_the_model_submitted(hypothesis: Hypothesis | None,

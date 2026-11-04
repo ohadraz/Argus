@@ -449,6 +449,216 @@ def test_a_message_is_said_whole_unless_all_its_lines_are_dated_and_fall_both_si
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("after", "said"), [
+    (["23:40", "23:41"], "2 occurrences in 2 minutes, 23:40–23:41"),
+    (["23:40", "23:42"], "2 occurrences in 3 minutes, 23:40–23:42; logged at 23:40 and 23:42"),
+    (["23:40", "23:40", "23:42"],
+     "3 occurrences in 3 minutes, 23:40–23:42; logged at 23:40 and 23:42"),
+    (["23:40", "23:42", "23:43", "23:45"],
+     "4 occurrences in 6 minutes, 23:40–23:45; logged at 23:40, 23:42–23:43 and 23:45")
+], ids=["every-minute", "a-minute-missed", "two-lines-in-a-minute", "runs"])
+def test_a_message_logged_on_both_sides_of_where_argus_acted_is_said_in_two_parts(
+        after: list[str], said: str) -> None:
+    # Summed across a switch-off, a flag's "on" lines said as one span from
+    # before it to after it read as on every minute of that span, and a
+    # write-up said the switch-off may never have reached the service, which
+    # read it off in most of the minutes after. The minute Argus acted in goes
+    # before, since a line stamped with it may be from either side of the act.
+    # After it, a part logged in fewer minutes than its span covers lists them.
+    # The labels carry no figure, as where the metrics stopped, so a part's
+    # figures keep their places whether or not a run is split.
+    some_lines = [f"2026-10-11T23:37:00Z {SOME_ERROR}",
+                  f"2026-10-11T23:39:00Z {SOME_ERROR}",
+                  *(f"2026-10-11T{minute}:00Z {SOME_ERROR}" for minute in after)]
+
+    Scenario() \
+        .given(
+            argus_acted := datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text
+                     for group in grouped(some_lines, None, ONSET_DAY, acted_at=argus_acted)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_ERROR} - up to and including the minute Argus first acted "
+                            f"in: 2 occurrences in 3 minutes, 23:37–23:39. After it: {said}"])
+        )
+
+
+@pytest.mark.unit
+def test_each_part_either_side_of_where_argus_acted_says_its_own_ranges() -> None:
+    # As either side of where the metrics stopped does: summed, the rates after
+    # the act are lost in the ones before it. The minutes listed come last: a
+    # flapping flag logs other minutes in a replay than in the run it was
+    # recorded in, and a list of another length before the ranges would move
+    # every figure after it.
+    some_lines = [f"2026-10-11T23:37:00Z {SOME_RATE.format('1.50')}",
+                  f"2026-10-11T23:39:00Z {SOME_RATE.format('24.00')}",
+                  f"2026-10-11T23:40:00Z {SOME_RATE.format('3.00')}",
+                  f"2026-10-11T23:42:00Z {SOME_RATE.format('0.50')}",
+                  f"2026-10-11T23:43:00Z {SOME_RATE.format('1.00')}"]
+
+    Scenario() \
+        .given(
+            argus_acted := datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text
+                     for group in grouped(some_lines, None, ONSET_DAY, acted_at=argus_acted)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_RATE.format('#')} - up to and including the minute Argus "
+                            f"first acted in: 2 occurrences in 3 minutes, 23:37–23:39; # was "
+                            f"1.50% to 24.00%, typically 1.50%, highest at 23:39. After it: "
+                            f"3 occurrences in 4 minutes, 23:40–23:43; # was 0.50% to 3.00%, "
+                            f"typically 1.00%, highest at 23:40; logged at 23:40 and "
+                            f"23:42–23:43"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_lines", [
+    [f"2026-10-11T23:37:00Z {SOME_ERROR}", f"2026-10-11T23:39:00Z {SOME_ERROR}"],
+    [f"2026-10-11T23:40:00Z {SOME_ERROR}", f"2026-10-11T23:41:00Z {SOME_ERROR}"],
+    [f"2026-10-11T23:37:00Z {SOME_ERROR}", SOME_ERROR, f"2026-10-11T23:41:00Z {SOME_ERROR}"],
+    [f"2026-10-11T23:40:00Z {SOME_ERROR}", SOME_ERROR, f"2026-10-11T23:43:00Z {SOME_ERROR}"]
+], ids=["only-up-to-the-minute-argus-acted-in", "only-after-in-every-minute",
+        "both-sides-one-undated", "only-after-one-undated"])
+def test_a_message_is_said_whole_unless_its_lines_are_all_dated_and_fall_both_sides_of_the_act(
+        some_lines: list[str]) -> None:
+    # Two parts only where there are two sides to compare, and a line with no
+    # stamp belongs to neither - as where the metrics stopped. Nor does a
+    # message with one list the minutes it was logged in: the undated line
+    # could fill any minute missed.
+    Scenario() \
+        .given(
+            argus_acted := datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: grouped(some_lines, None, ONSET_DAY, acted_at=argus_acted)
+        ) \
+        .then(
+            the_answer_was(grouped(some_lines, None, ONSET_DAY))
+        )
+
+
+@pytest.mark.unit
+def test_a_message_logged_only_after_argus_acted_lists_the_minutes_it_was_logged_in() -> None:
+    # A flag read off only after a switch-off, said as one span, reads as off
+    # in every minute of it - and whether the switch-off held is what the
+    # minutes it missed say.
+    some_lines = [f"2026-10-11T23:40:00Z {SOME_ERROR}",
+                  f"2026-10-11T23:43:00Z {SOME_ERROR}"]
+
+    Scenario() \
+        .given(
+            argus_acted := datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text
+                     for group in grouped(some_lines, None, ONSET_DAY, acted_at=argus_acted)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_ERROR} - 2 occurrences in 4 minutes, 23:40–23:43; "
+                            f"logged at 23:40 and 23:43"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("argus_acted", "the_metrics_stopped", "some_minutes", "said"), [
+    (datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC), datetime(2026, 10, 11, 23, 42, tzinfo=UTC),
+     ["23:38", "23:40", "23:42", "23:44"],
+     "up to and including the minute Argus first acted in: 1 occurrence in 1 minute, 23:38. "
+     "After it, before the metrics stopped: 1 occurrence in 1 minute, 23:40. After they "
+     "stopped: 2 occurrences in 3 minutes, 23:42–23:44; logged at 23:42 and 23:44"),
+    (datetime(2026, 10, 11, 23, 40, 30, tzinfo=UTC), datetime(2026, 10, 11, 23, 39, tzinfo=UTC),
+     ["23:38", "23:39", "23:40", "23:42"],
+     "before the metrics stopped: 1 occurrence in 1 minute, 23:38. After they stopped, up to "
+     "and including the minute Argus first acted in: 2 occurrences in 2 minutes, 23:39–23:40. "
+     "After it: 1 occurrence in 1 minute, 23:42"),
+    (datetime(2026, 10, 11, 23, 40, 30, tzinfo=UTC), datetime(2026, 10, 11, 23, 40, tzinfo=UTC),
+     ["23:38", "23:40", "23:42"],
+     "before the metrics stopped: 1 occurrence in 1 minute, 23:38. After they stopped, up to "
+     "and including the minute Argus first acted in: 1 occurrence in 1 minute, 23:40. "
+     "After it: 1 occurrence in 1 minute, 23:42"),
+    (datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC), datetime(2026, 10, 11, 23, 42, tzinfo=UTC),
+     ["23:38", "23:43"],
+     "before the metrics stopped: 1 occurrence in 1 minute, 23:38. After they stopped: "
+     "1 occurrence in 1 minute, 23:43")
+], ids=["acted-first", "stopped-first", "acted-in-the-minute-they-stopped",
+        "nothing-logged-between"])
+def test_a_message_split_where_argus_acted_and_where_the_metrics_stopped_is_said_in_time_order(
+        argus_acted: datetime, the_metrics_stopped: datetime, some_minutes: list[str],
+        said: str) -> None:
+    # Each cut where it falls, the parts in the order they were logged. Where
+    # nothing was logged between the two, one cut parts the lines as well as
+    # both would, and it is the one where the metrics stopped.
+    some_lines = [f"2026-10-11T{minute}:00Z {SOME_ERROR}" for minute in some_minutes]
+
+    Scenario() \
+        .given(argus_acted, the_metrics_stopped) \
+        .when(
+            lambda: [group.text for group in grouped(some_lines, the_metrics_stopped, ONSET_DAY,
+                                                     acted_at=argus_acted)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_ERROR} - {said}"])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("lines", "argus_acted", "said"), [
+    ([f"2026-10-12T00:16:00Z {SOME_ERROR}", f"2026-10-12T00:18:00Z {SOME_ERROR}",
+      f"2026-10-12T00:21:00Z {SOME_ERROR}"],
+     datetime(2026, 10, 12, 0, 17, 45, tzinfo=UTC),
+     "1 occurrence in 1 minute, Oct 12 00:16. After it: 2 occurrences in 4 minutes, "
+     "Oct 12 00:18–00:21; logged at Oct 12 00:18 and Oct 12 00:21"),
+    ([f"2026-10-11T23:56:00Z {SOME_ERROR}", f"2026-10-11T23:58:00Z {SOME_ERROR}",
+      f"2026-10-11T23:59:00Z {SOME_ERROR}", f"2026-10-12T00:00:00Z {SOME_ERROR}",
+      f"2026-10-12T00:02:00Z {SOME_ERROR}"],
+     datetime(2026, 10, 11, 23, 57, 30, tzinfo=UTC),
+     "1 occurrence in 1 minute, 23:56. After it: 4 occurrences in 5 minutes, 23:58–00:02; "
+     "logged at 23:58–00:00 and Oct 12 00:02")
+], ids=["on-a-later-day", "a-run-across-midnight"])
+def test_the_minutes_listed_after_argus_acted_are_said_as_any_span_of_a_group_is(
+        lines: list[str], argus_acted: datetime, said: str) -> None:
+    # A minute listed says its day where that is not the day the incident
+    # began, and a run shorter than a day ends bare, as a span does: its end
+    # is on the day its start is, or read earlier on the clock, the day after.
+    # Said with its day, the end of a run across midnight would split it into two
+    # figures, the first of them a time with a dash and no end.
+    Scenario() \
+        .given(argus_acted) \
+        .when(
+            lambda: [group.text
+                     for group in grouped(lines, None, ONSET_DAY, acted_at=argus_acted)]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_ERROR} - up to and including the minute Argus first acted "
+                            f"in: {said}"])
+        )
+
+
+@pytest.mark.unit
+def test_a_group_split_where_argus_acted_says_where_in_its_row_the_message_sits() -> None:
+    some_lines = [f"2026-10-11T23:38:00Z {SOME_ERROR}",
+                  f"2026-10-11T23:41:00Z {SOME_ERROR}"]
+
+    Scenario() \
+        .given(
+            argus_acted := datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.cited.text[slice(*group.quoted)]
+                     for group in the_groups_of(some_lines, None, ONSET_DAY,
+                                                acted_at=argus_acted)]
+        ) \
+        .then(
+            the_answer_was([SOME_ERROR])
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("lines", "said"), [
     ([f"2026-10-12T00:05:00Z {SOME_ERROR}"],
      f"{SOME_ERROR} - 1 occurrence in 1 minute, Oct 12 00:05"),

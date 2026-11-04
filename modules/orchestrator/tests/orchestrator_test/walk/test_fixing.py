@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixStopped
+from agent_codefix.proposing import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 from argus_core import RunLost
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
@@ -401,6 +401,43 @@ def test_a_proposal_that_could_not_be_made_is_published_as_a_failure() -> None:
                 FixOutcome.NOT_POSSIBLE, None, published
             ),
             _the_attempt_says_why(what_stopped_it, published)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("left_on", ["argus/fix-abc", None], ids=["a-branch", "no-branch"])
+def test_a_proposal_that_could_not_be_made_keeps_the_fix_code_fix_wrote(
+        left_on: str | None) -> None:
+    # GitHub answered 500 to a pull request, and the reading of the code that
+    # came with the fix went nowhere: the write-up had no account of the
+    # mechanism, and its action items lost the fix to review. The reading is a
+    # finding whether or not the proposal could be opened - and the fix itself
+    # is still on the branch it was written to, where that write landed.
+    published: list[IncidentEvent] = []
+    some_reading = "spend_summary divides by the month's purchase count, 0 for a new shopper"
+    what_stopped_it = "could not open a pull request: GitHub answered 500 Internal Server Error"
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            an_agent_that_could_not := _an_agent_raising(FixNotProposed(
+                what_stopped_it,
+                reading=ProposedFix(pull_request=None, explanation=some_reading),
+                branch=left_on
+            ))
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 an_agent_that_could_not,
+                                 publisher=published.append)
+        ) \
+        .then(all_of(
+            _exactly_one_attempt_was_announced(
+                FixOutcome.NOT_POSSIBLE, None, published
+            ),
+            _the_attempt_says_why(what_stopped_it, published),
+            _the_attempt_explains(some_reading, published),
+            _the_attempt_left_a_fix_unproposed_on(left_on, published)
         ))
 
 
@@ -1125,6 +1162,25 @@ def _exactly_one_attempt_was_announced(
             raise AssertionError(
                 f"Expected [{outcome}] carrying [{proposal}], got "
                 f"[{announced.outcome}] carrying [{announced.pull_request}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_attempt_left_a_fix_unproposed_on(branch: str | None,
+                                          published: list[IncidentEvent]
+                                          ) -> Assertion[StateDelta]:
+    """A fix Code-Fix wrote and nothing proposes, and the branch it is on -
+    `None` where it is on none."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        attempt = next(event for event in published if isinstance(event, FixAttempted))
+
+        if not attempt.unproposed or attempt.branch_written != branch:
+            raise AssertionError(
+                f"Expected the attempt to leave a fix unproposed on [{branch}], got "
+                f"unproposed [{attempt.unproposed}] on [{attempt.branch_written}]."
             )
 
         return True

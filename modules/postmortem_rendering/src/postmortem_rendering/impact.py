@@ -173,7 +173,8 @@ def _the_duration(impact: Impact | None, start: str) -> Card:
 
 def _the_errors(impact: Impact | None, start: str) -> tuple[Card, ...]:
     """The failed requests at their worst and in all - or, where they did not
-    rise, one card saying so.
+    rise, one card saying so. Not where nobody could say whether they rose:
+    the peak and the count are measured whatever the rate's own variation.
 
     Failed requests that did not rise are no harm, and a count of them under
     Impact reads as one: the requests that failed at the rate they always do.
@@ -184,7 +185,7 @@ def _the_errors(impact: Impact | None, start: str) -> tuple[Card, ...]:
     """
     levels = impact.error_rates if impact else None
 
-    if levels is not None and not levels.rose:
+    if levels is not None and levels.rose is False:
         return (Card(value=(f"{said_as_a_share(levels.before)} to "
                             f"{said_as_a_share(levels.while_broken)}"),
                      label=f"error rate, {_before_and_while_broken(start)}",

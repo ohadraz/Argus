@@ -367,6 +367,83 @@ def test_a_rise_in_failed_requests_is_measured_only_above_the_baseline_and_beyon
 
 
 @pytest.mark.unit
+def test_the_calm_s_worst_minute_is_carried_however_few_stretches_it_holds() -> None:
+    # Too short a calm says nothing of how high stretches as long go on their
+    # own, and still says how high it went: no stretch of it averaged, or
+    # peaked, above its worst minute.
+    the_worst_calm_minute = 0.035
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3), error_rate=0.01),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          error_rate=the_worst_calm_minute),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1), error_rate=0.02),
+                _a_bucket(at=INCIDENT_START, error_rate=DONT_CARE_ERROR_RATE)
+            ]
+        ) \
+        .when(
+            lambda: error_rates_over(buckets, INCIDENT_START, INCIDENT_START + timedelta(minutes=1))
+        ) \
+        .then(
+            _the_calm_s_worst_minute_is(the_worst_calm_minute)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "at_its_worst", "rose", "peaked"), [
+    pytest.param(0.183, 0.35, True, True, id="above-every-calm-minute"),
+    pytest.param(0.02, 0.35, None, True, id="only-its-worst-minute-above-them"),
+    pytest.param(0.02, 0.03, None, None, id="within-the-calm-s-worst-minute")
+])
+def test_a_rise_above_every_minute_of_a_calm_too_short_to_vary_in_is_beyond_its_variation(
+    while_broken: float, at_its_worst: float, rose: bool | None, peaked: bool | None
+) -> None:
+    # No stretch averages above its own worst minute, so a broken stretch above
+    # every calm minute read went higher than any stretch as long of the calm
+    # did, however few of them there were. At or below one, nobody can say.
+    Scenario() \
+        .given(
+            some_rates := ErrorRates(baseline=0.01, while_broken=while_broken,
+                                     at_its_worst=at_its_worst, usual_ceiling=None,
+                                     usual_worst=None, calm_worst=0.035)
+        ) \
+        .when(
+            lambda: (some_rates.rose_beyond_its_variation, some_rates.peaked_beyond_its_variation)
+        ) \
+        .then(
+            the_answer_was((rose, peaked))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "usual_ceiling", "rose"), [
+    pytest.param(0.30, 0.012, True, id="beyond-its-variation"),
+    pytest.param(0.011, 0.012, False, id="within-its-variation"),
+    pytest.param(0.009, None, False, id="below-the-baseline"),
+    pytest.param(0.30, None, None, id="variation-unknown")
+])
+def test_whether_failed_requests_rose_is_unknown_only_above_the_baseline_and_its_variation_unknown(
+        while_broken: float, usual_ceiling: float | None, rose: bool | None) -> None:
+    # "No rise" is a claim. A stretch no worse than the calm before it makes it,
+    # and so does one within the rate's own variation; one above the calm, with
+    # nobody able to say how high the rate goes alone, does not.
+    Scenario() \
+        .given(
+            some_rates := ErrorRates(baseline=0.01, while_broken=while_broken,
+                                     at_its_worst=while_broken,
+                                     usual_ceiling=usual_ceiling, usual_worst=None)
+        ) \
+        .when(
+            lambda: some_rates.rose
+        ) \
+        .then(
+            the_answer_was(rose)
+        )
+
+
+@pytest.mark.unit
 def test_a_window_with_no_calm_minutes_measures_nothing_at_all() -> None:
     # A delta against nothing is not a small delta - there is no baseline to
     # say what "normal" was, and answering zero would report an incident that
@@ -1138,6 +1215,19 @@ def _goes_on_its_own_to(usual_ceiling: float | None,
             raise AssertionError(
                 f"Expected the error rate to go on its own to [{usual_ceiling}] on average "
                 f"and [{usual_worst}] at worst, got {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_calm_s_worst_minute_is(calm_worst: float) -> Assertion[ErrorRates | None]:
+    def assertion(measured: ErrorRates | None) -> bool:
+        said = measured.calm_worst if measured else None
+
+        if said is None or not isclose(said, calm_worst):
+            raise AssertionError(
+                f"Expected the calm's worst minute to be [{calm_worst}], got [{said}].")
 
         return True
 

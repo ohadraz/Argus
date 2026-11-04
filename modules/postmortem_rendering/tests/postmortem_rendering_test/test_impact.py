@@ -566,6 +566,28 @@ def test_an_error_rate_that_did_not_rise_is_one_card_saying_so() -> None:
 
 
 @pytest.mark.unit
+def test_an_error_rate_nobody_could_say_rose_or_not_is_shown_at_its_peak_and_in_requests_failed(
+) -> None:
+    # "No rise" is a claim, and nothing measured it: the rate went above the
+    # calm by an amount nobody could hold to its own variation. The peak and
+    # the count are measured whatever that variation is.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=19), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.35, requests_failed=3480,
+                              error_rates=ErrorRateLevels(before=0.0105, while_broken=0.1832,
+                                                          rose=None)),
+                customer_loss_estimate=None)
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards
+        ) \
+        .then(
+            _the_values_are("19m 0s", "35.0%", "3,480", "not estimated"))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("worse_when", "before", "while_broken", "value"), [
     ("below", 0.8994, 0.45943, "0.899 to 0.459"),
     ("above", 0.45943, 0.8994, "0.459 to 0.899")

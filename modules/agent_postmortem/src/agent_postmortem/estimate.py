@@ -114,6 +114,11 @@ class ErrorRates(BaseModel):
     # 95th percentile to be one.
     usual_ceiling: float | None
     usual_worst: float | None
+    # The worst minute of all the calm read, however few stretches it holds: no
+    # stretch of it averaged, or peaked, above this. What a broken stretch is
+    # held to where the calm is too short for the 95th percentile. `None` where
+    # it was not read.
+    calm_worst: float | None = None
     # How many requests failed over the broken stretch - each broken minute's
     # requests at that minute's rate. What a reader asks after how long and how
     # bad. `None` where it was not counted.
@@ -123,14 +128,41 @@ class ErrorRates(BaseModel):
     def rose_beyond_its_variation(self) -> bool | None:
         """Whether the broken stretch's average went higher than stretches as
         long go on their own - `None` where nobody can say how high that is."""
-        return None if self.usual_ceiling is None else self.while_broken > self.usual_ceiling
+        return self._beyond(self.while_broken, self.usual_ceiling)
 
     @property
     def peaked_beyond_its_variation(self) -> bool | None:
         """Whether the broken stretch's worst minute went higher than the worst
         minutes of stretches as long go on their own - `None` where nobody can
         say how high that is."""
-        return None if self.usual_worst is None else self.at_its_worst > self.usual_worst
+        return self._beyond(self.at_its_worst, self.usual_worst)
+
+    def _beyond(self, level: float, usual: float | None) -> bool | None:
+        """Whether `level` went higher than `usual`, the 95th percentile of
+        stretches as long - or, where the calm held too few of those, than its
+        worst minute, which none of them passed. At or below that, nobody can
+        say: a calm that short says nothing of how high the rate goes alone."""
+        if usual is not None:
+            return level > usual
+
+        if self.calm_worst is not None and level > self.calm_worst:
+            return True
+
+        return None
+
+    @property
+    def rose(self) -> bool | None:
+        """Whether failed requests rose above the calm before, and beyond what
+        the rate reaches on its own - `None` where they rose above the calm and
+        nobody can say how far it reaches alone.
+
+        "No rise" is a claim: a stretch no worse than the calm makes it, and so
+        does one within the rate's own variation. An unmeasured variation does
+        not."""
+        if self.rise <= 0:
+            return False
+
+        return self.rose_beyond_its_variation
 
     @property
     def a_rise_was_measured(self) -> bool:
@@ -138,9 +170,9 @@ class ErrorRates(BaseModel):
         the rate reaches on its own - not where nobody can say how far that is.
 
         One answer for every reader of it: the brief and the impact cards each
-        say "no rise" from this, and two tests of it are two chances to
-        disagree."""
-        return self.rise > 0 and self.rose_beyond_its_variation is True
+        say whether there was a rise from `rose`, and two tests of it are two
+        chances to disagree."""
+        return self.rose is True
 
     @property
     def rise(self) -> float:
@@ -207,6 +239,7 @@ def error_rates_over(buckets: list[MetricBucket],
                        if enough else None),
         usual_worst=(_the_95th_percentile([max(stretch) for stretch in stretches])
                      if enough else None),
+        calm_worst=max(calm),
         failed_requests=round(sum(bucket.request_volume * bucket.error_rate
                                   for bucket in sides.broken))
     )

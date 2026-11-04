@@ -1115,6 +1115,34 @@ def test_the_log_messages_published_are_split_where_the_metrics_stopped_as_shown
 
 
 @pytest.mark.unit
+def test_the_log_messages_published_are_split_where_argus_first_acted_as_shown() -> None:
+    # A row summed across the act would hold figures the prose was never shown.
+    some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
+                  f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
+    argus_acted = ONSET + timedelta(minutes=3)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=some_lines,
+                                           actions=[an_action("some action",
+                                                              taken_at=argus_acted)])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the log messages read",
+                       lambda document: document.log_messages_read,
+                       grouped(some_lines, None, ONSET.date(), acted_at=argus_acted))
+        )
+
+
+@pytest.mark.unit
 def test_the_document_carries_what_each_deployment_it_looked_into_changed() -> None:
     # Under the labels the model was shown them by, so a step of the cause
     # citing D1 has a row to lead to. The labels asserted on their own as well,

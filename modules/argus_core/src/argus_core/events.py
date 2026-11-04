@@ -791,6 +791,11 @@ class FixAttempted(_Event):
     `uses_outside` is how the code the patch does not touch uses what it
     changes, said by the syntax tree: what a model got wrong when it surveyed
     those readers in its own words.
+
+    `unproposed` is a fix Code-Fix wrote that the repository would not take a
+    proposal of, and `branch_written` the branch it is on - `None` where the
+    branch was refused too. GitHub answered 500 to a pull request once, and
+    the fix sat on its branch with nothing saying it was there to open.
     """
 
     kind: Literal["fix-attempted"] = "fix-attempted"
@@ -802,6 +807,8 @@ class FixAttempted(_Event):
     holds_what_ran: bool | None = None
     as_it_ran: list[FileAsItRan] = []
     uses_outside: list[CodeUse] = []
+    unproposed: bool = False
+    branch_written: str | None = None
 
 
 class PostmortemWritten(_Event):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from functools import partial
 
-from agent_codefix import FixDeclined, FixNotAnswered, FixStopped
+from agent_codefix import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
 from argus_core import parse_iso, was_lost
 from argus_core.events import FixAttempted, Narrator, Publisher, nobody
 from argus_core.models import (
@@ -125,6 +125,26 @@ def codefix_node(state: IncidentState,
             detail="",
             lead_in="the model declined to write one"
         )
+    except FixNotProposed as error:
+        # A fix the model wrote that the repository would not take a proposal
+        # of. Not possible, as any refusal is, and with what came before the
+        # refusal kept: what Code-Fix said of the code, and the branch the fix
+        # sits on where that write landed - both went with the failure once,
+        # when GitHub answered a pull request 500.
+        logger.warning("fix could not be proposed", exc_info=True)
+
+        return _said(
+            narrator,
+            found=False,
+            outcome=FixOutcome.NOT_POSSIBLE,
+            proposal=None,
+            action="no code-level fix could be proposed",
+            detail=_what_went_wrong(error),
+            lead_in="the fix could not be proposed",
+            read=error.reading,
+            unproposed=True,
+            branch_written=error.branch
+        )
     except Exception as error:
         # Caught deliberately, and caught broadly. What opens a pull request is
         # a tool on another process, so what arrives here is whatever the
@@ -242,7 +262,9 @@ def _said(narrator: Narrator,
           action: str,
           detail: str,
           lead_in: str | None = None,
-          read: ProposedFix | None = None) -> StateDelta:
+          read: ProposedFix | None = None,
+          unproposed: bool = False,
+          branch_written: str | None = None) -> StateDelta:
     """The one account of this step, published and handed up in one place -
     with what Code-Fix answered, where it answered at all: what it said of the
     code, the branch it read, and whether that held what ran. Taken off the
@@ -260,13 +282,17 @@ def _said(narrator: Narrator,
     could not be proposed: ...". So the event carries the reason alone, and
     the move the two together - or the lead-in alone, where there is no
     reason to give.
+
+    `unproposed` is a fix written and proposed nowhere, and `branch_written`
+    the branch it is on - `None` where it is on none.
     """
     narrator.say(FixAttempted, outcome=outcome, pull_request=proposal, detail=detail,
                  explanation=read.explanation if read is not None else None,
                  branch_read=read.branch_read if read is not None else None,
                  holds_what_ran=read.holds_what_ran if read is not None else None,
                  as_it_ran=read.as_it_ran if read is not None else [],
-                 uses_outside=read.uses_outside if read is not None else [])
+                 uses_outside=read.uses_outside if read is not None else [],
+                 unproposed=unproposed, branch_written=branch_written)
     logger.info("fix attempted", extra={
         "outcome": outcome, "pull_request": proposal.url if proposal is not None else None
     })

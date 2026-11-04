@@ -126,6 +126,7 @@ from agent_postmortem.sections import (
     record_action_items_of,
     said_of_a_line,
     the_alert_labelled,
+    the_unproposed_fix_item,
     trigger_of,
     what_it_came_to,
 )
@@ -1277,6 +1278,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *([note] if (note := _rewriting_is_left_to_a_person(evidence)) else []),
         *_what_the_record_holds_of_the_fix(evidence.pull_request),
         *_what_the_record_holds_of_a_fix_not_kept(evidence, measured),
+        *_what_the_record_holds_of_a_fix_not_proposed(evidence, measured),
         *_what_set_it_off(evidence),
         "",
         f"Cite evidence in {CAUSAL_CHAIN_FIELD} by its label. In a contributing "
@@ -1313,7 +1315,8 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     listed = _the_evidence_listed(evidence, measured)
     walked = _the_walk_s_labels(evidence)
     day = the_day_it_began(evidence, measured)
-    groups = the_groups_of(evidence.log_lines, measured.metrics_stopped_at, day)
+    groups = the_groups_of(evidence.log_lines, measured.metrics_stopped_at, day,
+                           acted_at=evidence.first_acted_at)
     in_a_group = {group.cited.label for group in groups}
 
     return (figures_of(evidence, measured)
@@ -1386,7 +1389,7 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     changes = the_changes_labelled(evidence)
     walk_alone = evidence.changes_the_walk_alone_read
     log_lines = grouped(evidence.log_lines, measured.metrics_stopped_at,
-                        the_day_it_began(evidence, measured))
+                        the_day_it_began(evidence, measured), acted_at=evidence.first_acted_at)
     candidates = the_candidates_labelled(evidence)
     # Numbered over every action, and listed under a heading for how far each
     # got: one never performed under "Actions it took" is a line saying "Did
@@ -1804,6 +1807,30 @@ def _what_the_record_holds_of_a_fix_not_kept(evidence: IncidentEvidence,
     return [f"Code-Fix kept none of the fix it wrote: {numbered[WRITE_THE_FIX_AGAIN]} is "
             f"writing it again, both its change to the repository and the change outside "
             f"it - propose neither again."]
+
+
+def _what_the_record_holds_of_a_fix_not_proposed(evidence: IncidentEvidence,
+                                                 measured: Measurements) -> list[str]:
+    """That Code-Fix wrote a fix it could propose nowhere, and which of the
+    record's items proposes it - or nothing, where no such fix was written.
+
+    Said beside the item for the reason a fix not kept is: no check refuses an
+    item repeating one the record holds.
+    """
+    item = the_unproposed_fix_item(evidence)
+
+    if item is None:
+        return []
+
+    numbered = {each.text: each.number
+                for each in record_action_items_of(evidence, measured.back_to_normal_at)}
+
+    if evidence.fix_branch_written is None:
+        return [f"Code-Fix could not put the fix it wrote on a branch: {numbered[item]} is "
+                f"writing it again - do not propose it again."]
+
+    return [f"Code-Fix could not propose the fix it wrote: {numbered[item]} is opening its "
+            f"pull request from {evidence.fix_branch_written} - do not propose it again."]
 
 
 def _what_set_it_off(evidence: IncidentEvidence) -> list[str]:
