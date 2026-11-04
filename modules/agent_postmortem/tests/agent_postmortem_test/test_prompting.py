@@ -1786,6 +1786,50 @@ def test_the_model_is_told_which_change_the_document_states_set_it_off() -> None
 
 
 @pytest.mark.unit
+def test_a_change_inside_the_onset_s_minute_is_told_the_onset_is_dated_to_that_minute() -> None:
+    # The onset is dated to the minute it fell in. A flag switched on a few
+    # seconds into a minute breaks that minute, so the brief said the change
+    # came after the onset it caused - told the onset as an instant, a model
+    # reads a cause dated after its effect.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at="2026-09-02T12:00:05Z",
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _says("(the onset, dated to its minute: a change came during that minute)")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("occurred_at", ["2026-09-02T11:59:52Z", "2026-09-02T12:00:00Z",
+                                         "2026-09-02T12:01:00Z"],
+                         ids=["before-the-onset", "at-the-onset", "the-minute-after"])
+def test_a_change_outside_the_onset_s_minute_leaves_the_onset_told_as_it_was(
+        occurred_at: str) -> None:
+    # Before the onset or at it, the change already reads as before what it
+    # caused; a minute later, it is outside the minute the onset is dated to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                changes=[ChangeEvent(kind=ChangeKind.FLAG_TOGGLE,
+                                     occurred_at=occurred_at,
+                                     reference="checkout-v2", summary="dont care")])
+        ) \
+        .when(
+            lambda: opening_ask(evidence, a_measured_incident())
+        ) \
+        .then(
+            _does_not_say("dated to its minute")
+        )
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_trigger_is_told_nothing_of_one() -> None:
     # A heading over nothing tells the model there is something it has failed
     # to see.

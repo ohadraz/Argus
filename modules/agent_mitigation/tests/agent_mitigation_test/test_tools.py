@@ -268,6 +268,31 @@ def test_a_change_made_after_the_onset_is_not_in_the_window() -> None:
 
 
 @pytest.mark.unit
+def test_a_change_inside_the_onset_s_minute_is_in_the_window() -> None:
+    # The onset is dated to its minute, and a flag switched on a few seconds
+    # into the minute it broke began it. Ended at the minute's start, the window
+    # would drop a flag the Investigator blames, leaving Mitigation nothing to revert.
+    an_onset = THE_MOMENT_IT_WAS_CLAIMED - timedelta(days=7)
+    the_one_that_moved_inside_its_minute = _a_change_at(an_onset + timedelta(seconds=5))
+
+    Scenario() \
+        .given(
+            fetch := _a_provider_reporting(the_one_that_moved_inside_its_minute)
+        ) \
+        .when(
+            lambda: fetch_recent_flag_changes(
+                _some_mitigation_settings(),
+                fetch=fetch,
+                now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
+                onset=an_onset
+            ).changes
+        ) \
+        .then(
+            _it_returned_only(the_one_that_moved_inside_its_minute)
+        )
+
+
+@pytest.mark.unit
 def test_changes_argus_made_itself_are_left_out() -> None:
     # Once Argus can act more than once on an incident its own revert lands in
     # this window, and a window carrying it turns the unambiguous case - one
@@ -293,31 +318,31 @@ def test_changes_argus_made_itself_are_left_out() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("onset", [None, THE_MOMENT_IT_WAS_CLAIMED - timedelta(days=7)],
-                         ids=["ending-now", "ending-at-a-stated-onset"])
-def test_the_history_says_the_window_it_was_read_over(onset: datetime | None) -> None:
+@pytest.mark.parametrize(("onset", "since", "until"), [
+    (None, THE_MOMENT_IT_WAS_CLAIMED - timedelta(minutes=30), THE_MOMENT_IT_WAS_CLAIMED),
+    (datetime(2026, 8, 28, 22, 15, tzinfo=UTC), datetime(2026, 8, 28, 21, 45, tzinfo=UTC),
+     datetime(2026, 8, 28, 22, 16, tzinfo=UTC))
+], ids=["ending-now", "ending-with-a-stated-onset-s-minute"])
+def test_the_history_says_the_window_it_was_read_over(onset: datetime | None,
+                                                      since: datetime,
+                                                      until: datetime) -> None:
     # What the walk says it read: none changed over these minutes, rather than
     # "lately", which has no span. Ending where the filter ended it, so the
     # window said is the one the changes were kept from.
-    some_lookback = timedelta(minutes=30)
-    window_ends_at = onset if onset is not None else THE_MOMENT_IT_WAS_CLAIMED
-
     Scenario() \
         .given(
             fetch := _a_provider_reporting()
         ) \
         .when(
             lambda: fetch_recent_flag_changes(
-                _some_mitigation_settings(lookback=some_lookback),
+                _some_mitigation_settings(lookback=timedelta(minutes=30)),
                 fetch=fetch,
                 now=lambda: THE_MOMENT_IT_WAS_CLAIMED,
                 onset=onset
             )
         ) \
         .then(
-            the_answer_was(FlagHistory(changes=[],
-                                       since=window_ends_at - some_lookback,
-                                       until=window_ends_at))
+            the_answer_was(FlagHistory(changes=[], since=since, until=until))
         )
 
 
@@ -344,7 +369,8 @@ def test_the_deploy_history_is_asked_for_the_lookback_before_a_stated_onset() ->
         ) \
         .then(
             _it_asked_for_the_window(
-                fetch, SOME_APPLICATION, a_week_earlier - some_lookback, a_week_earlier
+                fetch, SOME_APPLICATION, a_week_earlier - some_lookback,
+                a_week_earlier + timedelta(minutes=1)
             )
         )
 

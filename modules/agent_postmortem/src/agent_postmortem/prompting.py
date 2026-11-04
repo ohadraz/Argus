@@ -26,6 +26,7 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 from argus_core import A_REVISION, parse_iso, short_form, the_revision_named, to_iso
+from argus_core.anomaly import the_end_of_the_onset
 from argus_core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
     ActionItemType,
@@ -687,6 +688,13 @@ _SENTENCES: Final[dict[str, Any]] = {"type": "array", "items": {"type": "string"
 # stop while the shop keeps serving" came back in thirteen root causes of
 # fifteen as what happened.
 _NOT_WHAT_HAPPENED: Final = "is not what happened unless a row of the record shows it"
+
+# What the stretch is dated from where a change came inside the onset's minute.
+# Told the onset as an instant, a model would read a flag switched on a few
+# seconds into the minute it broke as a cause after its effect.
+_THE_ONSET_WITH_A_CHANGE_INSIDE_ITS_MINUTE: Final = (
+    "the onset, dated to its minute: a change came during that minute"
+)
 
 _WHAT_ARGUS_DID: Final = "What Argus did, in order:"
 
@@ -2131,8 +2139,10 @@ def _how_long_it_was_broken(measured: Measurements,
         ]
 
     dated_from = (
-        "the onset" if measured.onset_at is not None
-        else "the alert, since no onset could be measured"
+        "the alert, since no onset could be measured" if measured.onset_at is None
+        else _THE_ONSET_WITH_A_CHANGE_INSIDE_ITS_MINUTE
+        if _a_change_came_inside_the_minute_of(measured.onset_at, evidence.changes)
+        else "the onset"
     )
 
     if measured.metrics_stopped_at is not None:
@@ -2181,6 +2191,19 @@ def _how_long_it_was_broken(measured: Measurements,
         f"That is {_shown(DURATION_FIGURE, figures)}, and every impact figure below "
         f"is measured over that stretch."
     ]
+
+
+def _a_change_came_inside_the_minute_of(onset_at: datetime,
+                                        changes: Sequence[ChangeEvent]) -> bool:
+    """Whether a change came after the onset and inside the minute it is dated
+    to - which, told the onset as an instant, would read as a cause after its
+    effect.
+
+    A flag switched on a few seconds into a minute that it broke is after the
+    onset's instant and before the end of its minute (`the_end_of_the_onset`).
+    An onset dated to its second ends at itself, so no change is inside it."""
+    return any(onset_at < parse_iso(change.occurred_at) < the_end_of_the_onset(onset_at)
+               for change in changes)
 
 
 def _where_it_ended(measured: Measurements, evidence: IncidentEvidence) -> str:

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 from itertools import groupby
 from math import inf
 from statistics import median
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 from argus_core.models.metrics import RULE_READING_FIELD, MetricBucket, RuleReading
 from argus_core.timestamps import parse_iso
+
+# The span every measured onset is dated to: the metrics' minute.
+_A_MINUTE: Final = timedelta(minutes=1)
 
 # Five of a bucket's series are judged here - the error rate, the median, the
 # 95th, the 99th and the memory in use - and the rest are retrieved without being
@@ -191,6 +195,23 @@ def find_onset(buckets: Sequence[MetricBucket],
     ]
 
     return buckets[min(found)].bucket_id if found else None
+
+
+def the_end_of_the_onset(onset: datetime) -> datetime:
+    """The latest instant a change can have come and still have begun an
+    incident whose onset is `onset`.
+
+    The end of its minute where the onset is dated to one, as every measured
+    onset is (`find_onset` answers a minute's bucket): a flag switched on a few
+    seconds into a minute breaks that minute, so the change comes after the
+    minute's start and began what the minute shows. The onset itself where it
+    is dated to its second, as only an alert's stated onset can be: a change
+    after that instant came after the incident began.
+    """
+    if onset.second or onset.microsecond:
+        return onset
+
+    return onset + _A_MINUTE
 
 
 def _the_onset_against(buckets: Sequence[MetricBucket],

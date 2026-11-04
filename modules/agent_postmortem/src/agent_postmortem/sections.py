@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Final
 
 from argus_core import parse_iso
+from argus_core.anomaly import the_end_of_the_onset
 from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT, names_as_changed
 from argus_core.models import (
     ActionItem,
@@ -479,10 +480,10 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
 
     A setting is no change's reference, so what carried it is found in what each
     deploy changed: the deploy whose diff moves the setting from the state the
-    candidate left to the one it went to (`_it_moves`), made at or before the
-    onset - a change made after the incident began did not begin it. Two such
-    deploys and the diffs cannot say which, and a trigger credited to either
-    would be a guess said as a finding.
+    candidate left to the one it went to (`_it_moves`), made by the end of the
+    onset (`_by_the_onset`) - a change made after the incident began did not
+    begin it. Two such deploys and the diffs cannot say which, and a trigger
+    credited to either would be a guess said as a finding.
 
     A candidate blaming a file and naming no states blames no setting in it:
     what carried it is the deploy whose diff names that file among those it
@@ -521,10 +522,12 @@ def _the_deploys_that_carried(blamed: CandidateRecord,
 
 def _by_the_onset(changes: list[tuple[int, ChangeEvent]],
                   evidence: IncidentEvidence) -> list[tuple[int, ChangeEvent]]:
-    """Those of `changes` made at or before the onset - every one where none
-    was measured."""
+    """Those of `changes` made by the end of the onset (`the_end_of_the_onset`)
+    - every one where none was measured. With its minute where the onset is
+    dated to one: a deploy a few seconds into the minute it broke began it."""
     return [(position, change) for position, change in changes
-            if evidence.onset_at is None or parse_iso(change.occurred_at) <= evidence.onset_at]
+            if evidence.onset_at is None
+            or parse_iso(change.occurred_at) <= the_end_of_the_onset(evidence.onset_at)]
 
 
 def _the_file_and_key(subject: str,

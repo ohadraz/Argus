@@ -772,6 +772,31 @@ def test_a_deploy_after_the_onset_carried_nothing_that_began_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_deploy_inside_the_onset_s_minute_carried_what_began_it() -> None:
+    # The onset is dated to its minute, and a deploy a few seconds into the
+    # minute it broke is how a real deployment platform dates one: taken as
+    # after the onset, the page would say it changed the setting but after the
+    # incident began.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                onset_at=ONSET,
+                candidates=[a_candidate("dont care", subject="categoriser.model",
+                                        from_state="v1", to_state="v2",
+                                        tested=True, result=Verdict.CONFIRMED)],
+                changes=[_a_deploy_of(SOME_REVISION, at=to_iso(ONSET + timedelta(seconds=5)))],
+                deployment_changes=[_what_the_deploy_of(SOME_REVISION, [
+                    " categoriser:", "-  model: v1", "+  model: v2"])])
+        ) \
+        .when(
+            lambda: getattr(trigger_of(evidence), "carried_by", None)
+        ) \
+        .then(
+            the_answer_was("P1")
+        )
+
+
+@pytest.mark.unit
 def test_a_comment_or_a_blank_line_over_a_setting_does_not_hide_its_parent() -> None:
     # Walking up from the setting to its parent, a comment set in less far and
     # a blank line name nothing: the parent is the nearest line that names

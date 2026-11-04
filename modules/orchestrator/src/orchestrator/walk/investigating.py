@@ -445,7 +445,7 @@ def _what_the_platform_recorded(state: IncidentState,
 def _where_the_change_window_ends(state: IncidentState,
                                   readings_cover_the_incident: bool
                                   ) -> datetime | None:
-    """The onset a change history's window ends at, or `None` for the present.
+    """The onset a change history's window ends with, or `None` for the present.
 
     The onset the alert stated, or nothing - which is what every alert that
     measured its own says, and what leaves the window ending where it always

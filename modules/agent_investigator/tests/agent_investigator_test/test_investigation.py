@@ -973,7 +973,7 @@ def test_the_change_channels_are_read_at_the_stated_onset() -> None:
         ) \
         .then(
             _the_channel_was_read_up_to(
-                investigation.change_fetcher, to_iso(A_STATED_ONSET)
+                investigation.change_fetcher, to_iso(A_STATED_ONSET + timedelta(minutes=1))
             )
         )
 

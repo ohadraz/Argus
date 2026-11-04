@@ -16,10 +16,11 @@ from argus_core.anomaly import (
     has_recovered_since,
     minutes_a_recovery_must_hold,
     signals_judged_in,
+    the_end_of_the_onset,
 )
 from argus_core.models.metrics import MetricBucket, RuleLine, RuleReading, WorseWhen
 from argus_core.timestamps import parse_iso, to_iso_minute
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, the_answer_was
 
 from argus_core_test.framework.windows import (
     a_quiet_window_of,
@@ -100,6 +101,27 @@ def test_find_onset_reports_nothing_for_an_empty_window() -> None:
         ) \
         .then(
             _no_onset_was_found()
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("onset", "ends"), [
+    (datetime(2026, 9, 4, 22, 15, tzinfo=UTC), datetime(2026, 9, 4, 22, 16, tzinfo=UTC)),
+    (datetime(2026, 9, 4, 22, 15, 35, tzinfo=UTC), datetime(2026, 9, 4, 22, 15, 35, tzinfo=UTC))
+], ids=["dated-to-its-minute", "dated-to-its-second"])
+def test_an_onset_dated_to_its_minute_ends_with_it_and_one_dated_to_its_second_at_itself(
+        onset: datetime, ends: datetime) -> None:
+    # The latest instant a change can have come and begun the incident. A
+    # measured onset is the minute the metrics date it to, and a flag switched
+    # on a few seconds into a minute breaks that minute; an onset an alert
+    # stated to its second is that instant, and a change after it came after.
+    Scenario() \
+        .given(onset) \
+        .when(
+            lambda: the_end_of_the_onset(onset)
+        ) \
+        .then(
+            the_answer_was(ends)
         )
 
 
