@@ -321,6 +321,19 @@ _A_MEASUREMENT: Final = re.compile(
 # What joins the two ends of a span shorter than a day, as a log group says one.
 SPAN_DASH: Final = "–"
 
+# What a log group says right before the minutes it was logged in after Argus
+# first acted, and what joins those minutes into one word: one figure, a set,
+# however many it holds - with a space after each, a replay that logged one
+# minute more named every figure after it one place on.
+AFTER_ARGUS_FIRST_ACTED: Final = "After Argus first acted, logged in"
+BETWEEN_THE_MINUTES_OF_A_SET: Final = ","
+
+# A set of minutes as a log group says one: minutes and spans of them, each to
+# the minute, joined by `BETWEEN_THE_MINUTES_OF_A_SET`.
+_A_RUN_OF_MINUTES: Final = rf"\d{{2}}:\d{{2}}(?:{SPAN_DASH}\d{{2}}:\d{{2}})?"
+_A_SET_OF_MINUTES: Final = re.compile(
+    rf"{_A_RUN_OF_MINUTES}(?:{re.escape(BETWEEN_THE_MINUTES_OF_A_SET)}{_A_RUN_OF_MINUTES})*")
+
 # An instant or a span of them as the page writes one on the day the incident
 # began: in UTC, and without the day, which the page's head says once - a span
 # past midnight says the day its end fell on.
@@ -357,10 +370,16 @@ class Figure(BaseModel):
     Two forms, because they are read for different things. The model reads an
     instant to the second in the form every other instant it is handed takes,
     and compares them; a reader reads a sentence.
+
+    `a_set_of_minutes` where it is the minutes a log group was logged in after
+    Argus first acted: known by what it is, since a set of one minute is
+    written as a moment is, and a sentence placing a moment at it says less
+    than it does.
     """
 
     given: str
     written: str
+    a_set_of_minutes: bool = False
 
 
 def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, Figure]:
@@ -508,17 +527,19 @@ def with_every_day_said(figures: Mapping[str, Figure], day: date) -> dict[str, F
     was given in - a wire instant, a time a line of the narration said, a
     group of log lines' minutes. One written as given carries no zone, and its
     day is nobody's to say."""
-    return {name: Figure(given=figure.given, written=_with_the_day_said(figure.written, day))
+    return {name: figure.model_copy(update={"written": _with_the_day_said(figure, day)})
             for name, figure in figures.items()}
 
 
-def _with_the_day_said(written: str, day: date) -> str:
+def _with_the_day_said(figure: Figure, day: date) -> str:
     """A figure as written, with `day` before it where it is an instant
-    written in UTC without its day - which is one on that day."""
-    if not _A_TIME_WITHOUT_ITS_DAY.fullmatch(written):
-        return written
+    written in UTC without its day - which is one on that day - or a set of
+    minutes whose first is."""
+    if not (_A_TIME_WITHOUT_ITS_DAY.fullmatch(figure.written)
+            or (figure.a_set_of_minutes and not A_DAY_SAID.match(figure.written))):
+        return figure.written
 
-    return f"{said_as_a_day(datetime.combine(day, datetime.min.time(), UTC))}, {written}"
+    return f"{said_as_a_day(datetime.combine(day, datetime.min.time(), UTC))}, {figure.written}"
 
 
 def the_day_said_off_the_page(evidence: IncidentEvidence,
@@ -654,18 +675,58 @@ def the_log_group_figures(groups: Sequence[tuple[CitedEvidence, tuple[int, int]]
 def _the_grouped_figures_in(text: str, prefix: str, quoted: tuple[int, int],
                             day: date) -> dict[str, Figure]:
     figures: dict[str, Figure] = {}
+    after_the_act = text.find(AFTER_ARGUS_FIRST_ACTED)
     at = 0
 
     for part, figure, beside in _the_words_and_days_of(text):
         if figure is not None:
             name = f"{prefix}{len(figures) + 1}"
+            on = the_day_said(beside, day) if beside is not None else day
             figures[name] = (_as_the_alert_gave_it(figure, day) if quoted[0] <= at < quoted[1]
-                             else _without_its_trailing_zeros(
-                                 _on_its_day(figure, the_day_said(beside, day)
-                                             if beside is not None else day, day)))
+                             else _a_set_on_its_day(figure, on or day, day)
+                             if 0 <= after_the_act < at and _A_SET_OF_MINUTES.fullmatch(figure)
+                             else _without_its_trailing_zeros(_on_its_day(figure, on, day)))
         at += len(part)
 
     return figures
+
+
+def _a_set_on_its_day(figure: str, on: date, day: date) -> Figure:
+    """The minutes a log group was logged in after Argus first acted, written
+    as a reader reads a list - each minute or span on its day as `_on_its_day`
+    writes one, a minute earlier on the clock than the one before it on the
+    next day, and the zone said once at the end: `23:40, 23:42–23:43 and
+    23:45 UTC`."""
+    written: list[str] = []
+    before: datetime | None = None
+
+    for run in figure.split(BETWEEN_THE_MINUTES_OF_A_SET):
+        began, _, ended = run.partition(SPAN_DASH)
+        first = _a_minute_from(began, on, before)
+        last = _a_minute_from(ended, on, first) if ended else first
+        said = _as_a_reader_says(first, day).removesuffix(" UTC")
+        if ended:
+            said += SPAN_DASH + (said_as_a_time(last) if last.date() == first.date()
+                                 else _with_its_day(last).removesuffix(" UTC"))
+        written.append(said)
+        before = last
+
+    listed = (f"{', '.join(written[:-1])} and {written[-1]}" if len(written) > 1
+              else written[0])
+
+    return Figure(given=figure, written=f"{listed} UTC", a_set_of_minutes=True)
+
+
+def _a_minute_from(clock: str, on: date, before: datetime | None) -> datetime:
+    """A time of day as the instant it is on `on` - or, where that is earlier
+    than `before`, on the first day after it that is not."""
+    hours, minutes = map(int, clock.split(":"))
+    at = datetime(on.year, on.month, on.day, hours, minutes, tzinfo=UTC)
+
+    while before is not None and at < before:
+        at += timedelta(days=1)
+
+    return at
 
 
 def _without_its_trailing_zeros(figure: Figure) -> Figure:
@@ -791,7 +852,8 @@ def with_figures_written_with_every_day(answer: SubmittedPostmortem,
     too: worked out from the figures as the model was shown them, an instant
     after the onset came out bare beside figures that said their day."""
     return _with_figures_written_in(answer, with_every_day_said(figures, day),
-                                    lambda result: _with_the_day_said(result, day))
+                                    lambda result: _with_the_day_said(
+                                        Figure(given=result, written=result), day))
 
 
 def _with_figures_written_in(answer: SubmittedPostmortem, figures: dict[str, Figure],
@@ -1102,8 +1164,10 @@ def _as_the_alert_gave_it(figure: str, day: date) -> Figure:
 
 
 def _is_on_a_clock(figure: str) -> bool:
-    """Whether a figure is a time of day, or a span between two."""
-    return bool(_A_TIME_OF_DAY.fullmatch(figure) or _A_SPAN_OF_THE_CLOCK.fullmatch(figure))
+    """Whether a figure is a time of day, a span between two, or a set of
+    minutes - whose day, said before it, is the first's."""
+    return bool(_A_TIME_OF_DAY.fullmatch(figure) or _A_SPAN_OF_THE_CLOCK.fullmatch(figure)
+                or _A_SET_OF_MINUTES.fullmatch(figure))
 
 
 def _on_its_day(figure: str, on: date | None, day: date) -> Figure:

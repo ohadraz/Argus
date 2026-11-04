@@ -6,7 +6,9 @@ ZeroDivisionError, cited one by one, is how a causal step came to read like a
 traceback. Grouped by message, each says what happened once: how often, over
 how long, and how far whatever varied between the copies ranged. Not every
 minute it was logged in - a fault that ran three hours is a hundred and eighty
-minutes nobody reads to the end.
+minutes nobody reads to the end - except after Argus first acted, where the
+minutes it was logged in are said as runs of them: whether a change reached the
+service is which minutes after it still logged what it changed.
 
 Each group is named by its message rather than by its place. A recorded answer
 is replayed in a run that read a different number of lines - one message more
@@ -25,7 +27,13 @@ from typing import Final, NamedTuple
 from argus_core import said_as_a_day
 from argus_core.models import CitedEvidence
 
-from agent_postmortem.figures import AROUND_A_WORD, SPAN_DASH, is_a_figure
+from agent_postmortem.figures import (
+    AFTER_ARGUS_FIRST_ACTED,
+    AROUND_A_WORD,
+    BETWEEN_THE_MINUTES_OF_A_SET,
+    SPAN_DASH,
+    is_a_figure,
+)
 from agent_postmortem.stamps import stamped, the_minute_inside
 
 # How a group's label begins. The rest is the start of a digest of the message,
@@ -48,17 +56,18 @@ _A_DAY: Final = timedelta(days=1)
 # A number inside a message - the part that varies from minute to minute.
 _A_NUMBER: Final = re.compile(r"(\d+(?:\.\d+)?)")
 
-# What a part of a group is said under, by the cuts either side of it: where
-# the metrics stopped, and the minute Argus first acted in. None says a
-# figure, so a part's figures keep their places whether or not a run is
-# split - the minute it acted is in the narration and the actions.
+# What a part of a group is said under, by the cut either side of it: where
+# the metrics stopped. Neither says a figure, so a part's figures keep their
+# places whether or not a run is split.
 _BEFORE_THE_STOP: Final = "before the metrics stopped"
 _AFTER_THE_STOP: Final = "After they stopped"
-_UP_TO_THE_ACT: Final = "up to and including the minute Argus first acted in"
-_AFTER_THE_ACT: Final = "After it"
 
 # A minute.
 _A_MINUTE: Final = timedelta(minutes=1)
+
+# Between two sets of the minutes after the act, a day or more apart: each is
+# a figure of its own, with its day said before it.
+_BETWEEN_SETS: Final = " and "
 
 
 class LogGroup(NamedTuple):
@@ -106,21 +115,27 @@ def the_groups_of(log_lines: Sequence[str],
     Before comes first, so the figures it names keep their places.
 
     Where Argus acted (`acted_at`, the first change it made), a message logged
-    on both sides of the minute it acted in is split there the same way - that
-    minute before, since a line stamped with it may be from either side of the
-    act - and each part once split where the metrics stopped is split again if
-    it holds lines on both sides; the parts are said in the order they were
-    logged. Summed across a switch-off, a flag's "on" lines read as on every
-    minute from before it to after it, and a write-up said the switch-off may
-    never have reached the service, which read it off in most of the minutes
-    after. For the same reason, a part logged wholly after the act and in fewer
-    minutes than its span covers lists the minutes it was logged in.
+    after it says, last, the minutes it was logged in after it - as one figure,
+    a set, for each stretch of them whose minutes are each less than a day
+    after the one before (`_a_set_of`). Summed across a switch-off, a flag's
+    "on" lines read as on every minute from before it to after it, and a
+    write-up said the switch-off may never have reached the service, which
+    read it off in most of the minutes after. Not as a cut: when Argus acts
+    moves with how fast the walk ran, and a replay that put one minute on the
+    other side of a cut turned a moment the recorded answer cited into a
+    range. A line is after the act where the instant its stamp names is later
+    - a minute alone names its start, so the minute Argus acted in, whose line
+    may be from either side, never is. None where nothing was logged after,
+    since an empty set is no figure, nor where a line has no stamp, which
+    could fill any minute missed.
 
     Every minute is said with its day where that is not the `day` the incident
     began: said bare in an incident whose logs run on another day, the model
-    and the reader both took it for a minute of the onset's day. The one
-    exception is the end of a span shorter than a day, which is on the day its
-    start is or, read earlier on the clock, the day after (`_how_often`).
+    and the reader both took it for a minute of the onset's day. Two
+    exceptions: the end of a span shorter than a day, which is on the day its
+    start is or, read earlier on the clock, the day after (`_how_often`); and
+    each minute of a set after its first, which is on the day of the one
+    before it or, read earlier on the clock, the day after.
     """
     groups: dict[str, list[tuple[datetime | None, list[str]]]] = {}
     for line in log_lines:
@@ -195,8 +210,8 @@ def _said(occurrences: list[tuple[datetime | None, list[str]]],
           acted_at: datetime | None,
           day: date) -> tuple[str, tuple[int, int]]:
     """One group as one line - in parts where it was logged on both sides of
-    where the metrics stopped or of the minute Argus acted in, and whole
-    otherwise - and where in it the message sits.
+    where the metrics stopped, and whole otherwise, then the minutes it was
+    logged in after Argus acted - and where in it the message sits.
 
     A part only where there are two sides to compare, and only where every
     line has a side: a line with no stamp belongs to neither, and a part that
@@ -209,27 +224,23 @@ def _said(occurrences: list[tuple[datetime | None, list[str]]],
     """
     message, held = _the_message_of(occurrences)
     parts = [_Part(occurrences)]
+    dated = all(logged_at is not None for logged_at, _ in occurrences)
 
-    if all(logged_at is not None for logged_at, _ in occurrences):
-        if metrics_stopped_at is not None:
-            before, after = _parted(occurrences, metrics_stopped_at)
-            if before and after:
-                parts = [_Part(before, precedes=_BEFORE_THE_STOP),
-                         _Part(after, follows=_AFTER_THE_STOP)]
+    if dated and metrics_stopped_at is not None:
+        before, after = _parted(occurrences, metrics_stopped_at)
+        if before and after:
+            parts = [_Part(before, precedes=_BEFORE_THE_STOP),
+                     _Part(after, follows=_AFTER_THE_STOP)]
 
-        if acted_at is not None:
-            parts = [split for part in parts for split in _split_at_the_act(part, acted_at)]
+    said = [_a_part(part.lines, message, held, day) for part in parts]
+    whole = (said[0] if len(parts) == 1 else
+             ". ".join(f"{part.label}: {its}" for part, its in zip(parts, said, strict=True)))
+    after_the_act = (_the_minutes_after(occurrences, acted_at)
+                     if dated and acted_at is not None else [])
+    and_after = (f". {AFTER_ARGUS_FIRST_ACTED} {_a_set_of(after_the_act, day)}"
+                 if after_the_act else "")
 
-    said = [_a_part(part.lines, message, held, day,
-                    listed=acted_at is not None and _wholly_after(part.lines, acted_at))
-            for part in parts]
-
-    if len(parts) == 1:
-        return f"{message} - {said[0]}", (0, len(message))
-
-    return (f"{message} - "
-            + ". ".join(f"{part.label}: {its}" for part, its in zip(parts, said, strict=True)),
-            (0, len(message)))
+    return f"{message} - {whole}{and_after}", (0, len(message))
 
 
 def _parted(occurrences: list[tuple[datetime | None, list[str]]],
@@ -243,23 +254,50 @@ def _parted(occurrences: list[tuple[datetime | None, list[str]]],
     return before, after
 
 
-def _split_at_the_act(part: _Part, acted_at: datetime) -> list[_Part]:
-    """A part in two at the minute Argus acted in, that minute in the first -
-    or as it was, where it holds no line on one side of it."""
-    up_to, after = _parted(part.lines, acted_at + _A_MINUTE)
-
-    if not up_to or not after:
-        return [part]
-
-    return [_Part(up_to, follows=part.follows, precedes=_UP_TO_THE_ACT),
-            _Part(after, follows=_AFTER_THE_ACT, precedes=part.precedes)]
+def _the_minutes_after(occurrences: list[tuple[datetime | None, list[str]]],
+                       acted_at: datetime) -> list[datetime]:
+    """The distinct minutes, in order, of the lines whose stamps name an
+    instant later than `acted_at`."""
+    return sorted({logged_at.replace(second=0, microsecond=0)
+                   for logged_at, _ in occurrences
+                   if logged_at is not None and logged_at > acted_at})
 
 
-def _wholly_after(occurrences: list[tuple[datetime | None, list[str]]],
-                  acted_at: datetime) -> bool:
-    """Whether every line was logged after the minute Argus acted in."""
-    return all(the_minute_inside(logged_at, acted_at + _A_MINUTE) is not None
-               for logged_at, _ in occurrences)
+def _a_set_of(minutes: list[datetime], day: date) -> str:
+    """Distinct minutes as sets, one where each is less than a day after the
+    one before it, and a set of its own from any that is a day or more after -
+    read off the clock, a minute a day later is the same minute, so a set is
+    one figure only as a span shorter than a day is."""
+    sets: list[list[datetime]] = []
+    for minute in minutes:
+        if sets and minute - sets[-1][-1] < _A_DAY:
+            sets[-1].append(minute)
+        else:
+            sets.append([minute])
+
+    return _BETWEEN_SETS.join(_one_set_of(each, day) for each in sets)
+
+
+def _one_set_of(minutes: list[datetime], day: date) -> str:
+    """Distinct minutes, each less than a day after the one before it, as one
+    word, a set: runs of consecutive ones, each a minute or a span, joined
+    without a space - `23:40,23:42–23:43,23:45`. Its first day said before it
+    where that is not the `day` the incident began, and a minute earlier on the
+    clock than the one before it on the next day, as a span's end is: said with
+    its day inside, the set would be more than one figure, and how many would
+    follow midnight."""
+    runs: list[list[datetime]] = []
+    for minute in minutes:
+        if runs and minute - runs[-1][-1] == _A_MINUTE:
+            runs[-1].append(minute)
+        else:
+            runs.append([minute])
+
+    said = BETWEEN_THE_MINUTES_OF_A_SET.join(
+        f"{run[0]:%H:%M}" if len(run) == 1 else f"{run[0]:%H:%M}{SPAN_DASH}{run[-1]:%H:%M}"
+        for run in runs)
+
+    return said if minutes[0].date() == day else f"{said_as_a_day(minutes[0])} {said}"
 
 
 def _the_message_of(occurrences: list[tuple[datetime | None, list[str]]]) -> tuple[str, list[bool]]:
@@ -281,18 +319,9 @@ def _the_message_of(occurrences: list[tuple[datetime | None, list[str]]]) -> tup
 def _a_part(occurrences: list[tuple[datetime | None, list[str]]],
             message: str,
             held: list[bool],
-            day: date,
-            *,
-            listed: bool = False) -> str:
-    """How often these lines were logged, how far each number that varied
-    across the whole group ranged among them - and, where `listed` and they
-    were logged in fewer minutes than their span covers, the minutes they
-    were, in runs (`_the_minutes_logged`).
-
-    The minutes last: a flapping flag logs other minutes in a replay than in
-    the run its answer was recorded in, and a list of another length before
-    the ranges would move every figure after it.
-    """
+            day: date) -> str:
+    """How often these lines were logged, and how far each number that varied
+    across the whole group ranged among them."""
     first = occurrences[0][1]
     numbers = [parts[1::2] for _, parts in occurrences]
     in_word = _the_word_each_number_is_in(first)
@@ -327,13 +356,7 @@ def _a_part(occurrences: list[tuple[datetime | None, list[str]]],
 
         varied.append(_how_many_names(said, names))
 
-    logged_in = sorted({logged_at.replace(second=0, microsecond=0)
-                        for logged_at, _ in occurrences if logged_at is not None})
-    spanned = (int((logged_in[-1] - logged_in[0]) // _A_MINUTE) + 1) if logged_in else 0
-    at = ([f"logged at {_the_minutes_logged(logged_in, day)}"]
-          if listed and len(logged_in) < spanned else [])
-
-    return "; ".join([_how_often(occurrences, day), *varied, *at])
+    return "; ".join([_how_often(occurrences, day), *varied])
 
 
 def _the_word_each_number_is_in(parts: list[str]) -> list[int]:
@@ -398,22 +421,6 @@ def _a_stretch(first: datetime, last: datetime, day: date) -> str:
         return f"{_clock(first, day)}{_TO_ANOTHER_DAY}{_clock(last, day)}"
 
     return f"{_clock(first, day)}{SPAN_DASH}{last:%H:%M}"
-
-
-def _the_minutes_logged(minutes: list[datetime], day: date) -> str:
-    """Distinct minutes, in order, as runs of consecutive ones - each a minute
-    or a span - the last after "and": `23:40, 23:42–23:43 and 23:45`."""
-    runs: list[list[datetime]] = []
-    for minute in minutes:
-        if runs and minute - runs[-1][-1] == _A_MINUTE:
-            runs[-1].append(minute)
-        else:
-            runs.append([minute])
-
-    said = [_clock(run[0], day) if len(run) == 1 else _a_stretch(run[0], run[-1], day)
-            for run in runs]
-
-    return f"{', '.join(said[:-1])} and {said[-1]}" if len(said) > 1 else said[0]
 
 
 def _its_unit(parts: list[str], position: int) -> str:

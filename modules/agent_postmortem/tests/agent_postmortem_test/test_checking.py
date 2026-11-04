@@ -949,6 +949,52 @@ def test_a_range_figure_after_a_word_that_places_a_moment_is_named(before: str) 
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("some_minutes", ["23:40", "23:40,23:42–23:43"],
+                         ids=["one-minute", "several"])
+def test_a_set_of_minutes_after_a_word_that_places_a_moment_is_named(some_minutes: str) -> None:
+    # A set says its own minutes, however many it holds: "the flag read on at
+    # {G}" read "at 23:40, 23:42–23:43". Known by what it is, not by a dash: a
+    # set of one minute has none, and a replay that logged one minute fewer
+    # turned the moment a recorded answer cited into something else.
+    Scenario() \
+        .given(
+            an_answer_placing_a_set := _an_answer(
+                cause_in_plain_words="the flag read on at {Gce95.9}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer_placing_a_set,
+                              given=_given_figures("Gce95.9", figures={
+                                  **SOME_FIGURES,
+                                  "Gce95.9": Figure(given=some_minutes, written=some_minutes,
+                                                    a_set_of_minutes=True)}))
+        ) \
+        .then(
+            all_of(
+                _named("[{Gce95.9}]"),
+                _found(1)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_set_of_minutes_said_in_is_accepted() -> None:
+    # The way the prose says a set: the minutes it was logged in.
+    Scenario() \
+        .given(
+            an_answer := _an_answer(cause_in_plain_words="the flag read on in {Gce95.9}")
+        ) \
+        .when(
+            lambda: faults_in(an_answer, given=_given_figures("Gce95.9", figures={
+                **SOME_FIGURES,
+                "Gce95.9": Figure(given="23:40,23:42–23:43", written="23:40 and 23:42–23:43 UTC",
+                                  a_set_of_minutes=True)}))
+        ) \
+        .then(
+            _found_nothing_wrong()
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("prose", "name"), [
     ("errors held over {Gbac1.1}", "Gbac1.1"),
     ("errors held from {began}", "began")

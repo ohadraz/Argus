@@ -898,19 +898,25 @@ def _ranges_after_an_opening_or_a_moment(answer: SubmittedPostmortem, given: Giv
 
     A range is written in whole, so "between {G}" reads "between 21:41–22:01" -
     the range opened twice - and "first appears at {G}" reads "at 14:46–14:53",
-    a span where the sentence wants its first minute. A word before a figure's
+    a span where the sentence wants its first minute. A set of minutes says its
+    own minutes the same way, and is known by what it is: one of a single
+    minute has no dash. A word before a figure's
     name, as "line" before a number is: what the figure says decides, not how
     the sentence reads.
     """
     return [
-        f"your answer writes [{before} {{{name}}}] - [{{{name}}}] is a range and says "
-        f"its own: write it alone, or say over or during"
+        (f"your answer writes [{before} {{{name}}}] - [{{{name}}}] is a set of minutes and "
+         f"says its own: write it alone, or say in"
+         if given.figures[name].a_set_of_minutes else
+         f"your answer writes [{before} {{{name}}}] - [{{{name}}}] is a range and says "
+         f"its own: write it alone, or say over or during")
         for prose in answer.sentences()
         for before, word in pairwise(["", *prose.split()])
         if before.strip(AROUND_A_WORD).lower() in _WORDS_A_RANGE_MAY_NOT_FOLLOW
         and (named := A_FIGURE_NAME.fullmatch(word.strip(AROUND_A_WORD))) is not None
         and (name := named.group(1)) in given.figures
-        and _A_RANGE_DASH.search(given.figures[name].written) is not None
+        and (given.figures[name].a_set_of_minutes
+             or _A_RANGE_DASH.search(given.figures[name].written) is not None)
     ]
 
 

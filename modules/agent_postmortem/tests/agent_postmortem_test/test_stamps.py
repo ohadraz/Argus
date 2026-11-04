@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from agent_postmortem.stamps import the_last_minute_logged_inside
+from agent_postmortem.stamps import stamped, the_last_minute_logged_inside
 from argus_testkit import Scenario, the_answer_was
 
 SOME_ERROR = "ERROR io-shop: account page request failed - ZeroDivisionError at spend_summary.py:47"
@@ -50,4 +50,44 @@ def test_a_stretch_no_line_was_logged_inside_has_no_last_minute() -> None:
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("stamp", "logged_at"), [
+    ("2026-10-11T23:39Z", datetime(2026, 10, 11, 23, 39, tzinfo=UTC)),
+    ("2026-10-11T23:39:30Z", datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)),
+    ("2026-10-11T23:39:30.125Z", datetime(2026, 10, 11, 23, 39, 30, 125000, tzinfo=UTC)),
+    ("2026-10-11T23:39:30+00:00", datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)),
+    ("2026-10-12T01:39:30.125+02:00", datetime(2026, 10, 11, 23, 39, 30, 125000, tzinfo=UTC)),
+    ("2026-10-11T23:39:30", datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC))
+], ids=["a-minute", "a-second", "a-fraction-of-a-second", "an-offset",
+        "a-fraction-and-an-offset", "no-zone"])
+def test_a_stamp_is_read_as_the_instant_it_names(stamp: str, logged_at: datetime) -> None:
+    # As the read tier reads it. A service logging to the millisecond, or with
+    # an offset rather than a Z, had lines with no stamp at all: no span, no
+    # minutes, nothing to say they were logged after Argus acted. A stamp with
+    # no zone is UTC's, as the read tier takes it.
+    Scenario() \
+        .given(stamp) \
+        .when(
+            lambda: stamped(f"{stamp} {SOME_ERROR}")
+        ) \
+        .then(
+            the_answer_was((logged_at, SOME_ERROR))
+        )
+
+
+@pytest.mark.unit
+def test_a_date_with_no_time_is_no_stamp() -> None:
+    # A log line opens with when it was logged, which a date alone does not say.
+    Scenario() \
+        .given(
+            some_line := f"2026-10-11 {SOME_ERROR}"
+        ) \
+        .when(
+            lambda: stamped(some_line)
+        ) \
+        .then(
+            the_answer_was((None, some_line))
         )

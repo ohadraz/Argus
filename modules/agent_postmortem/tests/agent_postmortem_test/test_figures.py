@@ -901,6 +901,67 @@ def test_a_log_group_s_own_minutes_are_read_on_their_day_and_its_message_as_give
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("text", "given", "written"), [
+    ("ERROR checkout - 1 occurrence in 1 minute, 23:40. After Argus first acted, logged in "
+     "23:40", "23:40", "23:40 UTC"),
+    ("ERROR checkout - 4 occurrences in 6 minutes, 23:40–23:45. After Argus first acted, "
+     "logged in 23:40,23:42–23:43,23:45", "23:40,23:42–23:43,23:45",
+     "23:40, 23:42–23:43 and 23:45 UTC"),
+    ("ERROR checkout - 2 occurrences in 4 minutes, Oct 12 00:18–00:21. After Argus first "
+     "acted, logged in Oct 12 00:18,00:21", "00:18,00:21",
+     "Oct 12, 00:18 and Oct 12, 00:21 UTC"),
+    ("ERROR checkout - 4 occurrences in 5 minutes, 23:58–00:02. After Argus first acted, "
+     "logged in 23:58–00:00,00:02", "23:58–00:00,00:02",
+     "23:58–Oct 12, 00:00 and Oct 12, 00:02 UTC")
+], ids=["one-minute", "several", "on-a-later-day", "across-midnight"])
+def test_the_minutes_a_log_group_was_logged_in_after_argus_acted_are_one_figure_a_set(
+        text: str, given: str, written: str) -> None:
+    # One figure however many minutes it holds, so a replay that logged one
+    # more or one fewer names every figure alike; known as a set, so a set of
+    # one minute is not taken for a moment; and written in as a list a reader
+    # reads, each minute on its day as a span's end is.
+    Scenario() \
+        .given(
+            some_group := CitedEvidence(label="G1", text=text)
+        ) \
+        .when(
+            lambda: the_log_group_figures([(some_group, (0, 14))], date(2026, 10, 11))["G1.4"]
+        ) \
+        .then(
+            the_answer_was(Figure(given=given, written=written, a_set_of_minutes=True))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("text", "sets"), [
+    ("ERROR checkout - 3 occurrences in 1471 minutes, 10:00 – Oct 12 10:30. After Argus first "
+     "acted, logged in 10:05 and Oct 12 10:30",
+     [Figure(given="10:05", written="10:05 UTC", a_set_of_minutes=True),
+      Figure(given="10:30", written="Oct 12, 10:30 UTC", a_set_of_minutes=True)]),
+    ("ERROR checkout - 4 occurrences in 1472 minutes, 23:40 – Oct 13 00:11. After Argus first "
+     "acted, logged in 23:50 and Oct 13 00:10–00:11",
+     [Figure(given="23:50", written="23:50 UTC", a_set_of_minutes=True),
+      Figure(given="00:10–00:11", written="Oct 13, 00:10–00:11 UTC", a_set_of_minutes=True)])
+], ids=["the-same-minute-a-day-on", "a-day-and-more-across-midnight"])
+def test_minutes_after_argus_acted_a_day_or_more_apart_are_each_a_set_on_its_own_day(
+        text: str, sets: list[Figure]) -> None:
+    # Each a figure of its own, on the day said before it - read off the
+    # clock, a minute a day later is the same minute.
+    Scenario() \
+        .given(
+            some_group := CitedEvidence(label="G1", text=text)
+        ) \
+        .when(
+            lambda: [figure for name, figure
+                     in the_log_group_figures([(some_group, (0, 14))], date(2026, 10, 11)).items()
+                     if name in ("G1.5", "G1.6")]
+        ) \
+        .then(
+            the_answer_was(sets)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("value", "written"), [
     ("36.00%", "36%"),
     ("36.0%", "36%"),
@@ -968,7 +1029,11 @@ def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> Non
                 "A1": Figure(given="2026-10-11T16:10:00Z", written="16:10 UTC"),
                 "G2.1": Figure(given="06:00", written="06:00"),
                 "G3.3": Figure(given="23:58–00:04", written="23:58–Oct 12, 00:04 UTC"),
-                "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")
+                "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC"),
+                "G4.4": Figure(given="23:40,23:45", written="23:40 and 23:45 UTC",
+                               a_set_of_minutes=True),
+                "G5.4": Figure(given="00:18,00:21", written="Oct 12, 00:18 and Oct 12, 00:21 UTC",
+                               a_set_of_minutes=True)
             }
         ) \
         .when(
@@ -981,7 +1046,11 @@ def test_every_day_said_dates_each_time_the_page_writes_without_its_day() -> Non
                 "G3.3": Figure(given="23:58–00:04", written="Oct 11, 23:58–Oct 12, 00:04 UTC"),
                 "A1": Figure(given="2026-10-11T16:10:00Z", written="Oct 11, 16:10 UTC"),
                 "G2.1": Figure(given="06:00", written="06:00"),
-                "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC")
+                "P1.1": Figure(given="2026-10-12T00:05:00Z", written="Oct 12, 00:05 UTC"),
+                "G4.4": Figure(given="23:40,23:45", written="Oct 11, 23:40 and 23:45 UTC",
+                               a_set_of_minutes=True),
+                "G5.4": Figure(given="00:18,00:21", written="Oct 12, 00:18 and Oct 12, 00:21 UTC",
+                               a_set_of_minutes=True)
             })
         )
 

@@ -3719,11 +3719,11 @@ def test_every_figure_a_brief_with_a_split_log_names_is_one_the_answer_may_name(
 @pytest.mark.unit
 @pytest.mark.parametrize("some_minutes_acted_at", [[3], [3, 8]],
                          ids=["one-action", "the-first-of-two"])
-def test_a_message_logged_both_sides_of_where_argus_first_acted_is_shown_in_two(
+def test_a_message_logged_after_argus_first_acted_is_shown_with_the_minutes_it_was_after_it(
         some_minutes_acted_at: list[int]) -> None:
-    # What the service logged after Argus changed it, apart from what it logged
-    # before - the comparison that says whether the change reached it. Summed,
-    # a write-up read a flag's "on" lines as running on through the switch-off.
+    # What the service logged after Argus changed it - the comparison that says
+    # whether the change reached it. Said only as one span, a write-up read a
+    # flag's "on" lines as running on through the switch-off.
     some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
                   f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
 
@@ -3740,7 +3740,7 @@ def test_a_message_logged_both_sides_of_where_argus_first_acted_is_shown_in_two(
         ) \
         .then(
             _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
-                              "the minute Argus first acted in", "After it")
+                              "After Argus first acted, logged in")
         )
 
 
@@ -3748,9 +3748,9 @@ def test_a_message_logged_both_sides_of_where_argus_first_acted_is_shown_in_two(
 @pytest.mark.parametrize("progress", [ActionProgress.NOT_PERFORMED,
                                       ActionProgress.CLAIMED,
                                       ActionProgress.UNKNOWN])
-def test_an_action_nobody_can_say_was_performed_splits_no_message(
+def test_an_action_nobody_can_say_was_performed_lists_no_minutes_after_it(
         progress: ActionProgress) -> None:
-    # "The minute Argus first acted in" of a change never made, or one nobody
+    # "After Argus first acted, logged in" of a change never made, or one nobody
     # can say was, says it was made.
     some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} WARN io-shop: some warning",
                   f"{to_iso(ONSET + timedelta(minutes=5))} WARN io-shop: some warning"]
@@ -3766,7 +3766,7 @@ def test_an_action_nobody_can_say_was_performed_splits_no_message(
             lambda: opening_ask(evidence, a_measured_incident())
         ) \
         .then(
-            _does_not_say("the minute Argus first acted in")
+            _does_not_say("Argus first acted")
         )
 
 
@@ -3774,11 +3774,11 @@ def test_an_action_nobody_can_say_was_performed_splits_no_message(
 @pytest.mark.parametrize("progress", [ActionProgress.NOT_PERFORMED,
                                       ActionProgress.CLAIMED,
                                       ActionProgress.UNKNOWN])
-def test_a_message_is_split_where_the_first_action_performed_was_taken_after_one_that_was_not(
+def test_the_minutes_after_the_act_are_counted_from_the_first_action_performed(
         progress: ActionProgress) -> None:
     # A rollback refused, then a revert made: the minute of the refusal is no
-    # act, and taking the first action only where it was performed would
-    # never split such an incident.
+    # act, and the minutes after it would list one logged before anything was
+    # changed.
     some_lines = [f"{to_iso(ONSET + timedelta(minutes=minute))} WARN io-shop: some warning"
                   for minute in (1, 3, 5)]
 
@@ -3795,16 +3795,16 @@ def test_a_message_is_split_where_the_first_action_performed_was_taken_after_one
         ) \
         .then(
             _says_on_one_line(f"[{grouped(some_lines, None, ONSET.date())[0].label}]",
-                              f"{ONSET + timedelta(minutes=1):%H:%M}–"
-                              f"{ONSET + timedelta(minutes=3):%H:%M}",
-                              "After it")
+                              f"After Argus first acted, logged in "
+                              f"{ONSET + timedelta(minutes=5):%H:%M}")
         )
 
 
 @pytest.mark.unit
-def test_every_figure_a_brief_split_where_argus_acted_names_is_one_the_answer_may_name() -> None:
+def test_every_figure_a_brief_listing_minutes_after_the_act_names_may_be_named() -> None:
     # As with the split where the metrics stopped: a brief and a check that
-    # parted the lines differently would name figures the check refuses.
+    # read the minutes after the act differently would name figures the check
+    # refuses.
     some_rate = "WARN io-shop: account page error rate at {}% over the last minute"
     some_lines = [f"{to_iso(ONSET + timedelta(minutes=1))} {some_rate.format('1.00')}",
                   f"{to_iso(ONSET + timedelta(minutes=2))} {some_rate.format('2.00')}",

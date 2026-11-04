@@ -1,4 +1,4 @@
-"""When a log line was logged, read from the minute it opens with.
+"""When a log line was logged, read from the stamp it opens with.
 
 Its own module because two readers need it and one of them is read by the
 other: the log groups say each message once and name which reach into a
@@ -13,17 +13,27 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Final
 
-# The minute a log line opens with, in the service's own wire format.
-_STAMPED: Final = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d)?Z?)\s+")
+from argus_core import parse_iso
+
+# The instant a log line opens with, in the service's own wire format: to the
+# minute, the second or a fraction of one, in UTC or at an offset - as the read
+# tier reads a stamp. A date alone is no stamp.
+_STAMPED: Final = re.compile(
+    r"^(\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)?)\s+")
 
 
 def stamped(line: str) -> tuple[datetime | None, str]:
-    """When a line was logged, and what it said."""
+    """When a line was logged, and what it said.
+
+    Read as the instant the stamp names, a minute alone naming its start, and
+    one written with no zone as UTC's, as the read tier reads it: a service
+    logging to the millisecond, or with an offset, had lines with no stamp at
+    all."""
     opening = _STAMPED.match(line)
     if opening is None:
         return None, line
 
-    return datetime.fromisoformat(opening.group(1)), line[opening.end():]
+    return parse_iso(opening.group(1)), line[opening.end():]
 
 
 def the_minute_inside(logged_at: datetime | None, since: datetime) -> datetime | None:
@@ -41,8 +51,10 @@ def the_minute_inside(logged_at: datetime | None, since: datetime) -> datetime |
     if logged_at is None:
         return None
 
-    # The stamp's `Z` is optional, and a stamp without it is the same clock.
-    in_utc = logged_at if logged_at.tzinfo is not None else logged_at.replace(tzinfo=UTC)
+    # In UTC: a stamp written at an offset names the same instant, and its
+    # minute is the one UTC's clock reads.
+    in_utc = (logged_at if logged_at.tzinfo is not None
+              else logged_at.replace(tzinfo=UTC)).astimezone(UTC)
     minute = in_utc.replace(second=0, microsecond=0)
 
     return minute if minute >= since.replace(second=0, microsecond=0) else None
