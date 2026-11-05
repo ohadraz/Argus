@@ -15,6 +15,7 @@ human it was on its way to, and the investigation behind it would be lost.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +25,8 @@ from argus_core import RunLost
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import FixAttempted, IncidentEvent
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Alert,
     ChangeEvent,
     ChangeKind,
@@ -36,6 +39,8 @@ from argus_core.models import (
     OpenedPullRequest,
     ProposedFix,
     ThreadMessage,
+    Verdict,
+    WhatArgusDid,
     no_leads,
 )
 from argus_incidents import IsStillWanted
@@ -50,7 +55,7 @@ from argus_testkit import (
 )
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
-from orchestrator.walk.ports import LeadsOf, ProposeFix
+from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -683,6 +688,35 @@ def test_the_agent_is_handed_what_people_told_this_incident() -> None:
 
 
 @pytest.mark.unit
+def test_the_agent_is_told_what_argus_did_about_this_incident() -> None:
+    # Code-Fix was shown each lead as it was weighed, before anything was
+    # tried, and nothing after it - so a recorded fix said the investigation had
+    # left the flag open, when one revert had refuted it and the next had
+    # confirmed it. Read off the record rather than the walk's state, because
+    # the record is what says whether each change still stands.
+    some_done = [WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                                      subject="kuki-flag"),
+                              verdict=Verdict.REFUTED,
+                              standing="put back when it did not help")]
+    asked: list[str] = []
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 the_agent.propose,
+                                 what_argus_did=_a_record_noting_who_it_is_asked_about(
+                                     asked, some_done))
+        ) \
+        .then(
+            _what_argus_did_handed_down_is(some_done, the_agent, asked, DONT_CARE_INCIDENT_ID)
+        )
+
+
+@pytest.mark.unit
 def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
     # Publishing is an account, never a participant (spec §4 principle 8). A
     # node that behaved differently with no subscriber would make every test
@@ -910,6 +944,7 @@ class _AnAgentRememberingWhatItWasAsked:
         self.incident_id: str | None = None
         self.still_wanted: StillWanted | None = None
         self.leads: Leads | None = None
+        self.done: Sequence[WhatArgusDid] | None = None
         self.deployed: str | None = None
 
     def propose(self,
@@ -918,11 +953,13 @@ class _AnAgentRememberingWhatItWasAsked:
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
         self.still_wanted = still_wanted
         self.leads = leads
+        self.done = done
         self.deployed = deployed
 
         return ProposedFix(pull_request=None, explanation=None)
@@ -936,6 +973,7 @@ def _an_agent_offering(proposal: OpenedPullRequest | None,
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=proposal, explanation=explaining)
 
@@ -949,6 +987,7 @@ def _an_agent_that_read(branch: str, holds_what_ran: bool | None) -> ProposeFix:
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
                            branch_read=branch, holds_what_ran=holds_what_ran)
@@ -964,6 +1003,7 @@ def _an_agent_finding(as_it_ran: list[FileAsItRan]) -> ProposeFix:
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
                            as_it_ran=as_it_ran)
@@ -979,6 +1019,7 @@ def _an_agent_finding_the_uses(uses_outside: list[CodeUse]) -> ProposeFix:
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
                            uses_outside=uses_outside)
@@ -994,6 +1035,7 @@ def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         return ProposedFix(pull_request=None, explanation=explaining,
                            needs_code_outside=True)
@@ -1014,6 +1056,7 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         raise failure
 
@@ -1136,6 +1179,7 @@ def _an_agent_raising(error: Exception) -> ProposeFix:
                *,
                still_wanted: StillWanted = wanted_throughout,
                leads: Leads = no_leads,
+               done: Sequence[WhatArgusDid] = (),
                deployed: str | None = None) -> Any:
         raise error
 
@@ -1343,6 +1387,37 @@ def _the_question_handed_down_asks_about(agent: _AnAgentRememberingWhatItWasAske
             raise AssertionError(
                 f"Expected the question handed down to ask about incident "
                 f"[{incident_id}], and it asked about {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_record_noting_who_it_is_asked_about(asked: list[str],
+                                           done: list[WhatArgusDid]) -> WhatArgusDidIn:
+    def what_argus_did(incident_id: str, /) -> list[WhatArgusDid]:
+        asked.append(incident_id)
+        return done
+
+    return what_argus_did
+
+
+def _what_argus_did_handed_down_is(expected: list[WhatArgusDid],
+                                   agent: _AnAgentRememberingWhatItWasAsked,
+                                   asked: list[str],
+                                   incident_id: str) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if asked != [incident_id]:
+            raise AssertionError(
+                f"Expected what Argus did to be read for incident [{incident_id}], "
+                f"and it was read for {asked}."
+            )
+
+        if agent.done is None or list(agent.done) != expected:
+            raise AssertionError(
+                f"Expected Code-Fix to be told Argus did {expected}, and it was told "
+                f"{agent.done}."
             )
 
         return True

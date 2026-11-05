@@ -618,6 +618,25 @@ class ActionIdentity(BaseModel, frozen=True):
     subject: str
 
 
+class WhatArgusDid(BaseModel):
+    """One action Argus took on an incident, what the service's metrics made
+    of it, and whether its change still stands.
+
+    Not `WhatWasTried`, which is memory's record of the same action: a later
+    incident is told what an action was worth, and whether this incident's
+    change is still in production is nothing to it. Code-Fix is told both,
+    because the verdict alone leaves a refuted revert reading as a flag still
+    off when Mitigation put it back.
+
+    `standing` is said in the words the write-up's own account of the action
+    uses, so the two cannot say one action two ways.
+    """
+
+    identity: ActionIdentity
+    verdict: Verdict
+    standing: str
+
+
 def the_identity_of(action: Action) -> ActionIdentity:
     """The pair this action is known by, wherever one is compared to another.
 

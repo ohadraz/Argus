@@ -28,6 +28,8 @@ from argus_core import RunLost, get_settings
 from argus_core.budget import StillWanted, wanted_throughout
 from argus_core.events import Publisher, nobody
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     ActionProgress,
     Alert,
     Attempt,
@@ -49,6 +51,7 @@ from argus_core.models import (
     ThreadMessage,
     UndoDescriptor,
     Weighing,
+    WhatArgusDid,
     no_leads,
 )
 from argus_core.replay import Recorder
@@ -132,6 +135,7 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         still_held=lambda: True,
         wait_for_people=lambda dont_care_incident_id, /: False,
         leads_of=lambda dont_care_incident_id, /: [],
+        what_argus_did=lambda dont_care_incident_id, /: [],
         record_weighing=lambda dont_care_lead, /: None
     )
 
@@ -426,6 +430,32 @@ def test_code_fix_is_handed_what_people_told_the_incident(
         ) \
         .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_with_a_thread)) \
         .then(_the_fix_was_told(told, some_leads))
+
+
+@pytest.mark.component
+def test_code_fix_is_handed_what_argus_did(
+    collaborators: Collaborators
+) -> None:
+    # The same wiring for what was done about the incident. The node's own
+    # default reads nothing, so a graph that never handed the record down would
+    # leave Code-Fix told what the leads were weighed as and nothing of what
+    # the actions then showed.
+    some_done = [WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG,
+                                                      subject=SOME_FLAG),
+                              verdict=Verdict.CONFIRMED,
+                              standing="still in place")]
+    handed: list[list[WhatArgusDid]] = []
+
+    Scenario() \
+        .given(
+            a_walk_with_a_record := replace(
+                collaborators,
+                propose_fix=_a_fix_channel_noting_what_argus_did(handed),
+                what_argus_did=lambda dont_care_incident_id, /: some_done
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_with_a_record)) \
+        .then(_the_fix_was_handed(handed, some_done))
 
 
 @pytest.mark.component
@@ -1153,6 +1183,20 @@ def _the_fix_was_told(told: list[list[ThreadMessage]],
     return assertion
 
 
+def _the_fix_was_handed(handed: list[list[WhatArgusDid]],
+                        expected: list[WhatArgusDid]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if handed != [expected]:
+            raise AssertionError(
+                f"Expected Code-Fix to be handed the {len(expected)} action(s) the "
+                f"record holds, once, and it was handed {handed}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_weighings_kept_were(kept: list[ThreadMessage],
                              expected: list[ThreadMessage]) -> Assertion[Walked]:
     def assertion(dont_care_walked: Walked) -> bool:
@@ -1176,6 +1220,7 @@ def _a_fix_channel_whose_question_is_traced(asked: list[str],
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         before = len(asked)
         still_wanted()
@@ -1195,8 +1240,26 @@ def _a_fix_channel_noting_what_it_was_told(told: list[list[ThreadMessage]]
                 *,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None) -> ProposedFix:
         told.append(leads())
+
+        return ProposedFix(pull_request=None, explanation=None)
+
+    return propose
+
+
+def _a_fix_channel_noting_what_argus_did(handed: list[list[WhatArgusDid]]
+                                         ) -> ports.ProposeFix:
+    """Code-Fix that notes what it was told Argus did."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None) -> ProposedFix:
+        handed.append(list(done))
 
         return ProposedFix(pull_request=None, explanation=None)
 

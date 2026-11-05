@@ -121,6 +121,7 @@ version = "0.1.0"
 source = { editable = "modules/agent_codefix" }
 dependencies = [
     { name = "argus-argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-argus-narration" },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
 ]
@@ -133,6 +134,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-argus-core", extras = ["llm", "mcp"], editable = "modules/argus_core" },
+    { name = "argus-argus-narration", editable = "modules/argus_narration" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]

@@ -20,7 +20,8 @@ from collections.abc import Sequence
 from typing import Final
 
 from argus_core import to_iso
-from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage
+from argus_core.models import CodeSearch, FailureMode, Hypothesis, ThreadMessage, WhatArgusDid
+from argus_narration import what_was_done
 
 from agent_codefix.budget import FixSettings
 from agent_codefix.naming import files_named_in
@@ -45,6 +46,12 @@ _HOW_A_LEAD_IS_TAKEN: Final = (
 
 # What a lead the investigation never weighed is said to be.
 _UNWEIGHED: Final = "never weighed by the investigation"
+
+# What heads the actions Argus took, below the leads they are the later word on.
+_WHAT_ARGUS_DID: Final = (
+    "What Argus did about the incident, what the service's metrics showed of each "
+    "action, and whether its change still stands:"
+)
 
 
 def what_it_concluded(hypothesis: Hypothesis | None) -> str:
@@ -72,6 +79,7 @@ def the_opening_message(hypothesis: Hypothesis | None,
                         index_notice: IndexNotice,
                         list_files: FileLister,
                         leads: Sequence[ThreadMessage] = (),
+                        done: Sequence[WhatArgusDid] = (),
                         *,
                         deployed: str | None,
                         holds_what_ran: bool | None) -> str:
@@ -98,7 +106,7 @@ def the_opening_message(hypothesis: Hypothesis | None,
         *_and_what_it_rests_on(hypothesis),
         *_and_the_files_it_names(hypothesis, listing),
         *_and_what_it_already_wrote(hypothesis),
-        *_and_what_people_wrote(leads),
+        *_and_what_people_wrote(leads, done),
         *_what_the_repository_holds(listing),
         *_whether_it_contains_what_ran(settings, deployed, holds_what_ran),
         *_what_is_known_about_the_index(settings, index_notice),
@@ -126,17 +134,26 @@ def what_people_wrote_since(written: Sequence[ThreadMessage]) -> str:
     ])
 
 
-def _and_what_people_wrote(leads: Sequence[ThreadMessage]) -> list[str]:
+def _and_what_people_wrote(leads: Sequence[ThreadMessage],
+                           done: Sequence[WhatArgusDid]) -> list[str]:
     """What people working the incident wrote in its thread, with what the
-    investigation made of each.
+    investigation made of each - and then what Argus did about it.
 
     The standing travels with the words because it changes what the words are
     worth: a lead the investigation refuted is one the fix must not be built
     on, and Code-Fix reads code, not telemetry, so it is in no position to
     weigh one again.
 
+    What Argus did comes after, because it is the later word: a lead weighed
+    before anything was tried can say the reads do not tell two flags apart,
+    and told the weighing alone a recorded fix said the investigation had left
+    the flag open when one revert had refuted it and the other confirmed it.
+    Each action carries whether its change still stands, since a revert said
+    as refuted and no more reads as a flag still off when it was put back.
+
     Only where somebody wrote: a section saying nobody did would be a prompt
-    that changed for every incident nobody talked about.
+    that changed for every incident nobody talked about. And the actions only
+    where there are some, for the reason a heading over nothing is never said.
     """
     if not leads:
         return []
@@ -146,8 +163,19 @@ def _and_what_people_wrote(leads: Sequence[ThreadMessage]) -> list[str]:
         "## What people in the incident's thread wrote",
         "People working this incident wrote these in its thread.",
         _HOW_A_LEAD_IS_TAKEN,
-        *(_a_lead_as_a_line(lead) for lead in leads)
+        *(_a_lead_as_a_line(lead) for lead in leads),
+        *(["", _WHAT_ARGUS_DID, *(_an_action_as_a_line(action) for action in done)]
+          if done else [])
     ]
+
+
+def _an_action_as_a_line(action: WhatArgusDid) -> str:
+    """One action, in the words the incident's own account uses for it, with
+    its verdict and whether its change still stands - as the write-up says
+    them."""
+    said = what_was_done(action.identity.action_type, action.identity.subject)
+
+    return f"- {said}: {action.verdict.value}, {action.standing}"
 
 
 def _a_lead_as_a_line(lead: ThreadMessage) -> str:

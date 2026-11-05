@@ -13,7 +13,7 @@ transition, and it fails alone.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Final
 
 import pytest
@@ -40,8 +40,10 @@ from argus_core.models import (
     Standing,
     ThreadMessage,
     UndoDescriptor,
+    Undone,
     Verdict,
     Weighing,
+    WhatArgusDid,
     WhatWasTried,
 )
 from argus_incidents.publishing import events_into_connection
@@ -545,6 +547,89 @@ def test_what_an_incident_tried_is_filed_for_the_store_to_be_given(
         .then(
             _it_waits_to_be_delivered(a_record)
         )
+
+
+@pytest.mark.component
+def test_what_argus_did_is_each_judged_action_with_whether_its_change_still_stands(
+    a_clean_database: None
+) -> None:
+    # What Code-Fix is told an incident did. A revert said as refuted and no
+    # more reads as a flag still off, when Mitigation put it back on finding it
+    # did not help - so each action carries its standing, in the words the
+    # write-up says it in. In the order taken, whatever order the rows were
+    # written in. An action that reached no verdict says nothing about the
+    # cause, and is left out; another incident's is about a different fault.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    some_moment = datetime(2026, 9, 27, 9, 25, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=some_moment)
+        another_incident_id = incidents.create(conn, some_alert, at=some_moment)
+
+    _a_revert_reaching(incident_id, "muki-flag", Verdict.CONFIRMED,
+                       at=some_moment + timedelta(minutes=8))
+    _a_revert_reaching(incident_id, "buki-flag", Verdict.ESCALATED,
+                       at=some_moment + timedelta(minutes=4))
+    _a_revert_reaching(incident_id, "kuki-flag", Verdict.REFUTED, at=some_moment,
+                       undone=Undone.RESTORED)
+    _a_revert_reaching(another_incident_id, "tuki-flag", Verdict.REFUTED,
+                       at=some_moment + timedelta(minutes=2), undone=Undone.RESTORED)
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: records.what_argus_did(incident_id)
+        ) \
+        .then(
+            _argus_did([
+                WhatArgusDid(identity=_the_revert_of("kuki-flag"),
+                             verdict=Verdict.REFUTED,
+                             standing="put back when it did not help"),
+                WhatArgusDid(identity=_the_revert_of("muki-flag"),
+                             verdict=Verdict.CONFIRMED,
+                             standing="still in place")
+            ])
+        )
+
+
+def _the_revert_of(flag: str) -> ActionIdentity:
+    return ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=flag)
+
+
+def _a_revert_reaching(incident_id: str,
+                       flag: str,
+                       verdict: Verdict,
+                       *,
+                       at: datetime,
+                       undone: Undone | None = None) -> None:
+    """A revert of `flag`, taken at `at` for a candidate of its own, and what it
+    came to."""
+    candidate = a_determined_hypothesis(incident_id)
+
+    with connect_from_env() as conn:
+        hypotheses.record(conn, candidate)
+        taken_actions.claim(conn, incident_id, hypothesis_id=candidate.id,
+                            action_type=REVERT_FEATURE_FLAG, subject=flag, at=at)
+        taken_actions.complete(conn, incident_id, hypothesis_id=candidate.id,
+                               outcome=verdict,
+                               undo_descriptor=FlagUndo(flag=flag, was_enabled=True),
+                               left_behind_known=True,
+                               undone=undone)
+
+
+def _argus_did(expected: list[WhatArgusDid]) -> Assertion[list[WhatArgusDid]]:
+    def assertion(done: list[WhatArgusDid]) -> bool:
+        if done != expected:
+            raise AssertionError(
+                f"Expected the record to say Argus did {expected}, and it said {done}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_record_of(incident_id: str) -> RememberedIncident:

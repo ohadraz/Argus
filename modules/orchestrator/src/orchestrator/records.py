@@ -32,6 +32,8 @@ from argus_core.models import (
     UndoDescriptor,
     Undone,
     Verdict,
+    WhatArgusDid,
+    the_identity_recorded,
 )
 from argus_incidents import PublisherFor, publish_beside
 from argus_incidents.repository import (
@@ -42,8 +44,10 @@ from argus_incidents.repository import (
     taken_actions,
 )
 from incident_memory import filing
+from incident_memory.composing import VERDICTS_THAT_JUDGE_AN_ACTION
 from incident_memory.records import RememberedIncident
 
+from orchestrator.gathering import what_became_of
 from orchestrator.walk.ports import ClaimedAction
 
 
@@ -305,3 +309,24 @@ class Records:
         """
         with self._connections() as conn:
             return taken_actions.get_by_incident(conn, incident_id)
+
+    def what_argus_did(self, incident_id: str, /) -> list[WhatArgusDid]:
+        """Every action this incident judged, in the order taken, with its
+        verdict and whether its change still stands.
+
+        Off the rows rather than the walk's state, because the row is what
+        says whether a change was put back - and in the write-up's words for
+        it, so Code-Fix and the write-up say one action one way.
+
+        Kept as memory keeps them: an action that reached no verdict says
+        nothing about the cause, and one on no subject, or of a kind this
+        version cannot name, is not an action anybody can be told of.
+        """
+        return [
+            WhatArgusDid(identity=identity, verdict=taken.outcome, standing=what_became_of(taken))
+            for taken in self.actions_taken(incident_id)
+            if isinstance(taken.outcome, Verdict)
+            and taken.outcome in VERDICTS_THAT_JUDGE_AN_ACTION
+            and taken.subject
+            and (identity := the_identity_recorded(taken.type, taken.subject)) is not None
+        ]

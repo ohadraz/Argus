@@ -36,6 +36,7 @@ from argus_core.models import (
     UndoDescriptor,
     Undone,
     UnreadVerdict,
+    WhatArgusDid,
 )
 
 # `records_nothing` is aliased because `events` and `replay` each call their
@@ -408,6 +409,10 @@ class ProposeFix(Protocol):
     No pull request is an answer - looked for, not found - and the node reports
     it as one. That is the difference between an incident a human is told
     nothing could be done about and an incident nobody looked at.
+
+    `done` is what Argus did about the incident, each action with its verdict
+    and whether its change still stands - the later word on what the leads
+    were weighed as.
     """
 
     def __call__(self,
@@ -416,6 +421,7 @@ class ProposeFix(Protocol):
                  *,
                  still_wanted: StillWanted = ...,
                  leads: Leads = ...,
+                 done: Sequence[WhatArgusDid] = ...,
                  deployed: str | None = ...) -> ProposedFix: ...
 
 
@@ -439,6 +445,19 @@ class ActionsTaken(Protocol):
     """
 
     def __call__(self, incident_id: str, /) -> list[TakenAction]: ...
+
+
+class WhatArgusDidIn(Protocol):
+    """Every action an incident judged, in the order taken, with its verdict
+    and whether its change still stands.
+
+    Read back rather than carried in the graph's state, for `ActionsTaken`'s
+    reason and one more: whether a change was put back is on the row, and
+    nowhere in the state.
+    """
+
+    # Positional-only: the incident is the whole question.
+    def __call__(self, incident_id: str, /) -> list[WhatArgusDid]: ...
 
 
 class RecallSimilar(Protocol):

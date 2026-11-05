@@ -14,11 +14,12 @@ from argus_core.models import (
     OpenedPullRequest,
     ProposedFix,
     ThreadMessage,
+    WhatArgusDid,
 )
 from argus_incidents import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import LeadsOf, ProposeFix
+from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState
 
@@ -37,11 +38,18 @@ def _nobody_wrote(incident_id: str, /) -> list[ThreadMessage]:
     return []
 
 
+def _nothing_on_record(incident_id: str, /) -> list[WhatArgusDid]:
+    """What was done for a caller with no record to read - a test about
+    something else - whose Code-Fix is told nothing of it, as it always was."""
+    return []
+
+
 def codefix_node(state: IncidentState,
                  propose_fix: ProposeFix,
                  publisher: Publisher = nobody,
                  still_wanted: IsStillWanted = _nobody_stops_it,
-                 leads_of: LeadsOf = _nobody_wrote) -> StateDelta:
+                 leads_of: LeadsOf = _nobody_wrote,
+                 what_argus_did: WhatArgusDidIn = _nothing_on_record) -> StateDelta:
     """Looks for a permanent fix, once mitigation has done what it can (spec §7.4).
 
     What the agent answered is what this reports, and where the proposal can be
@@ -77,6 +85,11 @@ def codefix_node(state: IncidentState,
     agent asks without knowing which incident it is fixing. What it is told
     carries the standing the investigation gave each lead, read back from the
     record, and a lead written since the investigation answered as unweighed.
+
+    `what_argus_did` is read once, before the agent is asked: every action is
+    settled by the time a fix is looked for, so nothing it answers changes
+    while the fix is worked out. Off the record rather than the state, because the
+    record is what says whether each change still stands.
     """
     narrator = Narrator(state.incident_id, publisher)
 
@@ -86,6 +99,7 @@ def codefix_node(state: IncidentState,
             state.incident_id,
             still_wanted=partial(still_wanted, state.incident_id),
             leads=partial(leads_of, state.incident_id),
+            done=what_argus_did(state.incident_id),
             deployed=_what_was_running(state)
         )
     except FixStopped:

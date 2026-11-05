@@ -761,7 +761,7 @@ def _what_was_done(conn: psycopg.Connection,
                      action=_what_it_did(taken_action, said),
                      has_a_way_back=_whether_it_left_a_way_back(taken_action),
                      verdict=taken_action.outcome,
-                     standing=_what_became_of(taken_action),
+                     standing=what_became_of(taken_action),
                      paused_sync_of=_whose_sync_it_left_stopped(taken_action),
                      line=where.get(taken_action.hypothesis_id or ""),
                      progress=taken_action.progress,
@@ -1045,11 +1045,17 @@ def _the_same_change(one: ChangeEvent, other: ChangeEvent) -> bool:
             and parse_iso(one.occurred_at) == parse_iso(other.occurred_at))
 
 
-def _what_became_of(taken_action: TakenAction) -> str:
-    """Whether an action's change still stands as the document is written.
+def what_became_of(taken_action: TakenAction) -> str:
+    """Whether an action's change still stands, as Code-Fix is told it and as
+    the document is written.
+
+    Public because Code-Fix is told it too (`Records.what_argus_did`), and in
+    these words: told any others, the fix and the write-up say one action two
+    ways.
 
     Nothing that ends in a postmortem is unwound, so the only change put back is
-    one Mitigation undid itself, having found it did not help. A change with no
+    one Mitigation undid itself, having found it did not help - and Code-Fix
+    runs before the postmortem, on the same rows. A change with no
     way back - a discard of cached figures - owes nothing, and calling it still
     in place would send somebody looking for something to undo.
 

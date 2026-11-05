@@ -25,7 +25,7 @@ the proposal at the end of it.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Final, NamedTuple, Protocol
 
@@ -53,6 +53,7 @@ from argus_core.models import (
     ToolResult,
     ToolResults,
     Turn,
+    WhatArgusDid,
     no_leads,
     not_yet_shown,
 )
@@ -220,6 +221,7 @@ class Fixer(Protocol):
                  *,
                  still_wanted: StillWanted = ...,
                  leads: Leads = ...,
+                 done: Sequence[WhatArgusDid] = ...,
                  deployed: str | None = ...) -> ProposedFix: ...
 
 
@@ -315,6 +317,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                 conversations: Conversations = a_conversation_recorded_for,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
                 deployed: str | None = None
                 ) -> ProposedFix:
     """Proposes a fix for `hypothesis` as a draft pull request, or nothing -
@@ -361,6 +364,10 @@ def propose_fix(hypothesis: Hypothesis | None,
     for the opening, and again after every turn: a lead written since rides on
     the next result, and each is shown once.
 
+    `done` is what Argus did about the incident, each action with its verdict
+    and whether its change still stands. Said beside the leads in the opening,
+    as the later word on what they were weighed as, and nowhere without one.
+
     `deployed` is the revision running when the alert fired, where one is
     known. `contains` is asked once whether the branch read has it: the
     opening says so only where it does not, and the answer comes back on
@@ -393,7 +400,8 @@ def propose_fix(hypothesis: Hypothesis | None,
             )
         ),
         still_wanted=still_wanted,
-        leads=leads
+        leads=leads,
+        done=done
     )
 
     # Read once the model has answered, and only read: no request it is sent
@@ -485,7 +493,8 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                               code_outside: CodeOutsideReader,
                               converse: Conversation,
                               still_wanted: StillWanted,
-                              leads: Leads
+                              leads: Leads,
+                              done: Sequence[WhatArgusDid]
                               ) -> tuple[SubmittedFix | AnswerToTheQuestion, list[CodeUse]]:
     """The conversation, until the model submits and answers for its patch, or
     runs out of budget - with how the code outside that patch uses what it
@@ -522,7 +531,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     shown = leads()
     transcript: list[Exchange] = [
         Ask(text=the_opening_message(
-            hypothesis, settings, index_notice, list_files, shown,
+            hypothesis, settings, index_notice, list_files, shown, done,
             deployed=deployed, holds_what_ran=holds_what_ran
         ))
     ]

@@ -183,7 +183,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     propose_fix=collaborators.propose_fix,
                     publisher=collaborators.publisher,
                     still_wanted=still_wanted,
-                    leads_of=collaborators.leads_of)
+                    leads_of=collaborators.leads_of,
+                    what_argus_did=collaborators.what_argus_did)
         )
     )
     # Not wrapped in `deciding_status`, unlike every node above it. Filing what

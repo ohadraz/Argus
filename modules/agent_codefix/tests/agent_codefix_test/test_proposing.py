@@ -52,6 +52,8 @@ from argus_core.llm import (
     a_conversation_recorded_for,
 )
 from argus_core.models import (
+    REVERT_FEATURE_FLAG,
+    ActionIdentity,
     Ask,
     CodeOutsideThePatch,
     CodeSearch,
@@ -73,10 +75,13 @@ from argus_core.models import (
     ToolResults,
     Transcript,
     Turn,
+    Verdict,
     Weighing,
+    WhatArgusDid,
     a_chat_message,
 )
 from argus_core.replay import Recorder
+from argus_narration import what_was_done
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
@@ -153,6 +158,10 @@ WHAT_THE_CONCLUSION_ALREADY_NAMES = "read it before you search"
 WHAT_AN_UNWEIGHED_LEAD_IS_CALLED = "never weighed"
 THE_THREAD = "incident's thread"
 WHAT_THE_FINDING_IS_TO_A_WEIGHING = "outranks"
+
+# What heads the actions Argus took, below the leads - words rather than a
+# sentence, for the reason the warning above pins words.
+WHAT_ARGUS_DID = "What Argus did"
 
 # What a submission is asked before it is opened, and what an answer nobody
 # asked for is told - words rather than sentences, for the reason the warning
@@ -412,6 +421,104 @@ def test_a_lead_the_investigation_refuted_is_put_below_the_finding_not_against_i
         ) \
         .then(
             _the_opening_said(model, WHAT_THE_FINDING_IS_TO_A_WEIGHING)
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_is_followed_by_what_argus_did_and_whether_each_change_stands() -> None:
+    # Weighed before anything was tried, a lead can say the reads do not tell
+    # two flags apart in an incident an action then settled. Told the weighing
+    # and nothing after it, a recorded fix said the investigation had left the
+    # flag open, when reverting one had refuted it and reverting the other had
+    # confirmed it. Each action is said in the words the incident's own account
+    # uses, with its verdict and whether its change still stands: a revert said
+    # as refuted and no more reads as a flag still off, when it was put back.
+    # After the weighing, because the actions are the later word on it.
+    some_put_back = _a_flag_revert("kuki", Verdict.REFUTED, "put back when it did not help")
+    some_in_place = _a_flag_revert("buki", Verdict.CONFIRMED, "still in place")
+    some_reason = "the reads do not tell the flags apart"
+    a_lead_the_reads_could_not_settle = _a_lead(
+        "it's the buki flag",
+        Weighing(standing=Standing.UNVERIFIED, reason=some_reason)
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [a_lead_the_reads_could_not_settle],
+                done=[some_put_back, some_in_place],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_opening_said_in_order(model, [some_reason,
+                                               WHAT_ARGUS_DID,
+                                               _what_it_showed(some_put_back),
+                                               _what_it_showed(some_in_place)])
+        )
+
+
+@pytest.mark.unit
+def test_a_lead_on_an_incident_nothing_was_done_about_is_followed_by_no_word_of_actions(
+) -> None:
+    # A heading over nothing tells the model there is something it has failed
+    # to see - the reason the thread's own section is left out where nobody
+    # wrote.
+    a_weighed_lead = _a_lead(
+        "the kuki flag was flipped at noon",
+        Weighing(standing=Standing.SUPPORTED, reason="the flag history agrees")
+    )
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                leads=lambda: [a_weighed_lead],
+                done=[],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_model_was_not_told(model, WHAT_ARGUS_DID)
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_nobody_wrote_about_is_told_nothing_of_what_argus_did() -> None:
+    # What Argus did is said only to settle what the leads were weighed as, so
+    # with no lead there is nothing for it to settle - and the request stays the
+    # one every incident nobody talked about has always sent.
+    some_put_back = _a_flag_revert("kuki", Verdict.REFUTED, "put back when it did not help")
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                done=[some_put_back],
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_not_told(model, WHAT_ARGUS_DID),
+                _the_model_was_not_told(model, _what_it_showed(some_put_back))
+            )
         )
 
 
@@ -3236,6 +3343,22 @@ def _the_opening_said(model: _Model, said: str) -> Assertion[Any]:
     return assertion
 
 
+def _the_opening_said_in_order(model: _Model, said: list[str]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        opening = model.what_it_was_told_first()
+        where = [opening.find(each) for each in said]
+
+        if -1 in where or where != sorted(where):
+            raise AssertionError(
+                f"Expected the opening message to say {said} in that order; it "
+                f"said them at {where}, -1 where it did not say one at all."
+            )
+
+        return True
+
+    return assertion
+
+
 def _the_opening_did_not_say(model: _Model, said: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         if said in model.what_it_was_told_first():
@@ -3296,6 +3419,21 @@ def _nothing_put_to_it_was_empty(model: _Model) -> Assertion[Any]:
         return True
 
     return assertion
+
+
+def _a_flag_revert(flag: str, verdict: Verdict, standing: str) -> WhatArgusDid:
+    """A flag Argus reverted, what the service's metrics made of it, and
+    whether the change still stands."""
+    return WhatArgusDid(identity=ActionIdentity(action_type=REVERT_FEATURE_FLAG, subject=flag),
+                        verdict=verdict,
+                        standing=standing)
+
+
+def _what_it_showed(done: WhatArgusDid) -> str:
+    """An action as the opening lists it: the incident's own words for it, its
+    verdict, and whether it still stands."""
+    return (f"{what_was_done(done.identity.action_type, done.identity.subject)}: "
+            f"{done.verdict.value}, {done.standing}")
 
 
 def _a_lead(words: str, weighing: Weighing | None = None) -> ThreadMessage:

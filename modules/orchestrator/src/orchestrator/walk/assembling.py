@@ -95,6 +95,7 @@ from orchestrator.walk.ports import (
     RememberIncident,
     TakeAction,
     TransitionIncident,
+    WhatArgusDidIn,
     WritePostmortem,
 )
 
@@ -158,6 +159,10 @@ class Collaborators:
     # while an agent is working.
     leads_of: LeadsOf
     record_weighing: RecordWeighing
+    # What Argus did about the incident, read back for Code-Fix with whether
+    # each change still stands - the later word on what the leads were weighed
+    # as.
+    what_argus_did: WhatArgusDidIn
     # How many times one incident may be investigated. On the record
     # rather than read by the graph, because it is a fact about the
     # deployment and `build_graph` is where a walk is assembled, not
@@ -400,6 +405,7 @@ def against(connections: Connections,
         wait_for_people=waiting_for_people_via(connections, events_into(connections)),
         leads_of=records.leads,
         record_weighing=records.weighing,
+        what_argus_did=records.what_argus_did,
         max_rounds=settings.investigation_max_rounds
     )
 
