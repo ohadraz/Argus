@@ -15,10 +15,10 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels
+from agent_postmortem.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels
 from agent_postmortem.summary import said_off_the_page, the_executive_summary
 from argus_core import level_said_in, to_iso
-from argus_core.models import ActionProgress, OpenedPullRequest, Verdict, said_as_money
+from argus_core.models import ActionProgress, OpenedPullRequest, Quantile, Verdict, said_as_money
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 
 from agent_postmortem_test.framework.builders import (
@@ -37,6 +37,16 @@ SOME_RISK = "Any other service renamed the same way loses its metrics too."
 # An action as the narration words it, which is how the record holds it: the
 # opening of a sentence whose subject is Argus.
 SOME_ACTION = "Reverted the feature flag checkout-v2"
+
+
+def _a_quantile(quantile: Quantile, before: float, at_its_worst: float,
+                departed: bool = True) -> LatencyLevels:
+    """How long requests took at `quantile` - before it began and at its worst,
+    which the summary says, and on average between, which it does not. Here
+    rather than among the helpers below, since the cases are built from it."""
+    return LatencyLevels(quantile=quantile, baseline=before,
+                         while_broken=(before + at_its_worst) / 2,
+                         at_its_worst=at_its_worst, departed=departed)
 
 
 @pytest.mark.unit
@@ -317,6 +327,69 @@ def test_where_the_alert_watches_the_error_rate_its_worst_is_said_once_as_reques
                   "At its worst, 40.0% failed."),
             _does_not_say("What its alert watches")
         ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("latency", "said"), [
+    ([_a_quantile("p50", 41.0, 48.0, departed=False),
+      _a_quantile("p95", 215.13, 1449.0),
+      _a_quantile("p99", 302.4, 2210.0, departed=False)],
+     f"Requests took longer: the slowest one request in twenty went from "
+     f"{level_said_in(215.13, 'ms')} before it began to {level_said_in(1449.0, 'ms')} at its "
+     f"worst."),
+    ([_a_quantile("p50", 41.0, 118.0),
+      _a_quantile("p95", 215.13, 1449.0),
+      _a_quantile("p99", 302.4, 2210.0)],
+     f"Requests took longer: the median request went from {level_said_in(41.0, 'ms')} before "
+     f"it began to {level_said_in(118.0, 'ms')} at its worst, the slowest one request in "
+     f"twenty from {level_said_in(215.13, 'ms')} to {level_said_in(1449.0, 'ms')}, and the "
+     f"slowest one request in a hundred from {level_said_in(302.4, 'ms')} to "
+     f"{level_said_in(2210.0, 'ms')}.")
+], ids=["one-quantile-departed", "every-quantile-departed"])
+def test_where_no_more_requests_failed_how_much_longer_they_took_is_said_first(
+        latency: list[LatencyLevels], said: str) -> None:
+    # What the people using the service felt, where the alert watched something
+    # else: a summary giving only the memory its alert watched as the harm said
+    # nothing anyone using the shop saw. Each quantile that departed, as the
+    # brief tells them, and before the series - what was felt, then what paged.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.02, while_broken=0.02, at_its_worst=0.03,
+                                       usual_ceiling=0.03, usual_worst=0.05),
+                rule_series=RuleSeriesLevels(baseline=0.217, while_broken=0.6,
+                                             at_its_worst=0.844, worse_when="above"),
+                latency=latency)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _says(f"{said} What its alert watches went from {level_said_in(0.217, None)} before "
+                  f"it began to {level_said_in(0.844, None)} at its worst.")
+        )
+
+
+@pytest.mark.unit
+def test_where_more_requests_failed_how_much_longer_they_took_is_left_to_the_failed_requests(
+) -> None:
+    # The brief tells no latency there - the failed requests are the harm - so
+    # the summary has no figure of it to say.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.02, while_broken=0.3, at_its_worst=0.4,
+                                       usual_ceiling=0.03, usual_worst=0.05),
+                latency=[_a_quantile("p95", 215.13, 1449.0)])
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _does_not_say("Requests took longer")
+        )
 
 
 @pytest.mark.unit

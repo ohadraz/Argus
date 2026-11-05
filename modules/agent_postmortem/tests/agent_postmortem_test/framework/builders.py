@@ -26,7 +26,7 @@ from agent_postmortem import (
     ResolutionRecord,
     write_postmortem,
 )
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan
+from agent_postmortem.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels, RuleSeriesSpan
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.prompting import (
     ACTION_ITEMS_FIELD,
@@ -366,6 +366,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         rule_held_before_the_onset: bool | None = None,
                         rule_series_unit: str | None = None,
                         rule_series_is_the_error_rate: bool = False,
+                        rule_series_is_a_latency: bool = False,
+                        latency: list[LatencyLevels] | None = None,
                         rule_looks_back: timedelta | None = None,
                         rule_evaluated_every: timedelta | None = None,
                         rule_past_its_line_at: datetime | None = None,
@@ -388,7 +390,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
 
     No rule series by default, which is an incident paged by a rule watching
     none of its own - every incident measured before one could be read. Nor
-    one before the alert, which only a disproven alarm is measured for.
+    one before the alert, which only a disproven alarm is measured for. And no
+    latency, which is an incident whose metrics carried no quantile.
     """
     return Measurements(
         duration_in_hours=duration_in_hours,
@@ -414,6 +417,8 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         rule_held_before_the_onset=rule_held_before_the_onset,
         rule_series_unit=rule_series_unit,
         rule_series_is_the_error_rate=rule_series_is_the_error_rate,
+        rule_series_is_a_latency=rule_series_is_a_latency,
+        latency=latency if latency is not None else [],
         rule_looks_back=rule_looks_back,
         rule_evaluated_every=rule_evaluated_every,
         rule_past_its_line_at=rule_past_its_line_at,
@@ -781,7 +786,8 @@ def an_alert_rule(waits_seconds: int | None,
                   series_unit: str | None = None,
                   looks_back_seconds: int = 0,
                   evaluated_every_seconds: int = 60,
-                  series_is_the_error_rate: bool = False) -> AlertRule:
+                  series_is_the_error_rate: bool = False,
+                  series_is_a_latency: bool = False) -> AlertRule:
     """A rule source answering for the rule that paged: how long it waits before
     it fires, how far back its condition looks, how often it is evaluated, and
     the query of the series it watches - nothing at all where the rule could not
@@ -798,19 +804,21 @@ def an_alert_rule(waits_seconds: int | None,
                                  interval_seconds=evaluated_every_seconds,
                                  keep_firing_for_seconds=0, pending_seconds=waits_seconds,
                                  series_query=series_query, series_unit=series_unit,
-                                 series_is_the_error_rate=series_is_the_error_rate)
+                                 series_is_the_error_rate=series_is_the_error_rate,
+                                 series_is_a_latency=series_is_a_latency)
 
     return standing
 
 
 def a_bucket(at: datetime,
              error_rate: float,
-             rule_reading: RuleReading | None = None) -> MetricBucket:
+             rule_reading: RuleReading | None = None,
+             p95_ms: int = 40) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
         p50_ms=20,
-        p95_ms=40,
+        p95_ms=p95_ms,
         p99_ms=90,
         request_volume=1_000,
         memory_used_bytes=440 * 1024**2,

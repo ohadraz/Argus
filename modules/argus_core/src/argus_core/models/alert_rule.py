@@ -43,6 +43,8 @@ class AlertRuleStanding(BaseModel):
     `series_is_the_error_rate` is that series being the very query the error
     rate is read by: then what the rule watched is a figure every reader is
     already given as the error rate, and saying both says it twice.
+    `series_is_a_latency` is the same for the queries a latency is read by:
+    then what the rule watched is how long requests took.
     """
 
     rule: str
@@ -55,3 +57,4 @@ class AlertRuleStanding(BaseModel):
     series_query: str | None = None
     series_unit: str | None = None
     series_is_the_error_rate: bool = False
+    series_is_a_latency: bool = False

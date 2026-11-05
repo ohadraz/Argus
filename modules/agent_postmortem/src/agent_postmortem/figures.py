@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Final
 
 from argus_core import (
     A_DAY_SAID,
+    MILLISECONDS_UNIT,
     level_given_in,
     level_said_in,
     parse_iso,
@@ -50,12 +51,14 @@ from argus_core.models import (
     DetectionLesson,
     DetectionPart,
     FirstTold,
+    Quantile,
     said_as_money,
     the_detection_lesson_said,
 )
 from pydantic import BaseModel
 
 from agent_postmortem.detection_lesson import no_start_from_the_line, the_detection_lesson
+from agent_postmortem.estimate import QUANTILES, LatencyLevels
 from agent_postmortem.evidence import IncidentEvidence
 from agent_postmortem.measuring import Measurements
 from agent_postmortem.sources import NotPaged
@@ -108,6 +111,27 @@ ERRORS_RISE_FIGURE: Final = "errors_rise"
 SERIES_BEFORE_FIGURE: Final = "series_before"
 SERIES_WHILE_BROKEN_FIGURE: Final = "series_while_broken"
 SERIES_AT_WORST_FIGURE: Final = "series_at_worst"
+# How long requests took at a quantile, by the quantile and the level:
+# `latency_p95_before` (`latency_figure`).
+LATENCY_BEFORE: Final = "before"
+LATENCY_WHILE_BROKEN: Final = "while_broken"
+LATENCY_AT_WORST: Final = "at_worst"
+_LATENCY_LEVELS: Final = (LATENCY_BEFORE, LATENCY_WHILE_BROKEN, LATENCY_AT_WORST)
+
+
+def latency_figure(quantile: Quantile, level: str) -> str:
+    """The name of how long requests took at `quantile`, at `level`."""
+    return f"latency_{quantile}_{level}"
+
+
+# Each quantile as a reader knows it - in the brief and in the summary alike,
+# so the two name one quantile one way.
+QUANTILE_SAID: Final[Mapping[Quantile, str]] = {
+    "p50": "the median request",
+    "p95": "the slowest one request in twenty",
+    "p99": "the slowest one request in a hundred"
+}
+
 
 # What a measured onset can tell an instant to: it is the first whole minute
 # that departed, so anything shorter is inside it.
@@ -251,7 +275,9 @@ _KINDS: Final = {
     ERRORS_RISE_FIGURE: _Kind.SHARE,
     SERIES_BEFORE_FIGURE: _Kind.LEVEL,
     SERIES_WHILE_BROKEN_FIGURE: _Kind.LEVEL,
-    SERIES_AT_WORST_FIGURE: _Kind.LEVEL
+    SERIES_AT_WORST_FIGURE: _Kind.LEVEL,
+    **{latency_figure(quantile, level): _Kind.LEVEL
+       for quantile in QUANTILES for level in _LATENCY_LEVELS}
 }
 
 # What a ratio is written to: as far as a reader compares two levels by.
@@ -489,6 +515,14 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
         figures[SERIES_WHILE_BROKEN_FIGURE] = _a_level(levels.while_broken, unit, the_error_rate)
         figures[SERIES_AT_WORST_FIGURE] = _a_level(levels.at_its_worst, unit, the_error_rate)
 
+    # Only where the brief tells it, as the action's time is.
+    for latency in the_latency_told(evidence, measured):
+        for level, value in ((LATENCY_BEFORE, latency.baseline),
+                             (LATENCY_WHILE_BROKEN, latency.while_broken),
+                             (LATENCY_AT_WORST, latency.at_its_worst)):
+            figures[latency_figure(latency.quantile, level)] = _a_level(
+                value, MILLISECONDS_UNIT, is_the_error_rate=False)
+
     # A loss of nothing is said in words, as the page says it: "0.00 USD"
     # reads as a figure nobody filled in.
     if measured.loss and measured.currency is not None:
@@ -514,6 +548,28 @@ def the_post_beside_nobody_paged(evidence: IncidentEvidence,
         return None
 
     return evidence.first_told
+
+
+def the_latency_told(evidence: IncidentEvidence,
+                     measured: Measurements) -> list[LatencyLevels]:
+    """How long requests took at each quantile that departed, where the brief
+    tells it - nothing anywhere else.
+
+    Told where no rise in failed requests was measured and the rule that paged
+    watched no latency: there nothing else the model is handed says what the
+    people using the service felt, and a write-up of a service six times slower
+    said nobody using it saw anything wrong. Where the failed requests rose they
+    are the harm, and where the rule watched a latency its series says it
+    already. Nothing where the alarm was disproven, which says nothing of what
+    it cost. Asked once, here, for the figures and the lines naming them alike.
+    """
+    rates = measured.error_rates
+
+    if (evidence.disproven or measured.rule_series_is_a_latency
+            or (rates is not None and rates.a_rise_was_measured)):
+        return []
+
+    return [latency for latency in measured.latency if latency.departed]
 
 
 def with_every_day_said(figures: Mapping[str, Figure], day: date) -> dict[str, Figure]:

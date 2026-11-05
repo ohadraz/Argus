@@ -39,7 +39,7 @@ from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.detection_lesson import the_detection_lesson
 from agent_postmortem.evidence import IncidentEvidence
-from agent_postmortem.figures import the_day_it_began
+from agent_postmortem.figures import the_day_it_began, the_latency_told
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
@@ -196,6 +196,7 @@ def write_postmortem(evidence: IncidentEvidence,
         impact=impact_of(measured,
                          logs_in_the_gap=logs_in_the_gap_of(
                              evidence, measured, answer.logs_show_serving_as_before),
+                         latency_told=the_latency_told(evidence, measured),
                          disproven=evidence.disproven),
         detection=detection_of(evidence, measured.rule_waits,
                                rule_wait_unread=measured.rule_wait_unread,

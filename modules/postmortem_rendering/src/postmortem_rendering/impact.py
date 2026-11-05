@@ -1,6 +1,6 @@
 """How bad it was: one card per figure, the figure first, and what the alert
-found where the damage is not a rate - the series its rule pages on among the
-figures, where that got worse.
+found where the damage is not a rate - how long requests took and the series
+its rule pages on among the figures, where those got worse.
 
 A figure that could not be measured is said not to have been, never shown as a
 zero: a reader must not have to guess whether nothing was lost or nothing was
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from argus_core import level_said_in, said_as_a_share, said_as_a_time
+from argus_core import MILLISECONDS_UNIT, level_said_in, said_as_a_share, said_as_a_time
 from argus_core.models import (
     AlarmClaim,
     Alert,
@@ -105,6 +105,7 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
                if disproven else
                (_the_duration(impact, start),
                 *_the_errors(impact, start),
+                *_the_latency(impact, start),
                 *_the_rules_series(impact, start),
                 _the_loss(postmortem, a_lower_bound))),
         finding=f"What the alert found: {found}" if found else None,
@@ -265,6 +266,27 @@ def _whether_serving_as_before(logs: LogsInTheGap) -> tuple[Run, ...]:
                 if logs.serving_as_before else
                 " They do not show the service serving as it had before the metrics "
                 "stopped."),)
+
+
+def _the_latency(impact: Impact | None, start: str) -> tuple[Card, ...]:
+    """How long requests took at each quantile carried, one card each - none
+    where nothing was carried, since requests that took no longer are no harm.
+
+    Said as the series' card says its levels: before, then while broken on
+    average, the worst minute in the note - in milliseconds, which a latency is
+    measured in. Before the series' card: what the people using the service
+    felt, then what paged.
+    """
+    if impact is None:
+        return ()
+
+    def said(level: float) -> str:
+        return level_said_in(level, MILLISECONDS_UNIT)
+
+    return tuple(Card(value=f"{said(latency.before)} to {said(latency.while_broken)}",
+                      label=f"{latency.quantile} latency, {_before_and_while_broken(start)}",
+                      note=f"worst minute {said(latency.at_its_worst)}")
+                 for latency in impact.latency_harm)
 
 
 def _the_rules_series(impact: Impact | None, start: str) -> tuple[Card, ...]:

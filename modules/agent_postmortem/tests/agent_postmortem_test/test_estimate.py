@@ -18,6 +18,7 @@ from math import isclose
 import pytest
 from agent_postmortem.estimate import (
     ErrorRates,
+    LatencyLevels,
     RuleSeriesLevels,
     RuleSeriesSpan,
     Unmeasured,
@@ -26,6 +27,7 @@ from agent_postmortem.estimate import (
     calm_to_read_for,
     error_rates_over,
     first_minute_past_its_line,
+    latency_over,
     rule_held_before_the_onset,
     rule_series_before,
     rule_series_over,
@@ -1141,6 +1143,71 @@ def test_a_stretch_before_the_alert_carrying_no_reading_of_the_rules_series_read
         )
 
 
+@pytest.mark.unit
+def test_latency_is_measured_at_the_levels_the_error_rate_is() -> None:
+    # How long requests took, which is what the people using the service felt
+    # where a rule watching something else paged and nothing failed: before it
+    # began, while it was broken, and at its slowest. Far past anything the calm
+    # reached, so it departed.
+    some_calm_p95 = 215
+    some_slow_p95 = 900
+    the_slowest_p95 = some_slow_p95 + 549
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2), p95_ms=some_calm_p95),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), p95_ms=some_slow_p95),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), p95_ms=the_slowest_p95)
+            ]
+        ) \
+        .when(
+            lambda: latency_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_latency_was(LatencyLevels(
+                quantile="p95",
+                baseline=some_calm_p95,
+                while_broken=(some_slow_p95 + the_slowest_p95) / 2,
+                at_its_worst=the_slowest_p95,
+                departed=True
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_latency_no_slower_than_the_calm_went_on_its_own_has_not_departed() -> None:
+    # A quantile wobbles from minute to minute, and a broken stretch no slower
+    # than the calm's slowest minute is that wobble. Told as a slowdown, it is a
+    # harm nobody measured.
+    the_calm_at_its_slowest = 46
+    the_calm_at_its_quickest = the_calm_at_its_slowest - 1
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3),
+                          p50_ms=the_calm_at_its_quickest),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          p50_ms=the_calm_at_its_slowest),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          p50_ms=the_calm_at_its_slowest)
+            ]
+        ) \
+        .when(
+            lambda: latency_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_latency_was(LatencyLevels(
+                quantile="p50",
+                baseline=(the_calm_at_its_quickest + the_calm_at_its_slowest) / 2,
+                while_broken=the_calm_at_its_slowest,
+                at_its_worst=the_calm_at_its_slowest,
+                departed=False
+            ))
+        )
+
+
 # The line `_a_reading`'s share pages under.
 _THE_LINE = 0.8
 
@@ -1149,6 +1216,26 @@ def _a_reading(value: float) -> RuleReading:
     """A minute of a share that pages under `_THE_LINE`."""
     return RuleReading(value=value, worse_when="below",
                        line=RuleLine(at=_THE_LINE, fires_on_it=False))
+
+
+def _the_latency_was(expected: LatencyLevels) -> Assertion[list[LatencyLevels]]:
+    def assertion(measured: list[LatencyLevels]) -> bool:
+        got = next((levels for levels in measured if levels.quantile == expected.quantile),
+                   None)
+
+        if (
+            got is None
+            or not isclose(got.baseline, expected.baseline)
+            or not isclose(got.while_broken, expected.while_broken)
+            or not isclose(got.at_its_worst, expected.at_its_worst)
+            or got.departed != expected.departed
+        ):
+            raise AssertionError(
+                f"Expected the {expected.quantile} latency at {expected}, got [{got}].")
+
+        return True
+
+    return assertion
 
 
 def _estimates(expected: Decimal) -> Assertion[Decimal]:
@@ -1163,12 +1250,14 @@ def _estimates(expected: Decimal) -> Assertion[Decimal]:
 
 def _a_bucket(at: datetime,
               error_rate: float = DONT_CARE_ERROR_RATE,
-              rule_reading: RuleReading | None = None) -> MetricBucket:
+              rule_reading: RuleReading | None = None,
+              p50_ms: int = 20,
+              p95_ms: int = 40) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
-        p50_ms=20,
-        p95_ms=40,
+        p50_ms=p50_ms,
+        p95_ms=p95_ms,
         p99_ms=90,
         request_volume=1_000,
         memory_used_bytes=440 * 1024**2,

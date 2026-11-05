@@ -66,7 +66,7 @@ from agent_postmortem.detection_lesson import (
     no_start_from_the_line,
     the_detection_lesson,
 )
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
+from agent_postmortem.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels, Unmeasured
 from agent_postmortem.evidence import ActionRecord, DeploymentChangesRecord, IncidentEvidence
 from agent_postmortem.figures import (
     A_MINUTE,
@@ -86,9 +86,13 @@ from agent_postmortem.figures import (
     ERRORS_WHILE_BROKEN_FIGURE,
     FIRST_TOLD_FIGURE,
     HELD_FIGURE,
+    LATENCY_AT_WORST,
+    LATENCY_BEFORE,
+    LATENCY_WHILE_BROKEN,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
     METRICS_STOPPED_AT_FIGURE,
+    QUANTILE_SAID,
     RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
     SERIES_AT_WORST_FIGURE,
@@ -96,11 +100,13 @@ from agent_postmortem.figures import (
     SERIES_WHILE_BROKEN_FIGURE,
     Figure,
     figures_of,
+    latency_figure,
     named,
     the_day_it_began,
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    the_latency_told,
     the_log_group_figures,
     the_narration_figures,
     the_post_beside_nobody_paged,
@@ -1230,6 +1236,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
     answer states one.
     """
     figures = figures_shown(evidence, measured)
+    latency_told = the_latency_told(evidence, measured)
 
     return "\n".join([
         "Write the postmortem for the incident below.",
@@ -1266,7 +1273,10 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
             *_what_the_rules_series_did(measured.rule_series, measured.rule_series_query,
                                         measured.rule_series_unit, evidence,
                                         measured.error_rates, figures,
-                                        is_the_error_rate=measured.rule_series_is_the_error_rate),
+                                        is_the_error_rate=measured.rule_series_is_the_error_rate,
+                                        latency_told=bool(latency_told)),
+            *_how_long_requests_took(latency_told, figures,
+                                     _the_series_is_the_harm(measured)),
             _what_customers_lost(measured, figures)
         ]),
         *(line
@@ -2701,7 +2711,8 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
                                evidence: IncidentEvidence,
                                rates: ErrorRates | None,
                                figures: Mapping[str, Figure],
-                               is_the_error_rate: bool) -> list[str]:
+                               is_the_error_rate: bool,
+                               latency_told: bool) -> list[str]:
     """The series the alert rule evaluates, at the error rate's levels.
 
     Nothing at all where the metrics carry no such series - not a line saying it
@@ -2756,23 +2767,82 @@ def _what_the_rules_series_did(levels: RuleSeriesLevels | None,
         f"{_shown(SERIES_WHILE_BROKEN_FIGURE, figures)} on average while it was "
         f"broken, and {_shown(SERIES_AT_WORST_FIGURE, figures)} at its worst."
         f"{no_unit}{in_words}",
-        *_what_it_meant(levels, rates, is_the_error_rate)
+        *_what_it_meant(levels, rates, is_the_error_rate, latency_told)
     ]
 
 
 def _what_it_meant(levels: RuleSeriesLevels, rates: ErrorRates | None,
-                   is_the_error_rate: bool) -> list[str]:
+                   is_the_error_rate: bool, latency_told: bool) -> list[str]:
     """What the model is asked of the series beyond its levels: nothing where it
     held or is the error rate itself, and what it meant for the people using the
     service where it got worse - as the harm itself where the failed requests
-    did not rise."""
-    if not levels.got_worse or is_the_error_rate:
+    did not rise, beside how much longer requests took where that is told."""
+    if not _is_the_harm(levels, rates, is_the_error_rate):
+        if levels.got_worse and not is_the_error_rate:
+            return ["Failed requests rose as well, as a share of traffic - say also what "
+                    "this series getting worse meant for the people using the service."]
+
         return []
 
-    if rates is not None and rates.a_rise_was_measured:
-        return ["Failed requests rose as well, as a share of traffic - say also what "
-                "this series getting worse meant for the people using the service."]
+    if latency_told:
+        return ["No rise in failed requests was measured, so the harm to report is "
+                f"what this series did and {_HOW_MUCH_LONGER_REQUESTS_TOOK}: say what "
+                "both meant for the people using the service, not that little or "
+                "nothing failed."]
 
     return ["No rise in failed requests was measured, so the harm to report is "
             "what this series did: say what it meant for the people using the "
             "service, not that little or nothing failed."]
+
+
+def _the_series_is_the_harm(measured: Measurements) -> bool:
+    """Whether the brief reports the rule's series as the harm - which it does
+    where the series got worse, is not the error rate, and no rise in failed
+    requests was measured."""
+    levels = measured.rule_series
+
+    return levels is not None and _is_the_harm(levels, measured.error_rates,
+                                               measured.rule_series_is_the_error_rate)
+
+
+def _is_the_harm(levels: RuleSeriesLevels, rates: ErrorRates | None,
+                 is_the_error_rate: bool) -> bool:
+    """Whether a series is reported as the harm: got worse, is not the error
+    rate, and no rise in failed requests was measured beside it."""
+    return (levels.got_worse and not is_the_error_rate
+            and not (rates is not None and rates.a_rise_was_measured))
+
+
+# How the harm the model is asked to report points at the latency it is told.
+_HOW_MUCH_LONGER_REQUESTS_TOOK: Final = "how much longer requests took"
+
+
+def _how_long_requests_took(latency: list[LatencyLevels],
+                            figures: Mapping[str, Figure],
+                            the_series_is_the_harm: bool) -> list[str]:
+    """How long requests took at each quantile `the_latency_told` tells, at the
+    error rate's levels - and, where the rule's series is not already reported
+    as the harm beside it, the harm pointed at it on its own.
+
+    Over all the service's requests, as the error rate is, and so said as
+    requests rather than as the pages or calls any one of them was. Nothing at
+    all where nothing is told: the brief of an incident whose requests took no
+    longer says nothing of them, as it always did.
+    """
+    if not latency:
+        return []
+
+    def shown(levels: LatencyLevels, level: str) -> str:
+        return _shown(latency_figure(levels.quantile, level), figures)
+
+    return [
+        *(f"Requests took longer at {levels.quantile}, "
+          f"{QUANTILE_SAID[levels.quantile]}: {shown(levels, LATENCY_BEFORE)} before it "
+          f"began, {shown(levels, LATENCY_WHILE_BROKEN)} on average while it was broken, "
+          f"and {shown(levels, LATENCY_AT_WORST)} at its worst."
+          for levels in latency),
+        *([] if the_series_is_the_harm else [
+            "No rise in failed requests was measured, so the harm to report is "
+            f"{_HOW_MUCH_LONGER_REQUESTS_TOOK}: say what that meant for the people "
+            "using the service, not that little or nothing failed."])
+    ]

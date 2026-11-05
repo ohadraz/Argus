@@ -27,6 +27,7 @@ from math import isclose
 import pytest
 from agent_postmortem import IncidentEvidence
 from agent_postmortem.estimate import (
+    LatencyLevels,
     RuleSeriesLevels,
     RuleSeriesSpan,
     Unmeasured,
@@ -1325,6 +1326,55 @@ def test_whether_the_rules_series_is_the_error_rate_is_read_off_the_rule_that_pa
 
 
 @pytest.mark.unit
+def test_whether_the_rules_series_is_a_latency_is_read_off_the_rule_that_paged() -> None:
+    # Only the rule's query says so, and the query is read where the rule is.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(rule="dont-care-rule")
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                alert_rule=an_alert_rule(300, series_is_a_latency=True))
+            ).rule_series_is_a_latency
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+@pytest.mark.unit
+def test_latency_is_measured_over_the_stretch_the_service_was_broken() -> None:
+    # Over the same stretch as the error rate, bounded by the same onset and the
+    # same recovery. The minute it recovered in is back to the calm, so a
+    # stretch that ran past it would average lower than the broken minute.
+    some_calm_p95 = 215
+    some_slow_p95 = 900
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET - timedelta(minutes=2), error_rate=dont_care_error_rate,
+                         p95_ms=some_calm_p95),
+                a_bucket(at=ONSET + timedelta(minutes=1), error_rate=dont_care_error_rate,
+                         p95_ms=some_slow_p95),
+                a_bucket(at=ENDED_AT, error_rate=dont_care_error_rate,
+                         p95_ms=some_calm_p95)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=ENDED_AT)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between))
+        ) \
+        .then(
+            _the_latency_was(LatencyLevels(quantile="p95", baseline=some_calm_p95,
+                                           while_broken=some_slow_p95,
+                                           at_its_worst=some_slow_p95, departed=True))
+        )
+
+
+@pytest.mark.unit
 def test_whether_the_rule_held_before_the_onset_is_read_off_the_minutes_its_wait_reaches() -> None:
     # The alert 4m 34s after the onset, from a rule that waits five, and the
     # minute before the onset short of the rule's line: the record a page said
@@ -1878,6 +1928,26 @@ def _priced_no_response() -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected no response cost where it could not be priced in full, "
                 f"got [{measured.cost.midpoint}].")
+
+        return True
+
+    return assertion
+
+
+def _the_latency_was(expected: LatencyLevels) -> Assertion[Measurements]:
+    def assertion(measured: Measurements) -> bool:
+        got = next((levels for levels in measured.latency
+                    if levels.quantile == expected.quantile), None)
+
+        if (
+            got is None
+            or not isclose(got.baseline, expected.baseline)
+            or not isclose(got.while_broken, expected.while_broken)
+            or not isclose(got.at_its_worst, expected.at_its_worst)
+            or got.departed != expected.departed
+        ):
+            raise AssertionError(
+                f"Expected the {expected.quantile} latency at {expected}, got [{got}].")
 
         return True
 

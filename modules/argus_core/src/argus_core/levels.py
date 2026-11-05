@@ -26,6 +26,9 @@ PERCENT_UNIT: Final = "percent"
 _PERCENT_SIGN: Final = "%"
 _A_HUNDRED: Final = Decimal(100)
 
+# Grafana's unit id for milliseconds, which a latency is measured in.
+MILLISECONDS_UNIT: Final = "ms"
+
 # A reading that is no number, as Prometheus writes one: its arithmetic is IEEE
 # 754's, so 0 / 0 answers NaN and 3 / 0 answers +Inf.
 _POSITIVE_INFINITY: Final = "+Inf"

@@ -37,6 +37,7 @@ from agent_postmortem import DeploymentChangesRecord, write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.detection_lesson import the_detection_lesson
+from agent_postmortem.estimate import LatencyLevels
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
@@ -76,6 +77,7 @@ from argus_core.models import (
     CodeUse,
     ContributingFactor,
     FileAsItRan,
+    LatencyHarm,
     Lessons,
     OpenedPullRequest,
     PostmortemDocument,
@@ -563,7 +565,40 @@ def test_the_impact_is_the_incident_as_measured_with_the_logs_in_what_the_metric
                        impact_of(measured,
                                  logs_in_the_gap=logs_in_the_gap_of(
                                      evidence, measured, serving_as_before=True),
+                                 latency_told=[],
                                  disproven=False))
+        )
+
+
+@pytest.mark.unit
+def test_the_impact_carries_how_long_requests_took_at_each_quantile_the_brief_tells() -> None:
+    # The brief and the page tell one slowdown: told how much longer requests
+    # took, a write-up said only that they took longer, and the page's Impact
+    # and summary said nothing of it. A quantile that did not depart is no
+    # slowdown, and the brief does not tell it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(latency=[
+                LatencyLevels(quantile="p50", baseline=41.0, while_broken=43.0,
+                              at_its_worst=48.0, departed=False),
+                LatencyLevels(quantile="p95", baseline=215.13, while_broken=586.4,
+                              at_its_worst=1449.0, departed=True)
+            ])
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("how long requests took",
+                       lambda document: document.impact.latency_harm if document.impact else None,
+                       [LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
+                                    at_its_worst=1449.0)])
         )
 
 
@@ -1570,7 +1605,8 @@ def test_the_impact_of_a_disproven_alarm_is_published_as_no_incident() -> None:
         ) \
         .then(
             _publishes("the impact", lambda document: document.impact,
-                       impact_of(measured, logs_in_the_gap=None, disproven=True))
+                       impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                                 disproven=True))
         )
 
 

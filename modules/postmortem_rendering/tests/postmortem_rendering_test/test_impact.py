@@ -18,6 +18,7 @@ from argus_core.models import (
     ErrorRateLevels,
     Impact,
     ImpactExtent,
+    LatencyHarm,
     LogsInTheGap,
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
@@ -716,6 +717,46 @@ def test_a_series_card_says_its_levels_in_their_unit(harm: RuleSeriesHarm, value
                                 label="what the alert watches, before onset and while broken "
                                       "on average",
                                 note=note)))
+
+
+@pytest.mark.unit
+def test_how_long_requests_took_is_a_card_per_quantile_before_what_the_alert_watches() -> None:
+    # What the people using the service felt, where nothing else on the page
+    # says it: a postmortem of a service whose requests took about six and a
+    # half times as long at worst gave only the memory its alert watched as the
+    # harm, which nobody using the service felt. Said as the series is -
+    # before, then while broken on average, the worst minute in the note - in
+    # milliseconds, and before the series: what was felt, then what paged.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=29), extent=ImpactExtent.MEASURED,
+                              peak_error_rate=0.012,
+                              error_rates=ErrorRateLevels(before=0.011, while_broken=0.012,
+                                                          rose=False),
+                              latency_harm=[
+                                  LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
+                                              at_its_worst=1449.0),
+                                  LatencyHarm(quantile="p99", before=302.4, while_broken=949.6,
+                                              at_its_worst=2210.0)],
+                              rule_series_harm=RuleSeriesHarm(before=0.217, while_broken=0.6,
+                                                              at_its_worst=0.844,
+                                                              worse_when="above")))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert("ContainerMemoryHigh")).cards[2:5]
+        ) \
+        .then(
+            the_answer_was((Card(value="215 ms to 586 ms",
+                                 label="p95 latency, before onset and while broken on average",
+                                 note="worst minute 1449 ms"),
+                            Card(value="302 ms to 950 ms",
+                                 label="p99 latency, before onset and while broken on average",
+                                 note="worst minute 2210 ms"),
+                            Card(value="0.217 to 0.6",
+                                 label="what the alert watches, before onset and while broken "
+                                       "on average",
+                                 note="worst minute 0.844"))))
 
 
 def _the_values_are(*expected: str) -> Assertion[tuple[Card, ...]]:

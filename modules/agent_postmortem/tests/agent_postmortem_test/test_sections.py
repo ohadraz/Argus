@@ -18,7 +18,13 @@ from agent_postmortem import (
     DeploymentChangesRecord,
     RefusalRecord,
 )
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, RuleSeriesSpan, Unmeasured
+from agent_postmortem.estimate import (
+    ErrorRates,
+    LatencyLevels,
+    RuleSeriesLevels,
+    RuleSeriesSpan,
+    Unmeasured,
+)
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.sections import (
     a_put_back_left_the_harm,
@@ -51,6 +57,7 @@ from argus_core.models import (
     HypothesisConsidered,
     Impact,
     ImpactExtent,
+    LatencyHarm,
     LogsInTheGap,
     NoTrigger,
     OpenedPullRequest,
@@ -2874,7 +2881,7 @@ def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
                                        usual_ceiling=0.02, usual_worst=0.04))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False)
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[], disproven=False)
         ) \
         .then(
             the_answer_was(Impact(duration=timedelta(minutes=30),
@@ -2906,7 +2913,7 @@ def test_a_disproven_alarm_has_no_impact_but_the_rules_series_it_was_judged_on()
                                                             last_minute=ONSET, line=0.1))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=True)
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[], disproven=True)
         ) \
         .then(
             the_answer_was(Impact(duration=timedelta(0),
@@ -2929,7 +2936,8 @@ def test_an_impact_a_person_reported_the_end_of_is_said_to_end_at_their_report()
             measured := a_measured_incident(reported_by="Some Person")
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.REPORTED)
@@ -3058,7 +3066,8 @@ def test_impact_carries_whether_any_minute_of_the_metrics_came_back(
                 update={"error_rates_unmeasured": unmeasured})
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).metrics_read
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).metrics_read
         ) \
         .then(
             the_answer_was(read)
@@ -3075,7 +3084,8 @@ def test_impact_carries_how_many_requests_failed() -> None:
                                        failed_requests=4210))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).requests_failed
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).requests_failed
         ) \
         .then(
             the_answer_was(4210)
@@ -3090,7 +3100,8 @@ def test_impact_still_running_when_the_metrics_ran_out_is_a_lower_bound() -> Non
             measured := a_measured_incident(back_to_normal_at=None)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.AT_LEAST)
@@ -3106,7 +3117,8 @@ def test_impact_whose_metrics_stopped_is_metrics_missing() -> None:
             measured := a_measured_incident(back_to_normal_at=None, metrics_stopped_at=ONSET)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).extent
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
         ) \
         .then(
             the_answer_was(ImpactExtent.METRICS_MISSING)
@@ -3120,7 +3132,8 @@ def test_impact_states_no_peak_where_the_metrics_could_not_be_read() -> None:
             measured := a_measured_incident(error_rates=None)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).peak_error_rate
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).peak_error_rate
         ) \
         .then(
             the_answer_was(None)
@@ -3146,7 +3159,8 @@ def test_impact_carries_the_error_rate_before_and_while_broken_and_whether_it_ro
             measured := a_measured_incident(error_rates=error_rates)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).error_rates
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).error_rates
         ) \
         .then(
             the_answer_was(ErrorRateLevels(before=error_rates.baseline,
@@ -3164,7 +3178,8 @@ def test_impact_carries_no_error_rate_levels_where_the_metrics_could_not_be_read
             measured := a_measured_incident(error_rates=None)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).error_rates
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).error_rates
         ) \
         .then(
             the_answer_was(None)
@@ -3184,7 +3199,8 @@ def test_impact_carries_the_rules_series_where_it_got_worse() -> None:
                                              line=0.8))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=0.899, while_broken=0.459,
@@ -3203,7 +3219,8 @@ def test_impact_carries_the_unit_of_the_rules_series() -> None:
                 rule_series_unit="ms")
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=120.0, while_broken=640.0,
@@ -3223,7 +3240,8 @@ def test_impact_carries_that_the_rules_series_is_the_error_rate() -> None:
                 rule_series_is_the_error_rate=True)
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(RuleSeriesHarm(before=0.01, while_broken=0.28, at_its_worst=0.38,
@@ -3242,10 +3260,34 @@ def test_impact_carries_no_rules_series_that_held() -> None:
                                              at_its_worst=0.91, worse_when="below"))
         ) \
         .when(
-            lambda: impact_of(measured, logs_in_the_gap=None, disproven=False).rule_series_harm
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).rule_series_harm
         ) \
         .then(
             the_answer_was(None)
+        )
+
+
+@pytest.mark.unit
+def test_impact_carries_how_long_requests_took_at_each_quantile_it_is_told() -> None:
+    # What the people using the service felt, where nothing else on the page
+    # says it: a postmortem of a service whose requests took about six and a
+    # half times as long at worst gave only the memory its alert watched as the
+    # harm, which nobody using the service felt. Which quantiles is the brief's
+    # to say, so the page shows the ones it tells.
+    Scenario() \
+        .given(
+            measured := a_measured_incident(),
+            latency_told := [LatencyLevels(quantile="p95", baseline=215.13, while_broken=586.4,
+                                           at_its_worst=1449.0, departed=True)]
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=latency_told,
+                              disproven=False).latency_harm
+        ) \
+        .then(
+            the_answer_was([LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
+                                        at_its_worst=1449.0)])
         )
 
 

@@ -45,11 +45,12 @@ from decimal import Decimal
 from argus_core import parse_iso, to_iso
 from argus_core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
 from argus_core.models import MetricBucket
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agent_postmortem.estimate import (
     BASELINE_WINDOW,
     ErrorRates,
+    LatencyLevels,
     RuleSeriesLevels,
     RuleSeriesSpan,
     Unmeasured,
@@ -60,6 +61,7 @@ from agent_postmortem.estimate import (
     error_rates_over,
     first_minute_past_its_line,
     in_the_reporting_currency,
+    latency_over,
     rule_held_before_the_onset,
     rule_series_before,
     rule_series_over,
@@ -184,6 +186,14 @@ class Measurements(BaseModel):
     # Whether that series is the very query the error rate is read by: then what
     # the rule watched is the error rate, already said as one.
     rule_series_is_the_error_rate: bool = False
+    # Whether that series is one of the queries a latency is read by: then what
+    # the rule watched is how long requests took, already said at its levels.
+    rule_series_is_a_latency: bool = False
+    # How long requests took at each quantile, over the same stretch as the
+    # error rate - empty where either side of it carried no minute. Told to the
+    # model where nothing else it is given says what the people using the
+    # service felt.
+    latency: list[LatencyLevels] = Field(default_factory=list)
     # How far back the paging rule's condition looks - "no sample for 5m" holds
     # only once five minutes have passed with none - which is part of the time
     # from an onset to its alert, as the wait is. Nothing for a check that looks
@@ -333,6 +343,9 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_series_unit=alert_rule.series_unit if alert_rule is not None else None,
         rule_series_is_the_error_rate=(alert_rule is not None
                                        and alert_rule.series_is_the_error_rate),
+        rule_series_is_a_latency=alert_rule is not None and alert_rule.series_is_a_latency,
+        # Over the same stretch as the error rate, for the same reason.
+        latency=latency_over(metrics, began, found_back),
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))

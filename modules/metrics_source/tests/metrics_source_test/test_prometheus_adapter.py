@@ -28,7 +28,7 @@ from argus_testkit import (
     the_error_mentioned,
 )
 from metrics_source.minutes import MetricsSettings, MetricsUnavailable, RuleSeries
-from metrics_source.prometheus_adapter import buckets_between, is_the_error_rate
+from metrics_source.prometheus_adapter import buckets_between, is_a_latency, is_the_error_rate
 
 # Prometheus's own vocabulary, spelled out here rather than shared with the
 # module under test: the assertion is that Argus speaks *these* words, and a
@@ -598,6 +598,24 @@ def test_a_query_is_the_error_rate_only_where_it_is_the_one_asked_for_it(query: 
     # differently it is the same query - PromQL reads nothing into spaces.
     Scenario() \
         .when(lambda: is_the_error_rate(query)) \
+        .then(the_answer_was(expected))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("query", "expected"), [
+    (QUERY_FOR["p50_ms"], True),
+    (QUERY_FOR["p95_ms"], True),
+    ('max(http_request_duration_seconds{quantile="0.99"})\n  * 1000', True),
+    (QUERY_FOR["error_rate"], False),
+    (QUERY_FOR["memory_used_bytes"], False)
+])
+def test_a_query_is_a_latency_only_where_it_is_one_asked_for_a_quantile(query: str,
+                                                                       expected: bool) -> None:
+    # A rule over a latency pages on how long requests took, which is what the
+    # postmortem gives as the latency - said beside the rule's own series, it
+    # is said twice. Laid out differently it is the same query.
+    Scenario() \
+        .when(lambda: is_a_latency(query)) \
         .then(the_answer_was(expected))
 
 

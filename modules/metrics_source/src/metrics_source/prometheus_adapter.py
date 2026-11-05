@@ -99,6 +99,19 @@ def is_the_error_rate(query: str) -> bool:
     return "".join(query.split()) == "".join(QUERIES["error_rate"].split())
 
 
+# The fields whose queries are a latency: how long requests took, at a quantile.
+_LATENCIES: Final = ("p50_ms", "p95_ms", "p99_ms")
+
+
+def is_a_latency(query: str) -> bool:
+    """Whether `query` is one a latency is read by, however it is laid out.
+
+    A paging rule over a latency watches how long requests took, which is what
+    whoever reads the incident is given as its latency, and said beside the
+    rule's own series it would be said twice."""
+    return "".join(query.split()) in {"".join(QUERIES[field].split()) for field in _LATENCIES}
+
+
 def buckets_between(started_at: datetime,
                     ended_at: datetime,
                     settings: MetricsSettings,

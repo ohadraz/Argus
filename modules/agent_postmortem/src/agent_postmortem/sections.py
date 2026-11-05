@@ -39,6 +39,7 @@ from argus_core.models import (
     HypothesisConsidered,
     Impact,
     ImpactExtent,
+    LatencyHarm,
     LogsInTheGap,
     NoTrigger,
     ResolutionStep,
@@ -51,7 +52,7 @@ from argus_core.models import (
     WhyNoTrigger,
 )
 
-from agent_postmortem.estimate import Unmeasured
+from agent_postmortem.estimate import LatencyLevels, Unmeasured
 from agent_postmortem.evidence import CandidateRecord, DeploymentChangesRecord, IncidentEvidence
 from agent_postmortem.log_groups import labels_reaching_into
 from agent_postmortem.measuring import Measurements
@@ -234,10 +235,16 @@ def logs_in_the_gap_of(evidence: IncidentEvidence,
 def impact_of(measured: Measurements,
               *,
               logs_in_the_gap: LogsInTheGap | None,
+              latency_told: list[LatencyLevels],
               disproven: bool) -> Impact:
     """How long the service was broken, what kind of figure that is, and how
-    bad it got - in failed requests, and in the series its rule pages on
-    where that got worse - and what the logs show where the metrics stopped.
+    bad it got - in failed requests, in how long requests took at each
+    quantile `latency_told` holds, and in the series its rule pages on where
+    that got worse - and what the logs show where the metrics stopped.
+
+    `latency_told` is the latency the brief tells (`the_latency_told`), asked
+    for rather than worked out again: the page and the brief tell one slowdown,
+    and left off, one the brief tells would be said nowhere on the page.
 
     Metrics missing before a lower bound: metrics that stopped also never show a
     recovery, and a stretch the metrics carry nothing of is not one the
@@ -288,6 +295,11 @@ def impact_of(measured: Measurements,
                                                   is_the_error_rate=(
                                                       measured.rule_series_is_the_error_rate))
                   if series is not None and series.got_worse else None,
+                  latency_harm=[LatencyHarm(quantile=latency.quantile,
+                                            before=latency.baseline,
+                                            while_broken=latency.while_broken,
+                                            at_its_worst=latency.at_its_worst)
+                                for latency in latency_told],
                   logs_in_the_gap=logs_in_the_gap,
                   metrics_read=measured.error_rates_unmeasured is not Unmeasured.NOTHING_READ)
 

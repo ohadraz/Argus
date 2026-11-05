@@ -37,7 +37,7 @@ from agent_postmortem import (
     IncidentEvidence,
     NotPaged,
 )
-from agent_postmortem.estimate import ErrorRates, RuleSeriesLevels, Unmeasured
+from agent_postmortem.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels, Unmeasured
 from agent_postmortem.figures import (
     ACCOUNTED_FOR_FIGURE,
     AFTER_THE_WAIT_FIGURE,
@@ -229,6 +229,19 @@ ERRORS_THAT_ROSE = ErrorRates(baseline=0.02, while_broken=0.30, at_its_worst=0.3
 # A series that moved, for the cases about how it is told rather than what it did.
 SOME_RULE_SERIES = RuleSeriesLevels(baseline=0.95, while_broken=0.4,
                                     at_its_worst=0.38, worse_when="below")
+
+# How long the slowest request in twenty took, far past anything the calm
+# reached: the latency of a service a rule watching its memory paged about.
+A_LATENCY_THAT_DEPARTED = LatencyLevels(quantile="p95", baseline=215, while_broken=576,
+                                        at_its_worst=1449, departed=True)
+# And one that went no slower than the calm went on its own.
+A_LATENCY_THAT_HELD = LatencyLevels(quantile="p50", baseline=45, while_broken=46,
+                                    at_its_worst=46, departed=False)
+
+# What the model is told the latency it is handed is, and how the harm it is
+# asked to report points at it.
+REQUESTS_TOOK_LONGER = "Requests took longer"
+HOW_MUCH_LONGER_REQUESTS_TOOK = "how much longer requests took"
 
 A_MINUTE_BEFORE_THE_ONSET = to_iso(ONSET - timedelta(minutes=1))
 
@@ -3190,6 +3203,107 @@ def test_where_the_errors_rose_they_are_left_to_say_what_the_harm_was() -> None:
         ) \
         .then(
             _does_not_say(THE_SERIES_AS_THE_HARM)
+        )
+
+
+@pytest.mark.unit
+def test_where_nothing_failed_and_the_rule_watched_no_latency_the_slower_requests_are_told(
+) -> None:
+    # The rule watched the shop's memory, every request succeeded, and requests
+    # took six times as long - which no line of the brief said, so a write-up
+    # told only the memory and the failed requests headlined that nobody using
+    # the shop saw anything wrong. The latency that departed is what they saw.
+    Scenario() \
+        .given(
+            an_incident_that_only_slowed := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=SOME_RULE_SERIES,
+                latency=[A_LATENCY_THAT_DEPARTED, A_LATENCY_THAT_HELD])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_that_only_slowed)
+        ) \
+        .then(all_of(
+            _says_on_one_line(REQUESTS_TOOK_LONGER, "p95",
+                              "{latency_p95_before}", "{latency_p95_while_broken}",
+                              "{latency_p95_at_worst}"),
+            _says_on_one_line(THE_SERIES_AS_THE_HARM, HOW_MUCH_LONGER_REQUESTS_TOOK),
+            _does_not_say("{latency_p50_before}")
+        ))
+
+
+@pytest.mark.unit
+def test_where_nothing_failed_and_no_series_of_the_rule_was_read_the_slower_requests_are_told(
+) -> None:
+    # A rule whose own series nobody could read says nothing of the people using
+    # the service, so its brief holds less than one whose series was read - and
+    # a write-up from it can say nobody saw anything wrong just as well.
+    Scenario() \
+        .given(
+            an_incident_that_only_slowed := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=None,
+                latency=[A_LATENCY_THAT_DEPARTED])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_that_only_slowed)
+        ) \
+        .then(all_of(
+            _says_on_one_line(REQUESTS_TOOK_LONGER, "p95", "{latency_p95_at_worst}"),
+            _says_on_one_line(THE_SERIES_AS_THE_HARM, HOW_MUCH_LONGER_REQUESTS_TOOK)
+        ))
+
+
+@pytest.mark.unit
+def test_a_rule_paging_on_a_latency_is_not_told_the_latency_again() -> None:
+    # Its series is how long requests took, said already at its own levels -
+    # and told the latency beside it, the model is told one figure twice.
+    Scenario() \
+        .given(
+            an_incident_paged_on_a_latency := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=SOME_RULE_SERIES,
+                rule_series_is_a_latency=True, latency=[A_LATENCY_THAT_DEPARTED])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_paged_on_a_latency)
+        ) \
+        .then(
+            _does_not_say(REQUESTS_TOOK_LONGER)
+        )
+
+
+@pytest.mark.unit
+def test_where_the_errors_rose_the_latency_is_not_told() -> None:
+    # Failed requests are the harm wherever they rose, and the brief points the
+    # model at them rather than at a second measure of it.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_rose := a_measured_incident(
+                error_rates=ERRORS_THAT_ROSE, rule_series=SOME_RULE_SERIES,
+                latency=[A_LATENCY_THAT_DEPARTED])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_rose)
+        ) \
+        .then(
+            _does_not_say(REQUESTS_TOOK_LONGER)
+        )
+
+
+@pytest.mark.unit
+def test_latency_that_did_not_depart_is_not_told() -> None:
+    # Told a latency no slower than the calm went on its own, a model is handed
+    # a slowdown nobody measured - and the brief of an incident whose requests
+    # took no longer says nothing of them, as it always did.
+    Scenario() \
+        .given(
+            an_incident_whose_requests_took_no_longer := a_measured_incident(
+                error_rates=ERRORS_THAT_STAYED_FLAT, rule_series=SOME_RULE_SERIES,
+                latency=[A_LATENCY_THAT_HELD])
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_requests_took_no_longer)
+        ) \
+        .then(
+            _does_not_say(REQUESTS_TOOK_LONGER)
         )
 
 

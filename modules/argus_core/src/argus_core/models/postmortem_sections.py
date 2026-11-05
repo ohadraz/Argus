@@ -19,10 +19,10 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from argus_core.models.change_event import ChangeEvent, ChangeKind
-from argus_core.models.metrics import WorseWhen
+from argus_core.models.metrics import Quantile, WorseWhen
 from argus_core.models.refusal import Refusal
 from argus_core.models.report import ReportChannel
 
@@ -595,6 +595,24 @@ class RuleSeriesHarm(BaseModel):
     is_the_error_rate: bool = False
 
 
+class LatencyHarm(BaseModel):
+    """How long requests took at one quantile, in milliseconds, where that
+    departed: before the incident began, on average while it ran, and at its
+    worst minute.
+
+    Carried where nothing else the document shows says what the people using
+    the service felt - no rise in failed requests was measured, and the rule
+    that paged watched no latency. A postmortem of a service whose requests
+    took about six and a half times as long at worst gave only the memory its
+    alert watched as the harm, which nobody using the service felt.
+    """
+
+    quantile: Quantile
+    before: float
+    while_broken: float
+    at_its_worst: float
+
+
 class RuleSeriesBeforeTheAlert(BaseModel):
     """What the series the paging rule evaluates read over the minutes the rule
     looked at before it fired - its wait, and how far its condition looks
@@ -660,6 +678,11 @@ class Impact(BaseModel):
     failed requests did, and where it did not it is none. Both default to
     `None`, which a document written before either was carried reads as.
 
+    `latency_harm` is how long requests took at each quantile that departed,
+    where nothing else says what the people using the service felt - and
+    empty anywhere else, which a document written before it was carried reads
+    as.
+
     `logs_in_the_gap` is what the logs show where the metrics stopped, and
     `None` where they never did - or on a document written before it was
     carried.
@@ -680,6 +703,7 @@ class Impact(BaseModel):
     requests_failed: int | None = None
     error_rates: ErrorRateLevels | None = None
     rule_series_harm: RuleSeriesHarm | None = None
+    latency_harm: list[LatencyHarm] = Field(default_factory=list)
     logs_in_the_gap: LogsInTheGap | None = None
     before_the_alert: RuleSeriesBeforeTheAlert | None = None
     metrics_read: bool = True

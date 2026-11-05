@@ -21,6 +21,7 @@ from typing import Final
 
 from argus_core.models import ActionProgress, ResolutionStep, whether_it_can_be_put_back
 
+from agent_postmortem.estimate import LatencyLevels
 from agent_postmortem.evidence import ActionRecord, IncidentEvidence
 from agent_postmortem.figures import (
     ACTED_FIGURE,
@@ -33,13 +34,18 @@ from agent_postmortem.figures import (
     ERRORS_AT_WORST_FIGURE,
     ERRORS_BEFORE_FIGURE,
     ERRORS_WHILE_BROKEN_FIGURE,
+    LATENCY_AT_WORST,
+    LATENCY_BEFORE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
     METRICS_STOPPED_AT_FIGURE,
+    QUANTILE_SAID,
     SERIES_AT_WORST_FIGURE,
     SERIES_BEFORE_FIGURE,
     figures_of,
+    latency_figure,
     the_day_said_off_the_page,
+    the_latency_told,
     with_every_day_said,
 )
 from agent_postmortem.measuring import Measurements
@@ -108,7 +114,7 @@ def the_executive_summary(evidence: IncidentEvidence,
         *_when_and_for_how_long(measured,
                                 bool(evidence.log_lines) or evidence.log_reading_ended is not None,
                                 written, written_if_any),
-        *_how_bad(measured, written),
+        *_how_bad(measured, the_latency_told(evidence, measured), written),
         _what_customers_lost(measured, written),
         *([cause] if cause else []),
         *_what_argus_did(evidence, measured, written),
@@ -207,12 +213,20 @@ def _what_the_logs_show(read: bool,
     return f"{logs}, and {they} were read up to {ended}."
 
 
-def _how_bad(measured: Measurements, written: _Written) -> list[str]:
+def _how_bad(measured: Measurements,
+             latency_told: list[LatencyLevels],
+             written: _Written) -> list[str]:
     """Failed requests where they rose beyond what the service reaches alone,
-    and the series its alert watches where that got worse - each on its own,
-    since the series is harm whatever the failed requests did: a fault in what
-    the service answers fails no request, and a latency incident with a small
-    rise in failures is not summed up by them.
+    how much longer requests took where the brief tells it, and the series its
+    alert watches where that got worse - each on its own, since the series is
+    harm whatever the failed requests did: a fault in what the service answers
+    fails no request, and a latency incident with a small rise in failures is
+    not summed up by them.
+
+    The latency before the series: what the people using the service felt,
+    then what paged. Given only the series, a summary of a service whose
+    requests took about six and a half times as long at worst gave the memory
+    its alert watched as the harm, which nobody using the service felt.
 
     Except where the series is the error rate itself: then it is the failed
     requests already said, and only how bad its worst minute got is new."""
@@ -224,6 +238,9 @@ def _how_bad(measured: Measurements, written: _Written) -> list[str]:
         said.append(f"{written(ERRORS_WHILE_BROKEN_FIGURE)} of requests failed while it was "
                     f"broken, against {written(ERRORS_BEFORE_FIGURE)} before it began.")
 
+    if latency_told:
+        said.append(_how_much_longer_requests_took(latency_told, written))
+
     levels = measured.rule_series
     if levels is not None and levels.got_worse and rose and measured.rule_series_is_the_error_rate:
         said.append(f"At its worst, {written(ERRORS_AT_WORST_FIGURE)} failed.")
@@ -232,6 +249,29 @@ def _how_bad(measured: Measurements, written: _Written) -> list[str]:
                     f"it began to {written(SERIES_AT_WORST_FIGURE)} at its worst.")
 
     return said
+
+
+def _how_much_longer_requests_took(latency_told: list[LatencyLevels],
+                                   written: _Written) -> str:
+    """Each quantile the brief tells, from before it began to its worst - as
+    the series is said beside it - and named as the brief names it, the first
+    with the verb and the rest after it."""
+    def before(latency: LatencyLevels) -> str:
+        return written(latency_figure(latency.quantile, LATENCY_BEFORE))
+
+    def worst(latency: LatencyLevels) -> str:
+        return written(latency_figure(latency.quantile, LATENCY_AT_WORST))
+
+    first, *rest = latency_told
+    clauses = [f"{QUANTILE_SAID[first.quantile]} went from {before(first)} before it began "
+               f"to {worst(first)} at its worst",
+               *(f"{QUANTILE_SAID[latency.quantile]} from {before(latency)} to {worst(latency)}"
+                 for latency in rest)]
+
+    joined = (clauses[0] if len(clauses) == 1
+              else f"{', '.join(clauses[:-1])}, and {clauses[-1]}")
+
+    return f"Requests took longer: {joined}."
 
 
 def _what_customers_lost(measured: Measurements, written: _Written) -> str:

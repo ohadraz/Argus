@@ -23,13 +23,14 @@ is money over a window, measured by the party that took it.
 
 The error rate is measured too, but only to tell the model what happened. No
 figure rests on it. So is the paging rule's own series, where the window carries
-one, for the same reason and with the same three levels.
+one, and the latency at each quantile, for the same reason and with the same
+three levels.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -37,7 +38,7 @@ from statistics import quantiles
 from typing import Final, NamedTuple
 
 from argus_core import parse_iso
-from argus_core.models import MetricBucket, WorseWhen
+from argus_core.models import MetricBucket, Quantile, WorseWhen
 from pydantic import BaseModel
 
 from agent_postmortem.sources import RateTable
@@ -138,17 +139,8 @@ class ErrorRates(BaseModel):
         return self._beyond(self.at_its_worst, self.usual_worst)
 
     def _beyond(self, level: float, usual: float | None) -> bool | None:
-        """Whether `level` went higher than `usual`, the 95th percentile of
-        stretches as long - or, where the calm held too few of those, than its
-        worst minute, which none of them passed. At or below that, nobody can
-        say: a calm that short says nothing of how high the rate goes alone."""
-        if usual is not None:
-            return level > usual
-
-        if self.calm_worst is not None and level > self.calm_worst:
-            return True
-
-        return None
+        """Whether `level` went higher than `usual`, by `_beyond`."""
+        return _beyond(level, usual, self.calm_worst)
 
     @property
     def rose(self) -> bool | None:
@@ -224,25 +216,57 @@ def error_rates_over(buckets: list[MetricBucket],
         return None
 
     calm = [bucket.error_rate for bucket in sides.calm]
-    stretches = [calm[start:start + len(while_broken)]
-                 for start in range(len(calm) - len(while_broken) + 1)]
-    # Counted apart, though read overlapping: stretches sharing minutes are
-    # mostly the same minutes, and say no more of how the rate varies than
-    # the ones that share none.
-    enough = len(calm) // len(while_broken) >= _FEWEST_STRETCHES
+    usual = _how_high_alone(calm, len(while_broken))
 
     return ErrorRates(
         baseline=_mean([bucket.error_rate for bucket in sides.the_hour]),
         while_broken=_mean(while_broken),
         at_its_worst=max(while_broken),
-        usual_ceiling=(_the_95th_percentile([_mean(stretch) for stretch in stretches])
-                       if enough else None),
-        usual_worst=(_the_95th_percentile([max(stretch) for stretch in stretches])
-                     if enough else None),
+        usual_ceiling=usual.ceiling,
+        usual_worst=usual.worst,
         calm_worst=max(calm),
         failed_requests=round(sum(bucket.request_volume * bucket.error_rate
                                   for bucket in sides.broken))
     )
+
+
+class _HowHighAlone(NamedTuple):
+    """How high a series goes on its own over a stretch as long as the broken
+    one: the 95th percentile, across every such stretch in the calm, of its
+    average and of its worst minute - each `None` where the calm holds too few
+    stretches for a 95th percentile to be one."""
+
+    ceiling: float | None
+    worst: float | None
+
+
+def _how_high_alone(calm: list[float], length: int) -> _HowHighAlone:
+    """How high `calm` goes on its own over stretches `length` minutes long."""
+    stretches = [calm[start:start + length] for start in range(len(calm) - length + 1)]
+    # Counted apart, though read overlapping: stretches sharing minutes are
+    # mostly the same minutes, and say no more of how the rate varies than
+    # the ones that share none.
+    if len(calm) // length < _FEWEST_STRETCHES:
+        return _HowHighAlone(ceiling=None, worst=None)
+
+    return _HowHighAlone(
+        ceiling=_the_95th_percentile([_mean(stretch) for stretch in stretches]),
+        worst=_the_95th_percentile([max(stretch) for stretch in stretches])
+    )
+
+
+def _beyond(level: float, usual: float | None, calm_worst: float | None) -> bool | None:
+    """Whether `level` went higher than `usual`, the 95th percentile of
+    stretches as long - or, where the calm held too few of those, than its
+    worst minute, which none of them passed. At or below that, nobody can
+    say: a calm that short says nothing of how high a series goes alone."""
+    if usual is not None:
+        return level > usual
+
+    if calm_worst is not None and level > calm_worst:
+        return True
+
+    return None
 
 
 # How many stretches that share no minute a 95th percentile needs: it is the
@@ -389,6 +413,67 @@ def rule_series_over(buckets: list[MetricBucket],
         worse_when=worse_when,
         line=line.at if line is not None else None
     )
+
+
+# Each latency quantile, in the order a reader goes from the typical request to
+# the slowest.
+QUANTILES: Final[tuple[Quantile, ...]] = ("p50", "p95", "p99")
+
+# A minute's reading of each.
+_READINGS: Final[Mapping[Quantile, Callable[[MetricBucket], int]]] = {
+    "p50": lambda bucket: bucket.p50_ms,
+    "p95": lambda bucket: bucket.p95_ms,
+    "p99": lambda bucket: bucket.p99_ms
+}
+
+
+class LatencyLevels(BaseModel):
+    """How long requests took at one quantile, in milliseconds, at the error
+    rate's three levels - and whether it departed.
+
+    What the people using a service felt where nothing failed and the rule that
+    paged watched something else: a heap, a share. Told only the rule's series
+    and the failed requests, a write-up of a service six times slower said that
+    nobody using it saw anything wrong.
+
+    `departed` is the broken stretch's average going higher than stretches as
+    long go on their own, by the error rate's own rule: a quantile wobbles from
+    minute to minute, and a stretch within that wobble is no slowdown.
+    """
+
+    quantile: Quantile
+    baseline: float
+    while_broken: float
+    at_its_worst: float
+    departed: bool
+
+
+def latency_over(buckets: list[MetricBucket],
+                 began: datetime,
+                 until: datetime | None) -> list[LatencyLevels]:
+    """How long requests took over the stretch the service was broken, at each
+    quantile - over the same stretch and by the same rules as
+    `error_rates_over`, and nothing where either side of it is empty."""
+    sides = _either_side_of(buckets, began, until)
+
+    if not sides.the_hour or not sides.broken:
+        return []
+
+    def levels(quantile: Quantile, reading: Callable[[MetricBucket], int]) -> LatencyLevels:
+        while_broken = [float(reading(bucket)) for bucket in sides.broken]
+        calm = [float(reading(bucket)) for bucket in sides.calm]
+        departed = _beyond(_mean(while_broken),
+                           _how_high_alone(calm, len(while_broken)).ceiling, max(calm))
+
+        return LatencyLevels(
+            quantile=quantile,
+            baseline=_mean([float(reading(bucket)) for bucket in sides.the_hour]),
+            while_broken=_mean(while_broken),
+            at_its_worst=max(while_broken),
+            departed=departed is True
+        )
+
+    return [levels(quantile, _READINGS[quantile]) for quantile in QUANTILES]
 
 
 class RuleSeriesSpan(BaseModel):
