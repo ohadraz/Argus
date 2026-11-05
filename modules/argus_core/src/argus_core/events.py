@@ -278,6 +278,29 @@ def names_as_changed(line: str, path: str) -> bool:
     return bool(status) and bool(space) and named == path
 
 
+# What sets a file off from the key in it, where a setting is named with the
+# file it lives in: `deploy/values-production.yaml:cache.port`, or the same
+# with a space.
+WHAT_ENDS_A_FILE: Final = ": "
+
+
+def the_changed_file_it_names(subject: str, said: Sequence[str]) -> str | None:
+    """The file `subject` names among those a diff changed, as the lines of
+    `said` name them (`names_as_changed`) - or `None` where it names none.
+
+    The longest start of the subject that a line names, ending where the
+    subject does or at a colon or a space: a setting is named with the file it
+    lives in, and a path can hold a space of its own. Declared once, because
+    the walk and the write-up both find the deploy that carried a file by it,
+    and a subject read two ways would credit two different deploys."""
+    ends = [at for at, character in enumerate(subject) if character in WHAT_ENDS_A_FILE]
+    for end in sorted([*ends, len(subject)], reverse=True):
+        if any(names_as_changed(line, subject[:end]) for line in said):
+            return subject[:end]
+
+    return None
+
+
 class ChannelsUnread(_Event):
     """The channels an investigation never asked about.
 

@@ -74,7 +74,8 @@ def next_candidate_node(state: IncidentState,
         what_each_would_do(
             state.candidates,
             the_circumstances(
-                state.alert, state.flag_changes, state.deployments, state.placement
+                state.alert, state.flag_changes, state.deployments, state.placement,
+                deployment_changes=state.deployment_changes, onset=state.onset
             )
         ),
         attempts,

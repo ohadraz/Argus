@@ -26,6 +26,7 @@ from argus_core.models import (
     Action,
     Attempt,
     ChangeEvent,
+    DeploymentChanges,
     Disproof,
     EstablishedOnset,
     FlagChange,
@@ -118,6 +119,9 @@ class StateDelta(BaseModel):
     # round recorded is cleared rather than left standing for a fleet this round
     # no longer has.
     placement: RecordedPlacement | None = None
+    # What each deployment this incident's investigations looked into changed,
+    # by its revision - every round's, set by the investigating node.
+    deployment_changes: dict[str, DeploymentChanges] | None = None
     # What the register says the alerting service calls, read in the same round
     # as the flag history. Optional here for the reason every field above is -
     # a node that did not set it must not overwrite what another node decided -

@@ -47,6 +47,7 @@ from argus_core.models import (
     Actor,
     Alert,
     Attempt,
+    DeploymentChanges,
     Disproof,
     EstablishedOnset,
     FlagChange,
@@ -229,6 +230,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
+                    deployment_changes={},
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
@@ -278,6 +280,7 @@ def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
+                    deployment_changes={},
                     already_read=[],
                     readings_cover_the_incident=False,
                     rounds=1,
@@ -478,6 +481,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     candidate_index=0,
                     flag_changes=WHAT_THE_PROVIDER_RECORDED,
                     dependencies=WHAT_THE_REGISTER_LISTS,
+                    deployment_changes={},
                     already_read=[],
                     readings_cover_the_incident=True,
                     rounds=1,
@@ -1521,6 +1525,45 @@ def test_the_round_carries_the_placement_the_investigation_recorded(
 
 
 @pytest.mark.unit
+def test_the_round_keeps_what_each_deployment_changed_beside_what_earlier_rounds_read(
+    investigate: MagicMock, record_hypothesis: MagicMock,
+    fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
+) -> None:
+    # Kept across rounds, as what was read is. What a deploy changed is a fact
+    # about its commit, and a later round blaming the file again without
+    # reading the diff again still has it to find the deploy by.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    another_revision = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+    earlier = DeploymentChanges(said=["modified deploy/values-production.yaml"],
+                                lists_every_file=True)
+    later = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
+                              lists_every_file=True)
+    an_incident_an_earlier_round_read = _an_investigating_incident().model_copy(
+        update={"deployment_changes": {some_revision: earlier}}
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_investigation_read_what_deployments_changed(
+                investigate,
+                {another_revision: later},
+                a_determined_hypothesis(an_incident_an_earlier_round_read.incident_id)
+            ))
+        ) \
+        .when(
+            lambda: investigator_node(an_incident_an_earlier_round_read,
+                                      investigate=investigate,
+                                      recall_similar=_nothing_like_it_has_happened(),
+                                      record_hypothesis=record_hypothesis,
+                                      fetch_flag_changes=fetch_flag_changes,
+                                      fetch_dependencies=fetch_dependencies)
+        ) \
+        .then(
+            the_result_at("deployment_changes", {some_revision: earlier, another_revision: later})
+        )
+
+
+@pytest.mark.unit
 def test_a_round_that_could_not_read_the_placement_does_not_keep_the_last_one(
     investigate: MagicMock, record_hypothesis: MagicMock,
     fetch_flag_changes: MagicMock, fetch_dependencies: MagicMock
@@ -2433,6 +2476,15 @@ def _the_investigation_recorded_the_placement(investigate: MagicMock,
                                               *candidates: Hypothesis) -> None:
     investigate.return_value = agent_investigator.Findings(
         candidates=list(candidates), already_read=[], placement=placement
+    )
+
+
+def _the_investigation_read_what_deployments_changed(
+        investigate: MagicMock,
+        deployment_changes: dict[str, DeploymentChanges],
+        *candidates: Hypothesis) -> None:
+    investigate.return_value = agent_investigator.Findings(
+        candidates=list(candidates), already_read=[], deployment_changes=deployment_changes
     )
 
 

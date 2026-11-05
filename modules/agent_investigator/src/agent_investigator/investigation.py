@@ -697,7 +697,8 @@ def investigate(
                 readings_cover_the_incident=the_incident_was_read,
                 placement=placement,
                 leads_weighed=_the_leads_weighed(shown, weighed),
-                onset=established
+                onset=established,
+                deployment_changes=dispatcher.deployment_changes
             )
 
         results = [

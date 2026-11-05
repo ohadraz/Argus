@@ -17,6 +17,7 @@ from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
+    DeploymentChanges,
     Disproof,
     EstablishedOnset,
     FlagChange,
@@ -122,6 +123,12 @@ class IncidentState(BaseModel):
     # made when acting is made after the walk may already have moved the pods.
     # `None` where the round could not read it, never an empty placement.
     placement: RecordedPlacement | None = None
+    # What each deployment this incident's investigations looked into changed,
+    # by its revision. Kept across rounds, as `already_read` is: what a deploy
+    # changed is a fact about its commit, and a later round blaming a file it
+    # did not look into again still needs the diff to find the deploy that
+    # carried it.
+    deployment_changes: dict[str, DeploymentChanges] = {}
     # What the service register says this service calls, read once at the top of
     # each round beside the flag history. Carried for the same reason: the gate
     # reads it to decide whether the service an action is addressed to is one

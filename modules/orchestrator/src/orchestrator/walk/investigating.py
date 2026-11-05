@@ -200,6 +200,10 @@ def investigator_node(
     # must not have its answer depend on a document store being up at the
     # instant it asks.
     dependencies = _what_the_register_lists(state, fetch_dependencies)
+    # What each deployment looked into changed, this round's beside every earlier
+    # round's - the first answer about a revision standing, since one deploy
+    # changed one thing.
+    deployment_changes = {**findings.deployment_changes, **state.deployment_changes}
     # What earlier incidents on this service looked like this one. Searched once
     # per round rather than once per candidate: one search, and a deterministic
     # order for everything below to reason from.
@@ -244,7 +248,8 @@ def investigator_node(
             # The placement this round's investigation recorded, not the state's:
             # the state still holds the last round's until this node returns.
             the_circumstances(
-                state.alert, flag_changes, deployments, findings.placement
+                state.alert, flag_changes, deployments, findings.placement,
+                deployment_changes=deployment_changes, onset=state.onset or findings.onset
             )
         ),
         recalled
@@ -318,6 +323,7 @@ def investigator_node(
         # placement this round could not read must clear the last one rather
         # than leave pods recorded against an earlier onset standing.
         placement=findings.placement,
+        deployment_changes=deployment_changes,
         # Carried on for the gate, which is where it is finally asked a
         # question. Empty where the register would not answer, deliberately
         # indistinguishable from a register that listed nothing: both leave

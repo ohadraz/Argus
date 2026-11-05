@@ -24,6 +24,8 @@ at all where the flag history could not be read.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from argus_core.models import (
     DEPLOYMENT_PLATFORM,
@@ -32,7 +34,10 @@ from argus_core.models import (
     Attempt,
     ChangeEvent,
     Circumstances,
+    DeploymentChanges,
+    EstablishedOnset,
     FlagChange,
+    HowTheMinuteIsKnown,
     Hypothesis,
     RecordedPlacement,
     WhatWouldBeTried,
@@ -66,6 +71,7 @@ SOME_SERVICE = "io-shop"
 ANOTHER_SERVICE = "io-shop-payments"
 DONT_CARE_MOMENT = "2026-09-10T09:12:00+00:00"
 DONT_CARE_ALERT_NAME = "HighErrorRate"
+SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 
 type Chosen = tuple[int, Hypothesis] | None
 
@@ -622,6 +628,26 @@ def test_the_circumstances_carry_the_placement_the_round_recorded() -> None:
 
 
 @pytest.mark.unit
+def test_the_circumstances_carry_the_diffs_read_and_when_the_incident_began() -> None:
+    # What the deploy that carried a blamed file is found by: the diffs the
+    # investigation read, and the minute a change has to come by to have begun
+    # the incident.
+    what_was_read = {SOME_REVISION: DeploymentChanges(
+        said=["modified src/io_shop/purchase_ledger.py"], lists_every_file=True)}
+
+    Scenario() \
+        .given(
+            the_onset := EstablishedOnset(minute="2026-09-10T09:12:00Z",
+                                          how_known=HowTheMinuteIsKnown.MEASURED)
+        ) \
+        .when(lambda: the_circumstances(
+            Alert(service=SOME_SERVICE, alert_name=DONT_CARE_ALERT_NAME), [], None, None,
+            deployment_changes=what_was_read, onset=the_onset
+        )) \
+        .then(_the_circumstances_hold(what_was_read, datetime(2026, 9, 10, 9, 12, tzinfo=UTC)))
+
+
+@pytest.mark.unit
 def test_a_placement_nobody_could_read_is_carried_as_none() -> None:
     # Unlike the deploy history, never as empty. An empty placement says the
     # service runs on no pod, and a strategy deciding from it finds no replica
@@ -635,6 +661,27 @@ def test_a_placement_nobody_could_read_is_carried_as_none() -> None:
         ) \
         .when(lambda: the_circumstances(dont_care_alert, [], None, None)) \
         .then(_the_circumstances_hold_the_placement(None))
+
+
+def _the_circumstances_hold(deployment_changes: dict[str, DeploymentChanges],
+                            onset: datetime | None) -> Assertion[Circumstances | None]:
+    def assertion(built: Circumstances | None) -> bool:
+        if built is None:
+            raise AssertionError(
+                "Expected circumstances to be built from a readable flag history, "
+                "and there were none."
+            )
+
+        if (built.deployment_changes, built.onset) != (deployment_changes, onset):
+            raise AssertionError(
+                f"Expected the circumstances to hold what each deployment changed, "
+                f"{deployment_changes!r}, and the onset [{onset}], and they hold "
+                f"{built.deployment_changes!r} and [{built.onset}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_circumstances_hold_the_placement(

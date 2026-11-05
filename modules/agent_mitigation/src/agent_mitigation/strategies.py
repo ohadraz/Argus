@@ -28,6 +28,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from argus_core import parse_iso
+from argus_core.anomaly import the_end_of_the_onset
+from argus_core.events import names_as_changed, the_changed_file_it_names
 from argus_core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
@@ -460,8 +463,11 @@ class UndoTheRecordedChangeStrategy:
 
     The flag revert answers where a recorded change matches the flag the
     candidate named, and the rollback where it named a revision the platform
-    recorded deploying - a subject names one or the other, never both. The
-    rollback is addressed to the alerting service as every rollback is.
+    recorded deploying - a subject names one or the other, never both. Or where
+    it named a file, or a setting in one, that one recorded deploy changed by
+    the end of the onset: what carried the file is the deploy whose diff names
+    it among those it changed, the rule the write-up names it by. The rollback
+    is addressed to the alerting service as every rollback is.
 
     Neither is a default. Where the candidate named no recorded change, nothing
     is proposed - even with one change in the record. The walk reads the
@@ -479,14 +485,22 @@ class UndoTheRecordedChangeStrategy:
                 hypothesis: Hypothesis,
                 circumstances: Circumstances) -> Action | None:
         """The flag revert where the candidate named a recorded flag change,
-        else the rollback where it named a recorded revision, else `None`."""
+        else the rollback where it named a recorded revision or a file one
+        recorded deploy carried, else `None`.
+
+        Two deploys that carried the file, and the diffs cannot say which to
+        undo; one made after the onset did not begin the incident; and one
+        the platform did not record is not the deploy a rollback of the
+        service returns."""
         flag_revert = RevertFeatureFlagStrategy().propose(hypothesis, circumstances)
 
         if flag_revert is not None:
             return flag_revert
 
         if any(deployment.reference == hypothesis.subject
-               for deployment in circumstances.deployments):
+               for deployment in circumstances.deployments) \
+                or len(_the_deploys_that_carried_the_file(hypothesis.subject,
+                                                          circumstances)) == 1:
             return RollBackDeploymentStrategy().propose(hypothesis, circumstances)
 
         return None
@@ -682,7 +696,8 @@ def why_nothing_was_proposed(hypothesis: Hypothesis | None,
     with no such change in the record that was read, is left to a person: the
     candidate said what to undo, and nothing says which way to put it back.
     Everything else is the evidence not saying what to act on - no candidate,
-    no mode, a record nobody could read, or a subject that is no change.
+    no mode, a record nobody could read, a subject that is no change, or a file
+    the diffs read show changed where no one recorded deploy carried it.
 
     Read off the record rather than off which strategy proposed nothing: a
     subject the record holds, under a strategy that did not act on it, is no
@@ -704,13 +719,55 @@ def why_nothing_was_proposed(hypothesis: Hypothesis | None,
 
 
 def _names_a_change_nothing_recorded(subject: str | None, circumstances: Circumstances) -> bool:
-    """Whether `subject` names something, and neither record read holds it."""
+    """Whether `subject` names something, and no record read holds it - the
+    flag history, the deploy history, or a diff naming it among the files a
+    deploy changed."""
     if subject is None:
         return False
 
     return (all(change.flag != subject for change in circumstances.flag_changes)
             and all(deployment.reference != subject
-                    for deployment in circumstances.deployments))
+                    for deployment in circumstances.deployments)
+            and _the_file_named(subject, circumstances) is None)
+
+
+def _the_file_named(subject: str | None, circumstances: Circumstances) -> str | None:
+    """The file `subject` names among those a diff read changed - itself, or
+    the one a setting it names lives in - or `None` where it names none."""
+    if subject is None:
+        return None
+
+    said = [line for changes in circumstances.deployment_changes.values()
+            for line in changes.said]
+
+    return the_changed_file_it_names(subject, said)
+
+
+def _the_deploys_that_carried_the_file(subject: str | None,
+                                       circumstances: Circumstances) -> set[str]:
+    """The revisions of the recorded deploys, made by the end of the onset,
+    whose diff names the file `subject` names among those it changed.
+
+    Revisions rather than deploys: a revision deployed twice is one change to
+    undo."""
+    path = _the_file_named(subject, circumstances)
+    if path is None:
+        return set()
+
+    end = the_end_of_the_onset(circumstances.onset) if circumstances.onset is not None else None
+
+    return {deployment.reference for deployment in circumstances.deployments
+            if (end is None or parse_iso(deployment.occurred_at) <= end)
+            and any(names_as_changed(line, path)
+                    for line in _the_diff_of(deployment.reference, circumstances))}
+
+
+def _the_diff_of(revision: str, circumstances: Circumstances) -> Sequence[str]:
+    """What the deploy of `revision` changed, as the read tier said it - no
+    lines where nobody read it."""
+    changes = circumstances.deployment_changes.get(revision)
+
+    return changes.said if changes is not None else ()
 
 
 def _the_change_to_undo(subject: str | None,

@@ -46,6 +46,7 @@ from argus_core.events import (
     names_as_changed,
     parse_event,
     publish,
+    the_changed_file_it_names,
     the_escalations,
 )
 from argus_core.ids import new_id
@@ -255,6 +256,47 @@ def test_a_line_that_only_mentions_a_file_does_not_name_it_as_changed(line: str)
         ) \
         .then(
             the_answer_was(False)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", ["deploy/values-production.yaml",
+                                     "deploy/values-production.yaml:cache.port",
+                                     "deploy/values-production.yaml cache.port"],
+                         ids=["the-file", "a-key-after-a-colon", "a-key-after-a-space"])
+def test_a_subject_names_the_changed_file_it_starts_with(subject: str) -> None:
+    # A candidate blames a file, or a setting with the file it lives in. Either
+    # names the file a diff changed, and the walk and the write-up both find
+    # what carried it by that file - so the two read a subject one way.
+    Scenario() \
+        .given(
+            said := [a_changed_file_line("modified", "deploy/values-production.yaml")]
+        ) \
+        .when(
+            lambda: the_changed_file_it_names(subject, said)
+        ) \
+        .then(
+            the_answer_was("deploy/values-production.yaml")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", ["deploy/values-staging.yaml", "values-production.yaml",
+                                     "monthly-spend-feature"],
+                         ids=["another-file", "the-end-of-its-path", "a-flag"])
+def test_a_subject_naming_no_changed_file_names_none(subject: str) -> None:
+    # Only a file the diff names among those it changed, by the whole of its
+    # path: another file, the tail of this one's path or a flag is no file the
+    # deploy changed.
+    Scenario() \
+        .given(
+            said := [a_changed_file_line("modified", "deploy/values-production.yaml")]
+        ) \
+        .when(
+            lambda: the_changed_file_it_names(subject, said)
+        ) \
+        .then(
+            the_answer_was(None)
         )
 
 

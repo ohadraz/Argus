@@ -25,12 +25,16 @@ from agent_mitigation import (
     why_nothing_was_proposed,
 )
 from agent_mitigation.strategies import DEFAULT_STRATEGIES, NO_MITIGATION_BECAUSE
+from argus_core.events import a_changed_file_line
 from argus_core.models import (
     PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
     ROLL_BACK_DEPLOYMENT,
     ActionType,
+    ChangeEvent,
+    ChangeKind,
     Circumstances,
+    DeploymentChanges,
     DiscardCacheEntries,
     FailureMode,
     FlagChange,
@@ -73,6 +77,17 @@ SOME_APPLICATION_THE_ALERT_NAMES = "io-shop"
 # The card the fleet ran on before the incident, which is the one a pin holds
 # it to.
 THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
+
+
+# A file a candidate can blame in place of a revision, two deploys that could
+# have changed it, and the minute the incident is dated from - with a moment
+# inside that minute, which counts as before it, and one after it.
+SOME_FILE = "src/io_shop/purchase_ledger.py"
+SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+ANOTHER_REVISION = "4c810f22894e612ced87f5ee3f3062dfeb785050"
+THE_ONSET = datetime(2026, 8, 20, 11, 5, tzinfo=UTC)
+IN_THE_ONSET_S_MINUTE = "2026-08-20T11:05:30Z"
+AFTER_THE_ONSET = "2026-08-20T11:07:00Z"
 
 
 @pytest.mark.unit
@@ -374,6 +389,30 @@ def test_a_candidate_whose_evidence_said_nothing_to_act_on_is_said_so(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("mode", "deploys"), [
+    (FailureMode.FEATURE_FLAG_TOGGLE, [(SOME_REVISION, IN_THE_ONSET_S_MINUTE)]),
+    (FailureMode.SILENT_DATA_CORRUPTION,
+     [(SOME_REVISION, IN_THE_ONSET_S_MINUTE), (ANOTHER_REVISION, IN_THE_ONSET_S_MINUTE)])
+], ids=["a-flag-toggle", "damage-either-of-two-deploys-left"])
+def test_a_candidate_naming_a_file_a_deploy_changed_names_no_change_the_record_lacks(
+        mode: FailureMode, deploys: list[tuple[str, str]]) -> None:
+    # The record holds the change: a deploy's diff names the file among those
+    # it changed. Refused as a change nothing recorded, every surface said the
+    # change was missing, beside the deploy that made it.
+    Scenario() \
+        .given(
+            naming_a_file := a_hypothesis_blaming(mode, subject=SOME_FILE)
+        ) \
+        .when(
+            lambda: why_nothing_was_proposed(
+                naming_a_file, _circumstances_where_the_file_was_changed_by(deploys))
+        ) \
+        .then(
+            _the_refusal_is(Refusal.NO_MITIGATION_PROPOSED)
+        )
+
+
+@pytest.mark.unit
 def test_a_mode_argus_takes_nothing_for_is_said_as_its_reason_whatever_it_names() -> None:
     # The mode's reason comes first: another company's outage is not Argus's
     # to undo, whether or not its candidate names something the record lacks.
@@ -577,6 +616,50 @@ def test_a_flag_the_corruption_names_wins_over_a_deployment_beside_it() -> None:
                           deployments=[a_deployment()])
         )) \
         .then(_the_action_proposed_names(the_flag_it_names))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("subject", [SOME_FILE, f"{SOME_FILE}:monthly_total"],
+                         ids=["the-file", "a-setting-in-it"])
+def test_corruption_naming_a_file_one_deploy_changed_is_answered_by_rolling_it_back(
+        subject: str) -> None:
+    # A candidate can blame the file a deploy changed rather than its revision.
+    # What carried it is the deploy whose diff names that file among those it
+    # changed, made by the end of the onset - the rule the write-up names it by.
+    # Read as no recorded change, the walk refused the candidate as one the
+    # record did not hold, beside a page whose own trigger named the deploy.
+    naming_its_file = a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION, subject=subject)
+
+    Scenario() \
+        .given(naming_its_file) \
+        .when(lambda: propose_action(
+            naming_its_file,
+            _circumstances_where_the_file_was_changed_by([(SOME_REVISION, IN_THE_ONSET_S_MINUTE)])
+        )) \
+        .then(_it_rolls_back(SOME_APPLICATION_THE_ALERT_NAMES))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("deploys", "recorded"), [
+    ([(SOME_REVISION, IN_THE_ONSET_S_MINUTE), (ANOTHER_REVISION, IN_THE_ONSET_S_MINUTE)], True),
+    ([(SOME_REVISION, AFTER_THE_ONSET)], True),
+    ([(SOME_REVISION, IN_THE_ONSET_S_MINUTE)], False)
+], ids=["two-deploys-changed-it", "changed-only-after-the-onset", "a-deploy-nobody-recorded"])
+def test_corruption_naming_a_file_no_one_recorded_deploy_carried_proposes_nothing(
+        deploys: list[tuple[str, str]], recorded: bool) -> None:
+    # Two deploys, and the diffs cannot say which to undo; one made after the
+    # incident began did not begin it; and one the platform did not record is
+    # not the deploy a rollback of the service returns. Each would be a
+    # rollback of a change nothing showed carried the damage.
+    naming_the_file = a_hypothesis_blaming(FailureMode.SILENT_DATA_CORRUPTION, subject=SOME_FILE)
+
+    Scenario() \
+        .given(naming_the_file) \
+        .when(lambda: propose_action(
+            naming_the_file,
+            _circumstances_where_the_file_was_changed_by(deploys, recorded=recorded)
+        )) \
+        .then(nothing_was_proposed())
 
 
 @pytest.mark.unit
@@ -1129,6 +1212,35 @@ class _StandInStrategy:
                 dont_care_hypothesis: Hypothesis,
                 dont_care_circumstances: Circumstances) -> Action | None:
         return self._proposing
+
+
+def _a_deploy_of(revision: str, at: str) -> ChangeEvent:
+    return ChangeEvent(kind=ChangeKind.DEPLOY, occurred_at=at, reference=revision,
+                       summary="dont-care-summary")
+
+
+def _a_diff_changing(path: str) -> DeploymentChanges:
+    """What a deploy changed, as the read tier says it: its header, then the
+    line naming the one file it changed."""
+    return DeploymentChanges(
+        said=["Deployment of revision dont-care to io-shop, compared against dont-care",
+              a_changed_file_line("modified", path)],
+        lists_every_file=True
+    )
+
+
+def _circumstances_where_the_file_was_changed_by(deploys: list[tuple[str, str]],
+                                                 recorded: bool = True) -> Circumstances:
+    """The alerting service's round, where each of `deploys` - a revision, and
+    when it went out - changed `SOME_FILE`, and the platform recorded every one
+    of them unless `recorded` is false."""
+    return Circumstances(
+        service=SOME_APPLICATION_THE_ALERT_NAMES,
+        flag_changes=NO_FLAGS_CHANGED,
+        deployments=[_a_deploy_of(revision, at) for revision, at in deploys] if recorded else [],
+        deployment_changes={revision: _a_diff_changing(SOME_FILE) for revision, _ in deploys},
+        onset=THE_ONSET
+    )
 
 
 def _a_strategy_proposing(action: Action) -> MitigationStrategy:

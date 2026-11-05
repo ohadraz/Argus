@@ -17,7 +17,13 @@ from typing import Final
 
 from argus_core import parse_iso
 from argus_core.anomaly import the_end_of_the_onset
-from argus_core.events import HUNK_HEADER, PATCH_LINE_INDENT, names_as_changed
+from argus_core.events import (
+    HUNK_HEADER,
+    PATCH_LINE_INDENT,
+    WHAT_ENDS_A_FILE,
+    names_as_changed,
+    the_changed_file_it_names,
+)
 from argus_core.models import (
     ActionItem,
     ActionItemStatus,
@@ -545,24 +551,22 @@ def _the_file_and_key(subject: str,
     deploy read changed, so nothing read carried it. Read whole instead, its
     words would be found in another file's keys.
     """
-    ends = [at for at, character in enumerate(subject) if character in _WHAT_ENDS_A_FILE]
-    for end in sorted([*ends, len(subject)], reverse=True):
-        if any(names_as_changed(line, subject[:end])
-               for looked_into in read for line in looked_into.said):
-            return subject[:end], subject[end:].lstrip(_WHAT_ENDS_A_FILE)
+    named = the_changed_file_it_names(subject, [line for looked_into in read
+                                                for line in looked_into.said])
+    if named is not None:
+        return named, subject[len(named):].lstrip(WHAT_ENDS_A_FILE)
 
+    ends = [at for at, character in enumerate(subject) if character in WHAT_ENDS_A_FILE]
     end = min(ends, default=len(subject))
     if subject[end:end + 1] == _A_FILE_S_KEY or _A_PATH_S_SEPARATOR in subject[:end]:
-        return subject[:end], subject[end:].lstrip(_WHAT_ENDS_A_FILE)
+        return subject[:end], subject[end:].lstrip(WHAT_ENDS_A_FILE)
     return None, subject
 
 
-# What sets a file off from the key in it where a setting is named with its
-# file: `deploy/values-production.yaml:ports.metrics.portName`, or the same
-# with a space - and what says the start is a file at all, where no diff read
-# names it.
+# What says a start of the subject is a file at all, where no diff read names
+# it: a colon after it, as in `deploy/values-production.yaml:ports.metrics.portName`,
+# or a path's `/` inside it.
 _A_FILE_S_KEY: Final = ":"
-_WHAT_ENDS_A_FILE: Final = f"{_A_FILE_S_KEY} "
 _A_PATH_S_SEPARATOR: Final = "/"
 
 

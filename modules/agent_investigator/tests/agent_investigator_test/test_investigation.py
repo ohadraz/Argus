@@ -27,7 +27,8 @@ from agent_investigator.retrieval import (
     PlacementFetcher,
     RolloutFetcher,
 )
-from agent_investigator.tools import DEPENDENCIES_TOOL
+from agent_investigator.tools import DEPENDENCIES_TOOL, DEPLOYMENT_DIFF_TOOL
+from agent_investigator.tools.deployments import REVISION_ARG
 from agent_investigator.tools.offer import ReadTierTools
 from argus_core import new_id, parse_iso, to_iso, to_iso_minute
 from argus_core.anomaly import THE_JUDGED_SIGNALS
@@ -58,6 +59,7 @@ from argus_core.models import (
     Alert,
     Ask,
     Attempt,
+    DeploymentChanges,
     EstablishedOnset,
     Evidence,
     HowTheMinuteIsKnown,
@@ -86,6 +88,8 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
     raising,
+    returning,
+    the_answer_was,
 )
 
 from agent_investigator_test.framework.builders.budget import (
@@ -2329,6 +2333,32 @@ def test_the_findings_carry_the_placement_the_loop_recorded() -> None:
             _the_findings_carry_the_placement(RecordedPlacement(
                 onset=parse_iso(the_onset_of(some_metrics)), pods=tuple(some_pods)
             ))
+        )
+
+
+@pytest.mark.unit
+def test_what_each_deployment_changed_is_handed_back_with_the_findings() -> None:
+    # Read here, by the model's own call, and decided from by the walk: a
+    # candidate blaming a file is answered by the deploy whose diff names it.
+    # Carried out as the placement is, rather than read again from the account.
+    some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
+    some_changes = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
+                                     lists_every_file=True)
+    investigation = an_investigation(a_model_that_says(
+        a_turn_calling(DEPLOYMENT_DIFF_TOOL, {REVISION_ARG: some_revision}),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(
+            calling(investigation.metrics_showed(a_window_that_starts_calm())),
+            calling(returning(investigation.deployment_diff_fetcher, some_changes))
+        ) \
+        .when(
+            lambda: investigation.investigate().deployment_changes
+        ) \
+        .then(
+            the_answer_was({some_revision: some_changes})
         )
 
 

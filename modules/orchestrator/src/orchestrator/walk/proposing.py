@@ -33,7 +33,8 @@ def mitigation_proposal_node(state: IncidentState) -> StateDelta:
     # Built the way the node that chose this candidate built them, so the two
     # cannot reason about different accounts of the same round.
     circumstances = the_circumstances(
-        state.alert, state.flag_changes, state.deployments, state.placement
+        state.alert, state.flag_changes, state.deployments, state.placement,
+        deployment_changes=state.deployment_changes, onset=state.onset
     )
 
     if state.hypothesis is None or circumstances is None:

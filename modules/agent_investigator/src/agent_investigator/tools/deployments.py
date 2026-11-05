@@ -30,7 +30,13 @@ from argus_core.events import DeploymentChangesRead, Narrator
 from argus_core.models import ToolCall
 
 from agent_investigator.retrieval import DeploymentDiffFetcher
-from agent_investigator.tools.results import Served, answered, could_not_be_read, could_not_serve
+from agent_investigator.tools.results import (
+    DeploymentRead,
+    Served,
+    answered,
+    could_not_be_read,
+    could_not_serve,
+)
 
 DEPLOYMENT_DIFF_TOOL: Final = "get_what_a_deployment_changed"
 
@@ -97,8 +103,11 @@ def read_what_a_deployment_changed(
 
     # The lines alone: whether they list every file, and whether they are a
     # diff at all, is the write-up's to use, and what the model is shown of a
-    # deploy is what it always was.
-    return answered(call, "\n".join(changes.said))
+    # deploy is what it always was. The whole of it goes back beside them, for
+    # the walk.
+    return answered(call, "\n".join(changes.said))._replace(
+        deployment_read=DeploymentRead(revision=revision, changes=changes)
+    )
 
 
 def _the_revision_named_in(call: ToolCall) -> str:

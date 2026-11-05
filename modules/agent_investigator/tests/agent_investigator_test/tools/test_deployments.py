@@ -36,6 +36,7 @@ from agent_investigator.tools.deployments import (
     REVISION_ARG,
     read_what_a_deployment_changed,
 )
+from agent_investigator.tools.results import DeploymentRead
 from argus_core import new_id
 from argus_core.events import DeploymentChangesRead, IncidentEvent, Narrator
 from argus_core.mcp_transport import McpToolError
@@ -120,6 +121,44 @@ def test_the_model_is_shown_the_lines_and_nothing_else() -> None:
             ).result.content
         ) \
         .then(the_answer_was("\n".join(WHAT_THE_READ_TIER_SAID)))
+
+
+@pytest.mark.unit
+def test_what_the_deployment_changed_is_handed_back_under_the_revision_named() -> None:
+    # The walk decides from it: a candidate blaming a file is answered by the
+    # deploy whose diff names that file. So it goes back as a value - what is
+    # published is an account, and an account is read by nothing that decides.
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            ).deployment_read
+        ) \
+        .then(the_answer_was(DeploymentRead(
+            revision=THE_REVISION_DEPLOYED,
+            changes=DeploymentChanges(said=WHAT_THE_READ_TIER_SAID, lists_every_file=True)
+        )))
+
+
+@pytest.mark.unit
+def test_a_repository_that_could_not_be_read_hands_back_nothing_read() -> None:
+    # A comparison nobody could make is not a diff, and handed back as one it
+    # would read as a deploy that changed nothing.
+    the_read_tier = a_repository_that_could_not_be_compared()
+
+    Scenario() \
+        .given(the_read_tier) \
+        .when(
+            lambda: read_what_a_deployment_changed(
+                a_call_about(THE_REVISION_DEPLOYED), SOME_SERVICE, the_read_tier,
+                DONT_CARE_NARRATOR
+            ).deployment_read
+        ) \
+        .then(the_answer_was(None))
 
 
 @pytest.mark.unit

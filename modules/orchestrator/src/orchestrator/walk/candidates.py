@@ -13,14 +13,17 @@ circumstances.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from agent_mitigation import propose_action
+from argus_core import parse_iso
 from argus_core.models import (
     Alert,
     Attempt,
     ChangeEvent,
     Circumstances,
+    DeploymentChanges,
+    EstablishedOnset,
     FlagChange,
     Hypothesis,
     Platform,
@@ -34,7 +37,9 @@ from argus_core.models import (
 def the_circumstances(alert: Alert,
                       flag_changes: Sequence[FlagChange] | None,
                       deployments: Sequence[ChangeEvent] | None,
-                      placement: RecordedPlacement | None
+                      placement: RecordedPlacement | None,
+                      deployment_changes: Mapping[str, DeploymentChanges] | None = None,
+                      onset: EstablishedOnset | None = None
                       ) -> Circumstances | None:
     """What every candidate in a round is answered from, or `None` where the
     flag history could not be read.
@@ -67,6 +72,11 @@ def the_circumstances(alert: Alert,
     The placement is the exception, carried as `None` rather than as empty. An
     empty placement would say the service runs on no pod, and the strategy that
     reads it would find no replica that moved - an outage read as an all-clear.
+
+    What each deployment looked into changed, and the minute the incident is
+    dated from, are what a deploy that carried a blamed file is found by: its
+    diff names the file, and it came by the end of the onset. Neither looked
+    into nor dated, and no deploy carried anything.
     """
     if flag_changes is None:
         return None
@@ -76,7 +86,9 @@ def the_circumstances(alert: Alert,
         flag_changes=flag_changes,
         stale_entry_keys=alert.stale_entry_keys or (),
         deployments=deployments or (),
-        placement=placement
+        placement=placement,
+        deployment_changes=deployment_changes or {},
+        onset=parse_iso(onset.minute) if onset is not None else None
     )
 
 

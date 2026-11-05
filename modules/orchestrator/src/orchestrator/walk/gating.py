@@ -123,7 +123,8 @@ def tier_gate_node(
         # Built as the proposal node built them, so the gate says why nothing
         # was proposed from the record the proposal was made against.
         the_circumstances(state.alert, state.flag_changes, state.deployments,
-                          state.placement),
+                          state.placement, deployment_changes=state.deployment_changes,
+                          onset=state.onset),
         # The two facts confirmability is read off. Dated by the alert rather
         # than measured from the service's own series, and whether any reading
         # covers the incident's minutes - both properties of the evidence, and
