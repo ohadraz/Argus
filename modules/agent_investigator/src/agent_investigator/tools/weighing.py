@@ -1,8 +1,8 @@
 """How the model says where a lead stands: supported, refuted or unverified.
 
 A lead is something a person wrote in the incident's thread. The model is
-shown it and must weigh it before it answers, because a lead is weighed and
-never obeyed: a person can be wrong, and an investigation that acted on a lead
+shown it and must weigh it in the turn it answers, because a lead is weighed
+and never obeyed: a person can be wrong, and an investigation that acted on a lead
 against what it read would be doing what it was told rather than what it found.
 
 Not a retrieval and never dispatched, like the answer tool: the loop reads the
@@ -33,8 +33,9 @@ def weigh_lead_tool() -> ToolDefinition:
         name=WEIGH_TOOL,
         description=(
             "Say where a lead - something a person wrote in the incident's thread - "
-            "stands against what you have read. Weigh every lead you are shown before "
-            "you call final_answer; a lead weighed again keeps the later weighing. "
+            "stands against what you have read. Weigh every lead you are shown in the "
+            "same turn as you call final_answer, against the answer you give; a lead "
+            "weighed again keeps the later weighing. "
             "supported: something you read agrees with it, and it is evidence like "
             "any other - cite it. refuted: something you read contradicts it, and it "
             "is never a reason to act. unverified: nothing you read bears on it either "

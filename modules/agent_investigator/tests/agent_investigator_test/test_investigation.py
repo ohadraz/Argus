@@ -74,6 +74,7 @@ from argus_core.models import (
     Standing,
     ThreadMessage,
     ToolDefinition,
+    ToolResults,
     Turn,
     Weighing,
     WorseWhen,
@@ -168,6 +169,14 @@ THE_TIME_BOUND = "time"
 # What the loop says when one turn is all that is left. Restated for the same
 # reason as the bounds above: the model has to be able to act on it.
 THE_LAST_TURN_WARNING = "last turn"
+
+# What the loop says of a weighing it cannot keep for the answer: one made a
+# turn early, or beside an answer sent back. Restated for the same reason.
+THE_ASK_TO_WEIGH_AGAIN = "again in the turn"
+
+# What the last turn adds where a lead has been shown, there being no turn
+# after it to weigh in.
+THE_LAST_TURN_ASK_TO_WEIGH = "every lead"
 
 # The two turns that are not turns, as the incident record has to say them. A
 # human picking up an escalation acts differently on "it was cut off" than on
@@ -2406,8 +2415,7 @@ def test_the_model_is_shown_what_people_in_the_thread_told_it() -> None:
     # lead is labelled, so the model can say which one it is weighing.
     some_words = "it's the checkout flag, not the other one"
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2422,8 +2430,7 @@ def test_a_lead_weighed_before_is_shown_with_what_was_made_of_it() -> None:
     # what the last round found, because what was read then still stands.
     some_reason = "the flag was reverted and the errors went on"
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.REFUTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.REFUTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2464,8 +2471,7 @@ def test_an_investigation_nobody_told_anything_is_not_offered_a_way_to_weigh_a_l
 @pytest.mark.unit
 def test_an_investigation_shown_a_lead_is_offered_a_way_to_weigh_it() -> None:
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2521,8 +2527,7 @@ def test_a_lead_written_while_the_model_reads_reaches_it_with_its_next_result() 
     some_words = "the checkout flag, not the other one"
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2547,8 +2552,7 @@ def test_a_lead_is_shown_once_however_often_the_thread_is_asked() -> None:
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:00:00Z"}),
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2565,16 +2569,18 @@ def test_an_answer_with_a_lead_unweighed_is_refused_until_it_is_weighed() -> Non
     some_reason = "the checkout flag moved at the onset"
     investigation = an_investigation(a_model_that_says(
         a_turn_answering(an_explanation()),
-        a_turn_weighing("L1", Standing.SUPPORTED, reason=some_reason),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED, reason=some_reason),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
         .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
         .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
         .then(all_of(
-            _the_model_was_asked(investigation.model, times=3),
+            _the_model_was_asked(investigation.model, times=2),
             _what_the_model_saw_on_turn(investigation.model, turn=1, mentions="not weighed"),
+            _what_the_model_saw_on_turn_avoids(investigation.model, turn=1,
+                                               forbidden=THE_ASK_TO_WEIGH_AGAIN),
             _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, some_reason)])
         ))
 
@@ -2585,8 +2591,7 @@ def test_a_lead_weighed_before_is_weighed_again() -> None:
     # an earlier standing is shown and never carried forward unasked.
     investigation = an_investigation(a_model_that_says(
         a_turn_answering(an_explanation()),
-        a_turn_weighing("L1", Standing.UNVERIFIED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.UNVERIFIED), a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2596,7 +2601,7 @@ def test_a_lead_weighed_before_is_weighed_again() -> None:
             weighing=Weighing(standing=Standing.REFUTED, reason="some earlier reason")
         )])) \
         .then(all_of(
-            _the_model_was_asked(investigation.model, times=3),
+            _the_model_was_asked(investigation.model, times=2),
             _the_leads_were_weighed_as([("some lead", Standing.UNVERIFIED, A_REASON)])
         ))
 
@@ -2606,9 +2611,9 @@ def test_a_lead_weighed_twice_in_one_investigation_keeps_the_later_weighing() ->
     # Read on, and changed its mind: what it knows at the end is what it says.
     some_later_reason = "the logs name the checkout flag"
     investigation = an_investigation(a_model_that_says(
-        a_turn_weighing("L1", Standing.UNVERIFIED),
-        a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.UNVERIFIED),
+                   a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2618,26 +2623,46 @@ def test_a_lead_weighed_twice_in_one_investigation_keeps_the_later_weighing() ->
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("lead", "standing"), [("L7", Standing.SUPPORTED.value),
-                                                ("L1", "probably")],
-                         ids=["a-lead-nobody-wrote", "a-standing-that-is-not-one"])
-def test_a_weighing_that_cannot_be_read_is_refused_and_weighs_nothing(lead: str,
-                                                                     standing: str) -> None:
-    # The model's to correct, like any other bad call - and nothing it named
-    # is taken as weighed, so the answer after it is still refused.
+def test_a_lead_weighed_early_and_again_beside_the_answer_is_answered_without_a_refusal(
+) -> None:
+    # What the model is told to do with a weighing made a turn early, done:
+    # the answer it then gives is taken, with the weighing made beside it.
+    some_later_reason = "the logs name the checkout flag"
     investigation = an_investigation(a_model_that_says(
-        a_turn_calling(WEIGH_TOOL, {LEAD_ARG: lead, STANDING_ARG: standing,
-                                    REASON_ARG: A_REASON}),
-        a_turn_answering(an_explanation()),
-        a_turn_weighing("L1", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        a_turn_weighing("L1", Standing.UNVERIFIED),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
         .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
         .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
         .then(all_of(
-            _the_model_was_asked(investigation.model, times=4),
+            _the_model_was_asked(investigation.model, times=2),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, some_later_reason)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("lead", "standing"), [("L7", Standing.SUPPORTED.value),
+                                                ("L1", "probably")],
+                         ids=["a-lead-nobody-wrote", "a-standing-that-is-not-one"])
+def test_a_weighing_that_cannot_be_read_is_refused_and_weighs_nothing(lead: str,
+                                                                     standing: str) -> None:
+    # The model's to correct, like any other bad call - and nothing it named
+    # is taken as weighed, so the answer beside it is still refused.
+    investigation = an_investigation(a_model_that_says(
+        _a_turn_of(a_turn_calling(WEIGH_TOOL, {LEAD_ARG: lead, STANDING_ARG: standing,
+                                               REASON_ARG: A_REASON}),
+                   a_turn_answering(an_explanation())),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
             _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, A_REASON)])
         ))
 
@@ -2731,7 +2756,9 @@ def test_an_investigation_that_named_no_cause_still_carries_what_it_made_of_a_le
 ) -> None:
     # Weighed against what was read, and what was read still comes back from
     # every ending. A weighing dropped because no cause was named is a person
-    # told nothing about what they wrote, by a walk that did weigh it.
+    # told nothing about what they wrote, by a walk that did weigh it. Kept
+    # here, where a last answer taken without one beside it drops an earlier
+    # weighing, because no answer was taken here for it to disagree with.
     some_reason = "the checkout flag moved at the onset"
     two_calls = 2
     investigation = an_investigation(
@@ -2776,6 +2803,197 @@ def test_a_turn_that_weighs_and_answers_together_is_answered() -> None:
 
 
 @pytest.mark.unit
+def test_an_answer_after_a_lead_weighed_in_an_earlier_turn_is_refused_until_weighed_beside_it(
+) -> None:
+    # A weighing made a turn before the answer is one the answer can have
+    # moved on from. A recorded walk weighed a lead "unverified" for pointing
+    # at the other flag, ranked the lead's flag first one turn later, and the
+    # person was told the reason it had dropped. Taken only beside the answer,
+    # the two are one reading of what was read.
+    some_earlier_reason = "the stack trace points at the other flag"
+    some_later_reason = "the renderer split matches the checkout flag exactly"
+    some_early_weighing = "toolu_early_weighing"
+    investigation = an_investigation(a_model_that_says(
+        a_turn_weighing("L1", Standing.UNVERIFIED, reason=some_earlier_reason,
+                        call_id=some_early_weighing),
+        a_turn_answering(an_explanation()),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED, reason=some_later_reason),
+                   a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=3),
+            _the_reply_to(investigation.model, some_early_weighing,
+                          mentions=THE_ASK_TO_WEIGH_AGAIN),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, some_later_reason)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "explanation",
+    [an_explanation(subject="metrics port name"),
+     an_explanation(failure_mode=None, confidence=0.8)],
+    ids=["a-subject-of-more-than-one-name", "an-answer-that-could-not-be-read"]
+)
+def test_an_answer_sent_back_asks_for_the_lead_weighed_beside_it_to_be_weighed_again(
+    explanation: dict[str, Any]
+) -> None:
+    # The weighing goes back with the answer it was made beside, so the model
+    # is told as much where the answer is refused - rather than learning it
+    # from a second refusal, at the price of a turn.
+    investigation = an_investigation(a_model_that_says(
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(explanation),
+                   named="toolu_sent_back"),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _the_reply_to(investigation.model, "toolu_sent_back_2",
+                          mentions=THE_ASK_TO_WEIGH_AGAIN)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "explanation",
+    [an_explanation(subject="metrics port name"),
+     an_explanation(failure_mode=None, confidence=0.8)],
+    ids=["a-subject-of-more-than-one-name", "an-answer-that-could-not-be-read"]
+)
+def test_a_weighing_beside_an_answer_sent_back_goes_back_with_it(
+    explanation: dict[str, Any]
+) -> None:
+    # Made beside an answer that was not taken, it was a reading of that
+    # answer - so the next answer, given alone, is refused until the lead is
+    # weighed beside it.
+    investigation = an_investigation(a_model_that_says(
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(explanation)),
+        a_turn_answering(an_explanation()),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=3),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, A_REASON)])
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "explanation",
+    [an_explanation(subject="metrics port name"),
+     an_explanation(failure_mode=None, confidence=0.8)],
+    ids=["a-subject-of-more-than-one-name", "an-answer-that-could-not-be-read"]
+)
+def test_an_answer_sent_back_in_an_investigation_nobody_told_anything_says_nothing_of_leads(
+    explanation: dict[str, Any]
+) -> None:
+    # The refusal it always was: a sentence about weighing a lead nobody
+    # wrote is a request that changed for nothing.
+    investigation = an_investigation(a_model_that_says(
+        a_turn_answering(explanation),
+        a_turn_answering(an_explanation())
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _what_the_model_saw_on_turn_avoids(investigation.model, turn=1,
+                                               forbidden=THE_ASK_TO_WEIGH_AGAIN)
+        ))
+
+
+@pytest.mark.unit
+def test_a_lead_weighed_only_before_the_last_turn_goes_back_unweighed_with_the_answer() -> None:
+    # The last turn has no turn after it to ask again in, so the answer is
+    # taken - but not with a weighing it may have moved on from. The lead goes
+    # back unweighed, as one written in time for the last turn does: a reason
+    # nothing checked against the answer is worse, for the person told it,
+    # than none.
+    some_answer = "the checkout flag was switched off at the onset"
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_weighing("L1", Standing.UNVERIFIED),
+            a_turn_answering(an_explanation(summary=some_answer))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_candidates_say(some_answer),
+            _the_leads_were_weighed_as([])
+        ))
+
+
+@pytest.mark.unit
+def test_the_last_turn_of_an_investigation_shown_a_lead_asks_for_it_weighed_in_that_turn(
+) -> None:
+    # There is no turn after it to weigh in, so the warning that it is the last
+    # says so - and a lead weighed beside that answer goes back weighed.
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED),
+                       a_turn_answering(an_explanation()))
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=THE_LAST_TURN_WARNING),
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=THE_LAST_TURN_ASK_TO_WEIGH),
+            _the_leads_were_weighed_as([("some lead", Standing.SUPPORTED, A_REASON)])
+        ))
+
+
+@pytest.mark.unit
+def test_the_last_turn_of_an_investigation_nobody_told_anything_says_nothing_of_leads() -> None:
+    # The same warning it always was: a sentence about leads nobody wrote is a
+    # request that changed for nothing.
+    two_calls = 2
+    investigation = an_investigation(
+        a_model_that_says(
+            a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
+            a_turn_answering(an_explanation())
+        ),
+        budget=a_budget(tool_calls=two_calls)
+    )
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate()) \
+        .then(all_of(
+            _what_the_model_saw_on_turn(investigation.model, turn=1,
+                                        mentions=THE_LAST_TURN_WARNING),
+            _what_the_model_saw_on_turn_avoids(investigation.model, turn=1,
+                                               forbidden=THE_LAST_TURN_ASK_TO_WEIGH)
+        ))
+
+
+@pytest.mark.unit
 def test_a_lead_written_mid_investigation_is_labelled_on_from_those_shown_before() -> None:
     # The model already holds L1. A lead written since is L2, so a weighing of
     # "L1" can only ever mean the lead the model was first shown.
@@ -2783,9 +3001,9 @@ def test_a_lead_written_mid_investigation_is_labelled_on_from_those_shown_before
     a_later_lead = _a_lead("the buki deploy went out at noon too", ts="1760000200.000300")
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(LOGS_TOOL, {WINDOW_START_ARG: "2026-08-20T10:30:00Z"}),
-        a_turn_weighing("L1", Standing.UNVERIFIED),
-        a_turn_weighing("L2", Standing.SUPPORTED),
-        a_turn_answering(an_explanation())
+        _a_turn_of(a_turn_weighing("L1", Standing.UNVERIFIED),
+                   a_turn_weighing("L2", Standing.SUPPORTED),
+                   a_turn_answering(an_explanation()))
     ))
 
     Scenario() \
@@ -2799,6 +3017,58 @@ def test_a_lead_written_mid_investigation_is_labelled_on_from_those_shown_before
             _the_leads_were_weighed_as([(a_lead_shown_first.text, Standing.UNVERIFIED, A_REASON),
                                         (a_later_lead.text, Standing.SUPPORTED, A_REASON)])
         ))
+
+
+def _a_turn_of(*turns: Turn, named: str = "toolu") -> Turn:
+    """One turn making every call these turns make, in their order - the model
+    doing several things at once, as it does when it weighs a lead beside its
+    answer. Each call gets an id of its own, as the API gives them: `named`
+    and its place in the turn, so a test can find what one was answered with."""
+    calls = [call for turn in turns for call in turn.tool_calls]
+
+    return Turn(text="",
+                tool_calls=[call.model_copy(update={"id": f"{named}_{number}"})
+                            for number, call in enumerate(calls, start=1)],
+                input_tokens=sum(turn.input_tokens for turn in turns),
+                output_tokens=sum(turn.output_tokens for turn in turns))
+
+
+def _the_reply_to(model: Mock, call_id: str, mentions: str) -> Assertion[Findings]:
+    """What the loop answered one call with, found by its id wherever in the
+    conversation it came back - not by turn, since every turn's arguments are
+    the one transcript the loop goes on appending to."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        transcript = model.call_args_list[-1].args[0]
+        replies = [result for exchange in transcript if isinstance(exchange, ToolResults)
+                   for result in exchange.results if result.call_id == call_id]
+
+        if len(replies) != 1 or mentions.lower() not in replies[0].content.lower():
+            raise AssertionError(
+                f"Expected the call [{call_id}] to be answered once, saying [{mentions}], "
+                f"and it was answered {replies}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _what_the_model_saw_on_turn_avoids(model: Mock,
+                                       turn: int,
+                                       forbidden: str) -> Assertion[Findings]:
+    """The counterpart to `_what_the_model_saw_on_turn`: words nothing in the
+    transcript by the model's `turn`th turn may say."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        seen = str(_the_transcript_of(model, turn))
+        if forbidden.lower() in seen.lower():
+            raise AssertionError(
+                f"Expected the model not to have been told [{forbidden}] by its turn {turn}, "
+                f"and it was shown [{seen}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_lead(words: str,
