@@ -2,164 +2,165 @@
   "container": null,
   "content": [
     {
-      "signature": "CAQS7AYKEAgTGAI4AUIIdGhpbmtpbmcSDDHj1BzSCqrI7Z/N1RoM6keenKTWUTMfuMhQIjBSov9CBBBCfj+RoVp6tsCeBxz5YA0nj5CkaPQxvkwb8dPSXgLj7KfcaeQ9Vb2MnYAqiQbHb7wnoKyyiUKAG15uGlQI/BoCstcTjqGF5ODOd6w193wz+XFQ0yk/URvWx4ExMyWcTCsehfE0mFJO+NcmeWFPV5tTOjV1N7myC+jrnCQCHlogkbDAPSlFl2sZXRczxPeMv3uNJ7IA835eVHw5eEjgrRCT56+RQ6MiNbgySnSZO+Gt4ZxYc9SxxIuDkpvBRcqQ5QB1gGkNQJVQz4FB9zAx8q/FNOdZf+ZczmtNGhKLXETnbD0RgHmrgNa1FKjvOgTpWRmgzFokwa89RU/tvRPI9B8J2TRQwDPtRSE9JkFHf+k67mgCktka5lGMwnTI6QzXKx0Vh/N6eGhaMC/lU8A1gZF3d2anh9HkFgqszYVoZuBIrmcZum0dxGR+J5KL836NPzLHR44uEknG+Dvo4PUVX2sjwymat4sugFuvRkGHMf9yz0EXqcbFKK9DyZuxaXbs7OiCDpkYF+TGCG410Dpuuha9YJkzfM5k92H2CcpwbSuqIyuM7laAQvmj8CJrPfWopCo/LcaARdA2XqK/t3Rre9FJMqEXt2atgYGc5paINWcWwxnI+7JguYiBWjPitt0N3BwXMWNBysXGRg+T4haDIwwOFN5Xc95Y489X6lYhcR4A395DOokvWqPaSjMwuPCQe3HPJ9fRFLDSgJi5tRA0bEJHEsXNZjylTrq+R+/TNQxiJjHBbQ/FVA0PJmLBcQhq2iImVhDqi5WO4qc7+0yp+Do/rjxqiyqAMiJ4vj6UkvPxtYf2Ub/CFoGbDJWKb7rbdZdOmxcSEEz1kzN9H1hBAMie2pCmqoAWoTkt1lYArwpdbYA46eMdeKAzdMgyJd0oSQ+jnXoepGELHUTgWBdEy6p6xDEpzYVlm6uBor2zD5EYjFYQ7ZkpsFyOpzQ8kp62iGMQGyxdIkIPvvWinoIx9dOwuw4JkwL3SM6GAEvJpb3qBE41FTZqtVkJ5ouHKR22x1X8Ix8Z/LGFtYKbQKVmmuw/PcKhVsIR9t/EDd3cg+AV7V4UrQ/WcsaytBvlbYUM6N26A3z2aHIYAQ==",
-      "thinking": "I need to strip the revision name from root_cause. The timing checks out\u2014onset and alert both fall in October, so the fix running before month rollover should be fine, if a bit risky. The reference to 26f1d7e in still_at_risk seems acceptable to keep.\n\n",
+      "signature": "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",
+      "thinking": "I'm putting together the postmortem and noting that the deploy at 00:57 UTC on October 29 removed the month total update from record_purchase. The alert shows every shopper's total for the month is off, so I'm tracing how the purchase path relates to that.\n\nI'm weighing whether users would have noticed anything, since the alert only says totals don't reconcile and records no customer loss. The monthly statements and the account page both read that stored month total, so I'm settling on how to describe what shoppers actually saw.\n\nI'm laying out the causal chain now: the stored month totals disagree with purchases, because purchases since the deploy left the month total unchanged. That traces back to the revision deployed at 00:57:18 that dropped the month-total update, and I'm ruling out the earlier deploy and any flag changes, since the alert puts the first harm after that deploy.\n\nI'm settling the root-cause step: the code that reads the month total still reads the stored field instead of summing purchases, so removing the update broke every reader that depended on it. I'm checking the chain against the purchase, deploy, and reader rows rather than the flag readings, since those are the ones that actually ran.\n\nI'm now stating the root-cause step: the change dropped upkeep of the stored month total, while the code that shows and checks it still reads that stored figure instead of summing purchases. I'm also noting that the deriving path behaves the same way, so the flag setting doesn't change the outcome, and I'm starting to list the contributing factors, beginning with how the spend-integrity check only runs every few days.\n\nI'm checking whether the postmortem's contributing factors hold up, starting with how the spend-integrity check only runs every few days and so caught the mismatch late. I'm also considering whether a test before the deploy could have caught the dropped month-total update, since the existing test on main pins the month addition and it would seem to fail against this revision.\n\nI'm checking whether the tests would have caught this before the deploy, since the test file at that revision includes one that expects the month total to be added to, and the deployed record_purchase no longer does that. Nothing I've seen shows those tests were run as a gate, so I'm noting that as a possible contributing factor and planning to propose a pre-deploy check.\n\nI'm now writing up the last two contributing factors: nobody was paged when the alert fired, so no one was there to roll back sooner, and nothing in the write path checks for a mismatch, so a check after each write or an hourly reconcile could catch it early.\n\nI'm drafting the contributing factors now, and I'm planning to merge the cadence point into the write-path item rather than keep it separate. The readers' check is the more useful angle: the docstring says the month can be summed on demand, yet the readers still use the stored field, so I'm proposing a review step that lists a changed field's readers before merge.\n\nI'm now sorting out the remaining contributing factors: the test file at the deployed revision includes a test expecting the month total to be added to, and I haven't seen any run of it gating the deploy, so I'll flag that as a process gap. I'm also weighing whether the rollback counts as a contributing factor, and I'm leaning toward treating it as mitigation only, since it stopped further corruption without explaining the failure.\n\nI'm now working out the action items, starting with the repair: correcting the stored month totals for every account written since the deploy, using the repair script in PR #429 from an export taken within the same month. The purchases from October 29 to 31 no longer fall in the current month, so that cutoff needs a check. I'm also noting that the purchase path on main still moves the month total, and I'll confirm whether that stays in place.\n\nI'm wrapping up the action items: the rollback should restore month upkeep for new purchases, since the comparison against the earlier revision included that addition. I'm also lining up the follow-ups: running the spend-integrity check more often, paging on-call for the reconcile alert, requiring the test suite to pass before a deploy, and having reviewers list the readers of any stored field a change stops writing.\n\nI'm wrapping up the postmortem's wins and misses: the investigator traced the deployment diff, Argus held off on any change it couldn't test and recommended a rollback, and Code-Fix put forward a draft PR. I'm leaving the \"what went wrong\" list open for now, since nothing in what I've seen clearly belongs there beyond the contributing factors already covered.\n\nI'm moving on to the less obvious parts of the write-up: whether the shop is actually harmed beyond the saved totals, and what the postmortem can and cannot assume about what shoppers see. I'm also starting the root-cause statement that revision 26f1d7e removed the month-total update from record_purchase.\n\nI'm settling the root-cause statement: the change stopped updating each shopper's stored month total, while the statement, spend summary, and reconcile paths still read that stored figure rather than summing the month's purchases. I'm also checking that the deploy timing and the flag changes don't explain it, since the oldest affected purchase falls after the first purchase, and nothing in the metrics from the hour before onset points elsewhere.\n\nI'm checking that the write-up's went-well list only names things the investigation actually did: the investigator tracing the deployment diff, Argus declining to act on an untested change and leaving the rollback to a person, and the Code-Fix Agent proposing a draft fix. I'm now looking at the remaining contributing factor, that nobody was paged when the alert fired, to see which action item addresses it.\n\n",
       "type": "thinking"
     },
     {
       "caller": {
         "type": "direct"
       },
-      "id": "toolu_01NaRTAXXMACxqppCYSDMeTh",
+      "id": "toolu_01QGSJJCBoYKJdwebVMrYBHh",
       "input": {
         "action_items": [
           {
             "answers": [],
-            "item": "Rewrite the stored month total of each account the reconciliation check reports, setting it from that account's current-month purchases, and load the corrected accounts back into the store before the month rolls over (the draft PR's repair script only reports by default and does not load anything back).",
+            "item": "After the rollback, rewrite the stored month total of every account written since the deploy so it matches its current-month purchases. Take the export in the same month as the repair.",
             "type": "mitigate"
           },
           {
             "answers": [
               "CF-1"
             ],
-            "item": "Add a test that recording a current-month purchase through record_purchase moves total_this_month_cents, and that recording an earlier month's purchase leaves it alone.",
-            "type": "prevent"
+            "item": "Run the spend-integrity reconciliation automatically after every deploy of io-shop, not only on its weekly schedule.",
+            "type": "detect"
+          },
+          {
+            "answers": [
+              "CF-1"
+            ],
+            "item": "Add a check on the purchase write path that flags an account whose stored month total disagrees with its current-month purchases right after it is written.",
+            "type": "detect"
           },
           {
             "answers": [
               "CF-2"
             ],
-            "item": "Add a review check that a change which stops writing a stored account field also updates, or is blocked by, every place that still reads that field.",
+            "item": "Require any change that stops writing a stored field to list that field's readers, and to show each one moved off it, before it is merged.",
             "type": "process"
           },
           {
             "answers": [
               "CF-3"
             ],
-            "item": "Run the spend-integrity reconciliation of month totals after every io-shop deploy, not only on its fixed schedule.",
-            "type": "detect"
+            "item": "Make a passing run of the io-shop test suite a required gate before any revision is deployed from the deploy/ directory.",
+            "type": "prevent"
           },
           {
             "answers": [
               "CF-4"
             ],
-            "item": "Route SpendTotalsDoNotReconcile on io-shop to page the on-call engineer.",
+            "item": "Route SpendTotalsDoNotReconcile to the io-shop on-call rotation so that it pages a person.",
             "type": "process"
           }
         ],
         "causal_chain": [
           {
             "cites": [
-              "AL1",
-              "U3",
-              "U4",
-              "U5"
-            ],
-            "ruled_out": [],
-            "step": "Shoppers' stored spend totals for the month fell short of the purchases behind them. These are the figures the monthly statement shows. The spend-integrity check found {A1} of {A2} shopper totals that did not reconcile with their purchases. The widest was short by {A3}, and the oldest affected purchase was recorded at {A4}."
-          },
-          {
-            "cites": [
-              "S1",
               "AL1"
             ],
             "ruled_out": [],
-            "step": "Purchases recorded since the onset were added to the shopper's history and lifetime total, but the stored month total was left where it was. In the code that ran, both write paths build the account with only purchases and total_cents moved."
+            "step": "The saved month totals of the shoppers checked no longer matched the purchases recorded against them. The spend-integrity check found this, not any shopper report."
+          },
+          {
+            "cites": [
+              "S1"
+            ],
+            "ruled_out": [],
+            "step": "Purchases recorded at the running revision were added to the account and to its lifetime total, but the stored month total was left unchanged. Both write paths in the file behave this way: record_purchase and record_purchase_deriving_the_month."
           },
           {
             "cites": [
               "P2",
               "D1",
-              "S1",
-              "T13"
+              "T10"
             ],
             "ruled_out": [
               {
                 "cites": [
                   "AL1",
-                  "P1",
-                  "D1"
+                  "P2"
                 ],
-                "what": "The earlier deploy of 4c810f2 at {P1.1}: the alert dates the first affected purchase at {A4}, after the deploy of 26f1d7e at {P2.1}, and D1 shows that 4c810f2's record_purchase still moved the month total."
+                "what": "The earlier deploy of 4c810f22894e612ced87f5ee3f3062dfeb785050: the alert dates the oldest affected purchase at {A4}, after the later deploy of 26f1d7e at {P2.1}."
               },
               {
                 "cites": [
-                  "T16"
+                  "T14"
                 ],
-                "what": "A feature-flag change: the flag provider showed {T16.2} flag changes by anyone but Argus in the {T16.3} hour before the onset at {T16.4}."
-              },
-              {
-                "cites": [
-                  "T13"
-                ],
-                "what": "A split between versions: all replicas ran the same revision."
+                "what": "A flag change: the flag provider showed no flag changes by anyone but Argus in the hour before the onset."
               }
             ],
-            "step": "Revision 26f1d7e, deployed at {P2.1}, removed the update of total_this_month_cents from record_purchase, which had previously added the price of each current-month purchase. When T13 read the rollout at {T13.1}, all {T13.2} replicas were running that revision."
+            "step": "Revision 26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2, deployed to io-shop at {P2.1}, removed the conditional total_this_month_cents update from record_purchase. All {T10.2} replicas were running it as of {T10.1}."
           },
           {
             "cites": [
               "D1",
               "U1",
-              "U2",
               "U3",
               "U4",
               "U6"
             ],
             "ruled_out": [],
-            "step": "The change dropped the stored month total on the stated premise that the month figure would be derived from the purchases whenever it is needed. Nothing was changed to derive it: the monthly statement, the spend summary and the reconciliation check still read account.total_this_month_cents directly. The field they read therefore stopped following new purchases."
+            "step": "The change stopped keeping the stored month total up to date, but the code that renders statements, works out monthly spend and reconciles totals still reads that stored field instead of adding up the month's purchases."
           }
         ],
-        "cause_in_plain_words": "A software update changed how purchases are written down so that each shopper's stored total for the month stopped going up, while the parts of the shop that show and check that total still read the stored figure.",
+        "cause_in_plain_words": "A code change stopped the shop updating each shopper's saved total for this month's spending when they bought something, but the parts of the shop that show and check that total still read the saved figure.",
         "cause_rests_on_an_unrun_reading": false,
         "contributing_factors": [
           {
             "addressed_by": [],
-            "factor": "No test was seen that fails when recording a current-month purchase leaves the stored month total unmoved, so the removal in revision 26f1d7e reached production.",
-            "had_it_been_otherwise": "The change would have failed before deploy and never reached shoppers' accounts.",
+            "factor": "The only check seen that compares stored month totals with purchases is the spend-integrity check, which runs every {A5} days. The write path itself does not notice the two drifting apart.",
+            "had_it_been_otherwise": "A check that ran soon after each deploy, or after each write, would have caught the first short total soon after the deploy instead of {alerted_after_the_onset} later, which would have shortened how long bad totals kept being written.",
             "label": "CF-1"
           },
           {
             "addressed_by": [],
-            "factor": "No review step was seen that checks the readers of a stored field when a change stops writing it. The change dropped the write while the monthly statement, the spend summary and the reconciliation check still read the field.",
-            "had_it_been_otherwise": "The mismatch between the dropped write and the remaining readers would have been caught in review, before deploy.",
+            "factor": "Before the deploy, no check was seen that the code still reading total_this_month_cents had been moved off it. The change says the month adds up from the purchase history, but the statement, spend-summary and reconciliation code still read the stored field.",
+            "had_it_been_otherwise": "A review that listed the readers of the dropped field would have shown them still reading it, and the change would have been held back or its readers changed first.",
             "label": "CF-2"
           },
           {
             "addressed_by": [],
-            "factor": "The only thing seen to check that month totals reconcile was the spend-integrity check, which runs every {A5} days. The fault was therefore found only {alerted_after_the_onset} after the onset.",
-            "had_it_been_otherwise": "A check run soon after the deploy would have found the mismatch while few accounts were wrong, and the wrong totals would have stopped spreading much sooner.",
+            "factor": "No test run blocking the deploy was seen. Code-Fix reports that the test file at the running revision holds a test that the month is added to the total record_purchase receives, which the deployed record_purchase no longer does.",
+            "had_it_been_otherwise": "A required test run before deploying would have stopped the revision from going out.",
             "label": "CF-3"
           },
           {
             "addressed_by": [],
-            "factor": "The SpendTotalsDoNotReconcile alert paged nobody: no on-call incident was linked to it, so the rollback Argus recommended had no person called to carry it out.",
-            "had_it_been_otherwise": "A person would have been called to roll back as soon as the alert fired, cutting short the time new purchases kept being written wrong.",
+            "factor": "The SpendTotalsDoNotReconcile alert paged nobody: no on-call incident was linked to it.",
+            "had_it_been_otherwise": "A paged person could have done the recommended rollback once the alert fired, which would have stopped more bad totals being written sooner.",
             "label": "CF-4"
           }
         ],
         "lessons": {
-          "got_lucky": [
-            "The onset and the alert fell in the same calendar month. That means the wrong totals can still be rebuilt from purchases marked as falling in the current month, as long as that is done before the month rolls over."
-          ],
+          "got_lucky": [],
           "went_well": [
-            "The Investigator read the deployment diff of revision 26f1d7e {T12.1 - alert_raised} after the alert was raised, and the diff shows the dropped month-total update directly.",
-            "Argus checked the flag provider's history, ruling out a flag change as what set the incident off.",
-            "Code-Fix proposed a draft pull request with tests and a repair script, PR #356, {T21.1 - alert_raised} after the alert was raised."
+            {
+              "item": "The Investigator Agent read what the deployment of 26f1d7e changed, which pointed straight at the removed month-total update.",
+              "timed_by": "T11"
+            },
+            {
+              "item": "Argus did not act on C1 when nothing could tell whether the action had worked, and recommended the rollback to a person instead.",
+              "timed_by": "T16"
+            },
+            {
+              "item": "The Code-Fix Agent proposed a fix as draft pull request #429.",
+              "timed_by": "T19"
+            }
           ],
           "went_wrong": []
         },
         "reaches_a_cause": true,
-        "root_cause": "The change stopped record_purchase from updating the stored month total (total_this_month_cents). Its docstring says the month figure would now be worked out from the purchase history whenever it is needed, but nothing was changed to do that. The monthly statement, the spend summary and the reconciliation check all still read the stored field, which no longer moves when a purchase is added. In the code that ran, the other write path, record_purchase_deriving_the_month, does not move it either, so no purchase written there updates the month total.",
-        "still_at_risk": "Revision 26f1d7e was still running on every replica, so each new purchase would go on leaving the shopper's month total where it was, widening the gap behind what the monthly statement shows; the totals already written wrong stayed wrong; and the other write path in the same file leaves the month total unmoved even on main and in the revision a rollback would restore, so it could do the same thing again if it were used.",
-        "symptom": "Shoppers' spend totals for the month fell short of what they had bought"
+        "root_cause": "Revision 26f1d7e removed the total_this_month_cents update from record_purchase, and at that revision the other write path, record_purchase_deriving_the_month, does not move it either, so every purchase was appended to the account while its stored month total stayed where it was. The code that shows and checks that figure (render_monthly_statement, average_spend_per_item_this_month, the_mean_purchase_this_month, reconcile_monthly_totals) still reads account.total_this_month_cents rather than adding up the month's purchases, so it gets a stale figure that falls short of what the purchases add up to.",
+        "still_at_risk": "Until a person rolls io-shop back, every new purchase can leave another shopper's saved month total short of what they bought, and the totals already written wrong stay wrong on statements and spend summaries until someone rewrites them.",
+        "symptom": "Shoppers' saved spend-this-month totals fell short of their actual purchases"
       },
       "name": "submit_postmortem",
       "type": "tool_use"
     }
   ],
   "diagnostics": null,
-  "id": "msg_011CgQbiVsN7KSn9MFUJ3wrx",
+  "id": "msg_011Cgistx6tVHYj53wCKPCBm",
   "model": "claude-opus-5-5",
   "role": "assistant",
   "stop_details": null,
@@ -169,15 +170,15 @@
   "usage": {
     "cache_creation": {
       "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 2604
+      "ephemeral_5m_input_tokens": 12578
     },
-    "cache_creation_input_tokens": 2604,
-    "cache_read_input_tokens": 12080,
+    "cache_creation_input_tokens": 12578,
+    "cache_read_input_tokens": 0,
     "inference_geo": "global",
-    "input_tokens": 2,
-    "output_tokens": 2637,
+    "input_tokens": 4,
+    "output_tokens": 6438,
     "output_tokens_details": {
-      "thinking_tokens": 125
+      "thinking_tokens": 4124
     },
     "service_tier": "standard",
     "speed": "standard"
