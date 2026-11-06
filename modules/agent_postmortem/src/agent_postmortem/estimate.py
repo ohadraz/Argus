@@ -34,7 +34,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
-from statistics import quantiles
+from statistics import median, quantiles
 from typing import Final, NamedTuple
 
 from argus_core import parse_iso
@@ -474,6 +474,69 @@ def latency_over(buckets: list[MetricBucket],
         )
 
     return [levels(quantile, _READINGS[quantile]) for quantile in QUANTILES]
+
+
+class LoadLevels(BaseModel):
+    """A load at three levels: before the incident began, on average while it
+    was broken, and at its highest minute.
+
+    Highest rather than worst: a load is no harm, and the error rate's word for
+    its worst minute would call it one.
+    """
+
+    before: float
+    while_broken: float
+    at_its_highest: float
+
+
+class DemandLevels(BaseModel):
+    """What a confirmed demand-saturation rests on: the requests a minute, and
+    the CPU in use as a share of its limit - `None` where no minute read on
+    either side carried a limit, since a use with no limit is a share of
+    nothing.
+
+    Nothing else the write-up is handed carries either. Told the volume only in
+    the candidate's words, which it may not cite, a write-up rested the cause
+    on Code-Fix's reading of a slow default instead.
+    """
+
+    requests: LoadLevels
+    cpu_share: LoadLevels | None
+
+
+def demand_over(buckets: list[MetricBucket],
+                began: datetime,
+                until: datetime | None) -> DemandLevels | None:
+    """The load over the stretch the service was broken - over the same
+    stretch and by the same rules as `error_rates_over`, and nothing where
+    either side of it is empty.
+
+    Before it began as the hour's median, not its mean: a load climbs for
+    minutes before the latency departs from it, so the hour before the onset
+    holds the start of the climb, and a mean over it reads higher than the calm
+    the climb set off from.
+    """
+    sides = _either_side_of(buckets, began, until)
+
+    if not sides.the_hour or not sides.broken:
+        return None
+
+    def levels(before: list[float], while_broken: list[float]) -> LoadLevels:
+        return LoadLevels(before=median(before),
+                          while_broken=_mean(while_broken),
+                          at_its_highest=max(while_broken))
+
+    def shares(minutes: list[MetricBucket]) -> list[float]:
+        return [bucket.cpu_used_cores / bucket.cpu_limit_cores
+                for bucket in minutes if bucket.cpu_limit_cores]
+
+    shares_before, shares_while_broken = shares(sides.the_hour), shares(sides.broken)
+
+    return DemandLevels(
+        requests=levels([float(bucket.request_volume) for bucket in sides.the_hour],
+                        [float(bucket.request_volume) for bucket in sides.broken]),
+        cpu_share=(levels(shares_before, shares_while_broken)
+                   if shares_before and shares_while_broken else None))
 
 
 class RuleSeriesSpan(BaseModel):

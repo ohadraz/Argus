@@ -102,7 +102,7 @@ class RenderedPostmortem(BaseModel):
         """Every label a row of the document goes by - a hypothesis, a step
         taken, an action item, a labelled line of the timeline, a change, a
         log message, what a deployment changed, what Code-Fix read or a file
-        as it ran, a lead,
+        as it ran, what the metrics show of the load confirmed, a lead,
         what the alert said - and so every label the prose can cite with a row
         to lead to."""
         return frozenset({*(label for row in self.hypotheses.rows for label in row.labels),
@@ -115,6 +115,7 @@ class RenderedPostmortem(BaseModel):
                           *(row.label for row in self.supporting.code_read),
                           *(row.label for row in self.supporting.as_it_ran),
                           *(row.label for row in self.supporting.uses_outside),
+                          *(row.label for row in self.supporting.cause_measured),
                           *(lead.label for lead in self.leads),
                           *((self.detection.said.label,) if self.detection.said else ()),
                           *((self.impact.finding_label,) if self.impact.finding_label else ())})
@@ -364,7 +365,8 @@ def _the_rows(hypotheses: HypothesesSection,
              for line in timeline.rows if line.label}
     rows |= {lead.label: lead.said for lead in leads}
     rows |= {row.label: row.said for row in (*supporting.changes, *supporting.log_messages,
-                                              *supporting.uses_outside)}
+                                              *supporting.uses_outside,
+                                              *supporting.cause_measured)}
     rows |= {row.label: _its_first_line(row.said)
              for row in (*supporting.deployment_changes, *supporting.as_it_ran)}
     rows |= {row.label: Line(runs=(Run(text=supporting.code_read_heading),))

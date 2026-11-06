@@ -25,7 +25,15 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from argus_core import A_REVISION, parse_iso, short_form, the_revision_named, to_iso
+from argus_core import (
+    A_REVISION,
+    level_said_in,
+    parse_iso,
+    said_as_a_share,
+    short_form,
+    the_revision_named,
+    to_iso,
+)
 from argus_core.anomaly import the_end_of_the_onset
 from argus_core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
@@ -50,6 +58,7 @@ from argus_core.models import (
     ToolResults,
     Transcript,
     Turn,
+    Verdict,
     changes_not_listed,
     for_the_candidate,
     labelled,
@@ -107,9 +116,11 @@ from agent_postmortem.figures import (
     the_evidence_named,
     the_finding_named,
     the_latency_told,
+    the_levels_figures,
     the_log_group_figures,
     the_narration_figures,
     the_post_beside_nobody_paged,
+    the_shares_figures,
     what_came_after_the_wait,
 )
 from agent_postmortem.log_groups import grouped, labels_reaching_into, the_groups_of
@@ -119,6 +130,7 @@ from agent_postmortem.sections import (
     ACTION_PREFIX,
     AS_IT_RAN_PREFIX,
     CANDIDATE_PREFIX,
+    CAUSE_MEASURED_PREFIX,
     CODE_READING_PREFIX,
     DEPLOYMENT_CHANGES_PREFIX,
     PRODUCTION_CHANGE_PREFIX,
@@ -703,6 +715,10 @@ _THE_ONSET_WITH_A_CHANGE_INSIDE_ITS_MINUTE: Final = (
 )
 
 _WHAT_ARGUS_DID: Final = "What Argus did, in order:"
+
+# A volume's unit, joined to it as the candidates write theirs ("1200/min"), so
+# the two read as one figure.
+_PER_MINUTE: Final = "/min"
 
 # Said where a person wrote in the thread. Not told how a message is taken in,
 # write-ups of an incident a person reported over in its thread read the steps
@@ -1336,12 +1352,18 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     groups = the_groups_of(evidence.log_lines, measured.metrics_stopped_at, day,
                            acted_at=evidence.first_acted_at)
     in_a_group = {group.cited.label for group in groups}
+    cause_measured = _the_cause_measured(evidence, measured)
+    measured_rows = {cited.label for cited, _ in cause_measured}
 
     return (figures_of(evidence, measured)
             | the_evidence_figures([cited for cited in listed
-                                    if cited.label not in walked | in_a_group], day)
+                                    if cited.label not in walked | in_a_group | measured_rows],
+                                   day)
             | the_narration_figures([cited for cited in listed if cited.label in walked], day)
-            | the_log_group_figures(groups, day))
+            | the_log_group_figures(groups, day)
+            | {name: figure
+               for cited, figures_of_its_kind in cause_measured
+               for name, figure in figures_of_its_kind(cited).items()})
 
 
 def _the_walk_s_labels(evidence: IncidentEvidence) -> set[str]:
@@ -1423,6 +1445,8 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
                  if action.progress is ActionProgress.NOT_PERFORMED]
     unanswered = [line for line, action in every_action
                   if action.progress in (ActionProgress.CLAIMED, ActionProgress.UNKNOWN)]
+    load_confirmed = _the_load_confirmed(evidence)
+    cause_measured = the_cause_measured_labelled(evidence, measured)
     looked_into = the_deployment_changes_labelled(evidence)
     read_in_the_source = the_code_reading_labelled(evidence)
     as_it_ran = the_files_as_they_ran_labelled(evidence)
@@ -1454,6 +1478,11 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
           if not_taken else []),
         *([("Actions it reached for that nobody can say were taken:", unanswered, None)]
           if unanswered else []),
+        # Beside what Argus did about the load, and before Code-Fix's reading,
+        # whose weight the line beneath sets.
+        *([(f"What the metrics show of the confirmed cause [{load_confirmed}], measured by "
+            f"Argus:", cause_measured, _the_load_is_the_root_cause(load_confirmed))]
+          if cause_measured and load_confirmed is not None else []),
         *([("What each deployment it looked into changed:", looked_into,
             _what_each_whole_diff_leaves_as_it_was(evidence, looked_into))]
           if looked_into else []),
@@ -1772,6 +1801,80 @@ def the_candidates_labelled(evidence: IncidentEvidence) -> list[CitedEvidence]:
     """
     return [CitedEvidence(label=cause.label, also=cause.also, text=_a_cause_as_a_line(cause))
             for cause in causes_of(evidence.candidates)]
+
+
+def the_cause_measured_labelled(evidence: IncidentEvidence,
+                                measured: Measurements) -> list[CitedEvidence]:
+    """What the metrics show of a cause confirmed to be the load, each series
+    under its own label: the requests a minute, and the CPU in use against its
+    limit where a limit was read. Nothing where no candidate confirmed is the
+    load, or none was measured.
+
+    Rows rather than figures, because every step of the cause cites a row: told
+    the volume only in the candidate's words, which a step may not cite, a
+    write-up rested the root cause on Code-Fix's reading of a slow default -
+    the one deeper row it could cite. Public because the document lists them
+    under the labels the prose cites them by.
+
+    Each volume in its unit, as the candidate's are: said once before the
+    figures, the model said it again after a name, in words the check refuses.
+    """
+    return [cited for cited, _ in _the_cause_measured(evidence, measured)]
+
+
+def _the_cause_measured(evidence: IncidentEvidence, measured: Measurements
+                        ) -> list[tuple[CitedEvidence, Callable[[CitedEvidence],
+                                                                 dict[str, Figure]]]]:
+    """The load's rows, each with what reads its figures as what they measure:
+    the volumes as levels, the CPU as shares."""
+    demand = measured.demand
+    if _the_load_confirmed(evidence) is None or demand is None:
+        return []
+
+    requests = demand.requests
+    cpu = demand.cpu_share
+    rows = [
+        (f"Requests: {_a_minute_s(requests.before)} before it began, "
+         f"{_a_minute_s(requests.while_broken)} on average while it was broken, "
+         f"{_a_minute_s(requests.at_its_highest)} at its highest.", the_levels_figures),
+        *([(f"CPU in use, as a share of the service's CPU limit: "
+            f"{said_as_a_share(cpu.before)} before it began, "
+            f"{said_as_a_share(cpu.while_broken)} on average while it was broken, "
+            f"{said_as_a_share(cpu.at_its_highest)} at its highest.", the_shares_figures)]
+          if cpu is not None else [])
+    ]
+
+    return list(zip(_numbered(CAUSE_MEASURED_PREFIX, [line for line, _ in rows]),
+                    [figures for _, figures in rows], strict=True))
+
+
+def _a_minute_s(requests: float) -> str:
+    """A volume as a rate, the one word `is_a_figure` reads it as."""
+    return f"{level_said_in(requests, None)}{_PER_MINUTE}"
+
+
+def _the_load_confirmed(evidence: IncidentEvidence) -> str | None:
+    """The label of the candidate the record confirmed as the load - wherever
+    the investigation ranked it - or `None` where none was."""
+    return next((label
+                 for cause in causes_of(evidence.candidates)
+                 for label, candidate in cause.members
+                 if candidate.tested and candidate.result == Verdict.CONFIRMED
+                 and candidate.failure_mode == FailureMode.DEMAND_SATURATION), None)
+
+
+def _the_load_is_the_root_cause(confirmed: str) -> str:
+    """Beneath the load's rows: that the load against the CPU is the root
+    cause, and a reading that makes requests cheaper at most contributes.
+
+    Why the load used up the CPU has two answers - the capacity it met, and
+    the cost of each request - and a write-up told to follow the one that
+    leads to the fault followed Code-Fix's reading, which calls itself the
+    fault. What changed was the load, and adding capacity ended it."""
+    return (f"The record confirmed [{confirmed}]: the load outgrew the CPU the service had, and "
+            f"adding capacity ended it. What changed before it began was the load, not the "
+            f"service, so the load against that CPU is the root cause; a reading that would "
+            f"make requests cheaper is at most a contributing factor.")
 
 
 def _numbered(prefix: str, lines: list[str]) -> list[CitedEvidence]:

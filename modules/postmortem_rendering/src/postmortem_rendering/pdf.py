@@ -1531,7 +1531,8 @@ def _the_supporting_information(pdf: _Sheet, rendered: RenderedPostmortem) -> No
         (supporting.deployment_changes_heading, supporting.deployment_changes, None),
         (supporting.code_read_heading, supporting.code_read, None),
         (supporting.as_it_ran_heading, supporting.as_it_ran, None),
-        (supporting.uses_outside_heading, supporting.uses_outside, None)
+        (supporting.uses_outside_heading, supporting.uses_outside, None),
+        (supporting.cause_measured_heading, supporting.cause_measured, None)
     ):
         if not rows and absent is None:
             continue

@@ -49,6 +49,7 @@ from pydantic import BaseModel, Field
 
 from agent_postmortem.estimate import (
     BASELINE_WINDOW,
+    DemandLevels,
     ErrorRates,
     LatencyLevels,
     RuleSeriesLevels,
@@ -57,6 +58,7 @@ from agent_postmortem.estimate import (
     a_line_was_read,
     beyond_the_variation,
     calm_to_read_for,
+    demand_over,
     duration_in_hours,
     error_rates_over,
     first_minute_past_its_line,
@@ -194,6 +196,10 @@ class Measurements(BaseModel):
     # model where nothing else it is given says what the people using the
     # service felt.
     latency: list[LatencyLevels] = Field(default_factory=list)
+    # The load - requests a minute, and the CPU in use against its limit - over
+    # the same stretch, and `None` where either side of it carried no minute.
+    # Told to the model where the cause confirmed is the load.
+    demand: DemandLevels | None = None
     # How far back the paging rule's condition looks - "no sample for 5m" holds
     # only once five minutes have passed with none - which is part of the time
     # from an onset to its alert, as the wait is. Nothing for a check that looks
@@ -346,6 +352,7 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         rule_series_is_a_latency=alert_rule is not None and alert_rule.series_is_a_latency,
         # Over the same stretch as the error rate, for the same reason.
         latency=latency_over(metrics, began, found_back),
+        demand=demand_over(metrics, began, found_back),
         rule_held_before_the_onset=(
             rule_held_before_the_onset(metrics, evidence.onset_at, evidence.alerted_at,
                                        timedelta(seconds=waits))

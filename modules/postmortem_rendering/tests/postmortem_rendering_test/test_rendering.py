@@ -283,13 +283,15 @@ def test_the_labels_prose_may_cite_are_those_of_the_rows_the_document_has() -> N
                 changes_read=[a_change_read("P1")],
                 log_messages_read=[CitedEvidence(label="G3fa2", text="dont care")],
                 as_it_ran_read=[CitedEvidence(label="S1", text="dont care")],
+                cause_measured=[CitedEvidence(label="R1", text="dont care")],
                 leads=[_a_lead()])
         ) \
         .when(
             lambda: render(some_postmortem, an_alert(), [], the_page_of).labels
         ) \
         .then(
-            the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "S1", "L1"})))
+            the_answer_was(frozenset({"C1", "M1", "AI-1", "T1", "P1", "G3fa2", "S1", "R1",
+                                      "L1"})))
 
 
 @pytest.mark.unit
@@ -621,6 +623,26 @@ def test_a_cited_file_as_it_ran_is_named_by_its_path_at_the_revision() -> None:
         ) \
         .then(
             _the_first_step_rests_on("S1 deploy/scrape.yaml at 53f02e9"))
+
+
+@pytest.mark.unit
+def test_a_cited_measurement_of_the_confirmed_cause_is_named_by_its_row() -> None:
+    # One measured series and its levels - short enough to say whole.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                cause_measured=[CitedEvidence(
+                    label="R1",
+                    text="Requests a minute: 1200 before it began, 4200 on average while it "
+                         "was broken, 5400 at its highest.")],
+                causal_chain=_a_step_citing("R1"))
+        ) \
+        .when(
+            lambda: render(some_postmortem, an_alert(), [], the_page_of)
+        ) \
+        .then(
+            _the_first_step_rests_on("R1 Requests a minute: 1200 before it began, 4200 on "
+                                     "average while it was broken, 5400 at its highest."))
 
 
 @pytest.mark.unit

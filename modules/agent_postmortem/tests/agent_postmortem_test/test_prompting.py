@@ -37,7 +37,14 @@ from agent_postmortem import (
     IncidentEvidence,
     NotPaged,
 )
-from agent_postmortem.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels, Unmeasured
+from agent_postmortem.estimate import (
+    DemandLevels,
+    ErrorRates,
+    LatencyLevels,
+    LoadLevels,
+    RuleSeriesLevels,
+    Unmeasured,
+)
 from agent_postmortem.figures import (
     ACCOUNTED_FOR_FIGURE,
     AFTER_THE_WAIT_FIGURE,
@@ -64,6 +71,7 @@ from agent_postmortem.figures import (
     named,
     names_in,
     the_finding_named,
+    with_figures_written,
 )
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.prompting import (
@@ -113,6 +121,7 @@ from agent_postmortem.prompting import (
     opening_ask_again,
     rejecting,
     submit_postmortem_for,
+    the_cause_measured_labelled,
     the_changes_labelled,
     the_deployment_changes_labelled,
     the_evidence_labelled,
@@ -1303,6 +1312,180 @@ def test_a_write_up_led_by_another_mode_is_not_told_of_rewriting_what_was_writte
         .then(
             _does_not_say("Rewriting what the incident wrote wrong")
         )
+
+
+@pytest.mark.unit
+def test_a_confirmed_demand_saturation_is_measured_in_rows_of_its_own() -> None:
+    # The load and the CPU it asked for, which nothing else the write-up is
+    # handed carries: a write-up told the volume only in the candidate's words,
+    # which it may not cite, rested the root cause on Code-Fix's reading of a
+    # slow default - the one deeper row it could cite. Measured by Argus, under
+    # labels, so a step of the cause can rest on them.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=LoadLevels(before=0.25, while_broken=0.8, at_its_highest=1.0)))
+        ) \
+        .when(
+            lambda: the_cause_measured_labelled(evidence, measured)
+        ) \
+        .then(
+            the_answer_was([
+                CitedEvidence(label="R1",
+                              text="Requests: 1200/min before it began, 4200/min on average "
+                                   "while it was broken, 5400/min at its highest."),
+                CitedEvidence(label="R2",
+                              text="CPU in use, as a share of the service's CPU limit: 25.0% "
+                                   "before it began, 80.0% on average while it was broken, "
+                                   "100.0% at its highest.")
+            ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("working", "said"), [
+    ("{R1.3 / R1.1}", "4.5 times"),
+    ("{R1.3 - R1.1}", "4200/min"),
+    ("{R2.3 - R2.1}", "75.0 percentage points")
+], ids=["load-ratio", "load-difference", "cpu-difference"])
+def test_a_confirmed_demand_saturation_s_rows_are_worked_with_as_what_they_measure(
+        working: str, said: str) -> None:
+    # Taken as any evidence's, the rows' figures had no kind: the model's
+    # "{R1.3 / R1.1}" - how many times the load rose - was refused, and the
+    # root cause said "far above its usual level" instead.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=LoadLevels(before=0.25, while_broken=0.8, at_its_highest=1.0)))
+        ) \
+        .when(
+            lambda: figures_shown(evidence, measured)
+        ) \
+        .then(
+            _writes_in(SubmittedPostmortem(root_cause=f"It rose {working}."),
+                       SubmittedPostmortem(root_cause=f"It rose {said}."))
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_demand_saturation_s_rows_sit_after_the_actions_and_before_the_reading(
+) -> None:
+    # Beside what Argus did about it, and before Code-Fix's reading, whose
+    # weight the line beneath the rows sets.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                timeline=[], log_lines=[], fix_explanation="some account of the code",
+                candidates=[a_candidate("some candidate", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")],
+                actions=[an_action("some action", verdict="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: the_evidence_labelled(evidence, measured)
+        ) \
+        .then(
+            _labelled_in_order([
+                ("C1", "some candidate"),
+                ("M1", "some action"),
+                ("R1", "Requests:"),
+                ("F1", "some account of the code")
+            ])
+        )
+
+
+@pytest.mark.unit
+def test_a_confirmed_demand_saturation_is_told_the_load_against_its_cpu_is_the_root_cause(
+) -> None:
+    # Two answers to why the load used up the CPU - capacity sized for less, and
+    # the cost of each request - and a write-up told to follow the one leading
+    # to the fault followed Code-Fix's reading, which calls itself the fault.
+    # What changed was the load: the record confirmed it, and adding capacity
+    # ended it.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("What the metrics show of the confirmed cause [C1], measured by Argus:"),
+            _says("The record confirmed [C1]: the load outgrew the CPU the service had, and "
+                  "adding capacity ended it. What changed before it began was the load, not "
+                  "the service, so the load against that CPU is the root cause; a reading that "
+                  "would make requests cheaper is at most a contributing factor.")
+        ))
+
+
+@pytest.mark.unit
+def test_a_demand_saturation_confirmed_after_another_cause_is_named_by_its_own_label() -> None:
+    # The confirmed one, wherever the investigation ranked it: a flapping
+    # autoscaler's walk refutes its own cause first and confirms the load second.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="autoscaling-pathology",
+                                        tested=True, result="refuted"),
+                            a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says("What the metrics show of the confirmed cause [C2], measured by Argus:"),
+            _says("The record confirmed [C2]: the load outgrew the CPU the service had")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("failure_mode", "result", "demand"), [
+    ("feature-flag-toggle", "confirmed",
+     DemandLevels(requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                  cpu_share=None)),
+    ("demand-saturation", None,
+     DemandLevels(requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                  cpu_share=None)),
+    ("demand-saturation", "confirmed", None)
+], ids=["another-mode-confirmed", "never-confirmed", "no-load-measured"])
+def test_the_load_is_measured_only_for_a_confirmed_demand_saturation_it_was_read_for(
+        failure_mode: str, result: str | None, demand: DemandLevels | None) -> None:
+    # Elsewhere the load is no cause anything confirmed, and its rows would be
+    # evidence for a claim nobody made - and a write-up that read no load has
+    # none to show.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode=failure_mode,
+                                        tested=result is not None, result=result)]),
+            measured := a_measured_incident(demand=demand)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _does_not_say("What the metrics show of the confirmed cause"),
+            _does_not_say("the load against that CPU is the root cause")
+        ))
 
 
 @pytest.mark.unit
@@ -6644,6 +6827,21 @@ def _names_no_figure_starting(prefix: str) -> Assertion[dict[str, Figure]]:
         if named_so:
             raise AssertionError(
                 f"Expected no figure named after [{prefix}], got {named_so}.")
+
+        return True
+
+    return assertion
+
+
+def _writes_in(answer: SubmittedPostmortem,
+               expected: SubmittedPostmortem) -> Assertion[dict[str, Figure]]:
+    def assertion(figures: dict[str, Figure]) -> bool:
+        written = with_figures_written(answer, figures)
+
+        if written != expected:
+            raise AssertionError(
+                f"Expected {answer.root_cause!r} written in as {expected.root_cause!r}, "
+                f"got {written.root_cause!r}.")
 
         return True
 

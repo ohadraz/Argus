@@ -17,14 +17,17 @@ from math import isclose
 
 import pytest
 from agent_postmortem.estimate import (
+    DemandLevels,
     ErrorRates,
     LatencyLevels,
+    LoadLevels,
     RuleSeriesLevels,
     RuleSeriesSpan,
     Unmeasured,
     a_line_was_read,
     beyond_the_variation,
     calm_to_read_for,
+    demand_over,
     error_rates_over,
     first_minute_past_its_line,
     latency_over,
@@ -1208,6 +1211,89 @@ def test_latency_no_slower_than_the_calm_went_on_its_own_has_not_departed() -> N
         )
 
 
+@pytest.mark.unit
+def test_the_load_and_the_cpu_it_asked_for_are_measured_before_while_broken_and_at_highest(
+) -> None:
+    # What a confirmed demand-saturation rests on, which nothing else the brief
+    # is handed carries: the requests a minute, and the CPU in use as a share
+    # of its limit. Before it began as the hour's median, not its mean - a load
+    # rises minutes before the latency departs, so the hour before the onset
+    # holds the start of the climb, and a mean over it reads higher than the
+    # calm the climb set off from.
+    some_calm_volume = 1200
+    the_start_of_the_climb = 2100
+    some_broken_volume = 3000
+    the_highest_volume = 5400
+
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=3),
+                          request_volume=some_calm_volume, cpu_used_cores=0.75),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2),
+                          request_volume=some_calm_volume, cpu_used_cores=0.75),
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=1),
+                          request_volume=the_start_of_the_climb, cpu_used_cores=1.3),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5),
+                          request_volume=some_broken_volume, cpu_used_cores=1.8),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6),
+                          request_volume=the_highest_volume, cpu_used_cores=3.0)
+            ]
+        ) \
+        .when(
+            lambda: demand_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_demand_was(DemandLevels(
+                requests=LoadLevels(before=some_calm_volume,
+                                    while_broken=(some_broken_volume + the_highest_volume) / 2,
+                                    at_its_highest=the_highest_volume),
+                cpu_share=LoadLevels(before=0.75 / 3.0,
+                                     while_broken=(1.8 / 3.0 + 3.0 / 3.0) / 2,
+                                     at_its_highest=1.0)
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_cpu_with_no_limit_read_is_no_share_of_one() -> None:
+    # A deployment imposing no CPU limit is ordinary, and its use is a share of
+    # nothing: the load is still measured, and the CPU is said not to be.
+    Scenario() \
+        .given(
+            buckets := [
+                _a_bucket(at=INCIDENT_START - timedelta(minutes=2), cpu_limit_cores=None),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), cpu_limit_cores=None)
+            ]
+        ) \
+        .when(
+            lambda: demand_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            _the_demand_was(DemandLevels(
+                requests=LoadLevels(before=_THE_BUCKETS_VOLUME,
+                                    while_broken=_THE_BUCKETS_VOLUME,
+                                    at_its_highest=_THE_BUCKETS_VOLUME),
+                cpu_share=None
+            ))
+        )
+
+
+@pytest.mark.unit
+def test_no_demand_is_measured_with_no_minute_before_it_began() -> None:
+    # A level against nothing is an unanswered question, as the error rate's is.
+    Scenario() \
+        .given(
+            buckets := [_a_bucket(at=INCIDENT_START + timedelta(minutes=5))]
+        ) \
+        .when(
+            lambda: demand_over(buckets, INCIDENT_START, INCIDENT_END)
+        ) \
+        .then(
+            the_answer_was(None)
+        )
+
+
 # The line `_a_reading`'s share pages under.
 _THE_LINE = 0.8
 
@@ -1238,6 +1324,26 @@ def _the_latency_was(expected: LatencyLevels) -> Assertion[list[LatencyLevels]]:
     return assertion
 
 
+def _the_demand_was(expected: DemandLevels) -> Assertion[DemandLevels | None]:
+    def same(got: LoadLevels | None, wanted: LoadLevels | None) -> bool:
+        if got is None or wanted is None:
+            return got is wanted
+
+        return (isclose(got.before, wanted.before)
+                and isclose(got.while_broken, wanted.while_broken)
+                and isclose(got.at_its_highest, wanted.at_its_highest))
+
+    def assertion(measured: DemandLevels | None) -> bool:
+        if (measured is None
+                or not same(measured.requests, expected.requests)
+                or not same(measured.cpu_share, expected.cpu_share)):
+            raise AssertionError(f"Expected the demand at {expected}, got [{measured}].")
+
+        return True
+
+    return assertion
+
+
 def _estimates(expected: Decimal) -> Assertion[Decimal]:
     def assertion(estimate: Decimal) -> bool:
         if estimate != expected:
@@ -1248,22 +1354,29 @@ def _estimates(expected: Decimal) -> Assertion[Decimal]:
     return assertion
 
 
+# The requests a minute `_a_bucket` carries unless told otherwise.
+_THE_BUCKETS_VOLUME = 1_000
+
+
 def _a_bucket(at: datetime,
               error_rate: float = DONT_CARE_ERROR_RATE,
               rule_reading: RuleReading | None = None,
               p50_ms: int = 20,
-              p95_ms: int = 40) -> MetricBucket:
+              p95_ms: int = 40,
+              request_volume: int = _THE_BUCKETS_VOLUME,
+              cpu_used_cores: float = 0.77,
+              cpu_limit_cores: float | None = 3.0) -> MetricBucket:
     return MetricBucket(
         bucket_id=at.strftime("%Y-%m-%dT%H:%M"),
         error_rate=error_rate,
         p50_ms=p50_ms,
         p95_ms=p95_ms,
         p99_ms=90,
-        request_volume=1_000,
+        request_volume=request_volume,
         memory_used_bytes=440 * 1024**2,
         process_start_time_seconds=1_756_000_000.0,
-        cpu_used_cores=0.77,
-        cpu_limit_cores=3.0,
+        cpu_used_cores=cpu_used_cores,
+        cpu_limit_cores=cpu_limit_cores,
         rule_reading=rule_reading
     )
 

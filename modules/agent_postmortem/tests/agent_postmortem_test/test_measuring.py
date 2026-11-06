@@ -27,7 +27,9 @@ from math import isclose
 import pytest
 from agent_postmortem import IncidentEvidence
 from agent_postmortem.estimate import (
+    DemandLevels,
     LatencyLevels,
+    LoadLevels,
     RuleSeriesLevels,
     RuleSeriesSpan,
     Unmeasured,
@@ -1371,6 +1373,39 @@ def test_latency_is_measured_over_the_stretch_the_service_was_broken() -> None:
             _the_latency_was(LatencyLevels(quantile="p95", baseline=some_calm_p95,
                                            while_broken=some_slow_p95,
                                            at_its_worst=some_slow_p95, departed=True))
+        )
+
+
+@pytest.mark.unit
+def test_the_load_is_measured_over_the_stretch_the_service_was_broken() -> None:
+    # Over the same stretch as the error rate, bounded by the same onset and the
+    # same recovery: the minute it recovered in carries the load the scale-out
+    # met, and a stretch that ran past it would average it in.
+    some_calm_volume = 1200
+    some_broken_volume = 5400
+    dont_care_error_rate = 0.01
+
+    def metrics_between(dont_care_start: datetime, dont_care_end: datetime,
+                        dont_care_rule: str | None) -> list[MetricBucket]:
+        return [a_bucket(at=ONSET - timedelta(minutes=2), error_rate=dont_care_error_rate,
+                         request_volume=some_calm_volume, cpu_used_cores=0.75),
+                a_bucket(at=ONSET + timedelta(minutes=1), error_rate=dont_care_error_rate,
+                         request_volume=some_broken_volume, cpu_used_cores=3.0),
+                a_bucket(at=ENDED_AT, error_rate=dont_care_error_rate,
+                         request_volume=some_broken_volume, cpu_used_cores=3.4)]
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(recorded_recovery_at=ENDED_AT)
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(metrics=metrics_between)).demand
+        ) \
+        .then(
+            the_answer_was(DemandLevels(
+                requests=LoadLevels(before=some_calm_volume, while_broken=some_broken_volume,
+                                    at_its_highest=some_broken_volume),
+                cpu_share=LoadLevels(before=0.25, while_broken=1.0, at_its_highest=1.0)))
         )
 
 

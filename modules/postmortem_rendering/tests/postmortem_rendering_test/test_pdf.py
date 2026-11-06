@@ -567,6 +567,40 @@ def test_a_use_outside_the_patch_the_prose_cites_leads_to_its_row() -> None:
 
 
 @pytest.mark.unit
+def test_a_measurement_of_the_confirmed_cause_the_prose_cites_leads_to_its_row() -> None:
+    some_load = CitedEvidence(label="R1",
+                              text="Requests a minute: 1200 before it began, 4200 on average "
+                                   "while it was broken, 5400 at its highest.")
+
+    Scenario() \
+        .given(
+            some_rendered := render(
+                a_postmortem(root_cause="R1 tells it.", cause_measured=[some_load]),
+                an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _a_link_lands_on("R1 Requests a minute: 1200 before it began"))
+
+
+@pytest.mark.unit
+def test_a_postmortem_that_measured_no_cause_has_no_heading_for_one_in_its_pdf() -> None:
+    # A heading over nothing would say a measurement was missed.
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(cause_measured=[]), an_alert(), [],
+                                    the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_does_not_say("What the metrics show of the confirmed cause"))
+
+
+@pytest.mark.unit
 def test_a_row_taller_than_a_page_goes_on_onto_the_next_and_still_lands() -> None:
     # What Code-Fix read in the source has run to thirteen thousand characters:
     # a row no page holds. It goes on onto the next, and a citation of it still
@@ -1742,6 +1776,18 @@ def _it_says(expected: str) -> Assertion[bytes]:
 
         if expected not in text:
             raise AssertionError(f"Expected the PDF to say [{expected}], and it reads: {text}")
+
+        return True
+
+    return assertion
+
+
+def _it_does_not_say(unwanted: str) -> Assertion[bytes]:
+    def assertion(pdf: bytes) -> bool:
+        text = _text(pdf)
+
+        if unwanted in text:
+            raise AssertionError(f"Expected the PDF not to say [{unwanted}], and it reads: {text}")
 
         return True
 

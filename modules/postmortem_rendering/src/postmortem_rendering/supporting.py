@@ -81,7 +81,8 @@ class SupportingSection(BaseModel):
     weighed - and as proposed only where a pull request holds what it
     proposed. Each file it names that ran as other text than it read is a row
     too, named by its path at the revision and leading to the file there -
-    what settles a reading made on other text. The log
+    what settles a reading made on other text. And what the metrics show of a
+    cause confirmed to be the load, a series to a row, measured by Argus. The log
     messages' heading names the zone their times are in, since each row says a
     time as the model was shown it; a change's row says its moment with its
     zone.
@@ -115,6 +116,9 @@ class SupportingSection(BaseModel):
     uses_outside_heading: str = ("How the code outside Code-Fix's patch uses what it changes, "
                                  "read off the code")
     uses_outside: tuple[EvidenceRow, ...] = ()
+    cause_measured_heading: str = ("What the metrics show of the confirmed cause, measured by "
+                                   "Argus")
+    cause_measured: tuple[EvidenceRow, ...] = ()
     assumptions_heading: str = "Assumptions"
     assumptions: tuple[Line, ...]
     assumptions_absent: str | None
@@ -172,6 +176,7 @@ def the_supporting_information(postmortem: PostmortemDocument,
                              uses_outside_heading=_the_uses_outside_heading(
                                  postmortem.fix_branch_read),
                              uses_outside=_rows(postmortem.uses_outside_read),
+                             cause_measured=_rows(postmortem.cause_measured),
                              assumptions=assumptions,
                              assumptions_absent=None if assumptions else "None.")
 

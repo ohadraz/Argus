@@ -37,7 +37,7 @@ from agent_postmortem import DeploymentChangesRecord, write_postmortem
 from agent_postmortem.assumptions import assumptions_of
 from agent_postmortem.conversation import answer_worth_writing
 from agent_postmortem.detection_lesson import the_detection_lesson
-from agent_postmortem.estimate import LatencyLevels
+from agent_postmortem.estimate import DemandLevels, LatencyLevels, LoadLevels
 from agent_postmortem.log_groups import grouped
 from agent_postmortem.measuring import Measurements, measure
 from agent_postmortem.prompting import (
@@ -46,6 +46,7 @@ from agent_postmortem.prompting import (
     SubmittedPostmortem,
     SubmittedRuledOut,
     SubmittedStep,
+    the_cause_measured_labelled,
     the_changes_labelled,
     the_deployment_changes_labelled,
 )
@@ -599,6 +600,33 @@ def test_the_impact_carries_how_long_requests_took_at_each_quantile_the_brief_te
                        lambda document: document.impact.latency_harm if document.impact else None,
                        [LatencyHarm(quantile="p95", before=215.13, while_broken=586.4,
                                     at_its_worst=1449.0)])
+        )
+
+
+@pytest.mark.unit
+def test_the_load_the_brief_measured_is_published_under_the_labels_it_was_shown_by() -> None:
+    # A step of the cause cites R1, and the page has the row it leads to.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", failure_mode="demand-saturation",
+                                        tested=True, result="confirmed")]),
+            measured := a_measured_incident(demand=DemandLevels(
+                requests=LoadLevels(before=1200, while_broken=4200, at_its_highest=5400),
+                cpu_share=None))
+        ) \
+        .when(
+            lambda: write_postmortem(evidence,
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(measured),
+                                     ask=_asking_that_answers(a_submitted_answer()),
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("what the metrics show of the confirmed cause",
+                       lambda document: document.cause_measured,
+                       the_cause_measured_labelled(evidence, measured))
         )
 
 

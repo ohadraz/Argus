@@ -739,6 +739,41 @@ def test_a_use_outside_the_patch_is_a_row_under_its_label() -> None:
 
 
 @pytest.mark.unit
+def test_what_the_metrics_show_of_the_confirmed_cause_is_a_row_under_its_label() -> None:
+    # The load a confirmed demand-saturation rests on, measured by Argus - a row
+    # because a step of the cause cites it.
+    some_load = CitedEvidence(label="R1",
+                              text="Requests a minute: 1200 before it began, 4200 on average "
+                                   "while it was broken, 5400 at its highest.")
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(cause_measured=[some_load])
+        ) \
+        .when(
+            lambda: the_supporting_information(some_postmortem,
+                                               SOME_INCIDENT_ADDRESS).cause_measured
+        ) \
+        .then(
+            the_answer_was((EvidenceRow(label="R1",
+                                        said=Line(runs=(Run(text=some_load.text),))),)))
+
+
+@pytest.mark.unit
+def test_what_the_metrics_show_of_the_confirmed_cause_is_headed_as_measured_by_argus() -> None:
+    Scenario() \
+        .given(
+            dont_care_postmortem := a_postmortem()
+        ) \
+        .when(
+            lambda: the_supporting_information(
+                dont_care_postmortem, SOME_INCIDENT_ADDRESS).cause_measured_heading
+        ) \
+        .then(
+            the_answer_was("What the metrics show of the confirmed cause, measured by Argus"))
+
+
+@pytest.mark.unit
 def test_the_uses_outside_the_patch_are_headed_as_read_off_the_code() -> None:
     # Code-Fix's reading sits above them in its own words; these are the code's.
     Scenario() \

@@ -62,8 +62,10 @@ from agent_postmortem.figures import (
     the_evidence_figures,
     the_evidence_named,
     the_finding_named,
+    the_levels_figures,
     the_log_group_figures,
     the_narration_figures,
+    the_shares_figures,
     units_against_their_figures,
     with_every_day_said,
     with_figures_written,
@@ -1175,6 +1177,44 @@ def test_the_span_between_two_instants_the_evidence_states_is_written_in() -> No
         .then(
             the_answer_was(SubmittedPostmortem(
                 root_cause="Mitigation began 7 minutes 30 seconds in."))
+        )
+
+
+@pytest.mark.unit
+def test_a_row_of_levels_argus_measured_is_worked_with_as_levels() -> None:
+    # Taken as any evidence's, its figures had no kind, and the model's
+    # "{R1.3 / R1.1}" - how many times the load rose - was refused.
+    Scenario() \
+        .given(
+            figures := the_levels_figures(CitedEvidence(
+                label="R1", text="Requests: 1200/min before it began, 5400/min at its highest.")),
+            an_answer_comparing_them := SubmittedPostmortem(
+                root_cause="The load rose {R1.2 / R1.1}, by {R1.2 - R1.1}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_comparing_them, figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(
+                root_cause="The load rose 4.5 times, by 4200/min."))
+        )
+
+
+@pytest.mark.unit
+def test_a_row_of_shares_argus_measured_is_worked_with_as_shares() -> None:
+    Scenario() \
+        .given(
+            figures := the_shares_figures(CitedEvidence(
+                label="R2", text="CPU in use: 25.0% before it began, 100.0% at its highest.")),
+            an_answer_comparing_them := SubmittedPostmortem(
+                root_cause="CPU rose {R2.2 / R2.1}, by {R2.2 - R2.1}.")
+        ) \
+        .when(
+            lambda: with_figures_written(an_answer_comparing_them, figures)
+        ) \
+        .then(
+            the_answer_was(SubmittedPostmortem(
+                root_cause="CPU rose 4.0 times, by 75.0 percentage points."))
         )
 
 

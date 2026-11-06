@@ -444,6 +444,18 @@ document.addEventListener('DOMContentLoaded', function () {
   </tbody>
 </table>
 {% endif %}
+{# What the metrics show of a cause confirmed to be the load, a series to a
+   row, measured by Argus - and no heading for any other cause. #}
+{% if supporting.cause_measured %}
+<h3>{{ supporting.cause_measured_heading }}</h3>
+<table class="evidence-read">
+  <tbody>
+  {% for row in supporting.cause_measured %}
+    <tr id="{{ row.label }}"><td class="label">{{ row.label }}</td><td>{{ said(row.said) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 <h3>{{ supporting.assumptions_heading }}</h3>
 {% if supporting.assumptions %}
 <ul class="assumptions">

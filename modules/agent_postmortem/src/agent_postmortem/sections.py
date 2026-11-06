@@ -120,6 +120,10 @@ AS_IT_RAN_PREFIX: Final = "S"
 USES_OUTSIDE_PREFIX: Final = "U"
 CANDIDATE_PREFIX: Final = "C"
 ACTION_PREFIX: Final = "M"
+# What the metrics show of a cause confirmed to be the load, measured by Argus:
+# `R1`, R for its rows - not "reading", which is already a retrieval
+# (`argus_core.models.Reading`).
+CAUSE_MEASURED_PREFIX: Final = "R"
 REVIEW_THE_FIX = "Review and merge the proposed fix"
 # The fix Code-Fix wrote and did not keep, since it helps only once code outside
 # the repository changes too. Both halves, named by code: left to the model,

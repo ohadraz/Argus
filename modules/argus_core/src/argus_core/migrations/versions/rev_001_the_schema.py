@@ -359,6 +359,9 @@ CREATE TABLE IF NOT EXISTS postmortem (
     code_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     as_it_ran_read JSONB NOT NULL DEFAULT '[]'::jsonb,
     uses_outside_read JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- What the metrics show of a cause confirmed to be the load, measured by
+    -- Argus - empty for any other cause.
+    cause_measured JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The branch Code-Fix read, which the uses outside its patch were read on.
     fix_branch_read TEXT,
     -- What came of reading the deploys, the flags and the logs - read, only

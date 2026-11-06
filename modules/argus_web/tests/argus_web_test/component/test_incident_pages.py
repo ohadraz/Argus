@@ -2681,6 +2681,63 @@ def test_a_use_outside_the_patch_the_root_cause_cites_links_to_its_row() -> None
 
 
 @pytest.mark.component
+def test_a_measurement_of_the_confirmed_cause_the_root_cause_cites_links_to_its_row() -> None:
+    # "As R1 shows" leads to the load Argus measured, under a heading saying
+    # Argus measured it.
+    some_alert = Alert(service="io-shop", alert_name="HighLatency")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "root_cause": "As R1 shows, the load outgrew the CPU the service had.",
+            "cause_measured": [CitedEvidence(
+                label="R1",
+                text="Requests a minute: 1200 before it began, 4200 on average while it was "
+                     "broken, 5400 at its highest.")]
+        }),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(all_of(
+            the_page_links_to("#R1"),
+            the_page_says('id="R1"'),
+            the_page_says("What the metrics show of the confirmed cause, measured by Argus"),
+            the_page_says("5400 at its highest")
+        ))
+
+
+@pytest.mark.component
+def test_a_postmortem_that_measured_no_cause_has_no_heading_for_one() -> None:
+    # Every incident whose confirmed cause is not the load: a heading over
+    # nothing would say a measurement was missed.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        postmortems.record(conn, incident_id, _a_document_with().model_copy(update={
+            "cause_measured": []
+        }),
+        at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}/postmortem")
+        ) \
+        .then(
+            _the_page_does_not_say("What the metrics show of the confirmed cause")
+        )
+
+
+@pytest.mark.component
 def test_what_code_fix_read_is_shown_in_bold_and_on_its_lines_without_its_marks() -> None:
     # Code-Fix writes in Markdown, in paragraphs and lists. Its asterisks were
     # printed, and its lines run together into one block.

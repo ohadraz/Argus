@@ -246,8 +246,9 @@ class _Kind(StrEnum):
 
 
 # Each figure Argus measured's kind, by its name. A figure the alert or the
-# evidence states has none, unless it is an instant (`_kind_of`): what any other
-# of its numbers measures is its writer's to know, so none is worked with.
+# evidence states has none, unless it is an instant (`_kind_of`) or a row Argus
+# measured gave it one: what any other of its numbers measures is its writer's
+# to know, so none is worked with.
 _KINDS: Final = {
     ALERT_RAISED_FIGURE: _Kind.INSTANT,
     BEGAN_FIGURE: _Kind.INSTANT,
@@ -401,11 +402,15 @@ class Figure(BaseModel):
     Argus first acted: known by what it is, since a set of one minute is
     written as a moment is, and a sentence placing a moment at it says less
     than it does.
+
+    `kind` where a row Argus measured states it, whose name says nothing of
+    what it measures: `R1.3` is a level only because R1 is a row of them.
     """
 
     given: str
     written: str
     a_set_of_minutes: bool = False
+    kind: _Kind | None = None
 
 
 def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, Figure]:
@@ -701,6 +706,28 @@ def the_narration_figures(lines: Sequence[CitedEvidence], day: date) -> dict[str
             for each in lines
             for name, figure in _the_narrated_figures_in(each.text, f"{each.label}.",
                                                          day).items()}
+
+
+def the_levels_figures(cited: CitedEvidence) -> dict[str, Figure]:
+    """The figures a row of levels Argus measured states, named as the
+    evidence's are, each worked with as a level.
+
+    Named as evidence alone, they had no kind: how many times the load rose
+    was refused, and the root cause said "far above its usual level" instead.
+    """
+    return _the_figures_of_a_kind(cited, _Kind.LEVEL)
+
+
+def the_shares_figures(cited: CitedEvidence) -> dict[str, Figure]:
+    """The figures a row of shares Argus measured states, named as the
+    evidence's are, each worked with as a share."""
+    return _the_figures_of_a_kind(cited, _Kind.SHARE)
+
+
+def _the_figures_of_a_kind(cited: CitedEvidence, kind: _Kind) -> dict[str, Figure]:
+    return {f"{cited.label}.{position}": Figure(given=figure, written=figure, kind=kind)
+            for position, (figure, _) in enumerate(_the_figures_and_days_of(cited.text),
+                                                   start=1)}
 
 
 def the_evidence_named(cited: CitedEvidence) -> str:
@@ -1109,12 +1136,15 @@ def _the_day_shown(figures: Mapping[str, Figure]) -> date | None:
 
 
 def _kind_of(name: str, figures: Mapping[str, Figure]) -> _Kind | None:
-    """A figure's kind: by its name where Argus measured it, and otherwise an
-    instant where it was shown as one - a line of the narration's time is an
-    instant whoever wrote it - or none, where what it measures is its writer's
-    to know."""
+    """A figure's kind: by its name where Argus measured it, as its row gave it
+    where a row Argus measured states it, and otherwise an instant where it was
+    shown as one - a line of the narration's time is an instant whoever wrote
+    it - or none, where what it measures is its writer's to know."""
     if name in _KINDS:
         return _KINDS[name]
+
+    if name in figures and figures[name].kind is not None:
+        return figures[name].kind
 
     if name in figures and _AN_INSTANT.fullmatch(figures[name].given):
         return _Kind.INSTANT

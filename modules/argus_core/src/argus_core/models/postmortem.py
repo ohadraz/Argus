@@ -197,13 +197,16 @@ class PostmortemDocument(BaseModel):
     # it read, named by its path at the revision on its first line, then the
     # file as it ran. And how the code outside its patch uses what the patch
     # changes, one line of it to a row, read off the code rather than said by
-    # Code-Fix.
+    # Code-Fix. And what the metrics show of a cause confirmed to be the load,
+    # measured by Argus - empty for any other cause, and on a document written
+    # before it was carried.
     changes_read: list[CitedChange] = []
     log_messages_read: list[CitedEvidence] = []
     deployment_changes_read: list[CitedEvidence] = []
     code_read: list[CitedEvidence] = []
     as_it_ran_read: list[CitedEvidence] = []
     uses_outside_read: list[CitedEvidence] = []
+    cause_measured: list[CitedEvidence] = []
     # The branch Code-Fix read, which the uses outside its patch were read on -
     # not the revision that ran, as a reader takes rows for unless told.
     fix_branch_read: str | None = None
