@@ -336,6 +336,31 @@ def test_an_incident_whose_metrics_stopped_is_dated_from_where_they_stopped() ->
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("extent", "said"), [
+    (ImpactExtent.METRICS_RESUMED, "Oct 11, 2026, 14:03 to 14:09 UTC, metrics missing until then"),
+    (ImpactExtent.METRICS_MISSING, "Oct 11, 2026, 14:03 to 14:09 UTC")
+], ids=["resumed", "never-resumed"])
+def test_an_incident_whose_metrics_resumed_is_dated_to_then_with_them_missing_until_then(
+        extent: ImpactExtent, said: str) -> None:
+    # A window alone reads as a stretch the service was broken through, of one
+    # nobody measured. Said only of metrics that resumed: an end marked beside
+    # metrics that never did was not where they came back.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET),
+                          a_marker(TimelineMarker.IMPACT_ENDS, SOME_ONSET + timedelta(minutes=6))],
+                impact=Impact(duration=timedelta(minutes=6), extent=extent,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads(said))
+
+
+@pytest.mark.unit
 def test_an_incident_with_no_onset_says_it_is_unknown() -> None:
     Scenario() \
         .given(

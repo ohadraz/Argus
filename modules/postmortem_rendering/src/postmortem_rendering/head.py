@@ -148,7 +148,8 @@ def _when_it_began(postmortem: Postmortem) -> datetime | None:
 def _the_incident_s_window(postmortem: Postmortem) -> Line:
     """From onset to back to normal, the day said once where both fall on it -
     or, where the metrics stopped at the onset, from there with them missing:
-    a service nobody measured from then on may never have left normal.
+    a service nobody measured from then on may never have left normal. Where
+    they resumed, from there to then, said as missing until then.
 
     With no onset, the alert's moment after it: every moment of that day is
     said below by its time alone, so the head is where the day is said. And
@@ -172,17 +173,19 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
         return Line(runs=(Run(text="onset unknown, alerted "),
                           Run.a_moment(detection.alerted_at)))
 
+    impact = postmortem.impact
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
     if ended is not None:
-        return Line(runs=(Run(text=f"{on_the_day_and_clock(began)} to "
-                                   f"{_the_end_said(began, ended)} UTC",
-                              role=Role.MOMENT, at=began, until=ended),))
+        window = Run(text=f"{on_the_day_and_clock(began)} to {_the_end_said(began, ended)} UTC",
+                     role=Role.MOMENT, at=began, until=ended)
+        resumed = impact is not None and impact.extent is ImpactExtent.METRICS_RESUMED
+        return Line(runs=(window, Run(text=", metrics missing until then")) if resumed
+                    else (window,))
 
     since = Run.a_moment(began)
     if stopped is not None:
         return Line(runs=(since, Run(text=", metrics missing from then")))
 
-    impact = postmortem.impact
     if impact is None or impact.extent is not ImpactExtent.AT_LEAST:
         return Line(runs=(since, Run(text=", not seen back to normal")))
 

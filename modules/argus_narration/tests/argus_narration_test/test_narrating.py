@@ -883,6 +883,30 @@ def test_a_look_says_what_it_judged_rather_than_that_the_service_was_back_to_nor
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("look", "said"), [
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True,
+                     recovered_minute=AN_EARLIER_MINUTE, read_again=True),
+     "its metrics could be read again from 10:13"),
+    (RecoveryChecked(incident_id=new_id(), minute=SOME_MINUTE, recovered=True,
+                     read_again=True),
+     "its metrics could be read again")
+], ids=["dated", "undated"])
+def test_a_look_that_finds_a_blind_spot_read_again_says_so_rather_than_a_level(
+        look: RecoveryChecked, said: str) -> None:
+    # A blind spot had no level read while its minutes were missing, so it has
+    # none to leave: what came back is the metrics themselves. Said as a level,
+    # the page tells a reader the service was read at one the whole time.
+    Scenario() \
+        .given(look) \
+        .when(lambda: build_narration([look])) \
+        .then(all_of(
+            _the_only_line_says(said),
+            _the_only_line_does_not_say("level"),
+            _the_only_line_does_not_say("back to normal")
+        ))
+
+
+@pytest.mark.unit
 def test_a_wait_asks_what_its_looks_answer_rather_than_waiting_for_an_answer() -> None:
     # "Waiting for the service to answer" reads as a service that had stopped
     # answering - said of a latency incident in which it answered throughout,

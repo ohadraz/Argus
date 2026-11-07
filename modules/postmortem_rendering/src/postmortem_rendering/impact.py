@@ -109,8 +109,11 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
                 *_the_rules_series(impact, start),
                 _the_loss(postmortem, a_lower_bound))),
         finding=f"What the alert found: {found}" if found else None,
-        metrics_missing=(_the_metrics_missing(start)
-                         if impact and impact.extent is ImpactExtent.METRICS_MISSING else None),
+        metrics_missing=(_the_metrics_missing(start,
+                                              resumed=impact.extent is ImpactExtent.METRICS_RESUMED)
+                         if impact and impact.extent in (ImpactExtent.METRICS_MISSING,
+                                                         ImpactExtent.METRICS_RESUMED)
+                         else None),
         finding_label=said.label if found and said else None,
         logs_in_the_gap=_the_logs_in_the_gap(impact))
 
@@ -129,15 +132,18 @@ def _no_onset_was_measured(postmortem: PostmortemDocument) -> bool:
     return postmortem.detection is not None and postmortem.detection.onset_at is None
 
 
-def _the_metrics_missing(start: str) -> str:
+def _the_metrics_missing(start: str, resumed: bool) -> str:
     """What a duration the metrics carry no minute of measures, said under it:
     what was missing is the metrics, not sight of the service - its logs and
     its takings may well cover the stretch, and the cause and the loss say what
-    they saw."""
+    they saw. How long they were missing where they `resumed`, and how long by
+    the close where they did not."""
     where = "the onset" if start == _THE_ONSET else start
+    how_long = ("they were missing, until they resumed" if resumed
+                else "they had been missing by the close")
 
-    return (f"The metrics stop at {where}, so the duration is how long they had been missing "
-            f"by the close - not a stretch the service is known to have spent broken.")
+    return (f"The metrics stop at {where}, so the duration is how long {how_long} - not a "
+            f"stretch the service is known to have spent broken.")
 
 
 def _before_and_while_broken(start: str) -> str:
@@ -152,7 +158,9 @@ def _the_duration(impact: Impact | None, start: str) -> Card:
     when the incident closed, are each a floor - labelled as ending back
     to normal, they name an end the incident never had. And an end a person
     reported is said as their report: back to normal is what the metrics
-    showing it means, and they showed nothing of this end. Each from `start`."""
+    showing it means, and they showed nothing of this end. Metrics that
+    resumed end the stretch they were missing for, which is no floor. Each
+    from `start`."""
     until_back_to_normal = f"{start} until back to normal"
 
     if impact is None:
@@ -168,6 +176,8 @@ def _the_duration(impact: Impact | None, start: str) -> Card:
             return Card(value=f"at least {span}", label=f"since {start}, still not back to normal")
         case ImpactExtent.METRICS_MISSING:
             return Card(value=f"at least {span}", label=f"since {start}, metrics missing")
+        case ImpactExtent.METRICS_RESUMED:
+            return Card(value=span, label=f"{start} until the metrics resumed")
         case ImpactExtent.DISPROVEN:
             return Card(value="none", label="the alarm was disproven")
 

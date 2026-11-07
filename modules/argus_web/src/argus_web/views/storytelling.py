@@ -8,11 +8,13 @@ once are readable where a dozen inline fragments saying it again are not.
 
 Deduplicated by the identity the evidence already has: a bucket is its minute
 and a log line is its text. Where a minute comes back twice the later read
-wins, because it is the later read that Argus acted on.
+wins, because it is the later read that Argus acted on. A line is kept as many
+times as any one read holds it, since a line written twice is two things said.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
@@ -125,20 +127,28 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
     Deduplicated by the identity the evidence already has: a bucket is its
     minute and a log line is its text. Where a minute comes back twice the
     later read wins, because it is the later read that Argus acted on.
+
+    A line is kept as many times as any one read holds it. Two reads of the
+    same minutes return one line twice, and that is one thing the service said;
+    a service that wrote one line twice in a minute returns it twice in a
+    single read, and that is two. Kept once, the page showed fewer lines than
+    the line above it said were read back.
     """
     narration = build_narration(events)
     revisions = the_revisions(events)
     pull_requests = the_pull_requests(events)
 
     minutes: dict[str, BucketRow] = {}
-    lines: dict[str, LogLine] = {}
+    lines: dict[str, list[LogLine]] = {}
     # Each change with the moment of the line that read it.
     changed: dict[str, tuple[ChangeEvent, datetime]] = {}
     toggled: dict[tuple[str, str], tuple[FlagChange, datetime]] = {}
 
     for line in narration:
         minutes.update({bucket.bucket_id: bucket for bucket in line.buckets})
-        lines.update({log.text: log for log in line.log_lines})
+        held = Counter(log.text for log in line.log_lines)
+        lines.update({log.text: [log] * held[log.text] for log in line.log_lines
+                      if held[log.text] > len(lines.get(log.text, []))})
         changed.update({change.reference: (change, line.at) for change in line.changes})
         # Keyed by flag and moment together: one flag moving twice is two
         # changes, and it is exactly the flag that moved twice - tried, then
@@ -148,13 +158,15 @@ def build_story(events: Sequence[IncidentEvent]) -> Story:
 
     flag_history = a_flag_history([(toggle, to_iso(read_at)) for toggle, read_at in
                                    sorted(toggled.values(), key=lambda read: read[0].occurred_at)])
-    held = the_rows_held(minutes.values(), lines.values(), flag_history)
+    logs = sorted((log for each in lines.values() for log in each),
+                  key=lambda log: log.stamp or "")
+    rows = the_rows_held(minutes.values(), logs, flag_history)
 
     return Story(
-        narration=[decorated(_pointed_at(shown(line, revisions, pull_requests), held), held=held)
+        narration=[decorated(_pointed_at(shown(line, revisions, pull_requests), rows), held=rows)
                    for line in narration],
         metrics=sorted(minutes.values(), key=lambda bucket: bucket.bucket_id),
-        logs=sorted(lines.values(), key=lambda log: log.stamp or ""),
+        logs=logs,
         changes=[_a_row(change, revisions, read_at)
                  for change, read_at in sorted(changed.values(),
                                                key=lambda read: read[0].occurred_at)],

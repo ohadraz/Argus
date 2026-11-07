@@ -327,6 +327,29 @@ def test_a_message_with_no_minute_reaches_into_no_stretch() -> None:
 
 
 @pytest.mark.unit
+def test_a_message_logged_only_after_a_stretch_ended_does_not_reach_into_it() -> None:
+    # Where the metrics resumed, what the shop logged after is no account of
+    # the stretch they missed: named as one, a line of the service measured
+    # again read as what it did while nothing measured it.
+    some_lines = [f"2026-10-11T23:41:00Z {SOME_RATE.format('1.50')}",
+                  f"2026-10-11T23:45:00Z {SOME_ERROR}"]
+
+    Scenario() \
+        .given(
+            the_stretch_ended := datetime(2026, 10, 11, 23, 43, 20, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: labels_reaching_into(some_lines,
+                                         datetime(2026, 10, 11, 23, 40, tzinfo=UTC),
+                                         the_stretch_ended)
+        ) \
+        .then(
+            the_answer_was([_label_of(SOME_RATE.format("1.50"),
+                                      grouped(some_lines, None, ONSET_DAY))])
+        )
+
+
+@pytest.mark.unit
 def test_a_message_logged_on_both_sides_of_where_the_metrics_stopped_is_said_in_two_parts() -> None:
     # Summed across the stop, what the shop logged inside a stretch the metrics
     # did not cover is lost in what it logged before: told only "0.50 to 2.00"
@@ -352,6 +375,55 @@ def test_a_message_logged_on_both_sides_of_where_the_metrics_stopped_is_said_in_
                             f"typically 3.00%, highest at 23:38. After they stopped: "
                             f"2 occurrences in 2 minutes, 23:40–23:41; # was 0.50% to 1.00%, "
                             f"typically 0.50%, highest at 23:41"])
+        )
+
+
+@pytest.mark.unit
+def test_a_message_logged_after_the_metrics_resumed_is_said_in_a_part_of_its_own() -> None:
+    # Summed with the stretch, what the shop logged once it was measured again
+    # read as what it logged while it was not. Last, so the figures before it
+    # keep their places.
+    some_lines = [f"2026-10-11T23:38:00Z {SOME_RATE.format('1.50')}",
+                  f"2026-10-11T23:40:00Z {SOME_RATE.format('24.00')}",
+                  f"2026-10-11T23:41:00Z {SOME_RATE.format('3.00')}",
+                  f"2026-10-11T23:45:00Z {SOME_RATE.format('0.50')}"]
+
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(
+                some_lines, the_metrics_stopped, ONSET_DAY,
+                metrics_resumed_at=datetime(2026, 10, 11, 23, 44, 30, tzinfo=UTC))]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_RATE.format('#')} - before the metrics stopped: "
+                            f"1 occurrence in 1 minute, 23:38; # was 1.50%. After they "
+                            f"stopped, before they resumed: 2 occurrences in 2 minutes, "
+                            f"23:40–23:41; # was 3.00% to 24.00%, typically 3.00%, highest at "
+                            f"23:40. After they resumed: 1 occurrence in 1 minute, 23:45; "
+                            f"# was 0.50%"])
+        )
+
+
+@pytest.mark.unit
+def test_a_message_logged_only_while_the_metrics_were_missing_is_said_whole() -> None:
+    # A part only where there is another side to compare it with.
+    some_lines = [f"2026-10-11T23:40:00Z {SOME_ERROR}",
+                  f"2026-10-11T23:41:00Z {SOME_ERROR}"]
+
+    Scenario() \
+        .given(
+            the_metrics_stopped := datetime(2026, 10, 11, 23, 40, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: [group.text for group in grouped(
+                some_lines, the_metrics_stopped, ONSET_DAY,
+                metrics_resumed_at=datetime(2026, 10, 11, 23, 44, 30, tzinfo=UTC))]
+        ) \
+        .then(
+            the_answer_was([f"{SOME_ERROR} - 2 occurrences in 2 minutes, 23:40–23:41"])
         )
 
 

@@ -101,13 +101,16 @@ def test_an_incident_that_never_ended_is_at_least_as_long_and_lost_at_least_as_m
                                  label="since onset, still not back to normal")),
     (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
                                         label="since onset, metrics missing")),
+    (ImpactExtent.METRICS_RESUMED, Card(value="40m 0s",
+                                        label="onset until the metrics resumed")),
     (ImpactExtent.DISPROVEN, Card(value="none", label="the alarm was disproven"))],
-    ids=["measured", "reported", "at-least", "metrics-missing", "disproven"])
+    ids=["measured", "reported", "at-least", "metrics-missing", "metrics-resumed", "disproven"])
 def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -> None:
     # Labelled "until back to normal", a duration that never got back names an
     # end the incident never had - and a blind spell still going when the
-    # incident closed is no more over than a failure still going. An end a
-    # person reported is theirs: back to normal is the metrics showing it.
+    # incident closed is no more over than a failure still going. A blind
+    # spell that ended where the metrics resumed is over, and no floor. An end
+    # a person reported is theirs: back to normal is the metrics showing it.
     # And of a disproven alarm there was no stretch to end.
     Scenario() \
         .given(
@@ -129,8 +132,10 @@ def test_the_duration_says_where_it_ends(extent: ImpactExtent, expected: Card) -
     (ImpactExtent.AT_LEAST, Card(value="at least 40m 0s",
                                  label="since the alert, still not back to normal")),
     (ImpactExtent.METRICS_MISSING, Card(value="at least 40m 0s",
-                                        label="since the alert, metrics missing"))],
-    ids=["measured", "reported", "at-least", "metrics-missing"])
+                                        label="since the alert, metrics missing")),
+    (ImpactExtent.METRICS_RESUMED, Card(value="40m 0s",
+                                        label="the alert until the metrics resumed"))],
+    ids=["measured", "reported", "at-least", "metrics-missing", "metrics-resumed"])
 def test_the_duration_of_an_incident_no_onset_was_measured_for_runs_from_the_alert(
         extent: ImpactExtent, expected: Card) -> None:
     # Measured from the alert, and "since onset" beside the head's "onset
@@ -243,6 +248,26 @@ def test_a_loss_counted_to_a_persons_report_is_no_lower_bound() -> None:
         .given(
             some_postmortem := a_postmortem(
                 impact=Impact(duration=timedelta(minutes=40), extent=ImpactExtent.REPORTED,
+                              peak_error_rate=None),
+                customer_loss_estimate=Decimal("500"),
+                estimate_currency="usd")
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).cards[3]
+        ) \
+        .then(
+            the_answer_was(Card(value="500.00 USD", label="customer loss (estimated)",
+                                loss_is="measured")))
+
+
+@pytest.mark.unit
+def test_a_loss_counted_until_the_metrics_resumed_is_no_lower_bound() -> None:
+    # The stretch they were missing for ended, and the takings were counted
+    # over the whole of it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=6), extent=ImpactExtent.METRICS_RESUMED,
                               peak_error_rate=None),
                 customer_loss_estimate=Decimal("500"),
                 estimate_currency="usd")
@@ -392,6 +417,25 @@ def test_an_incident_whose_metrics_stopped_says_what_its_duration_measures() -> 
         .then(
             the_answer_was("The metrics stop at the onset, so the duration is how long they had "
                            "been missing by the close - not a stretch the service is known to "
+                           "have spent broken."))
+
+
+@pytest.mark.unit
+def test_an_incident_whose_metrics_resumed_says_its_duration_is_how_long_they_were_missing(
+) -> None:
+    # Not "by the close": the stretch ended where they resumed, before it.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(minutes=6), extent=ImpactExtent.METRICS_RESUMED,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).metrics_missing
+        ) \
+        .then(
+            the_answer_was("The metrics stop at the onset, so the duration is how long they were "
+                           "missing, until they resumed - not a stretch the service is known to "
                            "have spent broken."))
 
 

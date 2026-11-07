@@ -556,6 +556,12 @@ class RecoveryChecked(_Event):
     in the metrics, or in an alert rule's evaluation whose range began before
     it: neither recovered nor still at the incident's level, because nothing
     since the change was measured to say either.
+
+    `read_again` is a look that found the service's minutes published again
+    where none had been from the onset to the action - a blind spot's
+    recovery, which is its rows returning rather than a level falling. There
+    `recovered_minute` is the first minute carrying a row again, and the line
+    says that rather than a level the service was never read at.
     """
 
     kind: Literal["recovery-checked"] = "recovery-checked"
@@ -563,6 +569,7 @@ class RecoveryChecked(_Event):
     recovered: bool
     recovered_minute: str | None = None
     saw_no_minute: bool = False
+    read_again: bool = False
 
 
 class VerdictReached(_Event):

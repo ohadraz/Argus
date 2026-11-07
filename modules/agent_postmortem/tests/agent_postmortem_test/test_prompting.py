@@ -62,6 +62,7 @@ from agent_postmortem.figures import (
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    METRICS_RESUMED_AT_FIGURE,
     RULE_EVALUATED_EVERY_FIGURE,
     RULE_LOOKS_BACK_FIGURE,
     RULE_WAITS_FIGURE,
@@ -3172,6 +3173,100 @@ def test_an_incident_nobody_could_see_is_not_said_to_have_been_broken() -> None:
         .then(all_of(
             _says("none were collected after the metrics stopped"),
             _does_not_say("none from while the service was broken")))
+
+
+@pytest.mark.unit
+def test_metrics_that_resumed_in_the_minute_argus_acted_in_are_said_to_have_resumed_then() -> None:
+    # Told the metrics "had still not resumed" by the close, a model was told of
+    # minutes they did cover, and the stretch they missed ran to the close. Dated
+    # to the action and said so, since the walk's own look dates the rows back by
+    # their minute: two instants for one return, unless each is named.
+    the_action = ONSET + timedelta(minutes=5, seconds=52)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)]),
+            measured := a_measured_incident(back_to_normal_at=the_action,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=the_action)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("No metrics were collected from", "until they resumed at",
+                              f"{{{METRICS_RESUMED_AT_FIGURE}}}",
+                              "(in the minute Argus acted in, so dated to its action)",
+                              "showing the service back to normal",
+                              f"{{{DURATION_FIGURE}}} the metrics did not cover"),
+            _does_not_say("had still not resumed")))
+
+
+@pytest.mark.unit
+def test_metrics_that_resumed_without_the_service_back_to_normal_are_said_so() -> None:
+    # The stretch they missed still ends where they resumed, but the rows they
+    # resumed with did not show the service back - which the brief says rather
+    # than leave the end of the stretch to read as the end of the incident.
+    the_action = ONSET + timedelta(minutes=5, seconds=52)
+    some_later_minute = ONSET + timedelta(minutes=8)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)]),
+            measured := a_measured_incident(back_to_normal_at=None,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_later_minute)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("until they resumed at", "not showing the service back to normal"),
+            _does_not_say("so dated to its action")))
+
+
+@pytest.mark.unit
+def test_an_error_rate_the_metrics_missed_until_they_resumed_is_said_so() -> None:
+    # "None were collected after the metrics stopped" says no minute came back
+    # at all, of a read holding the minutes they resumed with.
+    some_resumption = ONSET + timedelta(minutes=5)
+
+    Scenario() \
+        .given(
+            measured := a_measured_incident(
+                error_rates=None, back_to_normal_at=some_resumption, metrics_stopped_at=ONSET,
+                metrics_resumed_at=some_resumption
+            ).model_copy(update={"error_rates_unmeasured": Unmeasured.NO_MINUTE_WHILE_BROKEN})
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), measured)
+        ) \
+        .then(all_of(
+            _says("none were collected from when the metrics stopped until they resumed"),
+            _does_not_say("none were collected after the metrics stopped")))
+
+
+@pytest.mark.unit
+def test_a_log_line_logged_once_the_metrics_resumed_is_not_named_as_reaching_into_the_gap() -> None:
+    # The service measured again is no account of the stretch it was not.
+    some_line_inside = f"{to_iso(ONSET + timedelta(minutes=3))} WARN io-shop: some warning"
+    some_line_after = f"{to_iso(ONSET + timedelta(minutes=8))} ERROR io-shop: some failure"
+    some_resumption = ONSET + timedelta(minutes=5)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside, some_line_after]),
+            measured := a_measured_incident(back_to_normal_at=some_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_resumption)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(
+            _says(f": [{grouped([some_line_inside], None, ONSET.date())[0].label}]. They are "
+                  f"the service's own account")
+        )
 
 
 @pytest.mark.unit

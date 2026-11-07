@@ -61,6 +61,10 @@ _A_NUMBER: Final = re.compile(r"(\d+(?:\.\d+)?)")
 # places whether or not a run is split.
 _BEFORE_THE_STOP: Final = "before the metrics stopped"
 _AFTER_THE_STOP: Final = "After they stopped"
+# And where they resumed, the cut either side of that - saying no figure
+# either.
+_BEFORE_THEY_RESUMED: Final = "before they resumed"
+_AFTER_THEY_RESUMED: Final = "After they resumed"
 
 # A minute.
 _A_MINUTE: Final = timedelta(minutes=1)
@@ -81,18 +85,21 @@ def grouped(log_lines: Sequence[str],
             metrics_stopped_at: datetime | None,
             day: date,
             *,
-            acted_at: datetime | None = None) -> list[CitedEvidence]:
+            acted_at: datetime | None = None,
+            metrics_resumed_at: datetime | None = None) -> list[CitedEvidence]:
     """Every distinct message, in the order it was first logged, each under a
     label of its own and said once - as `the_groups_of` says them."""
     return [group.cited
-            for group in the_groups_of(log_lines, metrics_stopped_at, day, acted_at=acted_at)]
+            for group in the_groups_of(log_lines, metrics_stopped_at, day, acted_at=acted_at,
+                                       metrics_resumed_at=metrics_resumed_at)]
 
 
 def the_groups_of(log_lines: Sequence[str],
                   metrics_stopped_at: datetime | None,
                   day: date,
                   *,
-                  acted_at: datetime | None = None) -> list[LogGroup]:
+                  acted_at: datetime | None = None,
+                  metrics_resumed_at: datetime | None = None) -> list[LogGroup]:
     """Every distinct message, in the order it was first logged, each under a
     label of its own and said once, with where in the row the message sits.
 
@@ -112,7 +119,10 @@ def the_groups_of(log_lines: Sequence[str],
     ranges. Summed across the stop, what the shop logged inside a stretch the
     metrics did not cover was lost in what it logged before, and a model told
     only the whole half hour wrote that nothing said how the shop was doing.
-    Before comes first, so the figures it names keep their places.
+    Before comes first, so the figures it names keep their places. Where the
+    metrics resumed (`metrics_resumed_at`), a message logged after that is said
+    in a part of its own, last: summed with the stretch, what the shop logged
+    once it was measured again read as what it logged while it was not.
 
     Where Argus acted (`acted_at`, the first change it made), a message logged
     after it says, last, the minutes it was logged in after it - as one figure,
@@ -143,8 +153,8 @@ def the_groups_of(log_lines: Sequence[str],
         groups.setdefault(_key_of(message), []).append((_in_utc(logged_at),
                                                          _A_NUMBER.split(message)))
 
-    return [_a_group(_label_for(key), *_said(occurrences, metrics_stopped_at, _in_utc(acted_at),
-                                             day))
+    return [_a_group(_label_for(key), *_said(occurrences, metrics_stopped_at, metrics_resumed_at,
+                                             _in_utc(acted_at), day))
             for key, occurrences in groups.items()]
 
 
@@ -162,9 +172,12 @@ def _a_group(label: str, text: str, quoted: tuple[int, int]) -> LogGroup:
     return LogGroup(cited=CitedEvidence(label=label, text=text), quoted=quoted)
 
 
-def labels_reaching_into(log_lines: Sequence[str], since: datetime) -> list[str]:
+def labels_reaching_into(log_lines: Sequence[str],
+                         since: datetime,
+                         until: datetime | None = None) -> list[str]:
     """The labels of the groups with a line logged inside a stretch that began
-    at `since` and has not ended, in the order they were first logged.
+    at `since` and ended at `until` - or has not ended - in the order they were
+    first logged.
 
     Inside by `the_minute_inside`, the rule how far they reach is told by, so a
     group named here always has a last minute to say.
@@ -177,7 +190,7 @@ def labels_reaching_into(log_lines: Sequence[str], since: datetime) -> list[str]
         if key not in keys:
             keys.append(key)
 
-        if the_minute_inside(logged_at, since) is not None:
+        if the_minute_inside(logged_at, since, until) is not None:
             reaching.add(key)
 
     return [_label_for(key) for key in keys if key in reaching]
@@ -207,11 +220,13 @@ class _Part(NamedTuple):
 
 def _said(occurrences: list[tuple[datetime | None, list[str]]],
           metrics_stopped_at: datetime | None,
+          metrics_resumed_at: datetime | None,
           acted_at: datetime | None,
           day: date) -> tuple[str, tuple[int, int]]:
-    """One group as one line - in parts where it was logged on both sides of
-    where the metrics stopped, and whole otherwise, then the minutes it was
-    logged in after Argus acted - and where in it the message sits.
+    """One group as one line - in parts where it was logged on more than one
+    side of where the metrics stopped and where they resumed, and whole
+    otherwise, then the minutes it was logged in after Argus acted - and where
+    in it the message sits.
 
     A part only where there are two sides to compare, and only where every
     line has a side: a line with no stamp belongs to neither, and a part that
@@ -227,10 +242,14 @@ def _said(occurrences: list[tuple[datetime | None, list[str]]],
     dated = all(logged_at is not None for logged_at, _ in occurrences)
 
     if dated and metrics_stopped_at is not None:
-        before, after = _parted(occurrences, metrics_stopped_at)
-        if before and after:
-            parts = [_Part(before, precedes=_BEFORE_THE_STOP),
-                     _Part(after, follows=_AFTER_THE_STOP)]
+        before, inside, after = _parted(occurrences, metrics_stopped_at, metrics_resumed_at)
+        cut = [part for part in (_Part(before, precedes=_BEFORE_THE_STOP),
+                                 _Part(inside, follows=_AFTER_THE_STOP,
+                                       precedes=_BEFORE_THEY_RESUMED if after else None),
+                                 _Part(after, follows=_AFTER_THEY_RESUMED))
+               if part.lines]
+        if len(cut) > 1:
+            parts = cut
 
     said = [_a_part(part.lines, message, held, day) for part in parts]
     whole = (said[0] if len(parts) == 1 else
@@ -244,14 +263,27 @@ def _said(occurrences: list[tuple[datetime | None, list[str]]],
 
 
 def _parted(occurrences: list[tuple[datetime | None, list[str]]],
-            since: datetime) -> tuple[list[tuple[datetime | None, list[str]]],
-                                      list[tuple[datetime | None, list[str]]]]:
-    """The lines logged before the minute `since` falls in, and those logged
-    in it or after - by `the_minute_inside`, as how far a group reaches is."""
-    before = [each for each in occurrences if the_minute_inside(each[0], since) is None]
-    after = [each for each in occurrences if the_minute_inside(each[0], since) is not None]
+            since: datetime,
+            until: datetime | None) -> tuple[list[tuple[datetime | None, list[str]]],
+                                             list[tuple[datetime | None, list[str]]],
+                                             list[tuple[datetime | None, list[str]]]]:
+    """The lines logged before the minute `since` falls in, those logged from
+    it up to `until`, and those logged at `until` or after - by
+    `the_minute_inside`, as how far a group reaches is. Nothing after where the
+    stretch never ended."""
+    before: list[tuple[datetime | None, list[str]]] = []
+    inside: list[tuple[datetime | None, list[str]]] = []
+    after: list[tuple[datetime | None, list[str]]] = []
+    for each in occurrences:
+        logged_at = _in_utc(each[0])
+        if until is not None and logged_at is not None and logged_at >= until:
+            after.append(each)
+        elif the_minute_inside(logged_at, since, until) is not None:
+            inside.append(each)
+        else:
+            before.append(each)
 
-    return before, after
+    return before, inside, after
 
 
 def _the_minutes_after(occurrences: list[tuple[datetime | None, list[str]]],

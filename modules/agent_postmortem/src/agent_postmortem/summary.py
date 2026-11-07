@@ -38,6 +38,7 @@ from agent_postmortem.figures import (
     LATENCY_BEFORE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    METRICS_RESUMED_AT_FIGURE,
     METRICS_STOPPED_AT_FIGURE,
     QUANTILE_SAID,
     SERIES_AT_WORST_FIGURE,
@@ -139,7 +140,9 @@ def _when_and_for_how_long(measured: Measurements,
     apart: back to normal, ended by a person's report, never seen back, and
     unseen because the metrics stopped - this last with how far the service's
     own logs reach into it and where their reading ended, said apart, since
-    where the lines stop is as often where the reading did.
+    where the lines stop is as often where the reading did. Where the metrics
+    resumed, the stretch ends there, and where the rows they resumed with did
+    not show the service back to normal, that is said too.
 
     An end a person reported is said as their report, never as back to normal:
     that is what the metrics showing it means everywhere else, and the metrics
@@ -155,6 +158,14 @@ def _when_and_for_how_long(measured: Measurements,
     """
     onset = measured.onset_at is not None
     said = [] if onset else [f"No onset was measured; the alert came at {written(BEGAN_FIGURE)}."]
+
+    if measured.metrics_stopped_at is not None and measured.metrics_resumed_at is not None:
+        showed = "" if measured.back_to_normal_at is not None else ", not showing it back to normal"
+        return [*said,
+                f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} until "
+                f"they resumed at {written(METRICS_RESUMED_AT_FIGURE)}, "
+                f"{written(DURATION_FIGURE)} later{showed}.",
+                _what_the_logs_show(read, written_if_any)]
 
     if measured.metrics_stopped_at is not None:
         return [*said,

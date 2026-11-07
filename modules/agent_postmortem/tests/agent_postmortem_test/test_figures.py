@@ -44,6 +44,7 @@ from agent_postmortem.figures import (
     HELD_FIGURE,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    METRICS_RESUMED_AT_FIGURE,
     METRICS_STOPPED_AT_FIGURE,
     RULE_EVALUATED_EVERY_FIGURE,
     RULE_LOOKS_BACK_FIGURE,
@@ -1817,6 +1818,58 @@ def test_metrics_that_stopped_are_dated_from_where_they_stopped() -> None:
             _the_figures_include({
                 METRICS_STOPPED_AT_FIGURE: Figure(given=to_iso(some_minute_they_stopped),
                                                written="12:00 UTC")
+            })
+        )
+
+
+@pytest.mark.unit
+def test_metrics_that_resumed_are_dated_from_where_they_resumed_and_nowhere_else() -> None:
+    # Where they resumed is where the stretch ends, and the service back to
+    # normal is the same instant: named twice, one instant reads as two facts.
+    some_resumption = ONSET + timedelta(minutes=5, seconds=52)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(back_to_normal_at=some_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_resumption)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(all_of(
+            _the_figures_include({
+                METRICS_RESUMED_AT_FIGURE: Figure(given=to_iso(some_resumption),
+                                                  written="12:05:52 UTC")
+            }),
+            _the_figures_leave_out(BACK_TO_NORMAL_FIGURE)
+        ))
+
+
+@pytest.mark.unit
+def test_how_far_the_logs_reach_into_a_metrics_gap_stops_where_the_metrics_resumed() -> None:
+    # A line logged once they had resumed is the service measured again, and
+    # counted as reaching in, it stretched the logs' account past the gap.
+    some_minute_logged_inside = ONSET + timedelta(minutes=3)
+    some_resumption = ONSET + timedelta(minutes=5, seconds=30)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[
+                f"{to_iso(some_minute_logged_inside)} WARN io-shop: some warning",
+                f"{to_iso(ONSET + timedelta(minutes=8))} WARN io-shop: some warning"]),
+            measured := a_measured_incident(back_to_normal_at=some_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_resumption)
+        ) \
+        .when(
+            lambda: figures_of(evidence, measured)
+        ) \
+        .then(
+            _the_figures_include({
+                LOGS_REACH_UNTIL_FIGURE: Figure(given=to_iso(some_minute_logged_inside),
+                                                written="12:03 UTC")
             })
         )
 

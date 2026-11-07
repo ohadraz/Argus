@@ -1166,9 +1166,17 @@ def _what_the_look_settled(event: RecoveryChecked) -> str:
 
     A look with no minute since the change to judge says that rather than a
     level: nothing was measured, so neither answer is.
+
+    Nor a level where the look found a blind spot's minutes published again:
+    no level was read while they were missing, so none was left, and what came
+    back is the metrics themselves.
     """
     if event.saw_no_minute:
         return "no new minute read yet"
+
+    if event.read_again:
+        return ("its metrics could be read again" if event.recovered_minute is None
+                else f"its metrics could be read again from {a_minute(event.recovered_minute)}")
 
     if not event.recovered:
         return "still at the incident's level"

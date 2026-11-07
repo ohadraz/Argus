@@ -526,15 +526,17 @@ class Detection(BaseModel):
 
 class ImpactExtent(StrEnum):
     """What a duration is: a measurement, one ended by a person's report, a
-    floor, a stretch the metrics carry nothing of - or none at all, the alarm
-    having been disproven.
+    floor, a stretch the metrics carry nothing of, by the close or until they
+    resumed - or none at all, the alarm having been disproven.
 
-    Five rather than a flag, because the two ways a duration falls short of a
+    Six rather than a flag, because the two ways a duration falls short of a
     measurement are different facts: a service still failing when the metrics
     ran out, and a service whose metrics stopped at the onset - which says
     nothing of whether it was failing at all. And an end a person reported is
     not one the metrics showed: their report is the fact (spec §16), and said
-    as the metrics', it is credited to what never measured it.
+    as the metrics', it is credited to what never measured it. Metrics that
+    stopped and resumed measure how long they were missing, which is no floor,
+    and still nothing of whether the service was failing.
 
     A disproven alarm is the ending for an incident there was none of: no
     minute departed, so there is no stretch to measure, and measured from the
@@ -545,6 +547,7 @@ class ImpactExtent(StrEnum):
     REPORTED = "reported"
     AT_LEAST = "at least"
     METRICS_MISSING = "metrics missing"
+    METRICS_RESUMED = "metrics resumed"
     DISPROVEN = "disproven"
 
 

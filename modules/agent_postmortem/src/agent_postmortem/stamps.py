@@ -36,17 +36,20 @@ def stamped(line: str) -> tuple[datetime | None, str]:
     return parse_iso(opening.group(1)), line[opening.end():]
 
 
-def the_minute_inside(logged_at: datetime | None, since: datetime) -> datetime | None:
+def the_minute_inside(logged_at: datetime | None,
+                      since: datetime,
+                      until: datetime | None = None) -> datetime | None:
     """The minute a line was stamped with, where that minute is inside a
-    stretch that began at `since` and has not ended - or `None` for one before
-    it, or one with no stamp.
+    stretch that began at `since` and ended at `until` - or has not ended, where
+    `until` is `None` - or `None` for one outside it, or one with no stamp.
 
     A line is stamped with its minute and taken as the whole of it, so one from
     the minute `since` falls in is inside. Exact for the stretch it is asked
-    about, whose start is the first minute the metrics did not cover. No end is
-    asked for because that stretch had none - it was still running when Argus
-    stopped. A line with no stamp is inside nothing, since naming it would say
-    it was logged inside.
+    about, whose start is the first minute the metrics did not cover. Its end is
+    the instant they resumed, and a line is inside where the instant its stamp
+    names is before it: the minute they resumed in holds lines from either
+    side. A line with no stamp is inside nothing, since naming it would say it
+    was logged inside.
     """
     if logged_at is None:
         return None
@@ -57,12 +60,17 @@ def the_minute_inside(logged_at: datetime | None, since: datetime) -> datetime |
               else logged_at.replace(tzinfo=UTC)).astimezone(UTC)
     minute = in_utc.replace(second=0, microsecond=0)
 
+    if until is not None and in_utc >= until:
+        return None
+
     return minute if minute >= since.replace(second=0, microsecond=0) else None
 
 
-def the_last_minute_logged_inside(log_lines: Sequence[str], since: datetime) -> datetime | None:
+def the_last_minute_logged_inside(log_lines: Sequence[str],
+                                  since: datetime,
+                                  until: datetime | None = None) -> datetime | None:
     """The latest minute a line was logged in, of the lines logged inside a
-    stretch that began at `since` - or `None` where none was.
+    stretch from `since` to `until` - or `None` where none was.
 
     The latest stamp rather than the last line, since lines are not read in the
     order they were logged. Decided by `the_minute_inside`, as which groups
@@ -70,6 +78,6 @@ def the_last_minute_logged_inside(log_lines: Sequence[str], since: datetime) -> 
     to say.
     """
     inside = [minute for line in log_lines
-              if (minute := the_minute_inside(stamped(line)[0], since)) is not None]
+              if (minute := the_minute_inside(stamped(line)[0], since, until)) is not None]
 
     return max(inside, default=None)

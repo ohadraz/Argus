@@ -41,6 +41,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import NamedTuple
 
 from argus_core import parse_iso, to_iso
 from argus_core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
@@ -153,7 +154,17 @@ class Measurements(BaseModel):
     # the end of the window, and this one measured nothing after the onset - so
     # the duration above is how long the metrics had been missing by the close,
     # not a stretch of trouble.
+    #
+    # Also where the rows come back, but only once Argus acted: an action that
+    # restores the sight puts rows after the onset, and counted as sight, they
+    # answer the question with what the action did about it.
     metrics_stopped_at: datetime | None = None
+    # Where the metrics came back after they stopped - the minute their rows
+    # resume, or the action that brought them back where they resume in its
+    # minute, which describes only the seconds after it - and `None` where they
+    # stopped and never resumed, or never stopped. The stretch the metrics did
+    # not cover ends here, and so does every figure measured over it.
+    metrics_resumed_at: datetime | None = None
     # What the paging rule's own series did, at the error rate's levels, or
     # `None` where the metrics carry no such series. Told to the model beside
     # the error rate and resting no figure, as that does.
@@ -251,24 +262,43 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     metrics = sources.metrics(began - calm_to_read_for(evidence.ended_at - began),
                               evidence.ended_at,
                               evidence.rule)
+    # Up to the action only from an onset: an incident with none is dated from
+    # its alert, and the walk asks this of no window but one from an onset.
+    sight = _the_sight_lost(metrics, began,
+                            evidence.first_acted_at if evidence.onset_at is not None else None,
+                            evidence.ended_at, sources.metrics_reporting_lag_minutes)
     # Where the service came back is judged on the hour before it, as it always
     # was: the readers find their own quiet half in what they are handed, and a
     # noisier stretch hours earlier would move the bar a minute is told apart by.
-    found_back = _when_the_service_came_back(
-        evidence.recorded_recovery_at,
-        evidence.resolution.at if evidence.resolution is not None else None,
-        evidence.watched_and_never_recovered,
-        [bucket for bucket in metrics
-         if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW],
-        sources.thresholds,
-        began
-    )
-    back_to_normal_at, back_before_the_action = _found_back_before(found_back, evidence)
-    # The read has to end somewhere even when nothing says the service came
-    # back, so it ends at the close - the boundary a query needs. What must
-    # not happen is the substitution going unmarked, and `back_to_normal_at` is the
-    # mark: absent, and every figure below is a lower bound.
-    measured_until = back_to_normal_at or evidence.ended_at
+    recent = [bucket for bucket in metrics
+              if parse_iso(bucket.bucket_id) >= began - BASELINE_WINDOW]
+    resumed = sight.resumed if sight is not None else None
+    if resumed is not None:
+        # A stretch the metrics did not cover ends where they resume, whatever
+        # the walk recorded later: nothing measured the service inside it, so no
+        # figure is read from the minutes after it, and it is back to normal
+        # there only where the rows it resumed with say so.
+        found_back: datetime | None = resumed.in_minute
+        back_to_normal_at = (resumed.at
+                             if _back_to_normal_from(resumed.in_minute, recent, sources.thresholds)
+                             == resumed.in_minute else None)
+        back_before_the_action = False
+        measured_until = resumed.at
+    else:
+        found_back = _when_the_service_came_back(
+            evidence.recorded_recovery_at,
+            evidence.resolution.at if evidence.resolution is not None else None,
+            evidence.watched_and_never_recovered,
+            recent,
+            sources.thresholds,
+            began
+        )
+        back_to_normal_at, back_before_the_action = _found_back_before(found_back, evidence)
+        # The read has to end somewhere even when nothing says the service came
+        # back, so it ends at the close - the boundary a query needs. What must
+        # not happen is the substitution going unmarked, and `back_to_normal_at` is
+        # the mark: absent, and every figure below is a lower bound.
+        measured_until = back_to_normal_at or evidence.ended_at
     duration = duration_in_hours(began, measured_until)
     # Like with like: the incident against its own clock hours whole weeks
     # earlier, so a shop's day and week cancel out - and those against the same
@@ -334,8 +364,8 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         engaged=engaged,
         cost=_what_the_response_cost(engaged, bands, sources.working_hours_a_year),
         bands=bands,
-        metrics_stopped_at=_when_the_sight_was_lost(
-            metrics, began, evidence.ended_at, sources.metrics_reporting_lag_minutes),
+        metrics_stopped_at=sight.stopped_at if sight is not None else None,
+        metrics_resumed_at=resumed.at if resumed is not None else None,
         # Over the same stretch as the error rate, for the same reason.
         rule_series=rule_series_over(metrics, began, found_back),
         error_rates_unmeasured=why_no_error_rates(metrics, began, found_back),
@@ -370,12 +400,37 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     )
 
 
-def _when_the_sight_was_lost(metrics: list[MetricBucket],
-                             began: datetime,
-                             closed_at: datetime,
-                             reporting_lag_minutes: int) -> datetime | None:
-    """`began`, where the read answered and holds no minute at or after it
-    that it could have held.
+class _Resumed(NamedTuple):
+    """Where the metrics came back: as an instant, and as the minute their
+    first row back is, which is what a read is cut at."""
+    at: datetime
+    in_minute: datetime
+
+
+class _Sight(NamedTuple):
+    """Where the metrics stopped, and where they came back - `None` where they
+    never did."""
+    stopped_at: datetime
+    resumed: _Resumed | None = None
+
+
+def _the_sight_lost(metrics: list[MetricBucket],
+                    began: datetime,
+                    first_acted_at: datetime | None,
+                    closed_at: datetime,
+                    reporting_lag_minutes: int) -> _Sight | None:
+    """Where the read answered and holds no minute from `began` up to the
+    minute Argus first acted in - or up to the close, where it never acted - and
+    where the rows came back after it, if they did.
+
+    Up to the action rather than the close, as the walk asks it of the window it
+    judges an action on: an action that restores the sight puts rows after the
+    onset, and counted as evidence the sight was there, they answer the question
+    with the very thing the action did about it. The minute the action fell in
+    is not asked about either: it is aggregated over seconds either side of the
+    change, and where the action restores the sight it is the first minute the
+    rows come back in. And where they come back in it, they came back after the
+    action, which is when they are said to have resumed.
 
     An empty read is not this. It is a source that could not answer, and it
     says nothing about whether the service was being collected from - where a
@@ -385,7 +440,9 @@ def _when_the_sight_was_lost(metrics: list[MetricBucket],
     the close's own minute less the source's lag, so an incident closed before
     its first minute was reported has no row after it however well it was
     watched. Dated from the close rather than from the read, so a postmortem
-    written again says the same.
+    written again says the same. Nor, for the same reason, rows back after an
+    action taken inside the onset's own minute: there is no whole minute before
+    it that a read could have held.
     """
     if not metrics:
         return None
@@ -396,10 +453,20 @@ def _when_the_sight_was_lost(metrics: list[MetricBucket],
     if first_minute > newest_reported:
         return None
 
-    if any(parse_iso(bucket.bucket_id) >= began for bucket in metrics):
+    after = sorted(minute for bucket in metrics
+                   if (minute := parse_iso(bucket.bucket_id)) >= began)
+    if not after:
+        return _Sight(stopped_at=began)
+
+    if first_acted_at is None or first_acted_at < began:
         return None
 
-    return began
+    acted_in = first_acted_at.replace(second=0, microsecond=0)
+    if first_minute >= acted_in or after[0] < acted_in:
+        return None
+
+    return _Sight(stopped_at=began,
+                  resumed=_Resumed(at=max(after[0], first_acted_at), in_minute=after[0]))
 
 
 def _the_minute_starting_at_or_after(instant: datetime) -> datetime:

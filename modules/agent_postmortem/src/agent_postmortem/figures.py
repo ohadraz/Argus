@@ -76,6 +76,7 @@ ALERT_RAISED_FIGURE: Final = "alert_raised"
 BEGAN_FIGURE: Final = "began"
 BACK_TO_NORMAL_FIGURE: Final = "back_to_normal"
 METRICS_STOPPED_AT_FIGURE: Final = "metrics_stopped_at"
+METRICS_RESUMED_AT_FIGURE: Final = "metrics_resumed_at"
 LOGS_REACH_UNTIL_FIGURE: Final = "logs_reach_until"
 LOG_READING_ENDED_FIGURE: Final = "log_reading_ended"
 CUSTOMER_LOSS_FIGURE: Final = "customer_loss"
@@ -428,18 +429,23 @@ def figures_of(evidence: IncidentEvidence, measured: Measurements) -> dict[str, 
     if not evidence.disproven:
         figures[BEGAN_FIGURE] = _an_instant(_the_instant_it_began(evidence, measured), day)
 
-    if measured.back_to_normal_at is not None:
+    # Where the metrics resumed, the instant they did is the end, and named
+    # twice, one instant reads as two facts.
+    if measured.back_to_normal_at is not None and measured.metrics_resumed_at is None:
         figures[BACK_TO_NORMAL_FIGURE] = _an_instant(measured.back_to_normal_at, day)
 
     if measured.metrics_stopped_at is not None:
         figures[METRICS_STOPPED_AT_FIGURE] = _an_instant(measured.metrics_stopped_at, day)
+        if measured.metrics_resumed_at is not None:
+            figures[METRICS_RESUMED_AT_FIGURE] = _an_instant(measured.metrics_resumed_at, day)
 
         # How far the logs read reach into the stretch the metrics did not
         # cover. Told only which lines reached in, a model wrote that nothing
         # was known after the onset; given the instant by name, saying so
         # contradicts a figure it was handed.
         logged_until = the_last_minute_logged_inside(evidence.log_lines,
-                                                     measured.metrics_stopped_at)
+                                                     measured.metrics_stopped_at,
+                                                     measured.metrics_resumed_at)
         if logged_until is not None:
             figures[LOGS_REACH_UNTIL_FIGURE] = _an_instant(logged_until, day)
 

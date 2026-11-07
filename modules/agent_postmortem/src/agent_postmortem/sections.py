@@ -223,13 +223,14 @@ def logs_in_the_gap_of(evidence: IncidentEvidence,
     if since is None:
         return None
 
+    until = measured.metrics_resumed_at
     read_until = evidence.log_reading_ended
-    labels = labels_reaching_into(evidence.log_lines, since)
+    labels = labels_reaching_into(evidence.log_lines, since, until)
 
     return LogsInTheGap(
         read=bool(evidence.log_lines) or read_until is not None,
         labels=labels,
-        reach_until=the_last_minute_logged_inside(evidence.log_lines, since),
+        reach_until=the_last_minute_logged_inside(evidence.log_lines, since, until),
         read_until=read_until,
         read_until_the_alert=read_until is not None and read_until == evidence.alerted_at,
         serving_as_before=serving_as_before if labels else None
@@ -252,7 +253,8 @@ def impact_of(measured: Measurements,
 
     Metrics missing before a lower bound: metrics that stopped also never show a
     recovery, and a stretch the metrics carry nothing of is not one the
-    service is known to have spent broken.
+    service is known to have spent broken. Metrics that resumed end that
+    stretch, which is then measured rather than a floor.
 
     `logs_in_the_gap` is asked for rather than defaulted: left off, a gap the
     logs reach into would be said with nothing of them. So is `disproven`:
@@ -270,7 +272,9 @@ def impact_of(measured: Measurements,
                       peak_error_rate=None,
                       before_the_alert=_the_rule_series_before_the_alert(measured))
 
-    if measured.metrics_stopped_at is not None:
+    if measured.metrics_stopped_at is not None and measured.metrics_resumed_at is not None:
+        extent = ImpactExtent.METRICS_RESUMED
+    elif measured.metrics_stopped_at is not None:
         extent = ImpactExtent.METRICS_MISSING
     elif measured.reported_by is not None:
         extent = ImpactExtent.REPORTED
@@ -1120,13 +1124,16 @@ def timeline_of(evidence: IncidentEvidence,
                 back_to_normal_at: datetime | None,
                 back_before_the_action: bool = False,
                 metrics_stopped_at_onset: bool = False,
-                ended_by_a_report: bool = False) -> list[TimelineEntry]:
+                ended_by_a_report: bool = False,
+                metrics_resumed: bool = False) -> list[TimelineEntry]:
     """The narration in order, each line under the label the prompt cited it
     by, with the four markers placed by code.
 
     The onset is marked as where the metrics stopped, where they carry no
     minute from it on (`metrics_stopped_at_onset`): what it dates then is the
-    metrics stopping, and the service may have gone on serving as before.
+    metrics stopping, and the service may have gone on serving as before. And
+    where they resumed (`metrics_resumed`), the end is said as that: what showed
+    the service back to normal was the metrics coming back.
 
     Three of the markers are rows of their own, because nobody said them: the
     onset and the end are properties of the metrics, and the alert is what the
@@ -1161,6 +1168,8 @@ def timeline_of(evidence: IncidentEvidence,
     reported = resolution.line if resolution is not None else None
     if resolution is not None:
         ended = f"{resolution.by} reported the incident resolved"
+    elif metrics_resumed:
+        ended = "the metrics resumed, showing the service back to normal"
     elif back_before_the_action:
         ended = "the service was back to normal, before the action credited with it"
     else:

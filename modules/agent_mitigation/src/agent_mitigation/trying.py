@@ -1099,6 +1099,22 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             if the_wait is not None:
                 say(the_wait)
 
+            # The look that saw the rows back, said as every other look is: left
+            # unsaid, the page went from "no new minute read yet" straight to the
+            # verdict, and nothing recorded which minute came back. Dated by the
+            # first row after the onset rather than by the minute the verdict is
+            # read from - the rows returning is a fact about the service, and
+            # where the action restored them that is the minute it fell inside.
+            if incident_id is not None and onset is not None:
+                say(RecoveryChecked(
+                    incident_id=incident_id,
+                    minute=first_whole_minute,
+                    recovered=True,
+                    recovered_minute=min(bucket.bucket_id for bucket in buckets
+                                         if bucket.bucket_id >= to_iso_minute(onset)),
+                    read_again=True
+                ))
+
             return _Settled(
                 Verdict.CONFIRMED, "the service could be read again"
             )

@@ -7,9 +7,10 @@ find one table with that minute in it, not the fourth of six fragments that
 each contain a copy.
 
 So most of these are about identity: what counts as the same minute, the same
-line, the same change. A bucket is its minute and a log line is its text; a
-flag change is a flag *and* a moment, because the flag that moved twice - tried
-and then put back - is exactly the one whose second move a reader must not lose.
+line, the same change. A bucket is its minute and a log line is its text, kept
+as often as any one read holds it; a flag change is a flag *and* a moment,
+because the flag that moved twice - tried and then put back - is exactly the
+one whose second move a reader must not lose.
 
 The rest are about the header: how long the incident has been running, and the
 version the page polls against. That version has to change when the content
@@ -168,6 +169,35 @@ def test_the_same_log_line_read_twice_is_shown_once() -> None:
         ) \
         .when(lambda: build_story(the_same_line_read_twice)) \
         .then(_the_lines_shown_are([some_line]))
+
+
+@pytest.mark.unit
+def test_a_line_written_twice_in_one_read_is_shown_twice() -> None:
+    # One read holding a line twice is a service that wrote it twice - two
+    # replicas failing in the same minute are two failures. Shown once, the page
+    # held fewer lines than the line above it said were read back.
+    some_line = f"{SOME_MINUTE} ERROR io-shop: account page request failed"
+
+    Scenario() \
+        .given(a_line_written_twice := [_logs_showing(some_line, some_line)]) \
+        .when(lambda: build_story(a_line_written_twice)) \
+        .then(_the_lines_shown_are([some_line, some_line]))
+
+
+@pytest.mark.unit
+def test_a_line_written_twice_and_read_again_is_shown_as_often_as_one_read_held_it() -> None:
+    # The two rules together: a later read of the same minutes adds nothing,
+    # whichever of the two held the line more often.
+    some_line = f"{SOME_MINUTE} ERROR io-shop: account page request failed"
+
+    Scenario() \
+        .given(
+            written_twice_and_read_again := [_logs_showing(some_line),
+                                             _logs_showing(some_line, some_line),
+                                             _logs_showing(some_line)]
+        ) \
+        .when(lambda: build_story(written_twice_and_read_again)) \
+        .then(_the_lines_shown_are([some_line, some_line]))
 
 
 @pytest.mark.unit
@@ -462,12 +492,13 @@ def _metrics_showing(bucket_id: str, error_rate: float) -> MetricsRetrieved:
     )
 
 
-def _logs_showing(line: str) -> LogsRetrieved:
+def _logs_showing(*lines: str) -> LogsRetrieved:
+    """One logs read that came back with `lines`, in that order."""
     return LogsRetrieved(
         incident_id=new_id(),
         window_start=AN_EARLIER_MINUTE,
         window_end=SOME_MINUTE,
-        lines=[line]
+        lines=list(lines)
     )
 
 

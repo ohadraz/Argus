@@ -54,6 +54,31 @@ def test_a_stretch_no_line_was_logged_inside_has_no_last_minute() -> None:
 
 
 @pytest.mark.unit
+def test_a_line_logged_at_or_after_where_a_stretch_ended_is_not_inside_it() -> None:
+    # A stretch the metrics did not cover ends where they resumed, and a line
+    # logged once they had is the service measured again, not seen through its
+    # logs alone. By the instant its stamp names: the minute they resumed in
+    # holds lines from either side of it.
+    some_lines = [f"2026-10-11T23:41:00Z {SOME_RATE.format('1.50')}",
+                  f"2026-10-11T23:43:00Z {SOME_ERROR}",
+                  f"2026-10-11T23:43:30Z {SOME_RATE.format('24.00')}",
+                  f"2026-10-11T23:45:00Z {SOME_ERROR}"]
+
+    Scenario() \
+        .given(
+            the_stretch_ended := datetime(2026, 10, 11, 23, 43, 20, tzinfo=UTC)
+        ) \
+        .when(
+            lambda: the_last_minute_logged_inside(some_lines,
+                                                  datetime(2026, 10, 11, 23, 40, tzinfo=UTC),
+                                                  the_stretch_ended)
+        ) \
+        .then(
+            the_answer_was(datetime(2026, 10, 11, 23, 43, tzinfo=UTC))
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("stamp", "logged_at"), [
     ("2026-10-11T23:39Z", datetime(2026, 10, 11, 23, 39, tzinfo=UTC)),
     ("2026-10-11T23:39:30Z", datetime(2026, 10, 11, 23, 39, 30, tzinfo=UTC)),

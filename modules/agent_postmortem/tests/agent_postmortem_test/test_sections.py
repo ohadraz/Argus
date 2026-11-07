@@ -2869,6 +2869,26 @@ def test_the_impact_ends_where_the_service_was_back_to_normal(
 
 
 @pytest.mark.unit
+def test_an_end_where_the_metrics_resumed_is_said_as_their_resuming() -> None:
+    # What showed the service back to normal was the metrics coming back:
+    # "the service was back to normal" alone reads as a level falling, of a
+    # stretch no level was read in.
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(onset_at=ONSET, timeline=[])
+        ) \
+        .when(
+            lambda: [entry.text for entry in
+                     timeline_of(evidence, back_to_normal_at=RECOVERED_AT,
+                                 metrics_stopped_at_onset=True, metrics_resumed=True)
+                     if entry.marker is TimelineMarker.IMPACT_ENDS]
+        ) \
+        .then(
+            the_answer_was(["the metrics resumed, showing the service back to normal"])
+        )
+
+
+@pytest.mark.unit
 def test_impact_is_measured_where_the_metrics_showed_the_recovery() -> None:
     # Carried rather than left to the page to subtract from the markers, for
     # the gap's reason: two renderers subtracting are two chances to disagree.
@@ -2968,6 +2988,35 @@ def test_the_logs_in_a_stretch_the_metrics_missed_are_carried_with_how_far_they_
                                         reach_until=ONSET + timedelta(minutes=4),
                                         read_until=the_alert,
                                         read_until_the_alert=True))
+        )
+
+
+@pytest.mark.unit
+def test_a_line_logged_once_the_metrics_resumed_does_not_reach_into_the_stretch() -> None:
+    # The stretch ends where they resumed. A line logged after that is the
+    # service measured again, and named as reaching in, it reads as what the
+    # service did while nobody measured it.
+    the_resumption = ONSET + timedelta(minutes=6)
+    some_line_inside = f"{to_iso(the_resumption - timedelta(minutes=2))} WARN io-shop: inside"
+    some_line_after = f"{to_iso(the_resumption + timedelta(minutes=2))} INFO io-shop: after"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(log_lines=[some_line_inside, some_line_after],
+                                           log_reading_ended=None),
+            measured := a_measured_incident(back_to_normal_at=the_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=the_resumption)
+        ) \
+        .when(
+            lambda: logs_in_the_gap_of(evidence, measured)
+        ) \
+        .then(
+            the_answer_was(LogsInTheGap(read=True,
+                                        labels=labels_reaching_into([some_line_inside], ONSET),
+                                        reach_until=the_resumption - timedelta(minutes=2),
+                                        read_until=None,
+                                        read_until_the_alert=False))
         )
 
 
@@ -3122,6 +3171,27 @@ def test_impact_whose_metrics_stopped_is_metrics_missing() -> None:
         ) \
         .then(
             the_answer_was(ImpactExtent.METRICS_MISSING)
+        )
+
+
+@pytest.mark.unit
+def test_impact_whose_metrics_stopped_and_resumed_is_metrics_resumed() -> None:
+    # How long they were missing, which is no floor - and still nothing of
+    # whether the service was failing, which a measurement would say.
+    some_resumption = ONSET + timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            measured := a_measured_incident(back_to_normal_at=some_resumption,
+                                            metrics_stopped_at=ONSET,
+                                            metrics_resumed_at=some_resumption)
+        ) \
+        .when(
+            lambda: impact_of(measured, logs_in_the_gap=None, latency_told=[],
+                              disproven=False).extent
+        ) \
+        .then(
+            the_answer_was(ImpactExtent.METRICS_RESUMED)
         )
 
 

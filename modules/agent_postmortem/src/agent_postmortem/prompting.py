@@ -100,6 +100,7 @@ from agent_postmortem.figures import (
     LATENCY_WHILE_BROKEN,
     LOG_READING_ENDED_FIGURE,
     LOGS_REACH_UNTIL_FIGURE,
+    METRICS_RESUMED_AT_FIGURE,
     METRICS_STOPPED_AT_FIGURE,
     QUANTILE_SAID,
     RULE_LOOKS_BACK_FIGURE,
@@ -1283,6 +1284,7 @@ def _the_whole_incident(evidence: IncidentEvidence, measured: Measurements) -> s
         *([] if evidence.disproven else [
             *_what_the_error_rate_did(measured.error_rates, measured.error_rates_unmeasured,
                                       measured.metrics_stopped_at is not None,
+                                      measured.metrics_resumed_at is not None,
                                       _the_logs_reaching_in(evidence, measured), figures),
             *([_NOTHING_TO_LOOK_BACK_FROM]
               if _nothing_was_looked_back_from(evidence, measured) else []),
@@ -1350,7 +1352,8 @@ def figures_shown(evidence: IncidentEvidence, measured: Measurements) -> dict[st
     walked = _the_walk_s_labels(evidence)
     day = the_day_it_began(evidence, measured)
     groups = the_groups_of(evidence.log_lines, measured.metrics_stopped_at, day,
-                           acted_at=evidence.first_acted_at)
+                           acted_at=evidence.first_acted_at,
+                           metrics_resumed_at=measured.metrics_resumed_at)
     in_a_group = {group.cited.label for group in groups}
     cause_measured = _the_cause_measured(evidence, measured)
     measured_rows = {cited.label for cited, _ in cause_measured}
@@ -1429,7 +1432,8 @@ def _the_evidence_by_kind(evidence: IncidentEvidence,
     changes = the_changes_labelled(evidence)
     walk_alone = evidence.changes_the_walk_alone_read
     log_lines = grouped(evidence.log_lines, measured.metrics_stopped_at,
-                        the_day_it_began(evidence, measured), acted_at=evidence.first_acted_at)
+                        the_day_it_began(evidence, measured), acted_at=evidence.first_acted_at,
+                        metrics_resumed_at=measured.metrics_resumed_at)
     candidates = the_candidates_labelled(evidence)
     # Numbered over every action, and listed under a heading for how far each
     # got: one never performed under "Actions it took" is a line saying "Did
@@ -2265,13 +2269,19 @@ def _how_long_it_was_broken(measured: Measurements,
         # incident. And not as one nobody saw: told so, a model holding the
         # shop's own logs from inside it wrote that the record could not say how
         # the shop was doing - so the logs that reach into it are named.
+        #
+        # Where they resumed, said as when, and the stretch as ending there: told
+        # it ran to the close, a model would be told of minutes the metrics did
+        # cover. And where the rows they resumed with did not show the service
+        # back to normal, that too - the stretch's end is not then the incident's.
         return [
             f"No metrics were collected from "
-            f"{_shown(METRICS_STOPPED_AT_FIGURE, figures)} ({dated_from}) onwards: the "
-            f"metrics had still not resumed by {_shown(ARGUS_STOPPED_FIGURE, figures)}. That "
+            f"{_shown(METRICS_STOPPED_AT_FIGURE, figures)} ({dated_from}) "
+            f"{_until_they_resumed(measured, evidence, figures)}. That "
             f"is {_shown(DURATION_FIGURE, figures)} the metrics did not cover, not a "
             f"stretch the service is known to have spent in trouble.",
-            _the_logs_reaching_into(evidence, measured.metrics_stopped_at, figures),
+            _the_logs_reaching_into(evidence, measured.metrics_stopped_at,
+                                    measured.metrics_resumed_at, figures),
             # Where a line reaches in, the document says it from the answer named
             # here, which is asked for only then. Where none does, nothing is
             # known of it: told nothing either, a model is free to say the
@@ -2284,7 +2294,8 @@ def _how_long_it_was_broken(measured: Measurements,
             f"nothing of it anywhere else. Where the chain's first step says nobody "
             f"using the service saw anything wrong, cite those log lines for it "
             f"without saying what they show."
-            if labels_reaching_into(evidence.log_lines, measured.metrics_stopped_at) else
+            if labels_reaching_into(evidence.log_lines, measured.metrics_stopped_at,
+                                    measured.metrics_resumed_at) else
             "Nothing is known of how the service did over that stretch: say nothing of it."
         ]
 
@@ -2304,6 +2315,30 @@ def _how_long_it_was_broken(measured: Measurements,
         f"That is {_shown(DURATION_FIGURE, figures)}, and every impact figure below "
         f"is measured over that stretch."
     ]
+
+
+def _until_they_resumed(measured: Measurements,
+                        evidence: IncidentEvidence,
+                        figures: Mapping[str, Figure]) -> str:
+    """Where the metrics resumed, and whether the rows they resumed with
+    showed the service back to normal - or that they had not resumed by the
+    close.
+
+    Dated by the action where they came back in its minute, and said so: that
+    minute holds only the seconds after it, and a look on the walk dates the
+    rows by their minute - two instants for one return, unless each is named
+    for what it is."""
+    resumed = measured.metrics_resumed_at
+    if resumed is None:
+        return (f"onwards: the metrics had still not resumed by "
+                f"{_shown(ARGUS_STOPPED_FIGURE, figures)}")
+
+    acted = (" (in the minute Argus acted in, so dated to its action)"
+             if resumed == evidence.first_acted_at else "")
+    showed = ("showing the service back to normal" if measured.back_to_normal_at is not None
+              else "not showing the service back to normal")
+
+    return f"until they resumed at {_shown(METRICS_RESUMED_AT_FIGURE, figures)}{acted}, {showed}"
 
 
 def _a_change_came_inside_the_minute_of(onset_at: datetime,
@@ -2335,6 +2370,7 @@ def _where_it_ended(measured: Measurements, evidence: IncidentEvidence) -> str:
 
 def _the_logs_reaching_into(evidence: IncidentEvidence,
                             metrics_stopped_at: datetime,
+                            metrics_resumed_at: datetime | None,
                             figures: Mapping[str, Figure]) -> str:
     """Which log lines read reach into the stretch the metrics did not cover,
     and how far - or that none do, said rather than left out, since an absent
@@ -2361,7 +2397,7 @@ def _the_logs_reaching_into(evidence: IncidentEvidence,
     if not evidence.log_lines and evidence.log_reading_ended is None:
         return "No logs were read."
 
-    labels = labels_reaching_into(evidence.log_lines, metrics_stopped_at)
+    labels = labels_reaching_into(evidence.log_lines, metrics_stopped_at, metrics_resumed_at)
     reached = (
         f"Log lines read reach into it until {_shown(LOGS_REACH_UNTIL_FIGURE, figures)}: "
         f"{', '.join(f'[{label}]' for label in labels)}. They are the service's own account "
@@ -2394,7 +2430,8 @@ def _the_logs_reaching_in(evidence: IncidentEvidence, measured: Measurements) ->
     if measured.metrics_stopped_at is None:
         return []
 
-    return labels_reaching_into(evidence.log_lines, measured.metrics_stopped_at)
+    return labels_reaching_into(evidence.log_lines, measured.metrics_stopped_at,
+                                measured.metrics_resumed_at)
 
 
 def _nothing_was_looked_back_from(evidence: IncidentEvidence, measured: Measurements) -> bool:
@@ -2472,6 +2509,10 @@ _NO_CAUSE_NAMED: Final = (
 # the line before it says that stretch is not known to have been trouble, and
 # "while the service was broken" would say it was.
 _NONE_AFTER_THE_METRICS_STOPPED: Final = "none were collected after the metrics stopped"
+# And where they resumed, the stretch ends there: "after they stopped" would say
+# no minute came back at all, of a read holding the minutes they resumed with.
+_NONE_UNTIL_THE_METRICS_RESUMED: Final = (
+    "none were collected from when the metrics stopped until they resumed")
 
 
 # Said of a figure the calm before the incident was too short to hold up to
@@ -2482,6 +2523,7 @@ _NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
 def _what_the_error_rate_did(rates: ErrorRates | None,
                              unmeasured: Unmeasured | None,
                              metrics_stopped: bool,
+                             metrics_resumed: bool,
                              logs_reaching_in: Sequence[str],
                              figures: Mapping[str, Figure]) -> list[str]:
     """The error rate at every level worth reporting, each named for itself.
@@ -2517,9 +2559,10 @@ def _what_the_error_rate_did(rates: ErrorRates | None,
     nowhere else, the brief asked both ways.
     """
     if rates is None:
+        stopped = metrics_stopped and unmeasured is Unmeasured.NO_MINUTE_WHILE_BROKEN
         reason = (
-            _NONE_AFTER_THE_METRICS_STOPPED
-            if metrics_stopped and unmeasured is Unmeasured.NO_MINUTE_WHILE_BROKEN
+            _NONE_UNTIL_THE_METRICS_RESUMED if stopped and metrics_resumed
+            else _NONE_AFTER_THE_METRICS_STOPPED if stopped
             else _WHY_UNMEASURED[unmeasured] if unmeasured is not None
             else None
         )

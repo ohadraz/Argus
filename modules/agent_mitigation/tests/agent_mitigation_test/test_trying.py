@@ -2844,6 +2844,47 @@ def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there()
 
 
 @pytest.mark.unit
+def test_the_look_that_sees_a_blind_spot_read_again_is_said_with_when_its_rows_resumed() -> None:
+    # The look that confirmed was the one look never said: the page went from
+    # "no new minute read yet" straight to the verdict, and nothing recorded which
+    # minute came back - though the rows coming back are this incident's recovery.
+    # Dated by the first row after the onset, which is 11:10, the minute the
+    # rollback fell inside, and not 11:11, the minute the verdict is read from:
+    # when the rows returned is a fact about the service.
+    the_minute_the_rows_resumed = "2026-08-20T11:10:00Z"
+
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=_metrics_whose_rows_return_in_the_actions_own_minute(),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _each_look_reported(published, False, True),
+            _the_last_look_saw_the_rows_back_at(published, the_minute_the_rows_resumed)
+        ))
+
+
+@pytest.mark.unit
 def test_readings_returning_confirms_the_action_that_restored_them() -> None:
     # The sight came back, which is the whole of what the action was for. Confirmed
     # on the minutes existing rather than on their levels - they happen to be calm
@@ -3897,6 +3938,29 @@ def _the_recovery_was_recorded_at(published: list[IncidentEvent],
             raise AssertionError(
                 f"Expected the recovery to be recorded at [{minute}], got "
                 f"[{confirmed[-1].recovered_minute}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_last_look_saw_the_rows_back_at(published: list[IncidentEvent],
+                                        minute: str) -> Assertion[Outcome]:
+    """The last look found a blind spot's minutes published again, dated by the
+    first of them."""
+    def assertion(_outcome: Outcome) -> bool:
+        looks = [event for event in published if isinstance(event, RecoveryChecked)]
+
+        if not looks or not looks[-1].read_again:
+            raise AssertionError(
+                f"Expected the last look to find the rows back, got {looks}."
+            )
+
+        if looks[-1].recovered_minute != minute:
+            raise AssertionError(
+                f"Expected the rows to be found back at [{minute}], got "
+                f"[{looks[-1].recovered_minute}]."
             )
 
         return True
