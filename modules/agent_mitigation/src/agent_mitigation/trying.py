@@ -1094,6 +1094,12 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             the_sight_was_absent = _nothing_was_seen_between(
                 buckets, onset, to_iso_minute(arrived_at)
             )
+            # What the wait waits for, said once this is known and before the
+            # wait is: on a blind spot, for the minutes to be published again -
+            # said as a level to come down from, it promised a reading nobody
+            # took.
+            if the_wait is not None and the_sight_was_absent:
+                the_wait = the_wait.model_copy(update={"until_read_again": True})
 
         if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
             if the_wait is not None:

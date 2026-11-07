@@ -517,6 +517,11 @@ class AwaitingRecovery(_Event):
     measured off its window (§16) rather than configured: said before the first
     reading it would be a guess, and this line is the one a reader takes the
     length of the wait from.
+
+    `until_read_again` is a wait on a blind spot - no minute published from the
+    onset to the action - which waits for the minutes to be published again, as
+    the look that settles it asks (`RecoveryChecked.read_again`): no level was
+    read while they were missing, so none is left to come down from.
     """
 
     kind: Literal["awaiting-recovery"] = "awaiting-recovery"
@@ -524,6 +529,7 @@ class AwaitingRecovery(_Event):
     # A float, because it is a span between two instants - how long the clear
     # minutes a recovery must hold run for, from the moment the change arrived.
     seconds_allowed: float
+    until_read_again: bool = False
 
 
 class RecoveryChecked(_Event):

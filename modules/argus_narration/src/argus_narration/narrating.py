@@ -549,8 +549,12 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
                 moved_from, moved_to = on_or_off(not event.enabled), on_or_off(event.enabled)
         case AwaitingRecovery():
             who = _MITIGATION
+            # A blind spot's wait as what it waits for: no level was read while
+            # its minutes were missing, so none is left to be still at.
+            waiting_for = ("its metrics can be read again" if event.until_read_again
+                           else "the service is still at the incident's level")
             text = (
-                f"Waiting to see whether the service is still at the incident's level, "
+                f"Waiting to see whether {waiting_for}, "
                 f"from {a_minute(event.from_minute)} - "
                 f"up to {int(event.seconds_allowed)}s"
             )

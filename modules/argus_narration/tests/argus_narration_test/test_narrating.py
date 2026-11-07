@@ -925,6 +925,22 @@ def test_a_wait_asks_what_its_looks_answer_rather_than_waiting_for_an_answer() -
 
 
 @pytest.mark.unit
+def test_a_wait_on_a_blind_spot_asks_whether_its_metrics_can_be_read_again() -> None:
+    # No level was read while its minutes were missing, so there is none to be
+    # still at: the wait asks what the look after it answers.
+    Scenario() \
+        .given(
+            some_wait := AwaitingRecovery(incident_id=new_id(), from_minute=SOME_MINUTE,
+                                          seconds_allowed=63.0, until_read_again=True)
+        ) \
+        .when(lambda: build_narration([some_wait])) \
+        .then(all_of(
+            _the_only_line_says("Waiting to see whether its metrics can be read again, from "),
+            _the_only_line_does_not_say("level")
+        ))
+
+
+@pytest.mark.unit
 def test_the_onset_line_names_the_minute_it_placed() -> None:
     # It names one minute out of ninety, and the account carries which one so
     # that a reader is never left to find it by eye. What a page then does with

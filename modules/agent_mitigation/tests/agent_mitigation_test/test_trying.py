@@ -2885,6 +2885,56 @@ def test_the_look_that_sees_a_blind_spot_read_again_is_said_with_when_its_rows_r
 
 
 @pytest.mark.unit
+def test_the_wait_on_a_blind_spot_waits_for_its_metrics_to_be_read_again() -> None:
+    # No level was read while its minutes were missing, so none is left to be
+    # still at: said as one, the wait promised a reading nobody took, and the
+    # look that settles it asks whether the metrics can be read again.
+    Scenario() \
+        .given(
+            published := _a_page_listening(),
+            some_old_state := False
+        ) \
+        .when(
+            lambda: take_action(
+                an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=_metrics_whose_rows_return_in_the_actions_own_minute(),
+                now=a_clock_frozen_at(ACTION_TIME),
+                sleep=dont_care_sleep,
+                incident_id=_SOME_INCIDENT_ID,
+                publisher=published.append,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(
+            _the_wait_waits_for_its_metrics_to_be_read_again(published, True)
+        )
+
+
+@pytest.mark.unit
+def test_the_wait_on_a_service_that_was_watched_waits_for_a_level() -> None:
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: _an_action_is_taken(
+                publisher=published.append, metrics=a_recovered_window()
+            )
+        ) \
+        .then(
+            _the_wait_waits_for_its_metrics_to_be_read_again(published, False)
+        )
+
+
+@pytest.mark.unit
 def test_readings_returning_confirms_the_action_that_restored_them() -> None:
     # The sight came back, which is the whole of what the action was for. Confirmed
     # on the minutes existing rather than on their levels - they happen to be calm
@@ -3872,6 +3922,23 @@ def _the_wait_allowed(published: list[IncidentEvent],
             raise AssertionError(
                 f"Expected the wait to allow [{seconds}]s, "
                 f"got [{announced.seconds_allowed}]s."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_wait_waits_for_its_metrics_to_be_read_again(published: list[IncidentEvent],
+                                                    expected: bool) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        announced = next(
+            event for event in published if isinstance(event, AwaitingRecovery)
+        )
+        if announced.until_read_again != expected:
+            raise AssertionError(
+                f"Expected the wait to wait for the metrics to be read again to be "
+                f"[{expected}], got [{announced.until_read_again}]."
             )
 
         return True
