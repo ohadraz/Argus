@@ -96,6 +96,7 @@ from agent_codefix.prompting import (
     THE_QUESTION_A_SUBMISSION_IS_ASKED,
     AnswerToTheQuestion,
     SubmittedFix,
+    brings_a_test,
     the_paths_whose_content_is_not_source,
 )
 from agent_codefix.retrieval import (
@@ -604,7 +605,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
 
         if submitted is not None and submitted.files and not (
             the_paths_whose_content_is_not_source(submitted.files)
-        ):
+        ) and brings_a_test(submitted.files):
             outside = _the_code_outside(submitted, settings, code_outside, list_files)
             group = (the_group_outside(submitted.explanation or "", submitted.patch(),
                                        outside.listing, outside.read.defined)
@@ -633,9 +634,9 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # The answer about the patch in hand. Yes holds it back; no lets it
             # be opened.
             return (answered if answered.answer else asked), asked_outside
-        elif submitted is not None and submitted.files:
-            not_source = the_paths_whose_content_is_not_source(submitted.files)
-
+        elif submitted is not None and submitted.files and (
+            not_source := the_paths_whose_content_is_not_source(submitted.files)
+        ):
             # A patch that cannot be read as the language it is written in,
             # which is a submission to recover from rather than one to
             # propose. Sent back for the reason an empty one is: the model has
@@ -643,6 +644,14 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             logger.warning("patch is not source", extra={"paths": not_source})
             last_sent_back = True
             results = _sent_back(turn, _that_is_not_source(turn, not_source))
+        elif submitted is not None and submitted.files:
+            # A patch that brings no test, which proves nothing however sound
+            # it is. Sent back every time, as one that is not source is: a
+            # model that keeps sending it runs out, and no pull request is
+            # opened on a fix its postmortem would send a reader to test.
+            logger.warning("patch brings no test")
+            last_sent_back = True
+            results = _sent_back(turn, _no_test_was_brought(turn))
         elif submitted is not None:
             # A patch with nothing in it, which the submission's own schema
             # refuses - so this is one whose every entry was dropped as
@@ -837,6 +846,37 @@ def _that_is_not_source(turn: Turn, paths: list[str]) -> ToolResult:
             f"with something nothing can read. Submit again with that file's "
             f"whole new text as the value of its content, and nothing referring "
             f"to text written anywhere else."
+        ),
+        failed=True
+    )
+
+
+def _no_test_was_brought(turn: Turn) -> ToolResult:
+    """The submission sent back because none of its files is a test.
+
+    A failure rather than a remark, as a patch that is not source is: something
+    to recover from, not evidence about the incident.
+
+    It says how a fix to a file no code reads is tested, because that is the
+    reason the recorded walk gave for bringing none - and the fix recorded
+    before it, to the same file, brought a test that read the file. The other
+    ending is named, as the empty patch's is: told only that a test is missing,
+    a model that had found nothing to change would invent a change to test.
+    """
+    submitting = next(
+        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
+    )
+
+    return ToolResult(
+        call_id=submitting.id if submitting is not None else "",
+        content=(
+            "That submission brought no test, so it was not proposed. Submit again "
+            "with the test that exposes the fault beside the fix, in a file named "
+            "test_*.py: it fails against the code as it stands and passes with your "
+            "change. A fix to a file no code reads, such as a values file, is tested "
+            "by a test that reads that file and checks what the fix sets in it. If "
+            "what you meant is that the code needs no change, that is a complete "
+            f"answer and {REPORT_TOOL_NAME} is how to give it."
         ),
         failed=True
     )

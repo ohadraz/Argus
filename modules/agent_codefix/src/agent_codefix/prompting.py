@@ -160,6 +160,11 @@ _A_CLOSING_CONTENT_TAG: Final = f"</{CONTENT_FIELD}>"
 # reader will treat it as Python whatever it holds.
 _A_PYTHON_SUFFIX: Final = ".py"
 
+# What pytest collects as a test file when nothing tells it otherwise:
+# `test_*.py` or `*_test.py`.
+_A_TEST_FILE_PREFIX: Final = "test_"
+_A_TEST_FILE_SUFFIX: Final = "_test.py"
+
 
 def _the_patch_in(written: str) -> list[Any] | None:
     """The files written after a parameter tag, or `None` where there are none.
@@ -269,6 +274,33 @@ def the_paths_whose_content_is_not_source(files: Iterable[ProposedFile]) -> list
         proposed.path for proposed in files
         if proposed.path.endswith(_A_PYTHON_SUFFIX) and not _parses(proposed.content)
     ]
+
+
+def brings_a_test(files: Iterable[ProposedFile]) -> bool:
+    """Whether any of these files is a test, by the name pytest collects it under.
+
+    The submission's own description asks for the test, and a patch without one
+    is a claim nothing can check: the fix grader has nothing to run against the
+    shop, and the postmortem sends its reader to run tests that do not exist. A
+    recorded walk changed a values file alone and said no test could exercise
+    it, where the same fix recorded before brought one that read the file.
+
+    By name rather than by place: where a repository keeps its tests is its own
+    business, and the name is what the runner itself goes by.
+
+    Public, as the reading beside it is, because the loop is what puts a
+    submission back.
+    """
+    return any(
+        _is_a_test_file(proposed.path.rsplit("/", 1)[-1]) for proposed in files
+    )
+
+
+def _is_a_test_file(name: str) -> bool:
+    return (
+        (name.startswith(_A_TEST_FILE_PREFIX) and name.endswith(_A_PYTHON_SUFFIX))
+        or name.endswith(_A_TEST_FILE_SUFFIX)
+    )
 
 
 def _parses(content: str) -> bool:

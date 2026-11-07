@@ -114,6 +114,11 @@ DONT_CARE_HYPOTHESIS = a_hypothesis("the monthly spend figure divides by an empt
 SOME_PATH = "src/io_shop/spend_summary.py"
 SOME_SOURCE = "def average_spend_per_item_this_month(account):\n    ...\n"
 SOME_FIXED_SOURCE = "def average_spend_per_item_this_month(account):\n    return 0\n"
+SOME_TEST_PATH = "tests/io_shop/test_spend_summary.py"
+SOME_TEST_SOURCE = (
+    "def test_an_empty_month_averages_nothing():\n"
+    "    assert average_spend_per_item_this_month(None) == 0\n"
+)
 SOME_REVISION_THAT_RAN = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
 
 # What the live run actually submitted where a file's content belongs, and it is
@@ -125,6 +130,7 @@ A_PLACEHOLDER_WHERE_SOURCE_BELONGS = "(see above)"
 # The words the complaint has to carry, not the sentence carrying them - as the
 # last-call warning above pins words rather than prose.
 WHAT_IS_NOT_SOURCE = "not source"
+WHAT_NO_TEST_IS = "brought no test"
 
 # What the files the evidence names are listed under, and what one the
 # repository does not hold is said to be.
@@ -1570,7 +1576,8 @@ def test_a_submitted_fix_is_written_to_a_branch_of_this_incidents_own() -> None:
             all_of(
                 _the_branch_written_mentions(repository, some_incident),
                 _the_branch_was_cut_from(repository, "main"),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -1886,7 +1893,8 @@ def test_a_fix_submitted_again_once_asked_is_asked_about_again() -> None:
         .then(
             all_of(
                 _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=2),
-                _the_patch_written_was(repository, {SOME_PATH: some_second_source})
+                _the_patch_written_was(repository, {SOME_PATH: some_second_source,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -2122,7 +2130,8 @@ def test_a_read_sent_with_the_submission_waits_for_the_answer() -> None:
                 ToolCall(id="call-submit_fix", name="submit_fix", arguments={
                     "summary": "a summary",
                     "explanation": "an explanation",
-                    "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}]
+                    "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+                              {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}]
                 }),
                 ToolCall(id="call-read_repository_file", name="read_repository_file",
                          arguments={"path": SOME_PATH})
@@ -2627,9 +2636,115 @@ def test_a_patch_whose_content_is_not_source_is_sent_back_for_another_attempt() 
         .then(
             all_of(
                 _the_model_was_told(model, WHAT_IS_NOT_SOURCE),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
+
+
+@pytest.mark.unit
+def test_a_patch_bringing_no_test_is_sent_back_for_another_attempt() -> None:
+    # What a recorded run did: the fix changed a values file and nothing else,
+    # saying nothing read that file so no test could exercise it - where the
+    # same fix recorded before brought a test that read the file. The
+    # submission's own description asks for the test. Without one the fix is a
+    # claim: the grader had nothing to run against the shop, and the postmortem
+    # sent its reader to run tests that did not exist.
+    #
+    # Sent back rather than raised, as a patch that is not source is: the model
+    # has decided what to change and is one turn from showing it.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _the_model_was_told(model, WHAT_NO_TEST_IS),
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_walk_whose_patches_never_bring_a_test_opens_nothing() -> None:
+    # The end of the rule above. A model that keeps sending a fix with no test
+    # runs out, and running out is what a reader is told - never a pull request
+    # opened anyway, whose postmortem would send its reader to tests that do
+    # not exist.
+    two_calls = 2
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_bringing_no_test(), submits_a_fix_bringing_no_test())
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(max_tool_calls=two_calls),
+                    converse=model.converse,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotAnswered),
+                the_error_mentioned(WHAT_A_WALK_ENDING_ON_A_SENT_BACK_SAYS),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("path", "sent_back"), [
+    ("tests/io_shop/test_spend_summary.py", False),
+    ("tests/io_shop/spend_summary_test.py", False),
+    ("tests/io_shop/conftest.py", True)
+], ids=["test-prefix", "test-suffix", "conftest-alone"])
+def test_a_test_is_known_by_the_name_pytest_collects_it_under(path: str, sent_back: bool) -> None:
+    # Both of pytest's own patterns, and nothing else: a file beside the tests
+    # that the runner never collects is not one, so a patch whose only such file
+    # is a conftest is sent back, and the rewrite bringing a test is the one
+    # proposed.
+    repository = a_repository()
+    model = a_model_that(
+        _a_turn_calling("submit_fix", {
+            "summary": "a summary",
+            "explanation": "an explanation",
+            "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+                      {"path": path, "content": SOME_TEST_SOURCE}]
+        }),
+        *([submits_a_fix_touching(SOME_PATH)] if sent_back else []),
+        answers_it_works_on_its_own()
+    )
+    proposed = SOME_TEST_PATH if sent_back else path
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(_the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                  proposed: SOME_TEST_SOURCE}))
 
 
 @pytest.mark.unit
@@ -2674,9 +2789,11 @@ def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_sent_back
                     model, f"{some_checker}:9, in reconcile: compares it with bought(account)"
                 ),
                 _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=1),
-                _the_code_outside_was_read_for(repository, {SOME_PATH: SOME_FIXED_SOURCE},
+                _the_code_outside_was_read_for(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                            SOME_TEST_PATH: SOME_TEST_SOURCE},
                                                "main"),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -2710,7 +2827,8 @@ def test_a_submission_sent_back_once_is_asked_its_question_the_second_time() -> 
             all_of(
                 _the_conversation_said(model, SPOKEN_OF_TOGETHER, times=1),
                 _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=1),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -2744,7 +2862,8 @@ def test_a_submission_sent_back_on_the_last_call_is_still_rewritten_and_asked() 
         .then(
             all_of(
                 _the_conversation_said(model, SPOKEN_OF_TOGETHER, times=1),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
@@ -2752,13 +2871,15 @@ def test_a_submission_sent_back_on_the_last_call_is_still_rewritten_and_asked() 
 @pytest.mark.unit
 @pytest.mark.parametrize(("files", "explanation"), [
     (
-        [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}],
+        [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+         {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}],
         "src/io_shop/spend_report.py and src/io_shop/spend_reconciliation.py keep "
         "trusting the stored figure."
     ),
     ([{"path": SOME_PATH, "content": A_PLACEHOLDER_WHERE_SOURCE_BELONGS}], "an explanation"),
+    ([{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}], "an explanation"),
     ([], "an explanation")
-], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-files"])
+], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-test", "no-files"])
 def test_a_read_sent_with_a_submission_sent_back_is_answered_not_run(
         files: list[dict[str, str]], explanation: str) -> None:
     # The API takes one result for every call in a turn, and refuses the next
@@ -2842,13 +2963,15 @@ def test_a_submission_sent_back_in_the_room_for_its_answer_gets_no_room_for_a_re
 @pytest.mark.unit
 @pytest.mark.parametrize(("files", "explanation"), [
     (
-        [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}],
+        [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+         {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}],
         "src/io_shop/spend_report.py and src/io_shop/spend_reconciliation.py keep "
         "trusting the stored figure."
     ),
     ([{"path": SOME_PATH, "content": A_PLACEHOLDER_WHERE_SOURCE_BELONGS}], "an explanation"),
+    ([{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}], "an explanation"),
     ([], "an explanation")
-], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-files"])
+], ids=["speaking-of-code-outside-as-a-group", "not-source", "no-test", "no-files"])
 def test_a_walk_ending_on_a_submission_sent_back_says_so(
         files: list[dict[str, str]], explanation: str) -> None:
     # A submission was made. Told that none was, a reader goes looking at an
@@ -3076,7 +3199,8 @@ def test_a_patch_file_that_is_not_python_is_proposed_as_it_arrived() -> None:
                 **repository.ports()
             )
         ) \
-        .then(_the_patch_written_was(repository, {some_values_file: some_yaml}))
+        .then(_the_patch_written_was(repository, {some_values_file: some_yaml,
+                                                  SOME_TEST_PATH: SOME_TEST_SOURCE}))
 
 
 @pytest.mark.unit
@@ -3830,11 +3954,14 @@ def reports_nothing_to_change(explanation: str = "an explanation") -> Turn:
 def submits_a_fix_touching(*paths: str,
                            summary: str = "a summary",
                            explanation: str = "an explanation") -> Turn:
+    """A fix of these files, with the test every fix brings - none at all where
+    no path is given, since that is a patch with nothing in it."""
     return _a_turn_calling("submit_fix", {
         "summary": summary,
         "explanation": explanation,
         "files": [
-            {"path": path, "content": SOME_FIXED_SOURCE} for path in paths
+            *({"path": path, "content": SOME_FIXED_SOURCE} for path in paths),
+            *([{"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}] if paths else [])
         ]
     })
 
@@ -3843,7 +3970,8 @@ def submits_a_fix_whose_content_is(content: str,
                                    path: str = SOME_PATH,
                                    summary: str = "a summary",
                                    explanation: str = "an explanation") -> Turn:
-    """A submission attaching one file whose content is whatever a test says.
+    """A submission attaching one file whose content is whatever a test says,
+    and the test every fix brings.
 
     Beside the builder above rather than a parameter on it: what that one says
     is "a fix of these files", and every caller of it means a fix that is fine.
@@ -3851,7 +3979,18 @@ def submits_a_fix_whose_content_is(content: str,
     return _a_turn_calling("submit_fix", {
         "summary": summary,
         "explanation": explanation,
-        "files": [{"path": path, "content": content}]
+        "files": [{"path": path, "content": content},
+                  {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}]
+    })
+
+
+def submits_a_fix_bringing_no_test(path: str = SOME_PATH) -> Turn:
+    """A fix of one file and nothing else - sound in itself, and proving
+    nothing."""
+    return _a_turn_calling("submit_fix", {
+        "summary": "a summary",
+        "explanation": "an explanation",
+        "files": [{"path": path, "content": SOME_FIXED_SOURCE}]
     })
 
 
@@ -3882,7 +4021,8 @@ def submits_a_fix_and_answers_at_once() -> Turn:
             ToolCall(id="call-submit_fix", name="submit_fix", arguments={
                 "summary": "a summary",
                 "explanation": "an explanation",
-                "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE}]
+                "files": [{"path": SOME_PATH, "content": SOME_FIXED_SOURCE},
+                          {"path": SOME_TEST_PATH, "content": SOME_TEST_SOURCE}]
             }),
             ToolCall(id="call-answer_question", name="answer_question", arguments={
                 "answer": False,
@@ -4302,6 +4442,34 @@ def test_a_patch_whose_content_is_not_source_is_logged_as_a_warning(
 
 
 @pytest.mark.unit
+def test_a_patch_bringing_no_test_is_logged_as_a_warning(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Sent back and usually corrected, so a turn paid for and thrown away shows
+    # nowhere but here - as a patch that is not source does.
+    repository = a_repository()
+    model = a_model_that(
+        submits_a_fix_bringing_no_test(),
+        submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                converse=model.converse,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
+                                  "patch brings no test")
+        )
+
+
+@pytest.mark.unit
 def test_code_outside_a_patch_that_could_not_be_read_is_logged_and_the_submission_asked(
     caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -4326,7 +4494,8 @@ def test_code_outside_a_patch_that_could_not_be_read_is_logged_and_the_submissio
             all_of(
                 one_record_was_logged(caplog, "agent_codefix.proposing", logging.WARNING,
                                       "code outside the patch could not be read"),
-                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE})
+                _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
+                                                    SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
         )
 
