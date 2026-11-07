@@ -2179,11 +2179,11 @@ def e2e(session: nox.Session) -> None:
     Runs the end-to-end suite against the full local stack, with the worker
     talking to the **real Anthropic API**.
 
-    This is the paid, manual, pre-merge run: it needs `ANTHROPIC_API_KEY` and
-    spends tokens on every incident it drives. It is the only suite in which a
-    real model reads real retrieved evidence and reaches a conclusion end to
-    end, which is what makes it worth the money before a merge that changes the
-    investigation path.
+    This is the paid, manual run: it needs `ANTHROPIC_API_KEY` and spends
+    tokens on every incident it drives. It is the only suite in which a real
+    model reads real retrieved evidence and reaches a conclusion end to end,
+    which is what makes it worth the money after a change to the investigation
+    path.
 
     `tests/integration` used to run here too, in the same pytest process. It
     does not any more, and the reason is the database: that suite brings

@@ -18,7 +18,7 @@ Run two ways, and they prove different things:
   recording was made. Judgement is measured by `nox -s eval`, over fifty
   samples a case.
 
-- `nox -s e2e` - the paid, manual, pre-merge run. A real model reads the real
+- `nox -s e2e` - the paid, manual run. A real model reads the real
   retrieved evidence. The seeding step above is inert there, because nothing
   points the web app at the double.
 

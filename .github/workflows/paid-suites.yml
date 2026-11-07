@@ -14,7 +14,7 @@ name: Paid Suites (manual)
 #              recordings being honest. A stale one lets both keep passing
 #              against a body Anthropic no longer sends, and they pass more
 #              confidently for being two.
-#   e2e      - before a merge that changes the investigation path end to end.
+#   e2e      - after a change to the investigation path end to end.
 #   eval     - after a prompt change, and only then. The score does not move on
 #              its own, so a daily timer buys thirty samples of an unchanged
 #              number.
