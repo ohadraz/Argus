@@ -125,12 +125,31 @@ class ErrorRates(BaseModel):
     # requests at that minute's rate. What a reader asks after how long and how
     # bad. `None` where it was not counted.
     failed_requests: int | None = None
+    # Whether the rise is no more than two of the steps the rate moves in
+    # (`is_within_its_own_noise`): a rate read over a few hundred requests moves
+    # in half-percent steps, and one minute landing a step higher lifted a
+    # stretch's mean past the calm's ceiling - told as a rise, it was noise.
+    within_its_own_noise: bool = False
 
     @property
     def rose_beyond_its_variation(self) -> bool | None:
         """Whether the broken stretch's average went higher than stretches as
-        long go on their own - `None` where nobody can say how high that is."""
+        long go on their own, and by more than the rate's own steps - `None`
+        where nobody can say how high that is."""
+        if self.passed_its_ceiling_within_its_noise:
+            return False
+
         return self._beyond(self.while_broken, self.usual_ceiling)
+
+    @property
+    def passed_its_ceiling_within_its_noise(self) -> bool:
+        """Whether the broken stretch's average went higher than stretches as
+        long go on their own, but by no more than two of the rate's own steps -
+        the one case the floor turns, as `latency_over`'s does: a stretch no
+        higher than the calm's stays that, and one nobody can say of stays
+        unsaid."""
+        return (self._beyond(self.while_broken, self.usual_ceiling) is True
+                and self.within_its_own_noise)
 
     @property
     def peaked_beyond_its_variation(self) -> bool | None:
@@ -218,10 +237,12 @@ def error_rates_over(buckets: list[MetricBucket],
 
     calm = [bucket.error_rate for bucket in sides.calm]
     usual = _how_high_alone(calm, len(while_broken))
+    baseline = _mean([bucket.error_rate for bucket in sides.the_hour])
 
     return ErrorRates(
-        baseline=_mean([bucket.error_rate for bucket in sides.the_hour]),
+        baseline=baseline,
         while_broken=_mean(while_broken),
+        within_its_own_noise=is_within_its_own_noise(_mean(while_broken) - baseline, calm),
         at_its_worst=max(while_broken),
         usual_ceiling=usual.ceiling,
         usual_worst=usual.worst,

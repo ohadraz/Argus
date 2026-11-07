@@ -2608,13 +2608,18 @@ def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
     Nor is a rise that stretches as long before it began reached on their own:
     a service idling between one and two percent goes above its average in
     half its quiet stretches, and a write-up told each one was a rise blames
-    the incident for noise.
+    the incident for noise. Nor one within two of the steps the rate moves in,
+    said as that: one minute a step higher lifted a stretch's mean past the
+    calm's ceiling, and "averaged as high on their own" would not be true of it.
     """
     if rates.rise <= 0:
         return ("Rise above baseline: none - no more of the traffic failed while "
                 "it was broken than before it began.")
 
     match rates.rose_beyond_its_variation:
+        case False if rates.passed_its_ceiling_within_its_noise:
+            return ("Rise above baseline: none beyond its normal variation - no more than "
+                    "two of the steps the rate moves in.")
         case False:
             return ("Rise above baseline: none beyond its normal variation - stretches as "
                     "long before it began averaged as high on their own.")

@@ -1237,6 +1237,41 @@ def test_latency_past_the_calm_by_no_more_than_two_of_its_own_steps_has_not_depa
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(("while_broken", "rose"), [
+    pytest.param(0.02, False, id="within-two-of-its-steps"),
+    pytest.param(0.30, True, id="beyond-them")
+])
+def test_failed_requests_past_the_calm_by_no_more_than_two_of_its_own_steps_did_not_rise(
+        while_broken: float, rose: bool) -> None:
+    # A rate read over a few hundred requests moves in half-percent steps, and one
+    # minute landing a step higher lifted a stretch's mean past how high the
+    # calm's went: told as a rise, the summary and the impact blamed the incident
+    # for noise its own recorded write-up called none.
+    the_calm = [0.01, 0.015, 0.02] * 14
+
+    Scenario() \
+        .given(
+            buckets := [
+                *(_a_bucket(at=INCIDENT_START - timedelta(minutes=len(the_calm) - minute),
+                            error_rate=rate)
+                  for minute, rate in enumerate(the_calm)),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=5), error_rate=while_broken),
+                _a_bucket(at=INCIDENT_START + timedelta(minutes=6), error_rate=while_broken)
+            ]
+        ) \
+        .when(
+            lambda: _rose(error_rates_over(buckets, INCIDENT_START, INCIDENT_END))
+        ) \
+        .then(
+            the_answer_was(rose)
+        )
+
+
+def _rose(rates: ErrorRates | None) -> bool | None:
+    return rates.rose if rates is not None else None
+
+
+@pytest.mark.unit
 def test_the_load_and_the_cpu_it_asked_for_are_measured_before_while_broken_and_at_highest(
 ) -> None:
     # What a confirmed demand-saturation rests on, which nothing else the brief

@@ -2944,6 +2944,48 @@ def test_a_rise_within_the_rate_s_own_variation_is_told_as_none_beyond_it() -> N
 
 
 @pytest.mark.unit
+def test_a_rise_within_two_of_the_rate_s_own_steps_is_told_as_none_beyond_its_variation() -> None:
+    # Said as that rather than as stretches averaging as high on their own,
+    # which a stretch lifted past the calm's ceiling by one minute's step did not.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_moved_a_step := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.011, while_broken=0.016, at_its_worst=0.025,
+                                       usual_ceiling=0.015, usual_worst=0.025,
+                                       within_its_own_noise=True))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_moved_a_step)
+        ) \
+        .then(all_of(
+            _says(f"{THE_RISE_WITHIN_ITS_VARIATION} - no more than two of the steps the rate "
+                  f"moves in."),
+            _does_not_say("averaged as high on their own")
+        ))
+
+
+@pytest.mark.unit
+def test_a_rise_within_its_steps_and_no_higher_than_the_calm_s_stretches_is_told_as_those() -> None:
+    # The steps floor only a rise that passed the calm's ceiling: one at or
+    # under it already averaged as high on its own, and is told that.
+    Scenario() \
+        .given(
+            an_incident_whose_errors_stayed_in_their_calm := a_measured_incident(
+                error_rates=ErrorRates(baseline=0.010, while_broken=0.014, at_its_worst=0.020,
+                                       usual_ceiling=0.015, usual_worst=0.025,
+                                       within_its_own_noise=True))
+        ) \
+        .when(
+            lambda: opening_ask(an_evidence_bundle(), an_incident_whose_errors_stayed_in_their_calm)
+        ) \
+        .then(all_of(
+            _says(f"{THE_RISE_WITHIN_ITS_VARIATION} - stretches as long before it began averaged "
+                  f"as high on their own."),
+            _does_not_say("two of the steps the rate moves in")
+        ))
+
+
+@pytest.mark.unit
 def test_a_rise_against_a_calm_too_short_to_vary_in_is_told_as_unknowable() -> None:
     # With too little calm to say how high the rate goes on its own, a rise is
     # one nobody can tell from noise - which is not the same as none.
